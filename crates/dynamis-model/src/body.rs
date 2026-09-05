@@ -1,7 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyHandle {
-    pub(crate) id: u32,
-    pub(crate) generation: u32,
+    pub id: u32,
+    pub generation: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -16,14 +16,14 @@ pub struct BodyState {
 
 #[derive(Clone, Copy)]
 pub struct BodyDesc {
-    pub(crate) position: [f32; 3],
-    pub(crate) orientation: [f32; 4],
-    pub(crate) velocity: [f32; 3],
-    pub(crate) angular_velocity: [f32; 3],
-    pub(crate) mass: f32,
-    pub(crate) restitution: f32,
-    pub(crate) friction: f32,
-    pub(crate) radius: f32,
+    pub position: [f32; 3],
+    pub orientation: [f32; 4],
+    pub velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+    pub mass: f32,
+    pub restitution: f32,
+    pub friction: f32,
+    pub radius: f32,
 }
 
 impl BodyDesc {

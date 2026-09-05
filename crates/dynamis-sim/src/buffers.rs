@@ -1,8 +1,8 @@
-use crate::records::{
+use dynamis_gpu::{GpuBuffer, GpuReadback};
+use dynamis_layout::{
     AabbRecord, BodyCommandRecord, ContactRecord, DispatchArgs, PairRecord, QueryRecord,
     QueryResultRecord, RigidBodyRecord, SimParamsRecord,
 };
-use dynamis_gpu::{GpuBuffer, GpuReadback};
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device, Queue};
 

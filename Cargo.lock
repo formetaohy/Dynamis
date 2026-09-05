@@ -153,27 +153,52 @@ dependencies = [
 
 [[package]]
 name = "dynamis"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dynamis-gpu",
- "dynamis-physics",
+ "dynamis-layout",
+ "dynamis-model",
+ "dynamis-query",
+ "dynamis-sim",
  "pollster",
 ]
 
 [[package]]
 name = "dynamis-gpu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "wgpu",
 ]
 
 [[package]]
-name = "dynamis-physics"
-version = "0.3.0"
+name = "dynamis-layout"
+version = "0.4.0"
+dependencies = [
+ "bytemuck",
+ "dynamis-model",
+]
+
+[[package]]
+name = "dynamis-model"
+version = "0.4.0"
+
+[[package]]
+name = "dynamis-query"
+version = "0.4.0"
+dependencies = [
+ "dynamis-layout",
+ "dynamis-model",
+]
+
+[[package]]
+name = "dynamis-sim"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "dynamis-gpu",
- "pollster",
+ "dynamis-layout",
+ "dynamis-model",
+ "dynamis-query",
  "wgpu",
 ]
 

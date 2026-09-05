@@ -1,15 +1,15 @@
-use crate::body::{BodyDesc, BodyHandle, BodyState};
 use crate::buffers::StageBuffers;
-use crate::config::PhysicsConfig;
-use crate::query::{QueryHandle, QueryHit, QueryPool};
-use crate::records::{
+use crate::stages::{Stages, build_stages, encode_physics};
+use bytemuck::Zeroable;
+use dynamis_gpu::GpuContext;
+use dynamis_layout::{
     BodyCommandRecord, DispatchArgs, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
     QueryRecord, QueryResultRecord, RigidBodyRecord, SimParamsRecord,
 };
-use crate::stages::{Stages, build_stages, encode_physics};
-use bytemuck::Zeroable;
-use dynamis_gpu::GpuContext;
+use dynamis_model::PhysicsConfig;
+use dynamis_model::{BodyDesc, BodyHandle, BodyState};
+use dynamis_query::{QueryHandle, QueryHit, QueryPool};
 
 pub struct Simulation {
     gpu: GpuContext,

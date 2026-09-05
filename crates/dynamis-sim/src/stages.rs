@@ -1,11 +1,11 @@
 use crate::buffers::StageBuffers;
-use crate::records::{
+use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer};
+use dynamis_layout::{
     COMMAND_ADD, COMMAND_FORCE, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE,
     IMPULSE_AT_POINT, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_RAY,
     QUERY_SPHERE,
 };
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer};
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;

@@ -1,5 +1,5 @@
-use dynamis_gpu::GpuContext;
-use dynamis_physics::{BodyDesc, BodyHandle, PhysicsConfig, Simulation};
+use dynamis::GpuContext;
+use dynamis::{BodyDesc, BodyHandle, PhysicsConfig, Simulation};
 
 use std::sync::{Mutex, MutexGuard};
 

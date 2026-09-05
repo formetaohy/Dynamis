@@ -1,11 +1,11 @@
-use crate::body::BodyHandle;
-use crate::records::QueryResultRecord;
+use dynamis_layout::QueryResultRecord;
+use dynamis_model::BodyHandle;
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QueryHandle {
-    pub(crate) slot: u32,
-    pub(crate) generation: u32,
+    pub slot: u32,
+    pub generation: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -15,12 +15,12 @@ pub struct QueryHit {
     pub step: u64,
 }
 
-pub(crate) struct QueryBatch {
+pub struct QueryBatch {
     step: u64,
     slots: Vec<u32>,
 }
 
-pub(crate) struct QueryPool {
+pub struct QueryPool {
     capacity: usize,
     next_slot: usize,
     generations: Vec<u32>,
@@ -30,7 +30,7 @@ pub(crate) struct QueryPool {
 }
 
 impl QueryPool {
-    pub(crate) fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
             next_slot: 0,
@@ -41,19 +41,19 @@ impl QueryPool {
         }
     }
 
-    pub(crate) fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    pub(crate) fn generation(&self, slot: usize) -> u32 {
+    pub fn generation(&self, slot: usize) -> u32 {
         self.generations[slot]
     }
 
-    pub(crate) fn hit(&self, slot: usize) -> Option<QueryHit> {
+    pub fn hit(&self, slot: usize) -> Option<QueryHit> {
         self.hits[slot]
     }
 
-    pub(crate) fn allocate(&mut self) -> usize {
+    pub fn allocate(&mut self) -> usize {
         let slot = self.next_slot;
         self.next_slot = (slot + 1) % self.capacity;
         assert!(
@@ -65,11 +65,11 @@ impl QueryPool {
         slot
     }
 
-    pub(crate) fn mark_batch(&mut self, step: u64, slots: Vec<u32>) {
+    pub fn mark_batch(&mut self, step: u64, slots: Vec<u32>) {
         self.batches.push_back(QueryBatch { step, slots });
     }
 
-    pub(crate) fn consume(&mut self, step: u64, records: &[QueryResultRecord]) {
+    pub fn consume(&mut self, step: u64, records: &[QueryResultRecord]) {
         let batch = self
             .batches
             .pop_front()
