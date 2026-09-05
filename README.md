@@ -21,7 +21,7 @@ Dynamis is a fully GPU-driven, data-oriented, general-purpose physics engine wri
 ## Features
 
 - **GPU-driven** — the entire simulation runs on the GPU for maximum performance.
-- **Data-driven** — build large-scale scenes with flexibility.
+- **Data-driven** — simulate large numbers of rigid bodies with flexibility.
 - **Cross-platform** — runs on desktop, mobile, and the Web.
 
 ## License
