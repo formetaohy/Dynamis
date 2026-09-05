@@ -9,7 +9,7 @@ const _: () = {
     assert!(size_of::<AabbRecord>() == 32);
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ContactRecord>() == 32);
-    assert!(size_of::<DispatchCount>() == 12);
+    assert!(size_of::<DispatchArgs>() == 12);
     assert!(size_of::<BodyCommandRecord>() == 144);
     assert!(size_of::<QueryRecord>() == 48);
     assert!(size_of::<QueryResultRecord>() == 16);
@@ -149,14 +149,14 @@ pub(crate) struct ContactRecord {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub(crate) struct DispatchCount {
+pub(crate) struct DispatchArgs {
     pub(crate) x: u32,
     pub(crate) y: u32,
     pub(crate) z: u32,
 }
 
-impl DispatchCount {
-    pub(crate) const fn idle() -> Self {
+impl DispatchArgs {
+    pub(crate) const fn none() -> Self {
         Self { x: 0, y: 1, z: 1 }
     }
 

@@ -1,6 +1,5 @@
 use crate::body::BodyHandle;
-use crate::records::{QueryRecord, QueryResultRecord};
-use crate::simulation::Simulation;
+use crate::records::QueryResultRecord;
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,7 +20,7 @@ pub(crate) struct QueryBatch {
     slots: Vec<u32>,
 }
 
-pub(crate) struct QueryTracker {
+pub(crate) struct QueryPool {
     capacity: usize,
     next_slot: usize,
     generations: Vec<u32>,
@@ -30,7 +29,7 @@ pub(crate) struct QueryTracker {
     batches: VecDeque<QueryBatch>,
 }
 
-impl QueryTracker {
+impl QueryPool {
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -59,7 +58,7 @@ impl QueryTracker {
         self.next_slot = (slot + 1) % self.capacity;
         assert!(
             !self.pending[slot],
-            "query result ring exhausted; collect results with poll() or wait() before submitting more queries"
+            "query slot ring exhausted; collect results with poll() or wait() before submitting more queries"
         );
         self.pending[slot] = true;
         self.generations[slot] += 1;
@@ -75,10 +74,7 @@ impl QueryTracker {
             .batches
             .pop_front()
             .expect("query readback arrived without a pending batch");
-        assert_eq!(
-            batch.step, step,
-            "query readback arrived out of order"
-        );
+        assert_eq!(batch.step, step, "query readback arrived out of order");
         for slot in batch.slots {
             let index = slot as usize;
             let record = records[index];
@@ -96,54 +92,5 @@ impl QueryTracker {
             };
             self.pending[index] = false;
         }
-    }
-}
-
-impl Simulation {
-    pub fn raycast(&mut self, origin: [f32; 3], direction: [f32; 3], max_t: f32) -> QueryHandle {
-        assert!(max_t > 0.0, "raycast distance must be positive");
-        assert!(
-            direction != [0.0; 3],
-            "raycast direction must be non-zero"
-        );
-        let slot = self.query_tracker.allocate();
-        let generation = self.query_tracker.generation(slot);
-        self.queries
-            .push(QueryRecord::ray(origin, direction, max_t, slot as u32));
-        QueryHandle {
-            slot: slot as u32,
-            generation,
-        }
-    }
-
-    pub fn sphere_query(&mut self, center: [f32; 3], radius: f32) -> QueryHandle {
-        assert!(radius > 0.0, "sphere query radius must be positive");
-        let slot = self.query_tracker.allocate();
-        let generation = self.query_tracker.generation(slot);
-        self.queries
-            .push(QueryRecord::sphere(center, radius, slot as u32));
-        QueryHandle {
-            slot: slot as u32,
-            generation,
-        }
-    }
-
-    pub fn query_hit(&self, handle: QueryHandle) -> Option<QueryHit> {
-        let slot = handle.slot as usize;
-        assert!(
-            slot < self.query_tracker.capacity(),
-            "query handle {handle:?} is out of range"
-        );
-        assert_eq!(
-            self.query_tracker.generation(slot),
-            handle.generation,
-            "query handle {handle:?} is stale"
-        );
-        self.query_tracker.hit(slot)
-    }
-
-    pub(crate) fn consume_queries(&mut self, step: u64, bytes: &[u8]) {
-        let records: &[QueryResultRecord] = bytemuck::cast_slice(bytes);
-        self.query_tracker.consume(step, records);
     }
 }

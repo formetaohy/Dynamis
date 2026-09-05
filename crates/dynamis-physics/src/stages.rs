@@ -1,12 +1,41 @@
-use crate::records::DispatchCount;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, Readback};
+use crate::buffers::StageBuffers;
+use crate::records::{
+    COMMAND_ADD, COMMAND_FORCE, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE,
+    IMPULSE_AT_POINT, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_RAY,
+    QUERY_SPHERE,
+};
+use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer};
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
 const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 
+fn shader_constants() -> String {
+    format!(
+        "const WORKGROUP_SIZE: u32 = {WORKGROUP_SIZE}u;\n\
+         const COMMAND_ADD: u32 = {COMMAND_ADD}u;\n\
+         const COMMAND_REMOVE: u32 = {COMMAND_REMOVE}u;\n\
+         const COMMAND_PATCH: u32 = {COMMAND_PATCH}u;\n\
+         const COMMAND_FORCE: u32 = {COMMAND_FORCE}u;\n\
+         const COMMAND_TORQUE: u32 = {COMMAND_TORQUE}u;\n\
+         const COMMAND_IMPULSE: u32 = {COMMAND_IMPULSE}u;\n\
+         const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
+         const PATCH_POSITION: u32 = {PATCH_POSITION}u;\n\
+         const PATCH_VELOCITY: u32 = {PATCH_VELOCITY}u;\n\
+         const PATCH_INVERSE_MASS: u32 = {PATCH_INVERSE_MASS}u;\n\
+         const PATCH_RADIUS: u32 = {PATCH_RADIUS}u;\n\
+         const PATCH_RESTITUTION: u32 = {PATCH_RESTITUTION}u;\n\
+         const PATCH_ORIENTATION: u32 = {PATCH_ORIENTATION}u;\n\
+         const PATCH_ANGULAR_VELOCITY: u32 = {PATCH_ANGULAR_VELOCITY}u;\n\
+         const PATCH_FRICTION: u32 = {PATCH_FRICTION}u;\n\
+         const QUERY_RAY: u32 = {QUERY_RAY}u;\n\
+         const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n"
+    )
+}
+
 fn assemble_shader(body: &str) -> String {
-    format!("{COMMON_SHADER}\n{body}")
+    format!("{COMMON_SHADER}\n{}\n{body}", shader_constants())
 }
 
 struct Stage {
@@ -45,7 +74,7 @@ impl Stage {
             .enumerate()
             .map(|(position, (_, buffer))| BindGroupEntry {
                 binding: position as u32,
-                resource: buffer.as_entire_binding(),
+                resource: buffer.as_binding(),
             })
             .collect();
         let bind_group = pipeline.create_bind_group(device, &entries);
@@ -55,148 +84,25 @@ impl Stage {
         }
     }
 
-    fn record(&self, encoder: &mut CommandEncoder, elements: u32) {
+    fn dispatch(&self, encoder: &mut CommandEncoder, elements: u32) {
         let workgroups = self.pipeline.workgroup_count(elements);
         self.pipeline
-            .record_passes(encoder, &self.bind_group, workgroups);
+            .dispatch(encoder, &self.bind_group, workgroups);
     }
 
-    fn record_workgroups(&self, encoder: &mut CommandEncoder, workgroups: u32) {
+    fn dispatch_workgroups(&self, encoder: &mut CommandEncoder, workgroups: u32) {
         self.pipeline
-            .record_passes(encoder, &self.bind_group, workgroups);
+            .dispatch(encoder, &self.bind_group, workgroups);
     }
 
-    fn record_indirect(&self, encoder: &mut CommandEncoder, target: &GpuBuffer) {
+    fn dispatch_indirect(&self, encoder: &mut CommandEncoder, args: &GpuBuffer) {
         self.pipeline
-            .record_indirect(encoder, &self.bind_group, target);
-    }
-}
-
-pub(crate) struct StageBuffers {
-    pub(crate) params: GpuBuffer,
-    pub(crate) bodies: GpuBuffer,
-    pub(crate) aabbs: GpuBuffer,
-    pub(crate) pairs: GpuBuffer,
-    pub(crate) pair_count: GpuBuffer,
-    pub(crate) contacts: GpuBuffer,
-    pub(crate) contact_count: GpuBuffer,
-    pub(crate) commands: GpuBuffer,
-    pub(crate) command_count: GpuBuffer,
-    pub(crate) queries: GpuBuffer,
-    pub(crate) query_results: GpuBuffer,
-    pub(crate) readback: Readback,
-    pub(crate) query_readback: Readback,
-}
-
-impl StageBuffers {
-    pub(crate) fn new(
-        device: &Device,
-        capacity: usize,
-        pair_capacity: usize,
-        query_capacity: usize,
-    ) -> Self {
-        let body_bytes = (capacity * size_of::<crate::records::RigidBodyRecord>()) as u64;
-        let aabb_bytes = (capacity * size_of::<crate::records::AabbRecord>()) as u64;
-        let pair_bytes = (pair_capacity.max(1) * size_of::<crate::records::PairRecord>()) as u64;
-        let contact_bytes =
-            (pair_capacity.max(1) * size_of::<crate::records::ContactRecord>()) as u64;
-        let counter_bytes = size_of::<DispatchCount>() as u64;
-        let command_bytes = (capacity * size_of::<crate::records::BodyCommandRecord>()) as u64;
-        let params_bytes = size_of::<crate::records::SimParamsRecord>() as u64;
-        let query_bytes = (query_capacity * size_of::<crate::records::QueryRecord>()) as u64;
-        let query_result_bytes =
-            (query_capacity * size_of::<crate::records::QueryResultRecord>()) as u64;
-        Self {
-            params: GpuBuffer::new(
-                device,
-                "sim params",
-                params_bytes,
-                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            ),
-            bodies: GpuBuffer::new(
-                device,
-                "bodies",
-                body_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            ),
-            aabbs: GpuBuffer::new(
-                device,
-                "broadphase aabbs",
-                aabb_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            ),
-            pairs: GpuBuffer::new(
-                device,
-                "broadphase pairs",
-                pair_bytes,
-                wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::INDIRECT
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-            ),
-            pair_count: GpuBuffer::new(
-                device,
-                "pair count",
-                counter_bytes,
-                wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::INDIRECT
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-            ),
-            contacts: GpuBuffer::new(
-                device,
-                "narrowphase contacts",
-                contact_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            ),
-            contact_count: GpuBuffer::new(
-                device,
-                "contact count",
-                counter_bytes,
-                wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::INDIRECT
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-            ),
-            commands: GpuBuffer::new(
-                device,
-                "body commands",
-                command_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            ),
-            command_count: GpuBuffer::new(
-                device,
-                "command count",
-                counter_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            ),
-            queries: GpuBuffer::new(
-                device,
-                "queries",
-                query_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            ),
-            query_results: GpuBuffer::new(
-                device,
-                "query results",
-                query_result_bytes,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            ),
-            readback: Readback::new(device, "bodies readback", body_bytes),
-            query_readback: Readback::new(device, "query results readback", query_result_bytes),
-        }
-    }
-
-    pub(crate) fn reset_counters(&self, queue: &wgpu::Queue) {
-        let idle_value = DispatchCount::idle();
-        let idle = bytemuck::cast_slice(std::slice::from_ref(&idle_value));
-        self.pair_count.write(queue, idle);
-        self.contact_count.write(queue, idle);
+            .dispatch_indirect(encoder, &self.bind_group, args);
     }
 }
 
 pub(crate) struct Stages {
-    apply: Stage,
+    apply_commands: Stage,
     integrate: Stage,
     broadphase_aabb: Stage,
     broadphase_pairs: Stage,
@@ -207,10 +113,10 @@ pub(crate) struct Stages {
 
 pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
     Stages {
-        apply: Stage::build(
+        apply_commands: Stage::build(
             device,
-            "apply_changes",
-            &assemble_shader(include_str!("shaders/apply_changes.wgsl")),
+            "apply_commands",
+            &assemble_shader(include_str!("shaders/apply_commands.wgsl")),
             "main",
             &[
                 BindingKind::ReadOnlyStorage,
@@ -316,7 +222,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
     }
 }
 
-pub(crate) fn record_physics(
+pub(crate) fn encode_physics(
     stages: &Stages,
     buffers: &StageBuffers,
     encoder: &mut CommandEncoder,
@@ -324,24 +230,24 @@ pub(crate) fn record_physics(
     solve_iterations: u32,
     query_count: u32,
 ) {
-    stages.apply.record(encoder, 1);
-    stages.integrate.record(encoder, body_count);
-    stages.broadphase_aabb.record(encoder, body_count);
+    stages.apply_commands.dispatch(encoder, 1);
+    stages.integrate.dispatch(encoder, body_count);
+    stages.broadphase_aabb.dispatch(encoder, body_count);
     let pair_total = if body_count >= 2 {
         body_count * (body_count - 1) / 2
     } else {
         0
     };
-    stages.broadphase_pairs.record(encoder, pair_total);
+    stages.broadphase_pairs.dispatch(encoder, pair_total);
     stages
         .narrowphase
-        .record_indirect(encoder, &buffers.pair_count);
+        .dispatch_indirect(encoder, &buffers.pair_count);
     for _ in 0..solve_iterations {
         stages
             .solve
-            .record_indirect(encoder, &buffers.contact_count);
+            .dispatch_indirect(encoder, &buffers.contact_count);
     }
     if query_count > 0 {
-        stages.query.record_workgroups(encoder, query_count);
+        stages.query.dispatch_workgroups(encoder, query_count);
     }
 }

@@ -2,7 +2,7 @@
 @group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> aabbs: array<Aabb>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.x;
     if (index >= params.body_count) {

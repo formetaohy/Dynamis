@@ -106,7 +106,7 @@ impl ComputePipeline {
         elements.div_ceil(self.workgroup_size)
     }
 
-    pub fn record_passes(&self, encoder: &mut CommandEncoder, bind_group: &BindGroup, count: u32) {
+    pub fn dispatch(&self, encoder: &mut CommandEncoder, bind_group: &BindGroup, count: u32) {
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: None,
             timestamp_writes: None,
@@ -116,11 +116,11 @@ impl ComputePipeline {
         pass.dispatch_workgroups(count, 1, 1);
     }
 
-    pub fn record_indirect(
+    pub fn dispatch_indirect(
         &self,
         encoder: &mut CommandEncoder,
         bind_group: &BindGroup,
-        target: &GpuBuffer,
+        args: &GpuBuffer,
     ) {
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: None,
@@ -128,6 +128,6 @@ impl ComputePipeline {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bind_group, &[]);
-        pass.dispatch_workgroups_indirect(target.as_indirect_target(), 0);
+        pass.dispatch_workgroups_indirect(args.as_indirect_args(), 0);
     }
 }

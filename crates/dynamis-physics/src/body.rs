@@ -4,7 +4,7 @@ pub struct BodyHandle {
     pub(crate) generation: u32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyState {
     pub position: [f32; 3],
     pub orientation: [f32; 4],

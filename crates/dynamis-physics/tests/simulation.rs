@@ -355,7 +355,7 @@ fn set_mass_freezes_body() {
 }
 
 #[test]
-fn despawned_mid_step_command_batch() {
+fn removed_mid_step_command_batch() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, static_config());
     let first = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));

@@ -1,6 +1,6 @@
 use std::sync::mpsc::{self, TryRecvError};
 use wgpu::{
-    Buffer, BufferAddress, BufferDescriptor, BufferAsyncError, BufferUsages, Device, MapMode,
+    Buffer, BufferAddress, BufferAsyncError, BufferDescriptor, BufferUsages, Device, MapMode,
     PollType, Queue,
 };
 
@@ -25,7 +25,7 @@ impl GpuBuffer {
         queue.write_buffer(&self.buffer, 0, bytes);
     }
 
-    pub fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
+    pub fn as_binding(&self) -> wgpu::BindingResource<'_> {
         wgpu::BindingResource::Buffer(wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: 0,
@@ -33,12 +33,8 @@ impl GpuBuffer {
         })
     }
 
-    pub fn as_indirect_target(&self) -> &Buffer {
+    pub fn as_indirect_args(&self) -> &Buffer {
         &self.buffer
-    }
-
-    pub fn size(&self) -> BufferAddress {
-        self.size
     }
 
     pub fn buffer(&self) -> &Buffer {
@@ -51,14 +47,14 @@ struct PendingRead {
     channel: Option<mpsc::Receiver<Result<(), BufferAsyncError>>>,
 }
 
-pub struct Readback {
+pub struct GpuReadback {
     staging: [Buffer; 2],
     size: BufferAddress,
     next: usize,
     pending: [Option<PendingRead>; 2],
 }
 
-impl Readback {
+impl GpuReadback {
     pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
         assert!(size > 0, "readback size must be positive");
         let staging = std::array::from_fn(|index| {
@@ -133,9 +129,11 @@ impl Readback {
             .expect("pending readback just checked");
         if pending.channel.is_none() {
             let (sender, receiver) = mpsc::channel();
-            self.staging[slot].slice(..).map_async(MapMode::Read, move |result| {
-                let _ = sender.send(result);
-            });
+            self.staging[slot]
+                .slice(..)
+                .map_async(MapMode::Read, move |result| {
+                    let _ = sender.send(result);
+                });
             pending.channel = Some(receiver);
         }
     }

@@ -4,7 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> contact_count: atomic<u32>;
 @group(0) @binding(4) var<storage, read> pair_count: atomic<u32>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.x;
     if (index >= atomicLoad(&pair_count)) {

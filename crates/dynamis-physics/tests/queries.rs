@@ -35,7 +35,11 @@ fn raycast_hits_nearest_body() {
     sim.wait();
     let hit = sim.query_hit(query).expect("raycast should hit");
     assert_eq!(hit.body, near);
-    assert!((hit.distance - 1.5).abs() < 1e-3, "expected 1.5, got {}", hit.distance);
+    assert!(
+        (hit.distance - 1.5).abs() < 1e-3,
+        "expected 1.5, got {}",
+        hit.distance
+    );
     let _ = far;
 }
 
@@ -73,7 +77,11 @@ fn raycast_misses_when_body_behind_origin() {
     let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
     sim.step(DT);
     sim.wait();
-    assert_eq!(sim.query_hit(query), None, "body behind origin must not be hit");
+    assert_eq!(
+        sim.query_hit(query),
+        None,
+        "body behind origin must not be hit"
+    );
 }
 
 #[test]
@@ -101,7 +109,9 @@ fn sphere_query_reports_overlap() {
     let query = sim.sphere_query([0.0, 0.0, 0.8], 0.5);
     sim.step(DT);
     sim.wait();
-    let hit = sim.query_hit(query).expect("overlapping spheres should hit");
+    let hit = sim
+        .query_hit(query)
+        .expect("overlapping spheres should hit");
     assert_eq!(hit.body, target);
     assert!(
         (hit.distance - (-0.2)).abs() < 1e-3,
@@ -272,7 +282,11 @@ fn bullet_sweep_prevents_tunneling() {
             }
         }
     }
-    assert_eq!(stopped, Some(wall), "bullet must stop at the wall, not tunnel");
+    assert_eq!(
+        stopped,
+        Some(wall),
+        "bullet must stop at the wall, not tunnel"
+    );
     assert!(
         (muzzle[2] - 4.5).abs() < 1e-3,
         "bullet should rest at wall surface, got {}",

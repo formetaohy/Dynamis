@@ -1,7 +1,6 @@
 use wgpu::{Adapter, Device, Instance, InstanceDescriptor, MemoryHints, PowerPreference, Queue};
 
 pub struct GpuContext {
-    instance: Instance,
     adapter: Adapter,
     device: Device,
     queue: Queue,
@@ -30,7 +29,6 @@ impl GpuContext {
             .await
             .expect("failed to create GPU device");
         Self {
-            instance,
             adapter,
             device,
             queue,
@@ -47,9 +45,5 @@ impl GpuContext {
 
     pub fn adapter_info(&self) -> wgpu::AdapterInfo {
         self.adapter.get_info()
-    }
-
-    pub fn instance(&self) -> &Instance {
-        &self.instance
     }
 }

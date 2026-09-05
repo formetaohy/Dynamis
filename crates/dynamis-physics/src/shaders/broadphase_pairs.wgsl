@@ -3,7 +3,7 @@
 @group(0) @binding(2) var<storage, read_write> pairs: array<Pair>;
 @group(0) @binding(3) var<storage, read_write> pair_count: atomic<u32>;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let n = params.body_count;
     if (n < 2u) {

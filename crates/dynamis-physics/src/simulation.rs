@@ -1,12 +1,13 @@
 use crate::body::{BodyDesc, BodyHandle, BodyState};
+use crate::buffers::StageBuffers;
 use crate::config::PhysicsConfig;
-use crate::queries::QueryTracker;
+use crate::query::{QueryHandle, QueryHit, QueryPool};
 use crate::records::{
-    BodyCommandRecord, DispatchCount, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
+    BodyCommandRecord, DispatchArgs, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
-    QueryRecord, RigidBodyRecord, SimParamsRecord,
+    QueryRecord, QueryResultRecord, RigidBodyRecord, SimParamsRecord,
 };
-use crate::stages::{StageBuffers, Stages, build_stages, record_physics};
+use crate::stages::{Stages, build_stages, encode_physics};
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 
@@ -19,10 +20,10 @@ pub struct Simulation {
     index_of: Vec<u32>,
     generations: Vec<u32>,
     free_ids: Vec<u32>,
-    pub(crate) commands: Vec<BodyCommandRecord>,
-    pub(crate) queries: Vec<QueryRecord>,
-    pub(crate) query_tracker: QueryTracker,
-    data: StageBuffers,
+    commands: Vec<BodyCommandRecord>,
+    queries: Vec<QueryRecord>,
+    query_pool: QueryPool,
+    buffers: StageBuffers,
     stages: Stages,
     states: Vec<Option<BodyState>>,
 }
@@ -32,8 +33,8 @@ impl Simulation {
         assert!(capacity > 0, "simulation capacity must be positive");
         let pair_capacity = capacity * (capacity.saturating_sub(1)) / 2;
         let query_capacity = capacity * 2;
-        let data = StageBuffers::new(gpu.device(), capacity, pair_capacity, query_capacity);
-        let stages = build_stages(gpu.device(), &data);
+        let buffers = StageBuffers::new(gpu.device(), capacity, pair_capacity, query_capacity);
+        let stages = build_stages(gpu.device(), &buffers);
         Self {
             gpu,
             config,
@@ -45,8 +46,8 @@ impl Simulation {
             free_ids: (0..capacity as u32).rev().collect(),
             commands: Vec::new(),
             queries: Vec::new(),
-            query_tracker: QueryTracker::new(query_capacity),
-            data,
+            query_pool: QueryPool::new(query_capacity),
+            buffers,
             stages,
             states: vec![None; capacity],
         }
@@ -69,7 +70,7 @@ impl Simulation {
     }
 
     pub fn bodies_buffer(&self) -> &wgpu::Buffer {
-        self.data.bodies.buffer()
+        self.buffers.bodies.buffer()
     }
 
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
@@ -207,6 +208,45 @@ impl Simulation {
             .push(BodyCommandRecord::impulse_at_point(slot, impulse, point));
     }
 
+    pub fn raycast(&mut self, origin: [f32; 3], direction: [f32; 3], max_t: f32) -> QueryHandle {
+        assert!(max_t > 0.0, "raycast distance must be positive");
+        assert!(direction != [0.0; 3], "raycast direction must be non-zero");
+        let slot = self.query_pool.allocate();
+        let generation = self.query_pool.generation(slot);
+        self.queries
+            .push(QueryRecord::ray(origin, direction, max_t, slot as u32));
+        QueryHandle {
+            slot: slot as u32,
+            generation,
+        }
+    }
+
+    pub fn sphere_query(&mut self, center: [f32; 3], radius: f32) -> QueryHandle {
+        assert!(radius > 0.0, "sphere query radius must be positive");
+        let slot = self.query_pool.allocate();
+        let generation = self.query_pool.generation(slot);
+        self.queries
+            .push(QueryRecord::sphere(center, radius, slot as u32));
+        QueryHandle {
+            slot: slot as u32,
+            generation,
+        }
+    }
+
+    pub fn query_hit(&self, handle: QueryHandle) -> Option<QueryHit> {
+        let slot = handle.slot as usize;
+        assert!(
+            slot < self.query_pool.capacity(),
+            "query handle {handle:?} is out of range"
+        );
+        assert_eq!(
+            self.query_pool.generation(slot),
+            handle.generation,
+            "query handle {handle:?} is stale"
+        );
+        self.query_pool.hit(slot)
+    }
+
     fn command_slot(&self, handle: BodyHandle) -> u32 {
         self.validate(handle);
         self.index_of[handle.id as usize]
@@ -234,26 +274,26 @@ impl Simulation {
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
         let step = self.step_index;
-        self.pull_feedback();
+        self.collect_readbacks();
         let queue = self.gpu.queue();
-        self.data
+        self.buffers
             .commands
             .write(queue, bytemuck::cast_slice(&self.commands));
-        self.data.command_count.write(
+        self.buffers.command_count.write(
             queue,
-            bytemuck::cast_slice(&[DispatchCount::sized(self.commands.len() as u32)]),
+            bytemuck::cast_slice(&[DispatchArgs::sized(self.commands.len() as u32)]),
         );
         let params = SimParamsRecord::new(&self.config, dt, self.alive.len() as u32);
-        self.data
+        self.buffers
             .params
             .write(queue, bytemuck::cast_slice(&[params]));
-        self.data.reset_counters(queue);
+        self.buffers.reset_counters(queue);
         if !self.queries.is_empty() {
-            self.data
+            self.buffers
                 .queries
                 .write(queue, bytemuck::cast_slice(&self.queries));
             let slots = self.queries.iter().map(|query| query.slot).collect();
-            self.query_tracker.mark_batch(step, slots);
+            self.query_pool.mark_batch(step, slots);
         }
 
         let mut encoder =
@@ -262,33 +302,33 @@ impl Simulation {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("dynamis step encoder"),
                 });
-        record_physics(
+        encode_physics(
             &self.stages,
-            &self.data,
+            &self.buffers,
             &mut encoder,
             self.alive.len() as u32,
             self.config.solve_iterations,
             self.queries.len() as u32,
         );
-        let stale_bodies = self.data.readback.enqueue(
+        let stale_bodies = self.buffers.bodies_readback.enqueue(
             self.gpu.device(),
             &mut encoder,
-            self.data.bodies.buffer(),
+            self.buffers.bodies.buffer(),
             step,
         );
         let stale_queries = if self.queries.is_empty() {
             None
         } else {
-            self.data.query_readback.enqueue(
+            self.buffers.queries_readback.enqueue(
                 self.gpu.device(),
                 &mut encoder,
-                self.data.query_results.buffer(),
+                self.buffers.query_results.buffer(),
                 step,
             )
         };
         self.gpu.queue().submit([encoder.finish()]);
-        self.data.readback.arm();
-        self.data.query_readback.arm();
+        self.buffers.bodies_readback.arm();
+        self.buffers.queries_readback.arm();
         if let Some((stale_step, bytes)) = stale_bodies {
             self.consume_bodies(stale_step, &bytes);
         }
@@ -301,7 +341,7 @@ impl Simulation {
     }
 
     pub fn poll(&mut self) {
-        self.pull_feedback();
+        self.collect_readbacks();
     }
 
     pub fn wait(&mut self) {
@@ -309,22 +349,26 @@ impl Simulation {
             .device()
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("device lost while awaiting readback");
-        self.pull_feedback();
+        self.collect_readbacks();
     }
 
-    pub fn read_state(&mut self, handle: BodyHandle) -> BodyState {
+    pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
-        self.states[handle.id as usize]
-            .expect("body state is unavailable")
+        self.states[handle.id as usize].expect("body state is unavailable")
     }
 
-    fn pull_feedback(&mut self) {
-        for (step, bytes) in self.data.readback.poll(self.gpu.device()) {
+    fn collect_readbacks(&mut self) {
+        for (step, bytes) in self.buffers.bodies_readback.poll(self.gpu.device()) {
             self.consume_bodies(step, &bytes);
         }
-        for (step, bytes) in self.data.query_readback.poll(self.gpu.device()) {
+        for (step, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
             self.consume_queries(step, &bytes);
         }
+    }
+
+    fn consume_queries(&mut self, step: u64, bytes: &[u8]) {
+        let records: &[QueryResultRecord] = bytemuck::cast_slice(bytes);
+        self.query_pool.consume(step, records);
     }
 
     fn consume_bodies(&mut self, step: u64, bytes: &[u8]) {
