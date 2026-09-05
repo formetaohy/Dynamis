@@ -1,0 +1,13 @@
+[package]
+name = "dynamis-gpu"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+wgpu = { workspace = true }
+
+[lints]
+workspace = true

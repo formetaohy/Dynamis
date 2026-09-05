@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+description = "GPU-driven physics engine"
+license = "MIT"
+repository = "https://github.com/formetaohy/Dynamis"
+
+[workspace.dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+wgpu = "30"
+dynamis-ecs = { version = "0.1.1", path = "crates/dynamis-ecs" }
+dynamis-gpu = { version = "0.1.1", path = "crates/dynamis-gpu" }
+dynamis-physics = { version = "0.1.1", path = "crates/dynamis-physics" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[package]
+name = "dynamis"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["ecs", "gpu", "physics"]
+ecs = ["dep:dynamis-ecs"]
+gpu = ["dep:dynamis-ecs", "dep:dynamis-gpu"]
+physics = ["dep:dynamis-ecs", "dep:dynamis-gpu", "dep:dynamis-physics"]
+
+[dependencies]
+dynamis-ecs = { workspace = true, optional = true }
+dynamis-gpu = { workspace = true, optional = true }
+dynamis-physics = { workspace = true, optional = true }
+
+[dev-dependencies]
+pollster = { workspace = true }
+
+[[example]]
+name = "falling_spheres"
+path = "examples/falling_spheres.rs"
+
+[lints]
+workspace = true
