@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/language-Rust-dea584?style=flat-square&logo=rust" alt="Rust" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
+  <a href="https://crates.io/crates/dynamis"><img src="https://img.shields.io/crates/v/dynamis?style=flat-square" alt="crates.io" /></a>
 </p>
 
 <p align="center">
