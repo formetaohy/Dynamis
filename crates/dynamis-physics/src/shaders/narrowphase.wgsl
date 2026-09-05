@@ -1,27 +1,3 @@
-struct RigidBody {
-    position: vec3f,
-    _pad0: f32,
-    velocity: vec3f,
-    _pad1: f32,
-    inverse_mass: f32,
-    radius: f32,
-    restitution: f32,
-    _pad2: f32,
-}
-
-struct Pair {
-    a: u32,
-    b: u32,
-}
-
-struct Contact {
-    a: u32,
-    b: u32,
-    depth: f32,
-    _pad: f32,
-    normal: vec3f,
-}
-
 @group(0) @binding(0) var<storage, read> bodies: array<RigidBody>;
 @group(0) @binding(1) var<storage, read> pairs: array<Pair>;
 @group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;

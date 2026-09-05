@@ -3,6 +3,11 @@ use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, Readback
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
+const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+
+fn assemble_shader(body: &str) -> String {
+    format!("{COMMON_SHADER}\n{body}")
+}
 
 struct Stage {
     pipeline: ComputePipeline,
@@ -175,7 +180,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         apply: Stage::build(
             device,
             "apply_changes",
-            include_str!("shaders/apply_changes.wgsl"),
+            &assemble_shader(include_str!("shaders/apply_changes.wgsl")),
             "main",
             &[
                 BindingKind::ReadOnlyStorage,
@@ -187,7 +192,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         integrate: Stage::build(
             device,
             "integrate",
-            include_str!("shaders/integrate.wgsl"),
+            &assemble_shader(include_str!("shaders/integrate.wgsl")),
             "main",
             &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
             &[&buffers.params, &buffers.bodies],
@@ -195,7 +200,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         broadphase_aabb: Stage::build(
             device,
             "broadphase_aabb",
-            include_str!("shaders/broadphase_aabb.wgsl"),
+            &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl")),
             "main",
             &[
                 BindingKind::Uniform,
@@ -207,7 +212,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         broadphase_pairs: Stage::build(
             device,
             "broadphase_pairs",
-            include_str!("shaders/broadphase_pairs.wgsl"),
+            &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl")),
             "main",
             &[
                 BindingKind::Uniform,
@@ -225,7 +230,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         narrowphase: Stage::build(
             device,
             "narrowphase",
-            include_str!("shaders/narrowphase.wgsl"),
+            &assemble_shader(include_str!("shaders/narrowphase.wgsl")),
             "main",
             &[
                 BindingKind::ReadOnlyStorage,
@@ -245,7 +250,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
         solve: Stage::build(
             device,
             "solve",
-            include_str!("shaders/solve.wgsl"),
+            &assemble_shader(include_str!("shaders/solve.wgsl")),
             "main",
             &[
                 BindingKind::Uniform,

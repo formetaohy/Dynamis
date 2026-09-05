@@ -1,30 +1,3 @@
-struct SimParams {
-    gravity: vec4f,
-    dt: f32,
-    damping: f32,
-    body_count: u32,
-    relaxation: f32,
-}
-
-struct RigidBody {
-    position: vec3f,
-    _pad0: f32,
-    velocity: vec3f,
-    _pad1: f32,
-    inverse_mass: f32,
-    radius: f32,
-    restitution: f32,
-    _pad2: f32,
-}
-
-struct Contact {
-    a: u32,
-    b: u32,
-    depth: f32,
-    _pad: f32,
-    normal: vec3f,
-}
-
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read> contacts: array<Contact>;
@@ -56,15 +29,64 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (distance > 1e-6) {
         normal = delta / distance;
     }
-    let correction = depth * params.relaxation / weight_sum;
+    let correction = max(depth - params.slop, 0.0) * params.relaxation / weight_sum;
     first.position = first.position - normal * (correction * first_weight);
     second.position = second.position + normal * (correction * second_weight);
-    let relative_velocity = dot(second.velocity - first.velocity, normal);
-    if (relative_velocity < 0.0) {
-        let restitution = max(first.restitution, second.restitution);
-        let impulse = -(1.0 + restitution) * relative_velocity / weight_sum;
-        first.velocity = first.velocity - normal * (impulse * first_weight);
-        second.velocity = second.velocity + normal * (impulse * second_weight);
+
+    let arm_first = normal * first.radius;
+    let arm_second = -normal * second.radius;
+    let inv_inertia_first = inverse_inertia(first);
+    let inv_inertia_second = inverse_inertia(second);
+
+    var velocity_first = first.velocity + cross(first.angular_velocity, arm_first);
+    var velocity_second = second.velocity + cross(second.angular_velocity, arm_second);
+    let relative_velocity = velocity_second - velocity_first;
+    let normal_speed = dot(relative_velocity, normal);
+
+    if (normal_speed < 0.0) {
+        let cross_normal_first = cross(arm_first, normal);
+        let cross_normal_second = cross(arm_second, normal);
+        let normal_mass = weight_sum
+            + dot(cross(inv_inertia_first * cross_normal_first, arm_first), normal)
+            + dot(cross(inv_inertia_second * cross_normal_second, arm_second), normal);
+        var restitution = max(first.restitution, second.restitution);
+        if (normal_speed > -params.restitution_threshold) {
+            restitution = 0.0;
+        }
+        let normal_impulse = -(1.0 + restitution) * normal_speed / normal_mass;
+        let impulse = normal * normal_impulse;
+        first.velocity = first.velocity - impulse * first_weight;
+        second.velocity = second.velocity + impulse * second_weight;
+        first.angular_velocity =
+            first.angular_velocity - inv_inertia_first * cross(arm_first, impulse);
+        second.angular_velocity =
+            second.angular_velocity + inv_inertia_second * cross(arm_second, impulse);
+
+        velocity_first = first.velocity + cross(first.angular_velocity, arm_first);
+        velocity_second = second.velocity + cross(second.angular_velocity, arm_second);
+        let slip = velocity_second - velocity_first
+            - normal * dot(velocity_second - velocity_first, normal);
+        let slip_speed = length(slip);
+        if (slip_speed > 1e-6) {
+            let tangent = slip / slip_speed;
+            let cross_tangent_first = cross(arm_first, tangent);
+            let cross_tangent_second = cross(arm_second, tangent);
+            let tangent_mass = weight_sum
+                + dot(cross(inv_inertia_first * cross_tangent_first, arm_first), tangent)
+                + dot(cross(inv_inertia_second * cross_tangent_second, arm_second), tangent);
+            let friction = sqrt(first.friction * second.friction);
+            let friction_limit = friction * normal_impulse;
+            let friction_impulse =
+                clamp(-dot(velocity_second - velocity_first, tangent) / tangent_mass,
+                    -friction_limit, friction_limit);
+            let impulse_tangent = tangent * friction_impulse;
+            first.velocity = first.velocity - impulse_tangent * first_weight;
+            second.velocity = second.velocity + impulse_tangent * second_weight;
+            first.angular_velocity =
+                first.angular_velocity - inv_inertia_first * cross(arm_first, impulse_tangent);
+            second.angular_velocity =
+                second.angular_velocity + inv_inertia_second * cross(arm_second, impulse_tangent);
+        }
     }
     bodies[contact.a] = first;
     bodies[contact.b] = second;

@@ -1,20 +1,9 @@
-struct RigidBody {
-    position: vec3f,
-    _pad0: f32,
-    velocity: vec3f,
-    _pad1: f32,
-    inverse_mass: f32,
-    radius: f32,
-    restitution: f32,
-    _pad2: f32,
-}
-
 struct BodyCommand {
     kind: u32,
     slot: u32,
     extra: u32,
     _pad: u32,
-    record: RigidBody,
+    body: RigidBody,
 }
 
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
@@ -30,27 +19,54 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     for (var i = 0u; i < count; i = i + 1u) {
         let command = commands[i];
         if (command.kind == 0u) {
-            bodies[command.slot] = command.record;
+            bodies[command.slot] = command.body;
         } else if (command.kind == 1u) {
             if (command.slot != command.extra) {
                 bodies[command.slot] = bodies[command.extra];
             }
-        } else {
+        } else if (command.kind == 2u) {
             var body = bodies[command.slot];
             if ((command.extra & 1u) != 0u) {
-                body.position = command.record.position;
+                body.position = command.body.position;
             }
             if ((command.extra & 2u) != 0u) {
-                body.velocity = command.record.velocity;
+                body.velocity = command.body.velocity;
             }
             if ((command.extra & 4u) != 0u) {
-                body.inverse_mass = command.record.inverse_mass;
+                body.inverse_mass = command.body.inverse_mass;
             }
             if ((command.extra & 8u) != 0u) {
-                body.radius = command.record.radius;
+                body.radius = command.body.radius;
             }
             if ((command.extra & 16u) != 0u) {
-                body.restitution = command.record.restitution;
+                body.restitution = command.body.restitution;
+            }
+            if ((command.extra & 32u) != 0u) {
+                body.orientation = command.body.orientation;
+            }
+            if ((command.extra & 64u) != 0u) {
+                body.angular_velocity = command.body.angular_velocity;
+            }
+            if ((command.extra & 128u) != 0u) {
+                body.friction = command.body.friction;
+            }
+            bodies[command.slot] = body;
+        } else if (command.kind == 3u) {
+            var body = bodies[command.slot];
+            body.force = body.force + command.body.force;
+            bodies[command.slot] = body;
+        } else if (command.kind == 4u) {
+            var body = bodies[command.slot];
+            body.torque = body.torque + command.body.torque;
+            bodies[command.slot] = body;
+        } else {
+            var body = bodies[command.slot];
+            let impulse = command.body.velocity;
+            body.velocity = body.velocity + impulse * body.inverse_mass;
+            if ((command.extra & 1u) != 0u) {
+                let arm = command.body.position - body.position;
+                body.angular_velocity =
+                    body.angular_velocity + inverse_inertia(body) * cross(arm, impulse);
             }
             bodies[command.slot] = body;
         }

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -13,8 +13,8 @@ repository = "https://github.com/formetaohy/Dynamis"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 wgpu = "30"
-dynamis-gpu = { version = "0.2.0", path = "crates/dynamis-gpu" }
-dynamis-physics = { version = "0.2.0", path = "crates/dynamis-physics" }
+dynamis-gpu = { version = "0.3.0", path = "crates/dynamis-gpu" }
+dynamis-physics = { version = "0.3.0", path = "crates/dynamis-physics" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

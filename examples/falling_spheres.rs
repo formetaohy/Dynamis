@@ -23,9 +23,7 @@ async fn run() {
                 -GROUND_RADIUS,
                 (gz as f32 - (platform as f32 - 1.0) * 0.5) * 11.9,
             ];
-            simulation.spawn(
-                BodyDesc::static_sphere(GROUND_RADIUS).position(center),
-            );
+            simulation.spawn(BodyDesc::static_sphere(GROUND_RADIUS).position(center));
         }
     }
 
@@ -38,7 +36,8 @@ async fn run() {
         let ball = simulation.spawn(
             BodyDesc::sphere(radius)
                 .position([x, y, z])
-                .restitution(0.7),
+                .restitution(0.7)
+                .friction(0.8),
         );
         balls.push(ball);
     }
@@ -48,16 +47,22 @@ async fn run() {
         if frame < 100 || frame % 50 == 0 || frame == FRAMES - 1 {
             let mut lowest = f32::INFINITY;
             let mut highest = f32::NEG_INFINITY;
+            let mut fastest_spin = 0.0f32;
             for ball in &balls {
                 let state = simulation.read_state(*ball);
                 lowest = lowest.min(state.position[1]);
                 highest = highest.max(state.position[1]);
+                fastest_spin = fastest_spin
+                    .max(state.angular_velocity[0] * state.angular_velocity[0])
+                    .max(state.angular_velocity[1] * state.angular_velocity[1])
+                    .max(state.angular_velocity[2] * state.angular_velocity[2]);
             }
             println!(
-                "frame {frame:>4}: bodies {}  y-range [{:.3}, {:.3}]",
+                "frame {frame:>4}: bodies {}  y-range [{:.3}, {:.3}]  top spin {:.1} rad/s",
                 simulation.count(),
                 lowest,
-                highest
+                highest,
+                fastest_spin.sqrt()
             );
         }
     }

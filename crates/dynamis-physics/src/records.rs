@@ -1,38 +1,54 @@
 use crate::body::BodyDesc;
+use crate::config::PhysicsConfig;
 use bytemuck::{Pod, Zeroable};
 use std::mem::size_of;
 
 const _: () = {
-    assert!(size_of::<RigidBodyRecord>() == 48);
-    assert!(size_of::<SimParamsRecord>() == 32);
+    assert!(size_of::<RigidBodyRecord>() == 112);
+    assert!(size_of::<SimParamsRecord>() == 48);
     assert!(size_of::<AabbRecord>() == 32);
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ContactRecord>() == 32);
     assert!(size_of::<DispatchCount>() == 12);
-    assert!(size_of::<BodyCommandRecord>() == 64);
+    assert!(size_of::<BodyCommandRecord>() == 128);
 };
 
 pub(crate) const COMMAND_ADD: u32 = 0;
 pub(crate) const COMMAND_REMOVE: u32 = 1;
 pub(crate) const COMMAND_PATCH: u32 = 2;
+pub(crate) const COMMAND_FORCE: u32 = 3;
+pub(crate) const COMMAND_TORQUE: u32 = 4;
+pub(crate) const COMMAND_IMPULSE: u32 = 5;
+
+pub(crate) const IMPULSE_AT_POINT: u32 = 1;
 
 pub(crate) const PATCH_POSITION: u32 = 1;
 pub(crate) const PATCH_VELOCITY: u32 = 2;
 pub(crate) const PATCH_INVERSE_MASS: u32 = 4;
 pub(crate) const PATCH_RADIUS: u32 = 8;
 pub(crate) const PATCH_RESTITUTION: u32 = 16;
+pub(crate) const PATCH_ORIENTATION: u32 = 32;
+pub(crate) const PATCH_ANGULAR_VELOCITY: u32 = 64;
+pub(crate) const PATCH_FRICTION: u32 = 128;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(crate) struct RigidBodyRecord {
     pub(crate) position: [f32; 3],
     _pad0: f32,
+    pub(crate) orientation: [f32; 4],
     pub(crate) velocity: [f32; 3],
     _pad1: f32,
+    pub(crate) angular_velocity: [f32; 3],
+    _pad2: f32,
     pub(crate) inverse_mass: f32,
     pub(crate) radius: f32,
     pub(crate) restitution: f32,
-    _pad2: f32,
+    pub(crate) friction: f32,
+    pub(crate) force: [f32; 3],
+    _pad3: f32,
+    pub(crate) torque: [f32; 3],
+    _pad4: f32,
 }
 
 impl RigidBodyRecord {
@@ -40,12 +56,23 @@ impl RigidBodyRecord {
         Self {
             position: desc.position,
             _pad0: 0.0,
+            orientation: desc.orientation,
             velocity: desc.velocity,
             _pad1: 0.0,
-            inverse_mass: if desc.mass > 0.0 { 1.0 / desc.mass } else { 0.0 },
+            angular_velocity: desc.angular_velocity,
+            _pad2: 0.0,
+            inverse_mass: if desc.mass > 0.0 {
+                1.0 / desc.mass
+            } else {
+                0.0
+            },
             radius: desc.radius,
             restitution: desc.restitution,
-            _pad2: 0.0,
+            friction: desc.friction,
+            force: [0.0; 3],
+            _pad3: 0.0,
+            torque: [0.0; 3],
+            _pad4: 0.0,
         }
     }
 }
@@ -56,24 +83,26 @@ pub(crate) struct SimParamsRecord {
     pub(crate) gravity: [f32; 4],
     pub(crate) dt: f32,
     pub(crate) damping: f32,
+    pub(crate) angular_damping: f32,
     pub(crate) body_count: u32,
     pub(crate) relaxation: f32,
+    pub(crate) slop: f32,
+    pub(crate) restitution_threshold: f32,
+    _pad: f32,
 }
 
 impl SimParamsRecord {
-    pub(crate) fn new(
-        gravity: [f32; 3],
-        dt: f32,
-        damping: f32,
-        body_count: u32,
-        relaxation: f32,
-    ) -> Self {
+    pub(crate) fn new(config: &PhysicsConfig, dt: f32, body_count: u32) -> Self {
         Self {
-            gravity: [gravity[0], gravity[1], gravity[2], 0.0],
+            gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,
-            damping,
+            damping: config.damping,
+            angular_damping: config.angular_damping,
             body_count,
-            relaxation,
+            relaxation: config.relaxation,
+            slop: config.slop,
+            restitution_threshold: config.restitution_threshold,
+            _pad: 0.0,
         }
     }
 }
@@ -134,17 +163,17 @@ pub(crate) struct BodyCommandRecord {
     pub(crate) slot: u32,
     pub(crate) extra: u32,
     _pad: u32,
-    pub(crate) record: RigidBodyRecord,
+    pub(crate) body: RigidBodyRecord,
 }
 
 impl BodyCommandRecord {
-    pub(crate) fn add(slot: u32, record: RigidBodyRecord) -> Self {
+    pub(crate) fn add(slot: u32, body: RigidBodyRecord) -> Self {
         Self {
             kind: COMMAND_ADD,
             slot,
             extra: 0,
             _pad: 0,
-            record,
+            body,
         }
     }
 
@@ -154,17 +183,66 @@ impl BodyCommandRecord {
             slot: hole,
             extra: tail,
             _pad: 0,
-            record: RigidBodyRecord::zeroed(),
+            body: RigidBodyRecord::zeroed(),
         }
     }
 
-    pub(crate) fn patch(slot: u32, mask: u32, record: RigidBodyRecord) -> Self {
+    pub(crate) fn patch(slot: u32, mask: u32, body: RigidBodyRecord) -> Self {
         Self {
             kind: COMMAND_PATCH,
             slot,
             extra: mask,
             _pad: 0,
-            record,
+            body,
+        }
+    }
+
+    pub(crate) fn force(slot: u32, force: [f32; 3]) -> Self {
+        let mut body = RigidBodyRecord::zeroed();
+        body.force = force;
+        Self {
+            kind: COMMAND_FORCE,
+            slot,
+            extra: 0,
+            _pad: 0,
+            body,
+        }
+    }
+
+    pub(crate) fn torque(slot: u32, torque: [f32; 3]) -> Self {
+        let mut body = RigidBodyRecord::zeroed();
+        body.torque = torque;
+        Self {
+            kind: COMMAND_TORQUE,
+            slot,
+            extra: 0,
+            _pad: 0,
+            body,
+        }
+    }
+
+    pub(crate) fn impulse(slot: u32, impulse: [f32; 3]) -> Self {
+        let mut body = RigidBodyRecord::zeroed();
+        body.velocity = impulse;
+        Self {
+            kind: COMMAND_IMPULSE,
+            slot,
+            extra: 0,
+            _pad: 0,
+            body,
+        }
+    }
+
+    pub(crate) fn impulse_at_point(slot: u32, impulse: [f32; 3], point: [f32; 3]) -> Self {
+        let mut body = RigidBodyRecord::zeroed();
+        body.velocity = impulse;
+        body.position = point;
+        Self {
+            kind: COMMAND_IMPULSE,
+            slot,
+            extra: IMPULSE_AT_POINT,
+            _pad: 0,
+            body,
         }
     }
 }

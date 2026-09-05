@@ -1,23 +1,3 @@
-struct SimParams {
-    gravity: vec4f,
-    dt: f32,
-    damping: f32,
-    body_count: u32,
-    relaxation: f32,
-}
-
-struct Aabb {
-    min: vec3f,
-    _pad0: f32,
-    max: vec3f,
-    _pad1: f32,
-}
-
-struct Pair {
-    a: u32,
-    b: u32,
-}
-
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> aabbs: array<Aabb>;
 @group(0) @binding(2) var<storage, read_write> pairs: array<Pair>;

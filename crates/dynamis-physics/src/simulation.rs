@@ -1,29 +1,13 @@
 use crate::body::{BodyDesc, BodyHandle, BodyState};
+use crate::config::PhysicsConfig;
 use crate::records::{
-    BodyCommandRecord, DispatchCount, RigidBodyRecord, SimParamsRecord, PATCH_INVERSE_MASS,
-    PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
+    BodyCommandRecord, DispatchCount, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
+    RigidBodyRecord, SimParamsRecord,
 };
 use crate::stages::{StageBuffers, Stages, build_stages, record_physics};
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
-
-pub struct PhysicsConfig {
-    pub gravity: [f32; 3],
-    pub damping: f32,
-    pub solve_iterations: u32,
-    pub relaxation: f32,
-}
-
-impl Default for PhysicsConfig {
-    fn default() -> Self {
-        Self {
-            gravity: [0.0, -9.81, 0.0],
-            damping: 0.05,
-            solve_iterations: 12,
-            relaxation: 0.8,
-        }
-    }
-}
 
 pub struct Simulation {
     gpu: GpuContext,
@@ -118,10 +102,32 @@ impl Simulation {
         self.schedule_patch(handle, PATCH_POSITION, record);
     }
 
+    pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
+        assert!(
+            (orientation[0] * orientation[0]
+                + orientation[1] * orientation[1]
+                + orientation[2] * orientation[2]
+                + orientation[3] * orientation[3]
+                - 1.0)
+                .abs()
+                < 1e-4,
+            "orientation must be a unit quaternion"
+        );
+        let mut record = RigidBodyRecord::zeroed();
+        record.orientation = orientation;
+        self.schedule_patch(handle, PATCH_ORIENTATION, record);
+    }
+
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
         let mut record = RigidBodyRecord::zeroed();
         record.velocity = velocity;
         self.schedule_patch(handle, PATCH_VELOCITY, record);
+    }
+
+    pub fn set_angular_velocity(&mut self, handle: BodyHandle, angular_velocity: [f32; 3]) {
+        let mut record = RigidBodyRecord::zeroed();
+        record.angular_velocity = angular_velocity;
+        self.schedule_patch(handle, PATCH_ANGULAR_VELOCITY, record);
     }
 
     pub fn set_mass(&mut self, handle: BodyHandle, mass: f32) {
@@ -144,9 +150,47 @@ impl Simulation {
         self.schedule_patch(handle, PATCH_RESTITUTION, record);
     }
 
-    fn schedule_patch(&mut self, handle: BodyHandle, mask: u32, record: RigidBodyRecord) {
+    pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
+        assert!(friction >= 0.0, "friction must be non-negative");
+        let mut record = RigidBodyRecord::zeroed();
+        record.friction = friction;
+        self.schedule_patch(handle, PATCH_FRICTION, record);
+    }
+
+    pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
+        let slot = self.command_slot(handle);
+        self.commands.push(BodyCommandRecord::force(slot, force));
+    }
+
+    pub fn apply_torque(&mut self, handle: BodyHandle, torque: [f32; 3]) {
+        let slot = self.command_slot(handle);
+        self.commands.push(BodyCommandRecord::torque(slot, torque));
+    }
+
+    pub fn apply_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
+        let slot = self.command_slot(handle);
+        self.commands
+            .push(BodyCommandRecord::impulse(slot, impulse));
+    }
+
+    pub fn apply_impulse_at_point(
+        &mut self,
+        handle: BodyHandle,
+        impulse: [f32; 3],
+        point: [f32; 3],
+    ) {
+        let slot = self.command_slot(handle);
+        self.commands
+            .push(BodyCommandRecord::impulse_at_point(slot, impulse, point));
+    }
+
+    fn command_slot(&self, handle: BodyHandle) -> u32 {
         self.validate(handle);
-        let slot = self.index_of[handle.id as usize];
+        self.index_of[handle.id as usize]
+    }
+
+    fn schedule_patch(&mut self, handle: BodyHandle, mask: u32, record: RigidBodyRecord) {
+        let slot = self.command_slot(handle);
         self.commands
             .push(BodyCommandRecord::patch(slot, mask, record));
     }
@@ -174,13 +218,7 @@ impl Simulation {
             queue,
             bytemuck::cast_slice(&[DispatchCount::sized(self.commands.len() as u32)]),
         );
-        let params = SimParamsRecord::new(
-            self.config.gravity,
-            dt,
-            self.config.damping,
-            self.alive.len() as u32,
-            self.config.relaxation,
-        );
+        let params = SimParamsRecord::new(&self.config, dt, self.alive.len() as u32);
         self.data
             .params
             .write(queue, bytemuck::cast_slice(&[params]));
@@ -211,14 +249,13 @@ impl Simulation {
         if self.feedback_frame == Some(self.frame) {
             return;
         }
-        let bytes = self
-            .data
-            .readback
-            .read(self.gpu.device());
+        let bytes = self.data.readback.read(self.gpu.device());
         let records: &[RigidBodyRecord] = bytemuck::cast_slice(&bytes);
         for (state, record) in self.states.iter_mut().zip(records) {
             state.position = record.position;
+            state.orientation = record.orientation;
             state.velocity = record.velocity;
+            state.angular_velocity = record.angular_velocity;
             state.inverse_mass = record.inverse_mass;
         }
         self.feedback_frame = Some(self.frame);
