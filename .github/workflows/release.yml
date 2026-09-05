@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package source archive
+        run: git archive --format=tar.gz --prefix=dynamis-${{ github.ref_name }}/ -o dynamis-${{ github.ref_name }}.tar.gz HEAD
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dynamis-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true
