@@ -1,6 +1,7 @@
 use std::sync::mpsc::{self, TryRecvError};
 use wgpu::{
-    Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, MapMode, PollType, Queue,
+    Buffer, BufferAddress, BufferDescriptor, BufferAsyncError, BufferUsages, Device, MapMode,
+    PollType, Queue,
 };
 
 pub struct GpuBuffer {
@@ -45,10 +46,16 @@ impl GpuBuffer {
     }
 }
 
+struct PendingRead {
+    sequence: u64,
+    channel: Option<mpsc::Receiver<Result<(), BufferAsyncError>>>,
+}
+
 pub struct Readback {
     staging: [Buffer; 2],
     size: BufferAddress,
-    submitted: u64,
+    next: usize,
+    pending: [Option<PendingRead>; 2],
 }
 
 impl Readback {
@@ -66,44 +73,107 @@ impl Readback {
         Self {
             staging,
             size,
-            submitted: 0,
+            next: 0,
+            pending: [None, None],
         }
     }
 
-    pub fn enqueue(&mut self, encoder: &mut wgpu::CommandEncoder, source: &Buffer) {
-        let index = (self.submitted % 2) as usize;
-        encoder.copy_buffer_to_buffer(source, 0, &self.staging[index], 0, self.size);
-        self.submitted += 1;
+    pub fn enqueue(
+        &mut self,
+        device: &Device,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &Buffer,
+        sequence: u64,
+    ) -> Option<(u64, Vec<u8>)> {
+        let slot = self.next;
+        self.next = (self.next + 1) % 2;
+        let displaced = if self.pending[slot].is_some() {
+            Some(self.drain(device, slot))
+        } else {
+            None
+        };
+        encoder.copy_buffer_to_buffer(source, 0, &self.staging[slot], 0, self.size);
+        self.pending[slot] = Some(PendingRead {
+            sequence,
+            channel: None,
+        });
+        displaced
     }
 
-    pub fn read(&mut self, device: &Device) -> Vec<u8> {
-        assert!(
-            self.submitted > 0,
-            "no readback has been submitted to the GPU"
-        );
-        let index = ((self.submitted - 1) % 2) as usize;
-        let staging = &self.staging[index];
-        let slice = staging.slice(..);
-        let (sender, receiver) = mpsc::channel();
-        slice.map_async(MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
+    pub fn arm(&mut self) {
+        for slot in 0..2 {
+            if self.pending[slot].is_some() {
+                self.ensure_mapping(slot);
+            }
+        }
+    }
+
+    pub fn poll(&mut self, device: &Device) -> Vec<(u64, Vec<u8>)> {
+        for slot in 0..2 {
+            if self.pending[slot].is_some() {
+                self.ensure_mapping(slot);
+            }
+        }
+        device
+            .poll(PollType::Poll)
+            .expect("device lost while polling readback");
+        let mut completed = Vec::new();
+        for slot in 0..2 {
+            if let Some(entry) = self.try_consume(slot) {
+                completed.push(entry);
+            }
+        }
+        completed.sort_unstable_by_key(|(sequence, _)| *sequence);
+        completed
+    }
+
+    fn ensure_mapping(&mut self, slot: usize) {
+        let pending = self.pending[slot]
+            .as_mut()
+            .expect("pending readback just checked");
+        if pending.channel.is_none() {
+            let (sender, receiver) = mpsc::channel();
+            self.staging[slot].slice(..).map_async(MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            pending.channel = Some(receiver);
+        }
+    }
+
+    fn try_consume(&mut self, slot: usize) -> Option<(u64, Vec<u8>)> {
+        let pending = self.pending[slot].as_ref()?;
+        let channel = pending.channel.as_ref()?;
+        match channel.try_recv() {
+            Ok(Ok(())) => {
+                let pending = self.pending[slot]
+                    .take()
+                    .expect("pending readback just checked");
+                let bytes = self.staging[slot]
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("mapped range unavailable")
+                    .to_vec();
+                self.staging[slot].unmap();
+                Some((pending.sequence, bytes))
+            }
+            Ok(Err(error)) => panic!("buffer mapping failed: {error}"),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                panic!("mapping callback was dropped")
+            }
+        }
+    }
+
+    fn drain(&mut self, device: &Device, slot: usize) -> (u64, Vec<u8>) {
+        self.ensure_mapping(slot);
         loop {
             device
                 .poll(PollType::wait_indefinitely())
                 .expect("device lost while awaiting readback");
-            match receiver.try_recv() {
-                Ok(Ok(())) => break,
-                Ok(Err(error)) => panic!("buffer mapping failed: {error}"),
-                Err(TryRecvError::Empty) => std::thread::yield_now(),
-                Err(TryRecvError::Disconnected) => panic!("mapping callback was dropped"),
+            if let Some(entry) = self.try_consume(slot) {
+                return entry;
             }
+            std::thread::yield_now();
         }
-        let bytes = slice
-            .get_mapped_range()
-            .expect("mapped range unavailable")
-            .to_vec();
-        staging.unmap();
-        bytes
     }
 }

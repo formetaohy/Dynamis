@@ -45,6 +45,7 @@ async fn run() {
     for frame in 0..FRAMES {
         simulation.step(DT);
         if frame < 100 || frame % 50 == 0 || frame == FRAMES - 1 {
+            simulation.wait();
             let mut lowest = f32::INFINITY;
             let mut highest = f32::NEG_INFINITY;
             let mut fastest_spin = 0.0f32;

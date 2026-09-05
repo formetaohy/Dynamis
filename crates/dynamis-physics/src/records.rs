@@ -4,13 +4,15 @@ use bytemuck::{Pod, Zeroable};
 use std::mem::size_of;
 
 const _: () = {
-    assert!(size_of::<RigidBodyRecord>() == 112);
+    assert!(size_of::<RigidBodyRecord>() == 128);
     assert!(size_of::<SimParamsRecord>() == 48);
     assert!(size_of::<AabbRecord>() == 32);
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ContactRecord>() == 32);
     assert!(size_of::<DispatchCount>() == 12);
-    assert!(size_of::<BodyCommandRecord>() == 128);
+    assert!(size_of::<BodyCommandRecord>() == 144);
+    assert!(size_of::<QueryRecord>() == 48);
+    assert!(size_of::<QueryResultRecord>() == 16);
 };
 
 pub(crate) const COMMAND_ADD: u32 = 0;
@@ -31,6 +33,9 @@ pub(crate) const PATCH_ORIENTATION: u32 = 32;
 pub(crate) const PATCH_ANGULAR_VELOCITY: u32 = 64;
 pub(crate) const PATCH_FRICTION: u32 = 128;
 
+pub(crate) const QUERY_RAY: u32 = 0;
+pub(crate) const QUERY_SPHERE: u32 = 1;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(crate) struct RigidBodyRecord {
@@ -45,6 +50,10 @@ pub(crate) struct RigidBodyRecord {
     pub(crate) radius: f32,
     pub(crate) restitution: f32,
     pub(crate) friction: f32,
+    pub(crate) body_id: u32,
+    pub(crate) generation: u32,
+    _pad5: f32,
+    _pad6: f32,
     pub(crate) force: [f32; 3],
     _pad3: f32,
     pub(crate) torque: [f32; 3],
@@ -52,7 +61,7 @@ pub(crate) struct RigidBodyRecord {
 }
 
 impl RigidBodyRecord {
-    pub(crate) fn build(desc: &BodyDesc) -> Self {
+    pub(crate) fn build(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
         Self {
             position: desc.position,
             _pad0: 0.0,
@@ -69,6 +78,10 @@ impl RigidBodyRecord {
             radius: desc.radius,
             restitution: desc.restitution,
             friction: desc.friction,
+            body_id,
+            generation,
+            _pad5: 0.0,
+            _pad6: 0.0,
             force: [0.0; 3],
             _pad3: 0.0,
             torque: [0.0; 3],
@@ -245,4 +258,54 @@ impl BodyCommandRecord {
             body,
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct QueryRecord {
+    pub(crate) origin: [f32; 3],
+    pub(crate) kind: u32,
+    pub(crate) direction: [f32; 3],
+    pub(crate) extent: f32,
+    pub(crate) slot: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}
+
+impl QueryRecord {
+    pub(crate) fn ray(origin: [f32; 3], direction: [f32; 3], max_t: f32, slot: u32) -> Self {
+        Self {
+            origin,
+            kind: QUERY_RAY,
+            direction,
+            extent: max_t,
+            slot,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        }
+    }
+
+    pub(crate) fn sphere(center: [f32; 3], radius: f32, slot: u32) -> Self {
+        Self {
+            origin: center,
+            kind: QUERY_SPHERE,
+            direction: [0.0; 3],
+            extent: radius,
+            slot,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct QueryResultRecord {
+    pub(crate) body_id: u32,
+    pub(crate) body_generation: u32,
+    pub(crate) distance: f32,
+    pub(crate) hit: u32,
 }

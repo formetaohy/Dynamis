@@ -1,9 +1,10 @@
 use crate::body::{BodyDesc, BodyHandle, BodyState};
 use crate::config::PhysicsConfig;
+use crate::queries::QueryTracker;
 use crate::records::{
     BodyCommandRecord, DispatchCount, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
-    RigidBodyRecord, SimParamsRecord,
+    QueryRecord, RigidBodyRecord, SimParamsRecord,
 };
 use crate::stages::{StageBuffers, Stages, build_stages, record_physics};
 use bytemuck::Zeroable;
@@ -13,38 +14,41 @@ pub struct Simulation {
     gpu: GpuContext,
     config: PhysicsConfig,
     capacity: usize,
-    frame: u64,
-    feedback_frame: Option<u64>,
+    step_index: u64,
     alive: Vec<BodyHandle>,
     index_of: Vec<u32>,
     generations: Vec<u32>,
     free_ids: Vec<u32>,
-    commands: Vec<BodyCommandRecord>,
+    pub(crate) commands: Vec<BodyCommandRecord>,
+    pub(crate) queries: Vec<QueryRecord>,
+    pub(crate) query_tracker: QueryTracker,
     data: StageBuffers,
     stages: Stages,
-    states: Vec<BodyState>,
+    states: Vec<Option<BodyState>>,
 }
 
 impl Simulation {
     pub fn new(gpu: GpuContext, capacity: usize, config: PhysicsConfig) -> Self {
         assert!(capacity > 0, "simulation capacity must be positive");
         let pair_capacity = capacity * (capacity.saturating_sub(1)) / 2;
-        let data = StageBuffers::new(gpu.device(), capacity, pair_capacity);
+        let query_capacity = capacity * 2;
+        let data = StageBuffers::new(gpu.device(), capacity, pair_capacity, query_capacity);
         let stages = build_stages(gpu.device(), &data);
         Self {
             gpu,
             config,
             capacity,
-            frame: 0,
-            feedback_frame: None,
+            step_index: 0,
             alive: Vec::new(),
             index_of: vec![u32::MAX; capacity],
             generations: vec![1; capacity],
             free_ids: (0..capacity as u32).rev().collect(),
             commands: Vec::new(),
+            queries: Vec::new(),
+            query_tracker: QueryTracker::new(query_capacity),
             data,
             stages,
-            states: vec![BodyState::default(); capacity],
+            states: vec![None; capacity],
         }
     }
 
@@ -64,6 +68,10 @@ impl Simulation {
         self.alive.len()
     }
 
+    pub fn bodies_buffer(&self) -> &wgpu::Buffer {
+        self.data.bodies.buffer()
+    }
+
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         let id = self
             .free_ids
@@ -77,8 +85,22 @@ impl Simulation {
         let slot = self.alive.len() as u32;
         self.index_of[id as usize] = slot;
         self.alive.push(handle);
-        self.commands
-            .push(BodyCommandRecord::add(slot, RigidBodyRecord::build(&desc)));
+        self.commands.push(BodyCommandRecord::add(
+            slot,
+            RigidBodyRecord::build(&desc, handle.id, handle.generation),
+        ));
+        self.states[id as usize] = Some(BodyState {
+            position: desc.position,
+            orientation: desc.orientation,
+            velocity: desc.velocity,
+            angular_velocity: desc.angular_velocity,
+            inverse_mass: if desc.mass > 0.0 {
+                1.0 / desc.mass
+            } else {
+                0.0
+            },
+            step: self.step_index,
+        });
         handle
     }
 
@@ -92,6 +114,7 @@ impl Simulation {
         self.index_of[moved.id as usize] = slot as u32;
         self.index_of[id] = u32::MAX;
         self.free_ids.push(handle.id);
+        self.states[id] = None;
         self.commands
             .push(BodyCommandRecord::remove(slot as u32, tail as u32));
     }
@@ -210,6 +233,8 @@ impl Simulation {
 
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
+        let step = self.step_index;
+        self.pull_feedback();
         let queue = self.gpu.queue();
         self.data
             .commands
@@ -223,6 +248,13 @@ impl Simulation {
             .params
             .write(queue, bytemuck::cast_slice(&[params]));
         self.data.reset_counters(queue);
+        if !self.queries.is_empty() {
+            self.data
+                .queries
+                .write(queue, bytemuck::cast_slice(&self.queries));
+            let slots = self.queries.iter().map(|query| query.slot).collect();
+            self.query_tracker.mark_batch(step, slots);
+        }
 
         let mut encoder =
             self.gpu
@@ -236,38 +268,87 @@ impl Simulation {
             &mut encoder,
             self.alive.len() as u32,
             self.config.solve_iterations,
+            self.queries.len() as u32,
         );
-        self.data
-            .readback
-            .enqueue(&mut encoder, self.data.bodies.buffer());
+        let stale_bodies = self.data.readback.enqueue(
+            self.gpu.device(),
+            &mut encoder,
+            self.data.bodies.buffer(),
+            step,
+        );
+        let stale_queries = if self.queries.is_empty() {
+            None
+        } else {
+            self.data.query_readback.enqueue(
+                self.gpu.device(),
+                &mut encoder,
+                self.data.query_results.buffer(),
+                step,
+            )
+        };
         self.gpu.queue().submit([encoder.finish()]);
+        self.data.readback.arm();
+        self.data.query_readback.arm();
+        if let Some((stale_step, bytes)) = stale_bodies {
+            self.consume_bodies(stale_step, &bytes);
+        }
+        if let Some((stale_step, bytes)) = stale_queries {
+            self.consume_queries(stale_step, &bytes);
+        }
         self.commands.clear();
-        self.frame += 1;
+        self.queries.clear();
+        self.step_index += 1;
     }
 
-    fn refresh_feedback(&mut self) {
-        if self.feedback_frame == Some(self.frame) {
-            return;
-        }
-        let bytes = self.data.readback.read(self.gpu.device());
-        let records: &[RigidBodyRecord] = bytemuck::cast_slice(&bytes);
-        for (state, record) in self.states.iter_mut().zip(records) {
-            state.position = record.position;
-            state.orientation = record.orientation;
-            state.velocity = record.velocity;
-            state.angular_velocity = record.angular_velocity;
-            state.inverse_mass = record.inverse_mass;
-        }
-        self.feedback_frame = Some(self.frame);
+    pub fn poll(&mut self) {
+        self.pull_feedback();
+    }
+
+    pub fn wait(&mut self) {
+        self.gpu
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("device lost while awaiting readback");
+        self.pull_feedback();
     }
 
     pub fn read_state(&mut self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
-        self.refresh_feedback();
-        self.states[self.index_of[handle.id as usize] as usize]
+        self.states[handle.id as usize]
+            .expect("body state is unavailable")
     }
 
-    pub fn states(&self) -> &[BodyState] {
-        &self.states
+    fn pull_feedback(&mut self) {
+        for (step, bytes) in self.data.readback.poll(self.gpu.device()) {
+            self.consume_bodies(step, &bytes);
+        }
+        for (step, bytes) in self.data.query_readback.poll(self.gpu.device()) {
+            self.consume_queries(step, &bytes);
+        }
+    }
+
+    fn consume_bodies(&mut self, step: u64, bytes: &[u8]) {
+        let records: &[RigidBodyRecord] = bytemuck::cast_slice(bytes);
+        for record in records {
+            let id = record.body_id as usize;
+            assert!(
+                id < self.capacity,
+                "GPU readback returned an out-of-range body id"
+            );
+            if record.generation != self.generations[id] {
+                continue;
+            }
+            if self.index_of[id] == u32::MAX {
+                continue;
+            }
+            self.states[id] = Some(BodyState {
+                position: record.position,
+                orientation: record.orientation,
+                velocity: record.velocity,
+                angular_velocity: record.angular_velocity,
+                inverse_mass: record.inverse_mass,
+                step,
+            });
+        }
     }
 }

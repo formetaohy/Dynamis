@@ -52,6 +52,7 @@ fn free_fall_matches_closed_form() {
     for _ in 0..STEPS {
         sim.step(DT);
     }
+    sim.wait();
     let state = sim.read_state(ball);
     let expected = 10.0 - 0.5 * GRAVITY * DT * DT * (STEPS as f32 * (STEPS as f32 + 1.0));
     assert!(
@@ -72,6 +73,7 @@ fn overlapping_bodies_separate() {
     for _ in 0..16 {
         sim.step(DT);
     }
+    sim.wait();
     let first_y = sim.read_state(first).position[1];
     let second_y = sim.read_state(second).position[1];
     let separation = second_y - first_y;
@@ -95,6 +97,7 @@ fn falling_body_rests_on_ground() {
     for _ in 0..120 {
         sim.step(DT);
     }
+    sim.wait();
     let ball_y = sim.read_state(ball).position[1];
     assert!(
         ball_y > 1.4 && ball_y < 1.6,
@@ -120,6 +123,7 @@ fn single_ball_rests_indefinitely() {
     let mut lowest = f32::INFINITY;
     for _ in 0..600 {
         sim.step(DT);
+        sim.wait();
         let y = sim.read_state(ball).position[1];
         lowest = lowest.min(y);
     }
@@ -153,6 +157,7 @@ fn stacked_bodies_do_not_collapse() {
     for _ in 0..120 {
         sim.step(DT);
     }
+    sim.wait();
     let lower_y = sim.read_state(lower).position[1];
     let upper_y = sim.read_state(upper).position[1];
     assert!(
@@ -177,6 +182,7 @@ fn restitution_bounces_ball() {
             .restitution(0.8),
     );
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert!(
         state.velocity[1] > 1.2,
@@ -202,6 +208,7 @@ fn slow_contact_does_not_bounce() {
             .restitution(0.9),
     );
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert!(
         state.velocity[1] > -0.05 && state.velocity[1] < 0.01,
@@ -220,6 +227,7 @@ fn removed_body_leaves_others_intact() {
     sim.step(DT);
     sim.remove(second);
     sim.step(DT);
+    sim.wait();
     assert_eq!(sim.count(), 2);
     let first_x = sim.read_state(first).position[0];
     let third_x = sim.read_state(third).position[0];
@@ -282,6 +290,7 @@ fn set_velocity_overrides_simulation() {
     sim.step(DT);
     sim.set_velocity(ball, [0.0, 3.0, 0.0]);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     let expected_velocity = 3.0 - GRAVITY * DT;
     assert!(
@@ -313,6 +322,7 @@ fn set_position_teleports_body() {
     sim.step(DT);
     sim.set_position(ball, [7.0, 1.0, 2.0]);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert!((state.position[0] - 7.0).abs() < 1e-4);
     assert!((state.position[1] - (1.0 - 2.0 * GRAVITY * DT * DT)).abs() < 1e-4);
@@ -335,6 +345,7 @@ fn set_mass_freezes_body() {
     sim.step(DT);
     sim.set_mass(ball, 0.0);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert_eq!(state.inverse_mass, 0.0);
     assert_eq!(state.velocity, [0.0, 0.0, 0.0]);
@@ -344,7 +355,7 @@ fn set_mass_freezes_body() {
 }
 
 #[test]
-fn despawned_mid_frame_command_batch() {
+fn despawned_mid_step_command_batch() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, static_config());
     let first = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
@@ -352,6 +363,7 @@ fn despawned_mid_frame_command_batch() {
     sim.remove(first);
     let third = sim.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
     sim.step(DT);
+    sim.wait();
     assert_eq!(sim.count(), 2);
     assert_eq!(sim.read_state(second).position, [2.0, 0.0, 0.0]);
     assert_eq!(sim.read_state(third).position, [4.0, 0.0, 0.0]);
@@ -384,20 +396,21 @@ fn step_panics_when_capacity_exceeded() {
 }
 
 #[test]
-fn read_before_any_step_panics() {
+fn freshly_spawned_state_available_immediately() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
-    let ball = sim.spawn(BodyDesc::sphere(0.5));
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.read_state(ball);
-        }))
-        .is_err()
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.5)
+            .position([1.0, 2.0, 3.0])
+            .velocity([4.0, 5.0, 6.0]),
     );
+    let state = sim.read_state(ball);
+    assert_eq!(state.position, [1.0, 2.0, 3.0]);
+    assert_eq!(state.velocity, [4.0, 5.0, 6.0]);
 }
 
 #[test]
-fn readback_returns_latest_frame() {
+fn readback_returns_latest_step() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(
         gpu,
@@ -413,11 +426,12 @@ fn readback_returns_latest_frame() {
     for _ in 0..STEPS {
         sim.step(DT);
     }
+    sim.wait();
     let state = sim.read_state(ball);
     let expected = 10.0 - 0.5 * GRAVITY * DT * DT * (STEPS as f32 * (STEPS as f32 + 1.0));
     assert!(
         (state.position[1] - expected).abs() < 1e-3,
-        "readback should return the most recent frame, got {}",
+        "readback should return the most recent step, got {}",
         state.position[1]
     );
 }
@@ -432,6 +446,7 @@ fn apply_force_accelerates_body() {
         sim.apply_force(ball, [0.0, 4.0, 0.0]);
         sim.step(DT);
     }
+    sim.wait();
     let state = sim.read_state(ball);
     let expected = 4.0 * 0.5 * DT * STEPS as f32;
     assert!(
@@ -442,20 +457,22 @@ fn apply_force_accelerates_body() {
 }
 
 #[test]
-fn force_is_consumed_within_one_frame() {
+fn force_is_consumed_within_one_step() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let ball = sim.spawn(BodyDesc::sphere(0.5).mass(2.0));
     sim.apply_force(ball, [0.0, 4.0, 0.0]);
     sim.step(DT);
+    sim.wait();
     let after_force = sim.read_state(ball).velocity[1];
     for _ in 0..5 {
         sim.step(DT);
     }
+    sim.wait();
     let after_idle = sim.read_state(ball).velocity[1];
     assert_eq!(
         after_force, after_idle,
-        "force should only affect the frame it was applied"
+        "force should only affect the step it was applied"
     );
 }
 
@@ -469,6 +486,7 @@ fn apply_torque_spins_body() {
         sim.apply_torque(ball, [0.0, 0.0, 5.0]);
         sim.step(DT);
     }
+    sim.wait();
     let state = sim.read_state(ball);
     let inverse_inertia = 2.5 / (0.5 * 0.5);
     let expected = inverse_inertia * 5.0 * DT * STEPS as f32;
@@ -486,6 +504,7 @@ fn apply_impulse_changes_velocity() {
     let ball = sim.spawn(BodyDesc::sphere(0.5).mass(2.0));
     sim.apply_impulse(ball, [3.0, 0.0, 0.0]);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert!(
         (state.velocity[0] - 1.5).abs() < 1e-4,
@@ -501,6 +520,7 @@ fn apply_impulse_at_point_spins_body() {
     let ball = sim.spawn(BodyDesc::sphere(0.5));
     sim.apply_impulse_at_point(ball, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     let inverse_inertia = 2.5 / (0.5 * 0.5);
     assert!(
@@ -519,6 +539,7 @@ fn initial_angular_velocity_rotates_body() {
     for _ in 0..STEPS {
         sim.step(DT);
     }
+    sim.wait();
     let state = sim.read_state(ball);
     assert!(
         state.orientation[2] > 0.5,
@@ -560,6 +581,7 @@ fn friction_converts_slip_into_roll() {
     for _ in 0..30 {
         sim.step(DT);
     }
+    sim.wait();
     let slipping = sim.read_state(ball);
     assert!(
         slipping.velocity[0] > 1.9,
@@ -576,6 +598,7 @@ fn friction_converts_slip_into_roll() {
     for _ in 0..180 {
         sim.step(DT);
     }
+    sim.wait();
     let rolling = sim.read_state(ball);
     assert!(
         rolling.angular_velocity[2] < -1.5,
@@ -592,13 +615,15 @@ fn friction_converts_slip_into_roll() {
 
 #[test]
 fn rotational_patches_apply() {
+    const HALF_SQRT_TWO: f32 = std::f32::consts::FRAC_1_SQRT_2;
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let ball = sim.spawn(BodyDesc::sphere(0.5));
     sim.step(DT);
     sim.set_angular_velocity(ball, [0.0, 1.0, 0.0]);
-    sim.set_orientation(ball, [0.0, 0.7071, 0.0, 0.7071]);
+    sim.set_orientation(ball, [0.0, HALF_SQRT_TWO, 0.0, HALF_SQRT_TWO]);
     sim.step(DT);
+    sim.wait();
     let state = sim.read_state(ball);
     assert!(
         (state.angular_velocity[1] - 1.0).abs() < 1e-4,
@@ -606,7 +631,7 @@ fn rotational_patches_apply() {
         state.angular_velocity
     );
     let half_angle = 0.5f32 / 60.0;
-    let y_expected = (0.7071 * (1.0 + half_angle)) / (1.0 + half_angle * half_angle).sqrt();
+    let y_expected = (HALF_SQRT_TWO * (1.0 + half_angle)) / (1.0 + half_angle * half_angle).sqrt();
     assert!(
         (state.orientation[1] - y_expected).abs() < 1e-3,
         "orientation patch was not applied or was lost, got {:?}",

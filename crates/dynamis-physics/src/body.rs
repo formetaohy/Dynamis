@@ -11,6 +11,7 @@ pub struct BodyState {
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
     pub inverse_mass: f32,
+    pub step: u64,
 }
 
 #[derive(Clone, Copy)]
