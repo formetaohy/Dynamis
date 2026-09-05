@@ -6,12 +6,13 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[dependencies]
-bytemuck = { workspace = true }
-dynamis-ecs = { workspace = true }
-dynamis-gpu = { workspace = true }
-pollster = { workspace = true }
-wgpu = { workspace = true }
-
 [lints]
 workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+dynamis-gpu = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+pollster = { workspace = true }

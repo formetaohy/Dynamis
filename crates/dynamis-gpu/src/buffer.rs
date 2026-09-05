@@ -43,20 +43,46 @@ impl GpuBuffer {
     pub fn buffer(&self) -> &Buffer {
         &self.buffer
     }
+}
 
-    pub fn read_sync(&self, device: &Device, queue: &Queue) -> Vec<u8> {
-        let staging = device.create_buffer(&BufferDescriptor {
-            label: Some("readback staging"),
-            size: self.size,
-            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("readback encoder"),
-        });
-        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, self.size);
-        queue.submit([encoder.finish()]);
+pub struct Readback {
+    staging: [Buffer; 2],
+    size: BufferAddress,
+    submitted: u64,
+}
 
+impl Readback {
+    pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
+        assert!(size > 0, "readback size must be positive");
+        let staging = std::array::from_fn(|index| {
+            let staging_label = format!("{label} staging {index}");
+            device.create_buffer(&BufferDescriptor {
+                label: Some(&staging_label),
+                size,
+                usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        });
+        Self {
+            staging,
+            size,
+            submitted: 0,
+        }
+    }
+
+    pub fn enqueue(&mut self, encoder: &mut wgpu::CommandEncoder, source: &Buffer) {
+        let index = (self.submitted % 2) as usize;
+        encoder.copy_buffer_to_buffer(source, 0, &self.staging[index], 0, self.size);
+        self.submitted += 1;
+    }
+
+    pub fn read(&mut self, device: &Device) -> Vec<u8> {
+        assert!(
+            self.submitted > 0,
+            "no readback has been submitted to the GPU"
+        );
+        let index = ((self.submitted - 1) % 2) as usize;
+        let staging = &self.staging[index];
         let slice = staging.slice(..);
         let (sender, receiver) = mpsc::channel();
         slice.map_async(MapMode::Read, move |result| {

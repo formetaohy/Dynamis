@@ -1,7 +1,7 @@
-mod components;
+mod body;
 mod records;
 mod simulation;
 mod stages;
 
-pub use components::{Mass, Restitution, SphereCollider, Transform, Velocity};
+pub use body::{BodyDesc, BodyHandle, BodyState};
 pub use simulation::{PhysicsConfig, Simulation};

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -13,9 +13,8 @@ repository = "https://github.com/formetaohy/Dynamis"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 wgpu = "30"
-dynamis-ecs = { version = "0.1.1", path = "crates/dynamis-ecs" }
-dynamis-gpu = { version = "0.1.1", path = "crates/dynamis-gpu" }
-dynamis-physics = { version = "0.1.1", path = "crates/dynamis-physics" }
+dynamis-gpu = { version = "0.2.0", path = "crates/dynamis-gpu" }
+dynamis-physics = { version = "0.2.0", path = "crates/dynamis-physics" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -32,16 +31,9 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = ["ecs", "gpu", "physics"]
-ecs = ["dep:dynamis-ecs"]
-gpu = ["dep:dynamis-ecs", "dep:dynamis-gpu"]
-physics = ["dep:dynamis-ecs", "dep:dynamis-gpu", "dep:dynamis-physics"]
-
 [dependencies]
-dynamis-ecs = { workspace = true, optional = true }
-dynamis-gpu = { workspace = true, optional = true }
-dynamis-physics = { workspace = true, optional = true }
+dynamis-gpu = { workspace = true }
+dynamis-physics = { workspace = true }
 
 [dev-dependencies]
 pollster = { workspace = true }

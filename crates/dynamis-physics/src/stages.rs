@@ -1,5 +1,5 @@
 use crate::records::DispatchCount;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer};
+use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, Readback};
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
@@ -70,16 +70,20 @@ pub(crate) struct StageBuffers {
     pub(crate) pair_count: GpuBuffer,
     pub(crate) contacts: GpuBuffer,
     pub(crate) contact_count: GpuBuffer,
+    pub(crate) commands: GpuBuffer,
+    pub(crate) command_count: GpuBuffer,
+    pub(crate) readback: Readback,
 }
 
 impl StageBuffers {
     pub(crate) fn new(device: &Device, capacity: usize, pair_capacity: usize) -> Self {
-        let body_bytes = (capacity * size_of_record::<crate::records::RigidBodyRecord>()) as u64;
+        let body_bytes = (capacity * size_of::<crate::records::RigidBodyRecord>()) as u64;
         let aabb_bytes = (capacity * size_of::<crate::records::AabbRecord>()) as u64;
         let pair_bytes = (pair_capacity.max(1) * size_of::<crate::records::PairRecord>()) as u64;
         let contact_bytes =
             (pair_capacity.max(1) * size_of::<crate::records::ContactRecord>()) as u64;
         let counter_bytes = size_of::<DispatchCount>() as u64;
+        let command_bytes = (capacity * size_of::<crate::records::BodyCommandRecord>()) as u64;
         let params_bytes = size_of::<crate::records::SimParamsRecord>() as u64;
         Self {
             params: GpuBuffer::new(
@@ -91,15 +95,13 @@ impl StageBuffers {
             bodies: GpuBuffer::new(
                 device,
                 "bodies",
-                body_bytes.max(1),
-                wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
+                body_bytes,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             ),
             aabbs: GpuBuffer::new(
                 device,
                 "broadphase aabbs",
-                aabb_bytes.max(1),
+                aabb_bytes,
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             ),
             pairs: GpuBuffer::new(
@@ -135,6 +137,19 @@ impl StageBuffers {
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
             ),
+            commands: GpuBuffer::new(
+                device,
+                "body commands",
+                command_bytes,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            ),
+            command_count: GpuBuffer::new(
+                device,
+                "command count",
+                counter_bytes,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            ),
+            readback: Readback::new(device, "bodies readback", body_bytes),
         }
     }
 
@@ -147,6 +162,7 @@ impl StageBuffers {
 }
 
 pub(crate) struct Stages {
+    apply: Stage,
     integrate: Stage,
     broadphase_aabb: Stage,
     broadphase_pairs: Stage,
@@ -156,6 +172,18 @@ pub(crate) struct Stages {
 
 pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
     Stages {
+        apply: Stage::build(
+            device,
+            "apply_changes",
+            include_str!("shaders/apply_changes.wgsl"),
+            "main",
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[&buffers.commands, &buffers.bodies, &buffers.command_count],
+        ),
         integrate: Stage::build(
             device,
             "integrate",
@@ -242,6 +270,7 @@ pub(crate) fn record_physics(
     body_count: u32,
     solve_iterations: u32,
 ) {
+    stages.apply.record(encoder, 1);
     stages.integrate.record(encoder, body_count);
     stages.broadphase_aabb.record(encoder, body_count);
     let pair_total = if body_count >= 2 {
@@ -258,8 +287,4 @@ pub(crate) fn record_physics(
             .solve
             .record_indirect(encoder, &buffers.contact_count);
     }
-}
-
-fn size_of_record<T>() -> usize {
-    std::mem::size_of::<T>()
 }

@@ -1,7 +1,10 @@
-use crate::components::{Mass, Restitution, SphereCollider, Transform, Velocity};
-use crate::records::{RigidBodyRecord, SimParamsRecord};
+use crate::body::{BodyDesc, BodyHandle, BodyState};
+use crate::records::{
+    BodyCommandRecord, DispatchCount, RigidBodyRecord, SimParamsRecord, PATCH_INVERSE_MASS,
+    PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY,
+};
 use crate::stages::{StageBuffers, Stages, build_stages, record_physics};
-use dynamis_ecs::{Entity, World};
+use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 
 pub struct PhysicsConfig {
@@ -26,9 +29,16 @@ pub struct Simulation {
     gpu: GpuContext,
     config: PhysicsConfig,
     capacity: usize,
-    bodies: Vec<Entity>,
+    frame: u64,
+    feedback_frame: Option<u64>,
+    alive: Vec<BodyHandle>,
+    index_of: Vec<u32>,
+    generations: Vec<u32>,
+    free_ids: Vec<u32>,
+    commands: Vec<BodyCommandRecord>,
     data: StageBuffers,
     stages: Stages,
+    states: Vec<BodyState>,
 }
 
 impl Simulation {
@@ -41,9 +51,16 @@ impl Simulation {
             gpu,
             config,
             capacity,
-            bodies: Vec::new(),
+            frame: 0,
+            feedback_frame: None,
+            alive: Vec::new(),
+            index_of: vec![u32::MAX; capacity],
+            generations: vec![1; capacity],
+            free_ids: (0..capacity as u32).rev().collect(),
+            commands: Vec::new(),
             data,
             stages,
+            states: vec![BodyState::default(); capacity],
         }
     }
 
@@ -55,65 +72,119 @@ impl Simulation {
         self.capacity
     }
 
-    pub fn bodies(&self) -> &[Entity] {
-        &self.bodies
+    pub fn bodies(&self) -> &[BodyHandle] {
+        &self.alive
     }
 
-    pub fn add(&mut self, entity: Entity) {
-        assert!(
-            self.bodies.len() < self.capacity,
-            "attached bodies exceed simulation capacity"
-        );
-        self.bodies.push(entity);
+    pub fn count(&self) -> usize {
+        self.alive.len()
     }
 
-    pub fn remove(&mut self, entity: Entity) {
-        self.bodies.retain(|candidate| *candidate != entity);
+    pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
+        let id = self
+            .free_ids
+            .pop()
+            .expect("simulation body capacity exhausted");
+        self.generations[id as usize] += 1;
+        let handle = BodyHandle {
+            id,
+            generation: self.generations[id as usize],
+        };
+        let slot = self.alive.len() as u32;
+        self.index_of[id as usize] = slot;
+        self.alive.push(handle);
+        self.commands
+            .push(BodyCommandRecord::add(slot, RigidBodyRecord::build(&desc)));
+        handle
     }
 
-    fn collect_records(&self, world: &World) -> Vec<RigidBodyRecord> {
-        self.bodies
-            .iter()
-            .map(|entity| {
-                let transform = world
-                    .get::<Transform>(*entity)
-                    .unwrap_or_else(|| panic!("attached body {entity:?} lacks Transform"));
-                let velocity = world
-                    .get::<Velocity>(*entity)
-                    .unwrap_or_else(|| panic!("attached body {entity:?} lacks Velocity"));
-                let mass = world
-                    .get::<Mass>(*entity)
-                    .unwrap_or_else(|| panic!("attached body {entity:?} lacks Mass"));
-                let restitution = world
-                    .get::<Restitution>(*entity)
-                    .copied()
-                    .unwrap_or_default();
-                let collider = world
-                    .get::<SphereCollider>(*entity)
-                    .unwrap_or_else(|| panic!("attached body {entity:?} lacks SphereCollider"));
-                RigidBodyRecord::build(transform, velocity, mass, restitution, collider)
-            })
-            .collect()
+    pub fn remove(&mut self, handle: BodyHandle) {
+        self.validate(handle);
+        let id = handle.id as usize;
+        let slot = self.index_of[id] as usize;
+        let tail = self.alive.len() - 1;
+        let moved = self.alive[tail];
+        self.alive.swap_remove(slot);
+        self.index_of[moved.id as usize] = slot as u32;
+        self.index_of[id] = u32::MAX;
+        self.free_ids.push(handle.id);
+        self.commands
+            .push(BodyCommandRecord::remove(slot as u32, tail as u32));
     }
 
-    pub fn step(&mut self, world: &World, dt: f32) {
+    pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
+        let mut record = RigidBodyRecord::zeroed();
+        record.position = position;
+        self.schedule_patch(handle, PATCH_POSITION, record);
+    }
+
+    pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
+        let mut record = RigidBodyRecord::zeroed();
+        record.velocity = velocity;
+        self.schedule_patch(handle, PATCH_VELOCITY, record);
+    }
+
+    pub fn set_mass(&mut self, handle: BodyHandle, mass: f32) {
+        assert!(mass >= 0.0, "mass must be non-negative");
+        let mut record = RigidBodyRecord::zeroed();
+        record.inverse_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
+        self.schedule_patch(handle, PATCH_INVERSE_MASS, record);
+    }
+
+    pub fn set_radius(&mut self, handle: BodyHandle, radius: f32) {
+        assert!(radius > 0.0, "collider radius must be strictly positive");
+        let mut record = RigidBodyRecord::zeroed();
+        record.radius = radius;
+        self.schedule_patch(handle, PATCH_RADIUS, record);
+    }
+
+    pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
+        let mut record = RigidBodyRecord::zeroed();
+        record.restitution = restitution;
+        self.schedule_patch(handle, PATCH_RESTITUTION, record);
+    }
+
+    fn schedule_patch(&mut self, handle: BodyHandle, mask: u32, record: RigidBodyRecord) {
+        self.validate(handle);
+        let slot = self.index_of[handle.id as usize];
+        self.commands
+            .push(BodyCommandRecord::patch(slot, mask, record));
+    }
+
+    fn validate(&self, handle: BodyHandle) {
+        let id = handle.id as usize;
+        if id >= self.capacity {
+            panic!("body handle {handle:?} is out of range");
+        }
+        if self.generations[id] != handle.generation {
+            panic!("body handle {handle:?} is stale");
+        }
+        if self.index_of[id] == u32::MAX {
+            panic!("body handle {handle:?} is not alive");
+        }
+    }
+
+    pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
-        let records = self.collect_records(world);
-        let body_count = records.len() as u32;
+        let queue = self.gpu.queue();
         self.data
-            .bodies
-            .write(self.gpu.queue(), bytemuck::cast_slice(&records));
+            .commands
+            .write(queue, bytemuck::cast_slice(&self.commands));
+        self.data.command_count.write(
+            queue,
+            bytemuck::cast_slice(&[DispatchCount::sized(self.commands.len() as u32)]),
+        );
         let params = SimParamsRecord::new(
             self.config.gravity,
             dt,
             self.config.damping,
-            body_count,
+            self.alive.len() as u32,
             self.config.relaxation,
         );
         self.data
             .params
-            .write(self.gpu.queue(), bytemuck::cast_slice(&[params]));
-        self.data.reset_counters(self.gpu.queue());
+            .write(queue, bytemuck::cast_slice(&[params]));
+        self.data.reset_counters(queue);
 
         let mut encoder =
             self.gpu
@@ -125,30 +196,41 @@ impl Simulation {
             &self.stages,
             &self.data,
             &mut encoder,
-            body_count,
+            self.alive.len() as u32,
             self.config.solve_iterations,
         );
+        self.data
+            .readback
+            .enqueue(&mut encoder, self.data.bodies.buffer());
         self.gpu.queue().submit([encoder.finish()]);
+        self.commands.clear();
+        self.frame += 1;
     }
 
-    pub fn sync_back(&mut self, world: &mut World) {
+    fn refresh_feedback(&mut self) {
+        if self.feedback_frame == Some(self.frame) {
+            return;
+        }
         let bytes = self
             .data
-            .bodies
-            .read_sync(self.gpu.device(), self.gpu.queue());
+            .readback
+            .read(self.gpu.device());
         let records: &[RigidBodyRecord] = bytemuck::cast_slice(&bytes);
-        for (entity, record) in self.bodies.iter().zip(records) {
-            if !world.alive(*entity) {
-                continue;
-            }
-            let transform = world
-                .get_mut::<Transform>(*entity)
-                .unwrap_or_else(|| panic!("attached body {entity:?} lost Transform"));
-            transform.position = record.position;
-            let velocity = world
-                .get_mut::<Velocity>(*entity)
-                .unwrap_or_else(|| panic!("attached body {entity:?} lost Velocity"));
-            velocity.linear = record.velocity;
+        for (state, record) in self.states.iter_mut().zip(records) {
+            state.position = record.position;
+            state.velocity = record.velocity;
+            state.inverse_mass = record.inverse_mass;
         }
+        self.feedback_frame = Some(self.frame);
+    }
+
+    pub fn read_state(&mut self, handle: BodyHandle) -> BodyState {
+        self.validate(handle);
+        self.refresh_feedback();
+        self.states[self.index_of[handle.id as usize] as usize]
+    }
+
+    pub fn states(&self) -> &[BodyState] {
+        &self.states
     }
 }

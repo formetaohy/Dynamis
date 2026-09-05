@@ -1,8 +1,5 @@
-use dynamis_ecs::World;
 use dynamis_gpu::GpuContext;
-use dynamis_physics::{
-    Mass, PhysicsConfig, Restitution, Simulation, SphereCollider, Transform, Velocity,
-};
+use dynamis_physics::{BodyDesc, BodyHandle, PhysicsConfig, Simulation};
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -12,7 +9,7 @@ const DT: f32 = 1.0 / 60.0;
 static GPU_LOCK: Mutex<()> = Mutex::new(());
 
 fn serialized_gpu() -> (MutexGuard<'static, ()>, GpuContext) {
-    let guard = GPU_LOCK.lock().expect("gpu lock poisoned");
+    let guard = GPU_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let context = pollster::block_on(GpuContext::new());
     (guard, context)
 }
@@ -25,10 +22,13 @@ fn static_config() -> PhysicsConfig {
     }
 }
 
+fn ground(sim: &mut Simulation, radius: f32) -> BodyHandle {
+    sim.spawn(BodyDesc::static_sphere(radius))
+}
+
 #[test]
 fn free_fall_matches_closed_form() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(
         gpu,
         4,
@@ -37,58 +37,39 @@ fn free_fall_matches_closed_form() {
             ..PhysicsConfig::default()
         },
     );
-    let ball = world.spawn((
-        Transform::at([0.0, 10.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.1),
-    ));
-    sim.add(ball);
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.1)
+            .position([0.0, 10.0, 0.0])
+            .mass(1.0)
+            .restitution(0.0),
+    );
 
     const STEPS: u32 = 30;
     for _ in 0..STEPS {
-        sim.step(&world, DT);
-        sim.sync_back(&mut world);
+        sim.step(DT);
     }
+    let state = sim.read_state(ball);
     let expected = 10.0 - 0.5 * GRAVITY * DT * DT * (STEPS as f32 * (STEPS as f32 + 1.0));
-    let actual = world.get::<Transform>(ball).unwrap().position[1];
     assert!(
-        (actual - expected).abs() < 1e-3,
-        "expected {expected}, got {actual}"
+        (state.position[1] - expected).abs() < 1e-3,
+        "expected {expected}, got {}",
+        state.position[1]
     );
     let expected_velocity = -GRAVITY * DT * STEPS as f32;
-    let actual_velocity = world.get::<Velocity>(ball).unwrap().linear[1];
-    assert!((actual_velocity - expected_velocity).abs() < 1e-3);
+    assert!((state.velocity[1] - expected_velocity).abs() < 1e-3);
 }
 
 #[test]
 fn overlapping_bodies_separate() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(gpu, 4, static_config());
-    let first = world.spawn((
-        Transform::at([0.0, -0.4, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    let second = world.spawn((
-        Transform::at([0.0, 0.4, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(first);
-    sim.add(second);
+    let first = sim.spawn(BodyDesc::sphere(0.5).position([0.0, -0.4, 0.0]));
+    let second = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.4, 0.0]));
     for _ in 0..16 {
-        sim.step(&world, DT);
-        sim.sync_back(&mut world);
+        sim.step(DT);
     }
-    let first_y = world.get::<Transform>(first).unwrap().position[1];
-    let second_y = world.get::<Transform>(second).unwrap().position[1];
+    let first_y = sim.read_state(first).position[1];
+    let second_y = sim.read_state(second).position[1];
     let separation = second_y - first_y;
     assert!(separation >= 0.999, "bodies still overlap: {separation}");
 }
@@ -96,7 +77,6 @@ fn overlapping_bodies_separate() {
 #[test]
 fn falling_body_rests_on_ground() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(
         gpu,
         4,
@@ -105,27 +85,12 @@ fn falling_body_rests_on_ground() {
             ..PhysicsConfig::default()
         },
     );
-    let ground = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::static_body(),
-        Restitution(0.0),
-        SphereCollider::new(1.0),
-    ));
-    let ball = world.spawn((
-        Transform::at([0.0, 3.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ground);
-    sim.add(ball);
+    let _ground = ground(&mut sim, 1.0);
+    let ball = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     for _ in 0..120 {
-        sim.step(&world, DT);
-        sim.sync_back(&mut world);
+        sim.step(DT);
     }
-    let ball_y = world.get::<Transform>(ball).unwrap().position[1];
+    let ball_y = sim.read_state(ball).position[1];
     assert!(
         ball_y > 1.4 && ball_y < 1.6,
         "ball should rest on ground surface, got {ball_y}"
@@ -135,7 +100,6 @@ fn falling_body_rests_on_ground() {
 #[test]
 fn single_ball_rests_indefinitely() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(
         gpu,
         4,
@@ -145,30 +109,15 @@ fn single_ball_rests_indefinitely() {
             ..PhysicsConfig::default()
         },
     );
-    let ground = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::static_body(),
-        Restitution(0.0),
-        SphereCollider::new(1.0),
-    ));
-    let ball = world.spawn((
-        Transform::at([0.0, 3.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ground);
-    sim.add(ball);
+    let _ground = ground(&mut sim, 1.0);
+    let ball = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     let mut lowest = f32::INFINITY;
     for _ in 0..600 {
-        sim.step(&world, DT);
-        sim.sync_back(&mut world);
-        let y = world.get::<Transform>(ball).unwrap().position[1];
+        sim.step(DT);
+        let y = sim.read_state(ball).position[1];
         lowest = lowest.min(y);
     }
-    let final_y = world.get::<Transform>(ball).unwrap().position[1];
+    let final_y = sim.read_state(ball).position[1];
     assert!(
         final_y > 1.4 && final_y < 1.6,
         "ball should rest on ground surface, got {final_y}"
@@ -182,7 +131,6 @@ fn single_ball_rests_indefinitely() {
 #[test]
 fn stacked_bodies_do_not_collapse() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(
         gpu,
         8,
@@ -192,36 +140,14 @@ fn stacked_bodies_do_not_collapse() {
             ..PhysicsConfig::default()
         },
     );
-    let ground = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::static_body(),
-        Restitution(0.0),
-        SphereCollider::new(1.0),
-    ));
-    let lower = world.spawn((
-        Transform::at([0.0, 1.5, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    let upper = world.spawn((
-        Transform::at([0.0, 2.5, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ground);
-    sim.add(lower);
-    sim.add(upper);
+    let _ground = ground(&mut sim, 1.0);
+    let lower = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
+    let upper = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 2.5, 0.0]));
     for _ in 0..120 {
-        sim.step(&world, DT);
-        sim.sync_back(&mut world);
+        sim.step(DT);
     }
-    let lower_y = world.get::<Transform>(lower).unwrap().position[1];
-    let upper_y = world.get::<Transform>(upper).unwrap().position[1];
+    let lower_y = sim.read_state(lower).position[1];
+    let upper_y = sim.read_state(upper).position[1];
     assert!(
         lower_y > 1.4 && lower_y < 1.52,
         "lower body should rest on ground, got {lower_y}"
@@ -235,42 +161,81 @@ fn stacked_bodies_do_not_collapse() {
 #[test]
 fn restitution_bounces_ball() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(gpu, 4, static_config());
-    let ground = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::static_body(),
-        Restitution(0.0),
-        SphereCollider::new(1.0),
-    ));
-    let ball = world.spawn((
-        Transform::at([0.0, 1.5, 0.0]),
-        Velocity::at([0.0, -1.0, 0.0]),
-        Mass::new(1.0),
-        Restitution(0.8),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ground);
-    sim.add(ball);
-    sim.step(&world, DT);
-    sim.sync_back(&mut world);
-    let velocity = world.get::<Velocity>(ball).unwrap().linear[1];
-    assert!(
-        velocity > 0.6,
-        "ball should bounce upward, got velocity {velocity}"
+    let _ground = ground(&mut sim, 1.0);
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.5)
+            .position([0.0, 1.5, 0.0])
+            .velocity([0.0, -1.0, 0.0])
+            .restitution(0.8),
     );
-    let position = world.get::<Transform>(ball).unwrap().position[1];
+    sim.step(DT);
+    let state = sim.read_state(ball);
     assert!(
-        position > 1.4,
-        "ball should stay above ground, got {position}"
+        state.velocity[1] > 0.6,
+        "ball should bounce upward, got velocity {}",
+        state.velocity[1]
+    );
+    assert!(
+        state.position[1] > 1.4,
+        "ball should stay above ground, got {}",
+        state.position[1]
     );
 }
 
 #[test]
-fn sync_back_skips_despanned_body() {
+fn removed_body_leaves_others_intact() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
+    let mut sim = Simulation::new(gpu, 8, static_config());
+    let first = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    let second = sim.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
+    let third = sim.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
+    sim.step(DT);
+    sim.remove(second);
+    sim.step(DT);
+    assert_eq!(sim.count(), 2);
+    let first_x = sim.read_state(first).position[0];
+    let third_x = sim.read_state(third).position[0];
+    assert_eq!(first_x, 0.0, "first body was displaced by removal");
+    assert_eq!(third_x, 4.0, "third body was displaced by removal");
+}
+
+#[test]
+fn removed_body_read_panics() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 4, static_config());
+    let ball = sim.spawn(BodyDesc::sphere(0.5));
+    sim.step(DT);
+    sim.remove(ball);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.read_state(ball);
+    }))
+    .is_err());
+}
+
+#[test]
+fn stale_handle_panics() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 4, static_config());
+    let old = sim.spawn(BodyDesc::sphere(0.5));
+    sim.remove(old);
+    let fresh = sim.spawn(BodyDesc::sphere(0.5));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.remove(old);
+    }))
+    .is_err());
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.read_state(old);
+    }))
+    .is_err());
+    sim.step(DT);
+    assert_eq!(sim.count(), 1);
+    assert_eq!(sim.read_state(fresh).position, [0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn set_velocity_overrides_simulation() {
+    let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(
         gpu,
         4,
@@ -279,76 +244,136 @@ fn sync_back_skips_despanned_body() {
             ..PhysicsConfig::default()
         },
     );
-    let ball = world.spawn((
-        Transform::at([0.0, 10.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ball);
-    sim.step(&world, DT);
-    world.despawn(ball);
-    let count = sim.bodies().len();
-    assert_eq!(count, 1);
-    sim.sync_back(&mut world);
-    assert_eq!(world.len(), 0);
+    let ball = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
+    sim.step(DT);
+    sim.set_velocity(ball, [0.0, 3.0, 0.0]);
+    sim.step(DT);
+    let state = sim.read_state(ball);
+    let expected_velocity = 3.0 - GRAVITY * DT;
+    assert!(
+        (state.velocity[1] - expected_velocity).abs() < 1e-4,
+        "patched velocity was not applied, got {} (expected {expected_velocity})",
+        state.velocity[1]
+    );
+    let expected_position = 5.0 + 3.0 * DT - 2.0 * GRAVITY * DT * DT;
+    assert!(
+        (state.position[1] - expected_position).abs() < 1e-3,
+        "position should follow the patched velocity, got {} (expected {expected_position})",
+        state.position[1]
+    );
 }
 
 #[test]
-fn step_panics_when_body_lost_components() {
+fn set_position_teleports_body() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
-    let mut sim = Simulation::new(gpu, 4, static_config());
-    let ball = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(ball);
-    world.remove::<Mass>(ball);
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.step(&world, DT);
-        }))
-        .is_err()
+    let mut sim = Simulation::new(
+        gpu,
+        4,
+        PhysicsConfig {
+            damping: 0.0,
+            ..PhysicsConfig::default()
+        },
     );
+    let ball = sim.spawn(BodyDesc::sphere(0.5));
+    sim.step(DT);
+    sim.set_position(ball, [7.0, 1.0, 2.0]);
+    sim.step(DT);
+    let state = sim.read_state(ball);
+    assert!((state.position[0] - 7.0).abs() < 1e-4);
+    assert!((state.position[1] - (1.0 - 2.0 * GRAVITY * DT * DT)).abs() < 1e-4);
+    assert!((state.position[2] - 2.0).abs() < 1e-4);
+}
+
+#[test]
+fn set_mass_freezes_body() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        4,
+        PhysicsConfig {
+            damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let ball = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
+    sim.step(DT);
+    sim.set_mass(ball, 0.0);
+    sim.step(DT);
+    let state = sim.read_state(ball);
+    assert_eq!(state.inverse_mass, 0.0);
+    assert_eq!(state.velocity, [0.0, 0.0, 0.0]);
+    let frozen_y = sim.read_state(ball).position[1];
+    assert_eq!(state.position[1], frozen_y);
+}
+
+#[test]
+fn despawned_mid_frame_command_batch() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 8, static_config());
+    let first = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    let second = sim.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
+    sim.remove(first);
+    let third = sim.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
+    sim.step(DT);
+    assert_eq!(sim.count(), 2);
+    assert_eq!(sim.read_state(second).position, [2.0, 0.0, 0.0]);
+    assert_eq!(sim.read_state(third).position, [4.0, 0.0, 0.0]);
+}
+
+#[test]
+fn step_panics_on_non_positive_dt() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 4, static_config());
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.step(0.0);
+    }))
+    .is_err());
 }
 
 #[test]
 fn step_panics_when_capacity_exceeded() {
     let (_gpu_guard, gpu) = serialized_gpu();
-    let mut world = World::new();
     let mut sim = Simulation::new(gpu, 2, static_config());
-    let first = world.spawn((
-        Transform::at([0.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    let second = world.spawn((
-        Transform::at([1.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
-    sim.add(first);
-    sim.add(second);
-    let third = world.spawn((
-        Transform::at([2.0, 0.0, 0.0]),
-        Velocity::default(),
-        Mass::new(1.0),
-        Restitution(0.0),
-        SphereCollider::new(0.5),
-    ));
+    let _first = sim.spawn(BodyDesc::sphere(0.5));
+    let _second = sim.spawn(BodyDesc::sphere(0.5));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.spawn(BodyDesc::sphere(0.5));
+    }))
+    .is_err());
+}
+
+#[test]
+fn read_before_any_step_panics() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 4, static_config());
+    let ball = sim.spawn(BodyDesc::sphere(0.5));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sim.read_state(ball);
+    }))
+    .is_err());
+}
+
+#[test]
+fn readback_returns_latest_frame() {
+    let (_gpu_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        4,
+        PhysicsConfig {
+            damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let ball = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 10.0, 0.0]));
+    const STEPS: u32 = 10;
+    for _ in 0..STEPS {
+        sim.step(DT);
+    }
+    let state = sim.read_state(ball);
+    let expected = 10.0 - 0.5 * GRAVITY * DT * DT * (STEPS as f32 * (STEPS as f32 + 1.0));
     assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.add(third);
-        }))
-        .is_err()
+        (state.position[1] - expected).abs() < 1e-3,
+        "readback should return the most recent frame, got {}",
+        state.position[1]
     );
 }

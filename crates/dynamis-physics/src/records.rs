@@ -1,4 +1,4 @@
-use crate::components::{Mass, Restitution, SphereCollider, Transform, Velocity};
+use crate::body::BodyDesc;
 use bytemuck::{Pod, Zeroable};
 use std::mem::size_of;
 
@@ -9,7 +9,18 @@ const _: () = {
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ContactRecord>() == 32);
     assert!(size_of::<DispatchCount>() == 12);
+    assert!(size_of::<BodyCommandRecord>() == 64);
 };
+
+pub(crate) const COMMAND_ADD: u32 = 0;
+pub(crate) const COMMAND_REMOVE: u32 = 1;
+pub(crate) const COMMAND_PATCH: u32 = 2;
+
+pub(crate) const PATCH_POSITION: u32 = 1;
+pub(crate) const PATCH_VELOCITY: u32 = 2;
+pub(crate) const PATCH_INVERSE_MASS: u32 = 4;
+pub(crate) const PATCH_RADIUS: u32 = 8;
+pub(crate) const PATCH_RESTITUTION: u32 = 16;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -25,21 +36,15 @@ pub(crate) struct RigidBodyRecord {
 }
 
 impl RigidBodyRecord {
-    pub(crate) fn build(
-        transform: &Transform,
-        velocity: &Velocity,
-        mass: &Mass,
-        restitution: Restitution,
-        collider: &SphereCollider,
-    ) -> Self {
+    pub(crate) fn build(desc: &BodyDesc) -> Self {
         Self {
-            position: transform.position,
+            position: desc.position,
             _pad0: 0.0,
-            velocity: velocity.linear,
+            velocity: desc.velocity,
             _pad1: 0.0,
-            inverse_mass: mass.inverse,
-            radius: collider.radius,
-            restitution: restitution.0,
+            inverse_mass: if desc.mass > 0.0 { 1.0 / desc.mass } else { 0.0 },
+            radius: desc.radius,
+            restitution: desc.restitution,
             _pad2: 0.0,
         }
     }
@@ -111,5 +116,55 @@ pub(crate) struct DispatchCount {
 impl DispatchCount {
     pub(crate) const fn idle() -> Self {
         Self { x: 0, y: 1, z: 1 }
+    }
+
+    pub(crate) const fn sized(elements: u32) -> Self {
+        Self {
+            x: elements,
+            y: 1,
+            z: 1,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct BodyCommandRecord {
+    pub(crate) kind: u32,
+    pub(crate) slot: u32,
+    pub(crate) extra: u32,
+    _pad: u32,
+    pub(crate) record: RigidBodyRecord,
+}
+
+impl BodyCommandRecord {
+    pub(crate) fn add(slot: u32, record: RigidBodyRecord) -> Self {
+        Self {
+            kind: COMMAND_ADD,
+            slot,
+            extra: 0,
+            _pad: 0,
+            record,
+        }
+    }
+
+    pub(crate) fn remove(hole: u32, tail: u32) -> Self {
+        Self {
+            kind: COMMAND_REMOVE,
+            slot: hole,
+            extra: tail,
+            _pad: 0,
+            record: RigidBodyRecord::zeroed(),
+        }
+    }
+
+    pub(crate) fn patch(slot: u32, mask: u32, record: RigidBodyRecord) -> Self {
+        Self {
+            kind: COMMAND_PATCH,
+            slot,
+            extra: mask,
+            _pad: 0,
+            record,
+        }
     }
 }

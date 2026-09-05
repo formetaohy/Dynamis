@@ -153,31 +153,25 @@ dependencies = [
 
 [[package]]
 name = "dynamis"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
- "dynamis-ecs",
  "dynamis-gpu",
  "dynamis-physics",
  "pollster",
 ]
 
 [[package]]
-name = "dynamis-ecs"
-version = "0.1.1"
-
-[[package]]
 name = "dynamis-gpu"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "wgpu",
 ]
 
 [[package]]
 name = "dynamis-physics"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
- "dynamis-ecs",
  "dynamis-gpu",
  "pollster",
  "wgpu",
