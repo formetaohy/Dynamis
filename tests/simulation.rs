@@ -100,8 +100,8 @@ fn falling_body_rests_on_ground() {
     sim.wait();
     let ball_y = sim.read_state(ball).position[1];
     assert!(
-        ball_y > 0.9 && ball_y < 1.8,
-        "ball should rest near ground surface, got {ball_y}"
+        ball_y > 1.4 && ball_y < 1.6,
+        "ball should rest on ground surface, got {ball_y}"
     );
 }
 

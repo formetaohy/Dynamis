@@ -18,7 +18,11 @@ impl GpuBuffer {
             usage,
             mapped_at_creation: false,
         });
-        Self { buffer, size, usage }
+        Self {
+            buffer,
+            size,
+            usage,
+        }
     }
 
     pub fn write(&self, queue: &Queue, bytes: &[u8]) {

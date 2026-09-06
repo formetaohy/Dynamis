@@ -85,7 +85,8 @@ impl ShapeDesc {
                 let cylinder_mass = mass * cylinder_volume / total;
                 let sphere_mass = mass * sphere_volume / total;
                 let ix = cylinder_mass / 12.0 * (3.0 * r * r + (2.0 * h) * (2.0 * h))
-                    + sphere_mass * (2.0 / 5.0 * r * r + (h + 3.0 / 8.0 * r) * (h + 3.0 / 8.0 * r))
+                    + sphere_mass
+                        * (2.0 / 5.0 * r * r + (h + 3.0 / 8.0 * r) * (h + 3.0 / 8.0 * r))
                         * 2.0;
                 let iy = cylinder_mass / 2.0 * r * r + sphere_mass * 2.0 / 5.0 * r * r * 2.0;
                 [1.0 / ix, 1.0 / iy, 1.0 / ix]

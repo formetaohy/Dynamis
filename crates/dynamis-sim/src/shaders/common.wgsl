@@ -25,6 +25,8 @@ struct SimParams {
 struct RigidBody {
     position: vec3f,
     _pad0: f32,
+    prev_position: vec3f,
+    _prev_pad: f32,
     orientation: vec4f,
     velocity: vec3f,
     _pad1: f32,
@@ -234,6 +236,18 @@ fn box_center(body: RigidBody, collider: Collider) -> vec3f {
     return body.position + quat_rotate(body.orientation, collider.local_offset);
 }
 
+fn box_projected_radius(collider: Collider, q: vec4f, direction: vec3f) -> f32 {
+    let local_direction = quat_rotate(quat_conjugate(q), direction);
+    return abs(local_direction.x) * collider.half_extents.x
+        + abs(local_direction.y) * collider.half_extents.y
+        + abs(local_direction.z) * collider.half_extents.z;
+}
+
+fn box_face_point(body: RigidBody, collider: Collider, direction: vec3f) -> vec3f {
+    let q = quat_mul(body.orientation, collider.local_rotation);
+    return box_center(body, collider) + direction * box_projected_radius(collider, q, direction);
+}
+
 fn box_rotated_axes(body: RigidBody, collider: Collider) -> array<vec3f, 3> {
     let q = quat_mul(body.orientation, collider.local_rotation);
     let axes: array<vec3f, 3> = array(
@@ -259,6 +273,109 @@ fn closest_point_segment(point: vec3f, a: vec3f, b: vec3f) -> vec3f {
     }
     let t = clamp(dot(point - a, ab) / denom, 0.0, 1.0);
     return a + ab * t;
+}
+
+struct ShapeHit {
+    distance: f32,
+    point: vec3f,
+    normal: vec3f,
+}
+
+fn no_hit() -> ShapeHit {
+    return ShapeHit(NO_HIT, vec3f(0.0), vec3f(0.0));
+}
+
+fn ray_sphere(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, radius: f32) -> ShapeHit {
+    let offset = origin - center;
+    let projection = dot(offset, direction);
+    let discriminant = projection * projection - (dot(offset, offset) - radius * radius);
+    if (discriminant < 0.0) {
+        return no_hit();
+    }
+    let root = sqrt(discriminant);
+    var t = -projection - root;
+    if (t < 0.0) {
+        t = -projection + root;
+    }
+    if (t < 0.0 || t > extent) {
+        return no_hit();
+    }
+    let point = origin + direction * t;
+    let normal = normalize(point - center);
+    return ShapeHit(t, point, normal);
+}
+
+fn ray_box(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, q: vec4f, half_extents: vec3f) -> ShapeHit {
+    let local_origin = quat_rotate(quat_conjugate(q), origin - center);
+    let local_direction = quat_rotate(quat_conjugate(q), direction);
+    let inv = 1.0 / local_direction;
+    var tmin = 0.0;
+    var tmax = extent;
+    var normal_axis = vec3f(0.0);
+    for (var axis = 0u; axis < 3u; axis = axis + 1u) {
+        var o = local_origin[axis];
+        var d = local_direction[axis];
+        var n = vec3f(0.0);
+        if (axis == 0u) {
+            n = vec3f(1.0, 0.0, 0.0);
+        } else if (axis == 1u) {
+            n = vec3f(0.0, 1.0, 0.0);
+        } else {
+            n = vec3f(0.0, 0.0, 1.0);
+        }
+        let half = half_extents[axis];
+        var t1 = (-half - o) * inv[axis];
+        var t2 = (half - o) * inv[axis];
+        var normal_candidate = n;
+        if (t1 > t2) {
+            let tmp = t1;
+            t1 = t2;
+            t2 = tmp;
+            normal_candidate = -n;
+        }
+        if (t1 > tmin) {
+            tmin = t1;
+            normal_axis = normal_candidate;
+        }
+        if (t2 < tmax) {
+            tmax = t2;
+        }
+        if (tmin > tmax) {
+            return no_hit();
+        }
+    }
+    if (tmin < 0.0 || tmin > extent) {
+        return no_hit();
+    }
+    let local_point = local_origin + local_direction * tmin;
+    let point = center + quat_rotate(q, local_point);
+    let normal = quat_rotate(q, normal_axis);
+    return ShapeHit(tmin, point, normal);
+}
+
+fn ray_capsule(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, axis: vec3f, half_height: f32, radius: f32) -> ShapeHit {
+    let seg_a = center - axis * half_height;
+    let seg_b = center + axis * half_height;
+    var best = no_hit();
+    for (var sample = 0u; sample <= 8u; sample = sample + 1u) {
+        let t = f32(sample) * (1.0 / 8.0);
+        let sphere_center = seg_a + (seg_b - seg_a) * t;
+        let hit = ray_sphere(origin, direction, extent, sphere_center, radius);
+        if (hit.distance < best.distance) {
+            best = hit;
+        }
+    }
+    return best;
+}
+
+fn min_radius(collider: Collider) -> f32 {
+    if (collider.shape == SHAPE_SPHERE) {
+        return collider.radius;
+    }
+    if (collider.shape == SHAPE_BOX) {
+        return min(min(collider.half_extents.x, collider.half_extents.y), collider.half_extents.z);
+    }
+    return collider.radius;
 }
 
 fn largest_axis(v: vec3f) -> u32 {

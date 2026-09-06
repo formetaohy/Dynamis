@@ -5,7 +5,9 @@ use wgpu::BufferUsages;
 static GPU_LOCK: Mutex<()> = Mutex::new(());
 
 fn serialized_gpu() -> (MutexGuard<'static, ()>, GpuContext) {
-    let guard = GPU_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = GPU_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let context = pollster::block_on(GpuContext::new());
     (guard, context)
 }
@@ -16,13 +18,33 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
     let queue = gpu.queue();
     let count = data.len() as u64;
     let bytes = count * 4;
-    let keys_lo = GpuBuffer::new(device, "klo", bytes, BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC);
-    let keys_hi = GpuBuffer::new(device, "khi", bytes, BufferUsages::STORAGE | BufferUsages::COPY_DST);
-    let values = GpuBuffer::new(device, "val", bytes, BufferUsages::STORAGE | BufferUsages::COPY_DST);
+    let keys_lo = GpuBuffer::new(
+        device,
+        "klo",
+        bytes,
+        BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+    );
+    let keys_hi = GpuBuffer::new(
+        device,
+        "khi",
+        bytes,
+        BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    );
+    let values = GpuBuffer::new(
+        device,
+        "val",
+        bytes,
+        BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    );
     let out_lo = GpuBuffer::new(device, "olo", bytes, BufferUsages::STORAGE);
     let out_hi = GpuBuffer::new(device, "ohi", bytes, BufferUsages::STORAGE);
     let out_val = GpuBuffer::new(device, "oval", bytes, BufferUsages::STORAGE);
-    let holder = GpuBuffer::new(device, "holder", 12, BufferUsages::STORAGE | BufferUsages::COPY_DST);
+    let holder = GpuBuffer::new(
+        device,
+        "holder",
+        12,
+        BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    );
     let mut count_bytes = vec![0u8; 12];
     count_bytes[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
@@ -31,10 +53,19 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
     keys_lo.write(queue, bytemuck::cast_slice(data));
     keys_hi.write(queue, &vec![0u8; bytes as usize]);
     values.write(queue, bytemuck::cast_slice(data));
-    let sort = GpuSort::new(device, "test");
+    let sort = GpuSort::new(device, "test", data.len() as u32);
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: bytes,
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut sort_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("sort"),
+    });
     sort.sort_64(
         device,
-        queue,
+        &mut sort_encoder,
         &holder,
         data.len() as u32,
         &keys_lo,
@@ -44,15 +75,8 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
         &out_hi,
         &out_val,
     );
-    let staging = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("readback"),
-        size: bytes,
-        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    enc.copy_buffer_to_buffer(keys_lo.buffer(), 0, &staging, 0, bytes);
-    queue.submit([enc.finish()]);
+    sort_encoder.copy_buffer_to_buffer(keys_lo.buffer(), 0, &staging, 0, bytes);
+    queue.submit([sort_encoder.finish()]);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     let slice = staging.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();

@@ -31,8 +31,7 @@ async fn run() {
             1 => BodyDesc::cuboid([radius, radius, radius]),
             _ => BodyDesc::capsule(radius, radius),
         };
-        let ball = simulation
-            .spawn(shape.position([x, y, z]).restitution(0.3).friction(0.8));
+        let ball = simulation.spawn(shape.position([x, y, z]).restitution(0.3).friction(0.8));
         balls.push(ball);
     }
 
@@ -45,11 +44,7 @@ async fn run() {
                 .friction(0.2),
         );
         let previous = if index == 0 { anchor } else { chain[index - 1] };
-        simulation.add_constraint(
-            previous,
-            link,
-            ConstraintDesc::ball([0.0; 3], [0.0; 3]),
-        );
+        simulation.add_constraint(previous, link, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
         chain.push(link);
     }
 

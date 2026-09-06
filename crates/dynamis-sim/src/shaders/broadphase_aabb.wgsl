@@ -20,8 +20,9 @@ fn world_aabb(body: RigidBody, collider: Collider) -> Aabb {
         extent = abs(axis * collider.half_height) + vec3f(collider.radius);
     }
     var aabb: Aabb;
-    aabb.min = center - extent;
-    aabb.max = center + extent;
+    let prev_center = body.prev_position + quat_rotate(body.orientation, collider.local_offset);
+    aabb.min = min(center - extent, prev_center - extent);
+    aabb.max = max(center + extent, prev_center + extent);
     return aabb;
 }
 

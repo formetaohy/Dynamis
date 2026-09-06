@@ -3,12 +3,7 @@
 @group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(3) var<storage, read> contact_count: atomic<u32>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
-    if (index >= atomicLoad(&contact_count)) {
-        return;
-    }
+fn solve_contact(index: u32) {
     let contact = contacts[index];
     if (contact.point_count == 0u) {
         return;
@@ -17,7 +12,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var second = bodies[contact.b];
     let normal = contact.normal;
     let tangents = make_tangents(normal);
-
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         let position = contact.points[point_index].position;
         let velocity = relative_velocity(first, second, position, position);
@@ -35,7 +29,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let applied = next - accumulated;
             accumulated = next;
             apply_pair_impulse(&first, &second, position, position, normal * applied);
-
             let velocity_after = relative_velocity(first, second, position, position);
             let tangent_speed = dot(velocity_after, tangents.first);
             let tangent_mass = point_momentum_mass(first, second, position, position, tangents.first);
@@ -46,7 +39,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let applied_tangent_1 = next_tangent_1 - accumulated_tangent_1;
             accumulated_tangent_1 = next_tangent_1;
             apply_pair_impulse(&first, &second, position, position, tangents.first * applied_tangent_1);
-
             let velocity_after_2 = relative_velocity(first, second, position, position);
             let tangent_speed_2 = dot(velocity_after_2, tangents.second);
             let tangent_mass_2 = point_momentum_mass(first, second, position, position, tangents.second);
@@ -56,7 +48,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let applied_tangent_2 = next_tangent_2 - accumulated_tangent_2;
             accumulated_tangent_2 = next_tangent_2;
             apply_pair_impulse(&first, &second, position, position, tangents.second * applied_tangent_2);
-
             var updated_contact = contacts[index];
             updated_contact.points[point_index].accumulated_normal = accumulated;
             updated_contact.points[point_index].accumulated_tangent_1 = accumulated_tangent_1;
@@ -66,4 +57,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     bodies[contact.a] = first;
     bodies[contact.b] = second;
+}
+
+@compute @workgroup_size(64u)
+fn main(@builtin(local_invocation_id) lid: vec3u) {
+    let count = atomicLoad(&contact_count);
+    for (var index = lid.x; index < count; index = index + 64u) {
+        solve_contact(index);
+    }
 }

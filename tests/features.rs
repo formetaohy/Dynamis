@@ -1,6 +1,4 @@
-use dynamis::{
-    BodyDesc, ConstraintDesc, ConstraintKind, GpuContext, PhysicsConfig, Simulation,
-};
+use dynamis::{BodyDesc, ConstraintDesc, ConstraintKind, GpuContext, PhysicsConfig, Simulation};
 use std::sync::{Mutex, MutexGuard};
 
 const DT: f32 = 1.0 / 60.0;
@@ -209,7 +207,8 @@ fn ball_constraint_keeps_distance() {
     sim.wait();
     let p1 = sim.read_state(first).position;
     let p2 = sim.read_state(second).position;
-    let distance = ((p2[0] - p1[0]).powi(2) + (p2[1] - p1[1]).powi(2) + (p2[2] - p1[2]).powi(2)).sqrt();
+    let distance =
+        ((p2[0] - p1[0]).powi(2) + (p2[1] - p1[1]).powi(2) + (p2[2] - p1[2]).powi(2)).sqrt();
     assert!(
         distance < 1.25,
         "ball constraint must keep bodies roughly at initial distance, got {distance}"
@@ -235,7 +234,8 @@ fn distance_constraint_holds_separation() {
     sim.wait();
     let p1 = sim.read_state(first).position;
     let p2 = sim.read_state(second).position;
-    let distance = ((p2[0] - p1[0]).powi(2) + (p2[1] - p1[1]).powi(2) + (p2[2] - p1[2]).powi(2)).sqrt();
+    let distance =
+        ((p2[0] - p1[0]).powi(2) + (p2[1] - p1[1]).powi(2) + (p2[2] - p1[2]).powi(2)).sqrt();
     assert!(
         (distance - 3.0).abs() < 0.4,
         "distance constraint must hold separation, got {distance}"
@@ -272,9 +272,7 @@ fn fixed_constraint_rigidly_links() {
 fn revolute_constraint_allows_hinge_rotation() {
     let (_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, static_config());
-    let anchor = sim.spawn(
-        BodyDesc::static_sphere(0.1).position([0.0, 0.0, 0.0]),
-    );
+    let anchor = sim.spawn(BodyDesc::static_sphere(0.1).position([0.0, 0.0, 0.0]));
     let arm = sim.spawn(BodyDesc::cuboid([0.1, 1.0, 0.1]).position([0.0, 1.0, 0.0]));
     sim.add_constraint(
         anchor,
@@ -314,10 +312,7 @@ fn prismatic_constraint_slides_along_axis() {
     sim.wait();
     let state = sim.read_state(slider);
     let p = state.position;
-    assert!(
-        p[1] < 5.5,
-        "slider must remain on axis line, got {p:?}"
-    );
+    assert!(p[1] < 5.5, "slider must remain on axis line, got {p:?}");
 }
 
 #[test]
@@ -355,10 +350,14 @@ fn large_bodies_collide_with_small() {
 #[test]
 fn set_shape_switches_collider() {
     let (_guard, gpu) = serialized_gpu();
-    let mut sim = Simulation::new(gpu, 8, PhysicsConfig {
-        gravity: [0.0, -1.0, 0.0],
-        ..PhysicsConfig::default()
-    });
+    let mut sim = Simulation::new(
+        gpu,
+        8,
+        PhysicsConfig {
+            gravity: [0.0, -1.0, 0.0],
+            ..PhysicsConfig::default()
+        },
+    );
     let ball = sim.spawn(
         BodyDesc::sphere(0.5)
             .position([0.0, 5.0, 0.0])
@@ -485,17 +484,9 @@ fn constraint_handle_generation_reuse() {
     let mut sim = Simulation::new(gpu, 16, static_config());
     let first = sim.spawn(BodyDesc::sphere(0.2));
     let second = sim.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
-    let constraint = sim.add_constraint(
-        first,
-        second,
-        ConstraintDesc::ball([0.0; 3], [0.0; 3]),
-    );
+    let constraint = sim.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
     sim.remove_constraint(constraint);
-    let fresh = sim.add_constraint(
-        first,
-        second,
-        ConstraintDesc::ball([0.0; 3], [0.0; 3]),
-    );
+    let fresh = sim.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
     assert_ne!(
         constraint.generation, fresh.generation,
         "reused slot must bump generation"
@@ -549,5 +540,136 @@ fn kinematic_flag_round_trip() {
         state.position[1] < -0.1,
         "de-kinematic body should fall, got {:?}",
         state.position
+    );
+}
+
+#[test]
+fn high_speed_bullet_does_not_tunnel() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        8,
+        PhysicsConfig {
+            gravity: [0.0, 0.0, 0.0],
+            damping: 0.0,
+            angular_damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let _target = sim.spawn(BodyDesc::static_sphere(0.1));
+    let bullet = sim.spawn(
+        BodyDesc::sphere(0.5)
+            .position([-5.0, 0.0, 0.0])
+            .velocity([60.0, 0.0, 0.0])
+            .restitution(0.0),
+    );
+    for _ in 0..30 {
+        sim.step(DT);
+        sim.wait();
+    }
+    let state = sim.read_state(bullet);
+    assert!(
+        state.position[0] < -0.5,
+        "bullet should be stopped at the target surface, got x={}",
+        state.position[0]
+    );
+    assert!(
+        state.velocity[0].abs() < 0.01,
+        "bullet velocity should be absorbed on contact, got {}",
+        state.velocity[0]
+    );
+}
+
+#[test]
+fn moderate_speed_contact_uses_narrowphase() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        8,
+        PhysicsConfig {
+            gravity: [0.0, 0.0, 0.0],
+            damping: 0.0,
+            angular_damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let _ground = sim.spawn(BodyDesc::static_sphere(1.0));
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.5)
+            .position([0.0, 2.0, 0.0])
+            .velocity([0.0, -0.5, 0.0])
+            .restitution(0.0),
+    );
+    for _ in 0..90 {
+        sim.step(DT);
+    }
+    sim.wait();
+    let state = sim.read_state(ball);
+    assert!(
+        (state.position[1] - 1.5).abs() < 0.05,
+        "slow ball should rest exactly on surface, got y={}",
+        state.position[1]
+    );
+}
+
+#[test]
+fn radix_sort_orders_duplicate_cells_stably() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        400,
+        PhysicsConfig {
+            gravity: [0.0, 0.0, 0.0],
+            damping: 0.0,
+            angular_damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let mut handles = Vec::new();
+    for i in 0..300 {
+        let x = (i % 10) as f32 * 0.3;
+        let y = (i / 10) as f32 * 0.3;
+        handles.push(sim.spawn(BodyDesc::sphere(0.1).position([x, y, 0.0])));
+    }
+    for _ in 0..5 {
+        sim.step(DT);
+    }
+    sim.wait();
+    for handle in handles {
+        let _ = sim.read_state(handle);
+    }
+    let count = sim.count();
+    assert_eq!(count, 300, "bodies were lost through broadphase");
+}
+
+#[test]
+fn swept_aabb_covers_fast_motion() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(
+        gpu,
+        8,
+        PhysicsConfig {
+            gravity: [0.0, 0.0, 0.0],
+            damping: 0.0,
+            angular_damping: 0.0,
+            ..PhysicsConfig::default()
+        },
+    );
+    let _target = sim.spawn(BodyDesc::static_sphere(0.2).position([4.0, 0.0, 0.0]));
+    let bullet = sim.spawn(
+        BodyDesc::sphere(0.3)
+            .position([0.0, 0.0, 0.0])
+            .velocity([90.0, 0.0, 0.0])
+            .restitution(0.0),
+    );
+    for _ in 0..20 {
+        sim.step(DT);
+        sim.wait();
+    }
+    let state = sim.read_state(bullet);
+    assert!(
+        state.position[0] < 3.8,
+        "bullet should not tunnel at extreme speed, got x={}",
+        state.position[0]
     );
 }

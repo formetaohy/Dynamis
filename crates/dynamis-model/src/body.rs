@@ -50,7 +50,10 @@ impl BodyDesc {
 
     pub fn capsule(radius: f32, half_height: f32) -> Self {
         assert!(radius > 0.0, "capsule radius must be strictly positive");
-        assert!(half_height >= 0.0, "capsule half height must be non-negative");
+        assert!(
+            half_height >= 0.0,
+            "capsule half height must be non-negative"
+        );
         Self::new(ShapeDesc::capsule(radius, half_height))
     }
 

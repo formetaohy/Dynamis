@@ -32,7 +32,11 @@ fn sphere_sphere(
     if (distance > radius_sum) {
         return contact;
     }
-    let normal = sign_normalize(delta);
+    var normal = sign_normalize(delta);
+    if (distance <= 1e-6) {
+        let relative = relative_velocity(first, second, second.position, first.position);
+        normal = select(normal, -normalize(relative), length(relative) > 1e-6);
+    }
     let depth = radius_sum - distance;
     let point = first.position + normal * (first_collider.radius - depth * 0.5);
     manifold_push(&contact, point, depth);
@@ -240,7 +244,7 @@ fn box_box_sat(
     }
     let signed = select(best_axis, -best_axis, dot(best_axis, delta) < 0.0);
     let depth = best;
-    let point = (center_a + center_b) * 0.5;
+    let point = box_face_point(second, second_collider, -signed);
     contact_emit(&contact, signed);
     manifold_push(&contact, point, depth);
     return contact;

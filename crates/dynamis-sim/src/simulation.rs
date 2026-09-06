@@ -4,9 +4,9 @@ use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{
     BodyCommandRecord, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, DispatchArgs,
-    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_ANGULAR_VELOCITY, PATCH_VELOCITY,
-    QueryRecord, QueryResultRecord, RigidBodyRecord, SimParamsRecord,
+    PATCH_ANGULAR_VELOCITY, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS,
+    PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION,
+    PATCH_VELOCITY, QueryRecord, QueryResultRecord, RigidBodyRecord, SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ConstraintDesc, ConstraintHandle, PhysicsConfig, ShapeDesc,
@@ -150,6 +150,18 @@ impl Simulation {
         self.buffers.entry_count.buffer()
     }
 
+    pub fn debug_large_count(&self) -> &wgpu::Buffer {
+        self.buffers.large_count.buffer()
+    }
+
+    pub fn debug_large_bodies(&self) -> &wgpu::Buffer {
+        self.buffers.large_bodies.buffer()
+    }
+
+    pub fn debug_aabbs(&self) -> &wgpu::Buffer {
+        self.buffers.aabbs.buffer()
+    }
+
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         let id = self
             .free_ids
@@ -237,9 +249,8 @@ impl Simulation {
         self.masses[handle.id as usize] = mass;
         let mut record = RigidBodyRecord::zeroed();
         record.inverse_mass = inverse_mass(mass, self.is_kinematic(handle));
-        record.inverse_inertia_body = self
-            .shapes[handle.id as usize]
-            .inverse_inertia_diagonal(record.inverse_mass);
+        record.inverse_inertia_body =
+            self.shapes[handle.id as usize].inverse_inertia_diagonal(record.inverse_mass);
         self.schedule_patch(handle, PATCH_INVERSE_MASS, record, None);
     }
 
@@ -289,8 +300,8 @@ impl Simulation {
             0
         };
         record.inverse_mass = inverse_mass(self.masses[handle.id as usize], kinematic);
-        record.inverse_inertia_body = self.shapes[handle.id as usize]
-            .inverse_inertia_diagonal(record.inverse_mass);
+        record.inverse_inertia_body =
+            self.shapes[handle.id as usize].inverse_inertia_diagonal(record.inverse_mass);
         self.kinematic_flags[handle.id as usize] = kinematic;
         self.schedule_patch(handle, PATCH_KINEMATIC, record, None);
     }
@@ -333,8 +344,10 @@ impl Simulation {
         if first == second {
             panic!("constraint bodies must be distinct");
         }
-        if !matches!(desc.kind, dynamis_model::ConstraintKind::Ball | dynamis_model::ConstraintKind::Distance)
-            && desc.axis == [0.0; 3]
+        if !matches!(
+            desc.kind,
+            dynamis_model::ConstraintKind::Ball | dynamis_model::ConstraintKind::Distance
+        ) && desc.axis == [0.0; 3]
         {
             panic!("constraint axis must be non-zero");
         }
@@ -350,7 +363,11 @@ impl Simulation {
         let slot = self.constraint_alive.len() as u32;
         self.constraint_index_of[id as usize] = slot;
         self.constraint_alive.push(handle);
-        let record = ConstraintRecord::build(&desc, self.index_of[first.id as usize], self.index_of[second.id as usize]);
+        let record = ConstraintRecord::build(
+            &desc,
+            self.index_of[first.id as usize],
+            self.index_of[second.id as usize],
+        );
         self.constraint_commands
             .push(ConstraintCommandRecord::add(slot, record));
         handle
@@ -431,9 +448,7 @@ impl Simulation {
             .write(queue, bytemuck::cast_slice(&self.constraint_commands));
         self.buffers.constraint_command_count.write(
             queue,
-            bytemuck::cast_slice(&[DispatchArgs::sized(
-                self.constraint_commands.len() as u32,
-            )]),
+            bytemuck::cast_slice(&[DispatchArgs::sized(self.constraint_commands.len() as u32)]),
         );
         let params = SimParamsRecord::new(
             &self.config,
@@ -453,15 +468,13 @@ impl Simulation {
             self.query_pool.mark_batch(step, slots);
         }
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("dynamis step encoder"),
-            });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dynamis step encoder"),
+        });
         encode_physics(
             &self.stages,
             &self.buffers,
             device,
-            queue,
             &mut encoder,
             self.alive.len() as u32,
             self.config.solve_iterations,
@@ -619,9 +632,5 @@ fn inverse_mass(mass: f32, kinematic: bool) -> f32 {
     if kinematic {
         return 0.0;
     }
-    if mass > 0.0 {
-        1.0 / mass
-    } else {
-        0.0
-    }
+    if mass > 0.0 { 1.0 / mass } else { 0.0 }
 }

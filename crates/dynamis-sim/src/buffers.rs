@@ -18,9 +18,24 @@ impl SortSlots {
     fn new(device: &Device, label: &str, capacity: usize) -> Self {
         let bytes = (capacity * size_of::<u32>()) as u64;
         Self {
-            keys_hi: GpuBuffer::new(device, &format!("{label} keys hi"), bytes, BufferUsages::STORAGE | BufferUsages::COPY_SRC),
-            keys_lo: GpuBuffer::new(device, &format!("{label} keys lo"), bytes, BufferUsages::STORAGE | BufferUsages::COPY_SRC),
-            values: GpuBuffer::new(device, &format!("{label} values"), bytes, BufferUsages::STORAGE | BufferUsages::COPY_SRC),
+            keys_hi: GpuBuffer::new(
+                device,
+                &format!("{label} keys hi"),
+                bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            keys_lo: GpuBuffer::new(
+                device,
+                &format!("{label} keys lo"),
+                bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            values: GpuBuffer::new(
+                device,
+                &format!("{label} values"),
+                bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
         }
     }
 
@@ -98,7 +113,7 @@ impl StageBuffers {
                 device,
                 "broadphase aabbs",
                 aabb_bytes,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             entries: SortSlots::new(device, "grid entries", entry_capacity),
             entry_count: GpuBuffer::new(
@@ -195,11 +210,7 @@ impl StageBuffers {
                 "query results readback",
                 query_result_bytes,
             ),
-            sort_scratch: SortSlots::new(
-                device,
-                "sort scratch",
-                entry_capacity.max(pair_capacity),
-            ),
+            sort_scratch: SortSlots::new(device, "sort scratch", entry_capacity.max(pair_capacity)),
         }
     }
 

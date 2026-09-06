@@ -3,7 +3,7 @@ use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<RigidBodyRecord>() == 160);
+    assert!(size_of::<RigidBodyRecord>() == 176);
     assert!(size_of::<ColliderRecord>() == 64);
     assert!(size_of::<SimParamsRecord>() == 96);
     assert!(size_of::<AabbRecord>() == 32);
@@ -12,7 +12,7 @@ const _: () = {
     assert!(size_of::<ContactRecord>() == 160);
     assert!(size_of::<ConstraintRecord>() == 128);
     assert!(size_of::<DispatchArgs>() == 12);
-    assert!(size_of::<BodyCommandRecord>() == 240);
+    assert!(size_of::<BodyCommandRecord>() == 256);
     assert!(size_of::<ConstraintCommandRecord>() == 144);
     assert!(size_of::<QueryRecord>() == 48);
     assert!(size_of::<QueryResultRecord>() == 48);
@@ -67,6 +67,8 @@ pub const NO_HIT: f32 = f32::MAX;
 pub struct RigidBodyRecord {
     pub position: [f32; 3],
     _pad0: f32,
+    pub prev_position: [f32; 3],
+    _prev_pad: f32,
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
     _pad1: f32,
@@ -92,21 +94,18 @@ pub struct RigidBodyRecord {
     _pad5: f32,
 }
 
-
 impl RigidBodyRecord {
     pub fn build(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
         let inverse_mass = if desc.kinematic || desc.mass > 0.0 {
-            if desc.kinematic {
-                0.0
-            } else {
-                1.0 / desc.mass
-            }
+            if desc.kinematic { 0.0 } else { 1.0 / desc.mass }
         } else {
             0.0
         };
         Self {
             position: desc.position,
             _pad0: 0.0,
+            prev_position: desc.position,
+            _prev_pad: 0.0,
             orientation: desc.orientation,
             velocity: desc.velocity,
             _pad1: 0.0,
@@ -196,12 +195,7 @@ pub struct SimParamsRecord {
 }
 
 impl SimParamsRecord {
-    pub fn new(
-        config: &PhysicsConfig,
-        dt: f32,
-        body_count: u32,
-        constraint_count: u32,
-    ) -> Self {
+    pub fn new(config: &PhysicsConfig, dt: f32, body_count: u32, constraint_count: u32) -> Self {
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,

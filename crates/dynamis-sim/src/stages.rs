@@ -4,10 +4,10 @@ use dynamis_layout::{
     BODY_KINEMATIC, COMMAND_ADD, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
     COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE, CONSTRAINT_BALL,
     CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_INVALID, CONSTRAINT_PRISMATIC,
-    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, IMPULSE_AT_POINT, NO_BODY, PATCH_COLLIDER,
-    PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_RESTITUTION, PATCH_ANGULAR_VELOCITY, PATCH_VELOCITY, QUERY_RAY,
-    QUERY_SPHERE, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
+    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, IMPULSE_AT_POINT, NO_BODY, PATCH_ANGULAR_VELOCITY,
+    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_RAY, QUERY_SPHERE,
+    SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
@@ -138,6 +138,7 @@ pub(crate) struct Stages {
     large_pairs: Stage,
     narrowphase: Stage,
     solve: Stage,
+    ccd_sweep: Stage,
     solve_constraints: Stage,
     solve_position: Stage,
     query: Stage,
@@ -295,6 +296,27 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.pair_count,
             ],
         ),
+        ccd_sweep: Stage::build(
+            device,
+            "ccd_sweep",
+            &assemble_shader(include_str!("shaders/ccd_sweep.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.colliders,
+                &buffers.pairs.keys_hi,
+                &buffers.pairs.keys_lo,
+                &buffers.pair_count,
+            ],
+        ),
         solve: Stage::build(
             device,
             "solve",
@@ -363,7 +385,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.params,
             ],
         ),
-        sort: GpuSort::new(device, "sim sort"),
+        sort: GpuSort::new(device, "sim sort", buffers.sort_scratch.capacity_u32()),
         sort_hi: GpuBuffer::new(
             device,
             "sort scratch hi",
@@ -385,12 +407,14 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "physics encoding carries the full stage set, buffers and frame parameters")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "physics encoding carries the full stage set, buffers and frame parameters"
+)]
 pub(crate) fn encode_physics(
     stages: &Stages,
     buffers: &StageBuffers,
     device: &Device,
-    queue: &wgpu::Queue,
     encoder: &mut CommandEncoder,
     body_count: u32,
     solve_iterations: u32,
@@ -404,7 +428,7 @@ pub(crate) fn encode_physics(
     stages.grid_entries.dispatch(encoder, body_count);
     stages.sort.sort_64(
         device,
-        queue,
+        encoder,
         &buffers.entry_count,
         buffers.entries.capacity_u32(),
         &buffers.entries.keys_lo,
@@ -414,11 +438,13 @@ pub(crate) fn encode_physics(
         &stages.sort_lo,
         &stages.sort_values,
     );
-    stages.broadphase_pairs.dispatch_indirect_workgrouped(encoder, &buffers.entry_count);
+    stages
+        .broadphase_pairs
+        .dispatch_indirect_workgrouped(encoder, &buffers.entry_count);
     stages.large_pairs.dispatch(encoder, body_count);
     stages.sort.sort_64(
         device,
-        queue,
+        encoder,
         &buffers.pair_count,
         buffers.pairs.capacity_u32(),
         &buffers.pairs.keys_lo,
@@ -428,12 +454,17 @@ pub(crate) fn encode_physics(
         &stages.sort_lo,
         &stages.sort_values,
     );
-    stages.narrowphase.dispatch_indirect(encoder, &buffers.pair_count);
+    stages
+        .ccd_sweep
+        .dispatch_indirect(encoder, &buffers.pair_count);
+    stages
+        .narrowphase
+        .dispatch_indirect(encoder, &buffers.pair_count);
     for _ in 0..solve_iterations {
-        stages.solve_constraints.dispatch(encoder, buffers.constraint_capacity());
         stages
-            .solve
-            .dispatch_indirect(encoder, &buffers.contact_count);
+            .solve_constraints
+            .dispatch(encoder, buffers.constraint_capacity());
+        stages.solve.dispatch(encoder, 1);
     }
     for _ in 0..position_iterations {
         stages
