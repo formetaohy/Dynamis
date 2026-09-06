@@ -1,0 +1,12 @@
+[package]
+name = "dynamis-example-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { workspace = true }
+dynamis = { path = "../.." }
+pollster = "0.4"
+
+[lints]
+workspace = true

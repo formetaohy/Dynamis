@@ -5,6 +5,12 @@ const DT: f32 = 1.0 / 60.0;
 
 static GPU_LOCK: Mutex<()> = Mutex::new(());
 
+#[test]
+fn simulation_is_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Simulation>();
+}
+
 fn serialized_gpu() -> (MutexGuard<'static, ()>, GpuContext) {
     let guard = GPU_LOCK
         .lock()

@@ -1,4 +1,4 @@
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::{Arc, Mutex};
 use wgpu::{
     Buffer, BufferAddress, BufferAsyncError, BufferDescriptor, BufferUsages, Device, MapMode,
     PollType, Queue,
@@ -69,7 +69,8 @@ impl GpuBuffer {
 
 struct PendingRead {
     sequence: u64,
-    channel: Option<mpsc::Receiver<Result<(), BufferAsyncError>>>,
+    mapping_started: bool,
+    result: Arc<Mutex<Option<Result<(), BufferAsyncError>>>>,
 }
 
 pub struct GpuReadback {
@@ -116,7 +117,8 @@ impl GpuReadback {
         encoder.copy_buffer_to_buffer(source, 0, &self.staging[slot], 0, self.size);
         self.pending[slot] = Some(PendingRead {
             sequence,
-            channel: None,
+            mapping_started: false,
+            result: Arc::new(Mutex::new(None)),
         });
         displaced
     }
@@ -152,39 +154,33 @@ impl GpuReadback {
         let pending = self.pending[slot]
             .as_mut()
             .expect("pending readback just checked");
-        if pending.channel.is_none() {
-            let (sender, receiver) = mpsc::channel();
+        if !pending.mapping_started {
+            pending.mapping_started = true;
+            let result = pending.result.clone();
             self.staging[slot]
                 .slice(..)
-                .map_async(MapMode::Read, move |result| {
-                    let _ = sender.send(result);
+                .map_async(MapMode::Read, move |value| {
+                    *result.lock().unwrap() = Some(value);
                 });
-            pending.channel = Some(receiver);
         }
     }
 
     fn try_consume(&mut self, slot: usize) -> Option<(u64, Vec<u8>)> {
-        let pending = self.pending[slot].as_ref()?;
-        let channel = pending.channel.as_ref()?;
-        match channel.try_recv() {
-            Ok(Ok(())) => {
-                let pending = self.pending[slot]
-                    .take()
-                    .expect("pending readback just checked");
-                let bytes = self.staging[slot]
-                    .slice(..)
-                    .get_mapped_range()
-                    .expect("mapped range unavailable")
-                    .to_vec();
-                self.staging[slot].unmap();
-                Some((pending.sequence, bytes))
-            }
-            Ok(Err(error)) => panic!("buffer mapping failed: {error}"),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                panic!("mapping callback was dropped")
-            }
-        }
+        let result = {
+            let pending = self.pending[slot].as_ref()?;
+            pending.result.lock().unwrap().take()?
+        };
+        result.unwrap_or_else(|error| panic!("buffer mapping failed: {error}"));
+        let pending = self.pending[slot]
+            .take()
+            .expect("pending readback just checked");
+        let bytes = self.staging[slot]
+            .slice(..)
+            .get_mapped_range()
+            .expect("mapped range unavailable")
+            .to_vec();
+        self.staging[slot].unmap();
+        Some((pending.sequence, bytes))
     }
 
     fn drain(&mut self, device: &Device, slot: usize) -> (u64, Vec<u8>) {
