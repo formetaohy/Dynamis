@@ -473,6 +473,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let second_body_slot = second_slot / 4u;
     let first = bodies[first_body_slot];
     let second = bodies[second_body_slot];
+    if (first_body_slot == second_body_slot) {
+        return;
+    }
     if (body_is_static(first) && body_is_static(second)) {
         return;
     }

@@ -210,3 +210,73 @@ fn sweep_query_detects_blocking_wall() {
         hit.distance
     );
 }
+
+#[test]
+fn deep_penetrating_hull_escapes_box() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 8, PhysicsConfig::default());
+    let ground = sim.spawn(BodyDesc::cuboid([20.0, 1.0, 20.0]).mass(0.0).position([0.0, -1.0, 0.0]));
+    let _ = ground;
+    let vertices = vec![
+        [-0.5f32, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5],
+        [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5],
+    ];
+    let triangles = vec![
+        [0u32, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1],
+        [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0],
+    ];
+    let source = sim.add_hull(&vertices, &triangles);
+    let hull = sim.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(source)))
+            .position([0.0, 0.3, 0.0])
+            .restitution(0.0),
+    );
+    settle(&mut sim, 90);
+    let y = sim.read_state(hull).position[1];
+    assert!(
+        y > 0.3 && y < 2.0,
+        "embedded hull must be expelled to the box top by the penetration solver, got {y}"
+    );
+}
+
+#[test]
+fn mesh_plane_blocks_body_from_below() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 8, PhysicsConfig::default());
+    flat_floor(&mut sim);
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.5).position([0.0, -3.0, 0.0]).velocity([0.0, 10.0, 0.0]).restitution(0.0),
+    );
+    let mut peak = f32::MIN;
+    for _ in 0..40 {
+        sim.step(DT);
+        sim.wait();
+        peak = peak.max(sim.read_state(ball).position[1]);
+    }
+    assert!(
+        peak <= -0.45,
+        "mesh plane must stop the body on its lower side, peak reached {peak}"
+    );
+}
+
+#[test]
+fn height_field_blocks_body_from_below() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 8, PhysicsConfig::default());
+    let heights = vec![0.0f32; 9];
+    let source = sim.add_height_field(3, 3, &heights, [2.0, 2.0]);
+    sim.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
+    let ball = sim.spawn(
+        BodyDesc::sphere(0.5).position([0.0, -3.0, 0.0]).velocity([0.0, 10.0, 0.0]).restitution(0.0),
+    );
+    let mut peak = f32::MIN;
+    for _ in 0..40 {
+        sim.step(DT);
+        sim.wait();
+        peak = peak.max(sim.read_state(ball).position[1]);
+    }
+    assert!(
+        peak <= -0.45,
+        "height field must stop the body on its lower side, peak reached {peak}"
+    );
+}

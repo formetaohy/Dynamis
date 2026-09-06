@@ -214,12 +214,19 @@ pub(crate) struct Stages {
     island_jump: Stage,
     island_aggregate: Stage,
     island_broadcast: Stage,
-    bucket_contacts: Stage,
-    bucket_constraints: Stage,
+    gather_contact_keys_a: Stage,
+    gather_contact_keys_b: Stage,
+    gather_constraint_keys_a: Stage,
+    gather_constraint_keys_b: Stage,
+    reset_gather_boundaries: Stage,
+    mark_contact_boundaries: Stage,
+    mark_constraint_boundaries: Stage,
     ccd_sweep: Stage,
-    solve: Stage,
-    solve_constraints: Stage,
-    solve_position: Stage,
+    contact_solve_extract: Stage,
+    constraint_solve_extract: Stage,
+    body_apply_solver: Stage,
+    position_solve_extract: Stage,
+    body_apply_positions: Stage,
     query: Stage,
     sort: GpuSort,
     sort_hi: GpuBuffer,
@@ -619,12 +626,11 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
-        bucket_contacts: Stage::build(
+        gather_contact_keys_a: Stage::build(
             device,
-            "bucket_contacts",
-            &assemble_shader(include_str!("shaders/bucket_contacts.wgsl")),
+            "gather_contact_keys_a",
+            &assemble_shader(include_str!("shaders/gather_contact_keys_a.wgsl")),
             &[
-                BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
@@ -633,23 +639,43 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
             ],
             &[
-                &buffers.island_parents,
                 &buffers.contact_count,
                 &buffers.contact_keys_hi,
                 &buffers.contact_indices,
-                &buffers.pairs.keys_hi,
-                &buffers.pairs.keys_lo,
-                &buffers.pairs.values,
+                &buffers.contact_gather_a.keys_hi,
+                &buffers.contact_gather_a.keys_lo,
+                &buffers.contact_gather_a.values,
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
-        bucket_constraints: Stage::build(
+        gather_contact_keys_b: Stage::build(
             device,
-            "bucket_constraints",
-            &assemble_shader(include_str!("shaders/bucket_constraints.wgsl")),
+            "gather_contact_keys_b",
+            &assemble_shader(include_str!("shaders/gather_contact_keys_b.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.contact_count,
+                &buffers.contacts,
+                &buffers.contact_indices,
+                &buffers.contact_gather_b.keys_hi,
+                &buffers.contact_gather_b.keys_lo,
+                &buffers.contact_gather_b.values,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        gather_constraint_keys_a: Stage::build(
+            device,
+            "gather_constraint_keys_a",
+            &assemble_shader(include_str!("shaders/gather_constraint_keys_a.wgsl")),
             &[
                 BindingKind::Uniform,
-                BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
@@ -657,11 +683,90 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             ],
             &[
                 &buffers.params,
-                &buffers.island_parents,
                 &buffers.constraints,
-                &buffers.entries.keys_hi,
-                &buffers.entries.keys_lo,
-                &buffers.entries.values,
+                &buffers.constraint_gather_a.keys_hi,
+                &buffers.constraint_gather_a.keys_lo,
+                &buffers.constraint_gather_a.values,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        gather_constraint_keys_b: Stage::build(
+            device,
+            "gather_constraint_keys_b",
+            &assemble_shader(include_str!("shaders/gather_constraint_keys_b.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.constraints,
+                &buffers.constraint_gather_b.keys_hi,
+                &buffers.constraint_gather_b.keys_lo,
+                &buffers.constraint_gather_b.values,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        reset_gather_boundaries: Stage::build(
+            device,
+            "reset_gather_boundaries",
+            &assemble_shader(include_str!("shaders/reset_gather_boundaries.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.contact_first_a,
+                &buffers.contact_first_b,
+                &buffers.constraint_first_a,
+                &buffers.constraint_first_b,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        mark_contact_boundaries: Stage::build(
+            device,
+            "mark_contact_boundaries",
+            &assemble_shader(include_str!("shaders/mark_contact_boundaries.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.contact_count,
+                &buffers.contact_gather_a.keys_hi,
+                &buffers.contact_gather_b.keys_hi,
+                &buffers.contact_first_a,
+                &buffers.contact_first_b,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        mark_constraint_boundaries: Stage::build(
+            device,
+            "mark_constraint_boundaries",
+            &assemble_shader(include_str!("shaders/mark_constraint_boundaries.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.constraint_gather_a.keys_hi,
+                &buffers.constraint_gather_b.keys_hi,
+                &buffers.constraint_first_a,
+                &buffers.constraint_first_b,
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
@@ -695,17 +800,17 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
-        solve: Stage::build(
+        contact_solve_extract: Stage::build(
             device,
-            "solve",
-            &assemble_shader(include_str!("shaders/solve.wgsl")),
+            "contact_solve_extract",
+            &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl")),
             &[
                 BindingKind::Uniform,
-                BindingKind::ReadWriteStorage,
-                BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
@@ -713,45 +818,121 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contacts,
                 &buffers.contact_count,
                 &buffers.wake_flags,
-                &buffers.pairs.values,
+                &buffers.contact_deltas,
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
-        solve_constraints: Stage::build(
+        constraint_solve_extract: Stage::build(
             device,
-            "solve_constraints",
-            &assemble_shader(include_str!("shaders/constraints.wgsl")),
+            "constraint_solve_extract",
+            &assemble_shader(include_str!("shaders/constraint_solve_extract.wgsl")),
             &[
                 BindingKind::Uniform,
-                BindingKind::ReadWriteStorage,
-                BindingKind::ReadWriteStorage,
-                BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.bodies_current,
                 &buffers.constraints,
                 &buffers.wake_flags,
-                &buffers.entries.values,
+                &buffers.constraint_deltas,
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
-        solve_position: Stage::build(
+        body_apply_solver: Stage::build(
             device,
-            "solve_position",
-            &assemble_shader(include_str!("shaders/solve_position.wgsl")),
+            "body_apply_solver",
+            &assemble_shader(include_str!("shaders/body_apply_solver.wgsl")),
             &[
                 BindingKind::Uniform,
                 BindingKind::ReadWriteStorage,
-                BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.contact_first_a,
+                &buffers.contact_first_b,
+                &buffers.contact_gather_a.keys_hi,
+                &buffers.contact_gather_a.values,
+                &buffers.contact_gather_b.keys_hi,
+                &buffers.contact_gather_b.values,
+                &buffers.constraint_first_a,
+                &buffers.constraint_first_b,
+                &buffers.constraint_gather_a.keys_hi,
+                &buffers.constraint_gather_a.values,
+                &buffers.constraint_gather_b.keys_hi,
+                &buffers.constraint_gather_b.values,
+                &buffers.contact_count,
+                &buffers.contact_deltas,
+                &buffers.constraint_deltas,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        position_solve_extract: Stage::build(
+            device,
+            "position_solve_extract",
+            &assemble_shader(include_str!("shaders/position_solve_extract.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.bodies_current,
                 &buffers.contacts,
                 &buffers.contact_count,
+                &buffers.contact_deltas,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        body_apply_positions: Stage::build(
+            device,
+            "body_apply_positions",
+            &assemble_shader(include_str!("shaders/body_apply_positions.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.contact_first_a,
+                &buffers.contact_first_b,
+                &buffers.contact_gather_a.keys_hi,
+                &buffers.contact_gather_a.values,
+                &buffers.contact_gather_b.keys_hi,
+                &buffers.contact_gather_b.values,
+                &buffers.contact_count,
+                &buffers.contact_deltas,
             ],
             &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
@@ -907,47 +1088,88 @@ pub(crate) fn encode_physics(
         stages.island_jump.dispatch(encoder, body_count);
     }
     stages
-        .bucket_contacts
+        .gather_contact_keys_a
         .dispatch_indirect(encoder, &buffers.contact_count);
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.contact_count,
-        buffers.pairs.capacity_u32(),
-        &buffers.pairs.keys_lo,
-        &buffers.pairs.keys_hi,
-        &buffers.pairs.values,
-        &stages.sort_hi,
-        &stages.sort_lo,
-        &stages.sort_values,
-    );
     stages
-        .bucket_constraints
+        .gather_contact_keys_b
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages
+        .gather_constraint_keys_a
+        .dispatch(encoder, buffers.constraint_capacity());
+    stages
+        .gather_constraint_keys_b
         .dispatch(encoder, buffers.constraint_capacity());
     stages.sort.sort_64(
         device,
         encoder,
-        &buffers.constraint_count_state,
-        buffers.entries.capacity_u32(),
-        &buffers.entries.keys_lo,
-        &buffers.entries.keys_hi,
-        &buffers.entries.values,
-        &stages.sort_hi,
-        &stages.sort_lo,
-        &stages.sort_values,
+        &buffers.contact_count,
+        buffers.contact_capacity(),
+        &buffers.contact_gather_a.keys_lo,
+        &buffers.contact_gather_a.keys_hi,
+        &buffers.contact_gather_a.values,
+        &buffers.contact_gather_a_out.keys_lo,
+        &buffers.contact_gather_a_out.keys_hi,
+        &buffers.contact_gather_a_out.values,
     );
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.contact_count,
+        buffers.contact_capacity(),
+        &buffers.contact_gather_b.keys_lo,
+        &buffers.contact_gather_b.keys_hi,
+        &buffers.contact_gather_b.values,
+        &buffers.contact_gather_b_out.keys_lo,
+        &buffers.contact_gather_b_out.keys_hi,
+        &buffers.contact_gather_b_out.values,
+    );
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.constraint_count_state,
+        buffers.constraint_capacity(),
+        &buffers.constraint_gather_a.keys_lo,
+        &buffers.constraint_gather_a.keys_hi,
+        &buffers.constraint_gather_a.values,
+        &buffers.constraint_gather_a_out.keys_lo,
+        &buffers.constraint_gather_a_out.keys_hi,
+        &buffers.constraint_gather_a_out.values,
+    );
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.constraint_count_state,
+        buffers.constraint_capacity(),
+        &buffers.constraint_gather_b.keys_lo,
+        &buffers.constraint_gather_b.keys_hi,
+        &buffers.constraint_gather_b.values,
+        &buffers.constraint_gather_b_out.keys_lo,
+        &buffers.constraint_gather_b_out.keys_hi,
+        &buffers.constraint_gather_b_out.values,
+    );
+    stages.reset_gather_boundaries.dispatch(encoder, body_count);
+    stages
+        .mark_contact_boundaries
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages
+        .mark_constraint_boundaries
+        .dispatch(encoder, buffers.constraint_capacity());
     stages.island_aggregate.dispatch(encoder, body_count);
     stages.island_broadcast.dispatch(encoder, body_count);
     for _ in 0..solve_iterations {
         stages
-            .solve_constraints
+            .constraint_solve_extract
             .dispatch(encoder, buffers.constraint_capacity());
-        stages.solve.dispatch(encoder, 1);
+        stages
+            .contact_solve_extract
+            .dispatch_indirect(encoder, &buffers.contact_count);
+        stages.body_apply_solver.dispatch(encoder, body_count);
     }
     for _ in 0..position_iterations {
         stages
-            .solve_position
+            .position_solve_extract
             .dispatch_indirect(encoder, &buffers.contact_count);
+        stages.body_apply_positions.dispatch(encoder, body_count);
     }
     stages
         .events_end

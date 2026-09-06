@@ -1,8 +1,8 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
+@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> constraints: array<Constraint>;
 @group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read> bucket_values: array<u32>;
+@group(0) @binding(4) var<storage, read_write> constraint_deltas: array<vec4f>;
 
 struct RowOutcome {
     first: RigidBody,
@@ -103,9 +103,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= params.constraint_count) {
         return;
     }
-    let constraint_index = bucket_values[index];
+    let constraint_index = index;
     var constraint = constraints[constraint_index];
     if (constraint.kind == CONSTRAINT_INVALID) {
+        constraint_deltas[constraint_index * 4u] = vec4f(0.0);
+        constraint_deltas[constraint_index * 4u + 1u] = vec4f(0.0);
+        constraint_deltas[constraint_index * 4u + 2u] = vec4f(0.0);
+        constraint_deltas[constraint_index * 4u + 3u] = vec4f(0.0);
         return;
     }
     var first = bodies[constraint.a];
@@ -284,10 +288,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (second_sleeping && !first_sleeping && breach_now) {
         atomicOr(&wake_flags[constraint.b], 1u);
     }
-    first.inverse_mass = bodies[constraint.a].inverse_mass;
-    first.inverse_inertia_body = bodies[constraint.a].inverse_inertia_body;
-    second.inverse_mass = bodies[constraint.b].inverse_mass;
-    second.inverse_inertia_body = bodies[constraint.b].inverse_inertia_body;
-    bodies[constraint.a] = first;
-    bodies[constraint.b] = second;
+    let snap_first = bodies[constraint.a];
+    let snap_second = bodies[constraint.b];
+    let delta_a = first.velocity - snap_first.velocity;
+    let delta_spin_a = first.angular_velocity - snap_first.angular_velocity;
+    let delta_b = second.velocity - snap_second.velocity;
+    let delta_spin_b = second.angular_velocity - snap_second.angular_velocity;
+    constraint_deltas[constraint_index * 4u] = vec4f(delta_a, 0.0);
+    constraint_deltas[constraint_index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
+    constraint_deltas[constraint_index * 4u + 2u] = vec4f(delta_b, 0.0);
+    constraint_deltas[constraint_index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
 }

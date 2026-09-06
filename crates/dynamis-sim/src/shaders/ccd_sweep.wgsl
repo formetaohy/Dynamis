@@ -47,6 +47,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = pair_keys_hi[index];
     let second_slot = pair_keys_lo[index];
+    if (first_slot / 4u == second_slot / 4u) {
+        return;
+    }
     var first = bodies[first_slot / 4u];
     var second = bodies[second_slot / 4u];
     if (first.inverse_mass == 0.0 && (first.flags & BODY_KINEMATIC) == 0u &&

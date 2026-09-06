@@ -402,11 +402,12 @@ fn support(world: WorldShape, direction: vec3f) -> vec3f {
         return p2;
     }
     let source = shape_sources[world.source];
+    let local_d = quat_rotate(quat_conjugate(world.rotation), d);
     var best_dot = -3.402823466e38;
     var best = world.center;
     for (var i = 0u; i < source.vertex_count; i = i + 1u) {
         let v = shape_vertices[source.vertex_offset + i].xyz;
-        let s = dot(v, d);
+        let s = dot(v, local_d);
         if (s > best_dot) {
             best_dot = s;
             best = world.center + quat_rotate(world.rotation, v);
@@ -823,8 +824,9 @@ fn convex_closest(first: WorldShape, second: WorldShape, out_simplex: ptr<functi
     simplex[0] = support_pair(first, second, dir);
     count = 1u;
     var closest = simplex_closest(simplex, count);
+    let tiny = 1e-4 * min(shape_scale(first), shape_scale(second));
     for (var iter = 0u; iter < 24u; iter = iter + 1u) {
-        if (closest.penetrating || length(closest.v) < 1e-6) {
+        if (closest.penetrating || length(closest.v) < tiny) {
             while (count < 4u) {
                 let dir = simplex_expand_dir(simplex, count);
                 simplex[count] = support_pair(first, second, dir);
@@ -874,11 +876,72 @@ fn no_hit() -> ShapeHit {
     return ShapeHit(NO_HIT, vec3f(0.0), vec3f(0.0));
 }
 
+fn support_projection_depth(first: WorldShape, second: WorldShape, direction: vec3f) -> f32 {
+    let n = normalize(direction);
+    return dot(support(first, n) - support(second, -n), n);
+}
+
+fn convex_penetration_probe(first: WorldShape, second: WorldShape, simplex: array<SimplexPoint, 4>, count: u32) -> EpaResult {
+    var best: EpaResult;
+    best.valid = false;
+    best.normal = vec3f(0.0, 1.0, 0.0);
+    best.depth = 3.402823466e38;
+    best.point = (first.center + second.center) * 0.5;
+    var probed: array<vec3f, 16>;
+    var probe_count = 0u;
+    for (var i = 0u; i < count; i = i + 1u) {
+        for (var j = i + 1u; j < count; j = j + 1u) {
+            for (var k = j + 1u; k < count; k = k + 1u) {
+                let normal = cross(simplex[j].w - simplex[i].w, simplex[k].w - simplex[i].w);
+                if (length(normal) > 1e-8 && probe_count < 16u) {
+                    probed[probe_count] = normal;
+                    probe_count = probe_count + 1u;
+                }
+            }
+        }
+    }
+    let center_dir = second.center - first.center;
+    if (length(center_dir) > 1e-8 && probe_count < 16u) {
+        probed[probe_count] = center_dir;
+        probe_count = probe_count + 1u;
+    }
+    let axes: array<vec3f, 6> = array(
+        vec3f(1.0, 0.0, 0.0),
+        vec3f(-1.0, 0.0, 0.0),
+        vec3f(0.0, 1.0, 0.0),
+        vec3f(0.0, -1.0, 0.0),
+        vec3f(0.0, 0.0, 1.0),
+        vec3f(0.0, 0.0, -1.0),
+    );
+    for (var i = 0u; i < 6u; i = i + 1u) {
+        if (probe_count < 16u) {
+            probed[probe_count] = axes[i];
+            probe_count = probe_count + 1u;
+        }
+    }
+    for (var i = 0u; i < probe_count; i = i + 1u) {
+        let depth = support_projection_depth(first, second, probed[i]);
+        if (depth < best.depth) {
+            best.depth = depth;
+            best.normal = normalize(probed[i]);
+        }
+    }
+    best.valid = best.depth < 3.402823466e38;
+    let point_a = support(first, best.normal);
+    let point_b = support(second, -best.normal);
+    best.point = (point_a + point_b) * 0.5;
+    return best;
+}
+
 fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     var simplex: array<SimplexPoint, 4>;
     var count = 0u;
     let closest = convex_closest(first, second, &simplex, &count);
     if (!closest.penetrating) {
+        let probe = convex_penetration_probe(first, second, simplex, count);
+        if (probe.depth > 0.0) {
+            return ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, probe.normal);
+        }
         if (closest.distance > 0.0) {
             return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
         }
@@ -886,12 +949,11 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     }
     let epa = epa_tetrahedron(first, second, simplex, count);
     var result: ShapeHit;
-    if (epa.valid && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5) {
-        result = ShapeHit(-epa.depth, epa.point, epa.normal);
+    if (epa.valid && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5 && epa.depth < support_projection_depth(first, second, epa.normal) + 0.1 * min(shape_scale(first), shape_scale(second))) {
+        result = ShapeHit(-epa.depth, (closest.point_a + closest.point_b) * 0.5, epa.normal);
     } else {
-        let axis = sign_normalize(second.center - first.center);
-        let depth = 0.1 * min(shape_scale(first), shape_scale(second));
-        result = ShapeHit(-depth, (first.center + second.center) * 0.5, axis);
+        let probe = convex_penetration_probe(first, second, simplex, count);
+        result = ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, probe.normal);
     }
     return result;
 }
@@ -1099,7 +1161,7 @@ fn ray_triangle(origin: vec3f, direction: vec3f, extent: f32, a: vec3f, b: vec3f
     }
     let point = origin + direction * t;
     let normal = sign_normalize(cross(edge1, edge2));
-    return ShapeHit(t, point, normal);
+    return ShapeHit(t, point, select(normal, -normal, det < 0.0));
 }
 
 fn scene_raycast(source_index: u32, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
@@ -1206,8 +1268,12 @@ fn sphere_triangle_distance(sphere: WorldShape, points: array<vec3f, 3>) -> Conv
 
 fn plane_penetration(triangle: u32, source_index: u32, world: WorldShape) -> ConvexClosest {
     let points = triangle_points(source_index, triangle);
-    let n = sign_normalize(cross(points[1] - points[0], points[2] - points[0]));
-    let offset = dot(world.center - points[0], n);
+    var n = sign_normalize(cross(points[1] - points[0], points[2] - points[0]));
+    var offset = dot(world.center - points[0], n);
+    if (offset < 0.0) {
+        n = -n;
+        offset = -offset;
+    }
     let deep = support(world, -n);
     let extent = dot(deep - world.center, -n);
     let depth = extent - offset;
@@ -1246,6 +1312,7 @@ fn scene_convex_closest(source_index: u32, world: WorldShape, out_triangle: ptr<
         return result;
     }
     let world_aabb = world_aabb_of(world);
+    let pad = (world_aabb.max - world_aabb.min) * 0.5;
     var stack: array<u32, 64>;
     var stack_count = 1u;
     stack[0] = shape_sources[source_index].node_offset;
@@ -1262,10 +1329,9 @@ fn scene_convex_closest(source_index: u32, world: WorldShape, out_triangle: ptr<
         stack_count = stack_count - 1u;
         let node_index = stack[stack_count];
         let node = shape_nodes[node_index];
-        var bounds: Aabb;
-        bounds.min = node.min;
-        bounds.max = node.max;
-        if (!aabb_overlap(bounds, world_aabb)) {
+        if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
+            node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
+            node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
             continue;
         }
         if (node.leaf == 1u) {

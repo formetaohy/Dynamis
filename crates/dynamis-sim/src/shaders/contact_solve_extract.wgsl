@@ -1,9 +1,9 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
+@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(3) var<storage, read> contact_count: atomic<u32>;
+@group(0) @binding(3) var<storage, read> contact_count: array<u32>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> bucket_values: array<u32>;
+@group(0) @binding(5) var<storage, read_write> contact_deltas: array<vec4f>;
 
 fn wake_on_impact(
     slot: u32,
@@ -20,9 +20,18 @@ fn wake_on_impact(
     }
 }
 
-fn solve_contact(index: u32) {
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    let index = gid.x;
+    if (index >= contact_count[0]) {
+        return;
+    }
     let contact = contacts[index];
     if (contact.point_count == 0u || contact.sensor == 1u) {
+        contact_deltas[index * 4u] = vec4f(0.0);
+        contact_deltas[index * 4u + 1u] = vec4f(0.0);
+        contact_deltas[index * 4u + 2u] = vec4f(0.0);
+        contact_deltas[index * 4u + 3u] = vec4f(0.0);
         return;
     }
     let first_slot = contact.a / 4u;
@@ -82,6 +91,14 @@ fn solve_contact(index: u32) {
             contacts[index] = updated_contact;
         }
     }
+    let delta_a = first.velocity - first_original.velocity;
+    let delta_spin_a = first.angular_velocity - first_original.angular_velocity;
+    let delta_b = second.velocity - second_original.velocity;
+    let delta_spin_b = second.angular_velocity - second_original.angular_velocity;
+    contact_deltas[index * 4u] = vec4f(delta_a, 0.0);
+    contact_deltas[index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
+    contact_deltas[index * 4u + 2u] = vec4f(delta_b, 0.0);
+    contact_deltas[index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
     wake_on_impact(
         first_slot,
         first_original,
@@ -92,18 +109,4 @@ fn solve_contact(index: u32) {
         second_original,
         first_original,
     );
-    first.inverse_mass = first_original.inverse_mass;
-    first.inverse_inertia_body = first_original.inverse_inertia_body;
-    second.inverse_mass = second_original.inverse_mass;
-    second.inverse_inertia_body = second_original.inverse_inertia_body;
-    bodies[first_slot] = first;
-    bodies[second_slot] = second;
-}
-
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(local_invocation_id) lid: vec3u) {
-    let count = atomicLoad(&contact_count);
-    for (var index = lid.x; index < count; index = index + 64u) {
-        solve_contact(bucket_values[index]);
-    }
 }
