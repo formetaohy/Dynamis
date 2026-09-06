@@ -2,14 +2,39 @@
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(3) var<storage, read> contact_count: atomic<u32>;
+@group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
+
+fn wake_on_impact(
+    slot: u32,
+    sleeping: RigidBody,
+    moving: RigidBody,
+) {
+    if ((sleeping.flags & BODY_SLEEPING) == 0u || (moving.flags & BODY_SLEEPING) != 0u) {
+        return;
+    }
+    let velocity = moving.velocity - sleeping.velocity;
+    let spin = moving.angular_velocity - sleeping.angular_velocity;
+    if (length(velocity) > params.wake_velocity || length(spin) > params.wake_velocity) {
+        atomicOr(&wake_flags[slot], 1u);
+    }
+}
+
 
 fn solve_contact(index: u32) {
     let contact = contacts[index];
     if (contact.point_count == 0u) {
         return;
     }
-    var first = bodies[contact.a];
-    var second = bodies[contact.b];
+    let first_original = bodies[contact.a];
+    let second_original = bodies[contact.b];
+    var first = first_original;
+    var second = second_original;
+    if (body_is_inert(first_original)) {
+        first = body_frozen(first_original);
+    }
+    if (body_is_inert(second_original)) {
+        second = body_frozen(second_original);
+    }
     let normal = contact.normal;
     let tangents = make_tangents(normal);
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
@@ -55,6 +80,20 @@ fn solve_contact(index: u32) {
             contacts[index] = updated_contact;
         }
     }
+    wake_on_impact(
+        contact.a,
+        first_original,
+        second_original,
+    );
+    wake_on_impact(
+        contact.b,
+        second_original,
+        first_original,
+    );
+    first.inverse_mass = first_original.inverse_mass;
+    first.inverse_inertia_body = first_original.inverse_inertia_body;
+    second.inverse_mass = second_original.inverse_mass;
+    second.inverse_inertia_body = second_original.inverse_inertia_body;
     bodies[contact.a] = first;
     bodies[contact.b] = second;
 }

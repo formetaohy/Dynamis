@@ -13,8 +13,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (contact.point_count == 0u) {
         return;
     }
-    var first = bodies[contact.a];
-    var second = bodies[contact.b];
+    let first_original = bodies[contact.a];
+    let second_original = bodies[contact.b];
+    var first = first_original;
+    var second = second_original;
+    if (body_is_inert(first_original)) {
+        first = body_frozen(first_original);
+    }
+    if (body_is_inert(second_original)) {
+        second = body_frozen(second_original);
+    }
     let normal = contact.normal;
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         let depth = contact.points[point_index].depth;
@@ -31,6 +39,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         first.position = first.position - normal * (correction * first.inverse_mass);
         second.position = second.position + normal * (correction * second.inverse_mass);
     }
+    first.inverse_mass = first_original.inverse_mass;
+    first.inverse_inertia_body = first_original.inverse_inertia_body;
+    second.inverse_mass = second_original.inverse_mass;
+    second.inverse_inertia_body = second_original.inverse_inertia_body;
     bodies[contact.a] = first;
     bodies[contact.b] = second;
 }

@@ -1,13 +1,14 @@
 use crate::buffers::{MAX_CELLS_PER_BODY, StageBuffers};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, GpuSort};
 use dynamis_layout::{
-    BODY_KINEMATIC, COMMAND_ADD, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
-    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE, CONSTRAINT_BALL,
-    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_INVALID, CONSTRAINT_PRISMATIC,
-    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, IMPULSE_AT_POINT, NO_BODY, PATCH_ANGULAR_VELOCITY,
-    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_RAY, QUERY_SPHERE,
-    SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
+    BODY_KINEMATIC, BODY_SLEEPING, COMMAND_ADD, COMMAND_CONSTRAINT_ADD,
+    COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE,
+    COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISTANCE,
+    CONSTRAINT_FIXED, CONSTRAINT_INVALID, CONSTRAINT_PRISMATIC, CONSTRAINT_REVOLUTE,
+    CONTACT_MAX_POINTS, IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, NO_BODY,
+    PATCH_ANGULAR_VELOCITY, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS,
+    PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION,
+    PATCH_VELOCITY, QUERY_RAY, QUERY_SPHERE, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
@@ -24,6 +25,8 @@ fn shader_constants() -> String {
          const COMMAND_IMPULSE: u32 = {COMMAND_IMPULSE}u;\n\
          const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
          const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
+         const COMMAND_SLEEP: u32 = {COMMAND_SLEEP}u;\n\
+         const COMMAND_WAKE: u32 = {COMMAND_WAKE}u;\n\
          const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
          const PATCH_POSITION: u32 = {PATCH_POSITION}u;\n\
          const PATCH_VELOCITY: u32 = {PATCH_VELOCITY}u;\n\
@@ -40,6 +43,9 @@ fn shader_constants() -> String {
          const SHAPE_BOX: u32 = {SHAPE_BOX}u;\n\
          const SHAPE_CAPSULE: u32 = {SHAPE_CAPSULE}u;\n\
          const BODY_KINEMATIC: u32 = {BODY_KINEMATIC}u;\n\
+         const BODY_SLEEPING: u32 = {BODY_SLEEPING}u;\n\
+         const ISLAND_WAKE: u32 = {ISLAND_WAKE}u;\n\
+         const ISLAND_ACTIVE: u32 = {ISLAND_ACTIVE}u;\n\
          const CONTACT_MAX_POINTS: u32 = {CONTACT_MAX_POINTS}u;\n\
          const CONSTRAINT_BALL: u32 = {CONSTRAINT_BALL}u;\n\
          const CONSTRAINT_DISTANCE: u32 = {CONSTRAINT_DISTANCE}u;\n\
@@ -137,8 +143,17 @@ pub(crate) struct Stages {
     broadphase_pairs: Stage,
     large_pairs: Stage,
     narrowphase: Stage,
-    solve: Stage,
+    contact_index: Stage,
+    contact_match: Stage,
+    contact_archive: Stage,
+    island_init: Stage,
+    island_link_contacts: Stage,
+    island_link_constraints: Stage,
+    island_jump: Stage,
+    island_aggregate: Stage,
+    island_broadcast: Stage,
     ccd_sweep: Stage,
+    solve: Stage,
     solve_constraints: Stage,
     solve_position: Stage,
     query: Stage,
@@ -159,12 +174,14 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.commands,
                 &buffers.bodies_current,
                 &buffers.colliders,
                 &buffers.command_count,
+                &buffers.wake_flags,
             ],
         ),
         apply_constraint_commands: Stage::build(
@@ -296,6 +313,162 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.pair_count,
             ],
         ),
+        contact_index: Stage::build(
+            device,
+            "contact_index",
+            &assemble_shader(include_str!("shaders/contact_index.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.contacts,
+                &buffers.contact_count,
+                &buffers.contact_keys_hi,
+                &buffers.contact_keys_lo,
+                &buffers.contact_indices,
+            ],
+        ),
+        contact_match: Stage::build(
+            device,
+            "contact_match",
+            &assemble_shader(include_str!("shaders/contact_match.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.contact_indices,
+                &buffers.contact_keys_hi,
+                &buffers.contact_keys_lo,
+                &buffers.prev_contacts,
+                &buffers.prev_contact_count,
+                &buffers.contacts,
+                &buffers.contact_count,
+            ],
+        ),
+        contact_archive: Stage::build(
+            device,
+            "contact_archive",
+            &assemble_shader(include_str!("shaders/contact_archive.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.contact_indices,
+                &buffers.contacts,
+                &buffers.prev_contacts,
+                &buffers.prev_contact_count,
+                &buffers.contact_count,
+            ],
+        ),
+        island_init: Stage::build(
+            device,
+            "island_init",
+            &assemble_shader(include_str!("shaders/island_init.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.island_parents,
+                &buffers.island_state,
+            ],
+        ),
+        island_link_contacts: Stage::build(
+            device,
+            "island_link_contacts",
+            &assemble_shader(include_str!("shaders/island_link_contacts.wgsl")),
+            &
+            [
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.bodies_current,
+                &buffers.contacts,
+                &buffers.contact_count,
+                &buffers.island_parents,
+            ],
+        ),
+        island_link_constraints: Stage::build(
+            device,
+            "island_link_constraints",
+            &assemble_shader(include_str!("shaders/island_link_constraints.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.constraints,
+                &buffers.island_parents,
+            ],
+        ),
+        island_jump: Stage::build(
+            device,
+            "island_jump",
+            &assemble_shader(include_str!("shaders/island_jump.wgsl")),
+            &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
+            &[&buffers.params, &buffers.island_parents],
+        ),
+        island_aggregate: Stage::build(
+            device,
+            "island_aggregate",
+            &assemble_shader(include_str!("shaders/island_aggregate.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.island_parents,
+                &buffers.island_state,
+                &buffers.wake_flags,
+            ],
+        ),
+        island_broadcast: Stage::build(
+            device,
+            "island_broadcast",
+            &assemble_shader(include_str!("shaders/island_broadcast.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.island_parents,
+                &buffers.island_state,
+                &buffers.wake_flags,
+            ],
+        ),
         ccd_sweep: Stage::build(
             device,
             "ccd_sweep",
@@ -326,12 +499,14 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.bodies_current,
                 &buffers.contacts,
                 &buffers.contact_count,
+                &buffers.wake_flags,
             ],
         ),
         solve_constraints: Stage::build(
@@ -342,11 +517,13 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::Uniform,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.bodies_current,
                 &buffers.constraints,
+                &buffers.wake_flags,
             ],
         ),
         solve_position: Stage::build(
@@ -419,6 +596,7 @@ pub(crate) fn encode_physics(
     body_count: u32,
     solve_iterations: u32,
     position_iterations: u32,
+    island_rounds: u32,
     query_count: u32,
 ) {
     stages.apply_commands.dispatch(encoder, 1);
@@ -460,6 +638,36 @@ pub(crate) fn encode_physics(
     stages
         .narrowphase
         .dispatch_indirect(encoder, &buffers.pair_count);
+    stages
+        .contact_index
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.contact_count,
+        buffers.contact_capacity(),
+        &buffers.contact_keys_lo,
+        &buffers.contact_keys_hi,
+        &buffers.contact_indices,
+        &stages.sort_lo,
+        &stages.sort_hi,
+        &stages.sort_values,
+    );
+    stages
+        .contact_match
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages.island_init.dispatch(encoder, body_count);
+    stages
+        .island_link_contacts
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages
+        .island_link_constraints
+        .dispatch(encoder, buffers.constraint_capacity());
+    for _ in 0..island_rounds {
+        stages.island_jump.dispatch(encoder, body_count);
+    }
+    stages.island_aggregate.dispatch(encoder, body_count);
+    stages.island_broadcast.dispatch(encoder, body_count);
     for _ in 0..solve_iterations {
         stages
             .solve_constraints
@@ -471,6 +679,9 @@ pub(crate) fn encode_physics(
             .solve_position
             .dispatch_indirect(encoder, &buffers.contact_count);
     }
+    stages
+        .contact_archive
+        .dispatch_indirect(encoder, &buffers.contact_count);
     if query_count > 0 {
         stages.query.dispatch_workgroups(encoder, query_count);
     }

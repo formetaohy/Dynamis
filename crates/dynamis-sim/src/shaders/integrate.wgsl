@@ -9,6 +9,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     var body = bodies[index];
     let kinematic = (body.flags & BODY_KINEMATIC) != 0u;
+    if ((body.flags & BODY_SLEEPING) != 0u) {
+        body.velocity = vec3f(0.0);
+        body.angular_velocity = vec3f(0.0);
+        body.force = vec3f(0.0);
+        body.torque = vec3f(0.0);
+        bodies[index] = body;
+        return;
+    }
     if (body.inverse_mass == 0.0 && !kinematic) {
         body.prev_position = body.position;
         body.velocity = vec3f(0.0);

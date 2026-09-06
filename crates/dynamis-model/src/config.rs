@@ -11,6 +11,10 @@ pub struct PhysicsConfig {
     pub max_angular_velocity: f32,
     pub broadphase_cell_size: f32,
     pub broadphase_cells_per_axis: u32,
+    pub sleep_velocity: f32,
+    pub sleep_angular_velocity: f32,
+    pub sleep_time: f32,
+    pub wake_velocity: f32,
 }
 
 impl Default for PhysicsConfig {
@@ -28,6 +32,10 @@ impl Default for PhysicsConfig {
             max_angular_velocity: 400.0,
             broadphase_cell_size: 2.0,
             broadphase_cells_per_axis: 128,
+            sleep_velocity: 0.2,
+            sleep_angular_velocity: 0.5,
+            sleep_time: 0.5,
+            wake_velocity: 0.4,
         }
     }
 }

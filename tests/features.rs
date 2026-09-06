@@ -312,7 +312,10 @@ fn prismatic_constraint_slides_along_axis() {
     sim.wait();
     let state = sim.read_state(slider);
     let p = state.position;
-    assert!(p[1] < 5.5, "slider must remain on axis line, got {p:?}");
+    assert!(
+        (p[1] - 6.0).abs() < 0.15,
+        "slider must remain on axis line (6.0), got {p:?}"
+    );
 }
 
 #[test]

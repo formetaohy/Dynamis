@@ -26,6 +26,8 @@ pub const COMMAND_TORQUE: u32 = 4;
 pub const COMMAND_IMPULSE: u32 = 5;
 pub const COMMAND_CONSTRAINT_ADD: u32 = 6;
 pub const COMMAND_CONSTRAINT_REMOVE: u32 = 7;
+pub const COMMAND_SLEEP: u32 = 8;
+pub const COMMAND_WAKE: u32 = 9;
 
 pub const IMPULSE_AT_POINT: u32 = 1;
 
@@ -46,6 +48,10 @@ pub const SHAPE_BOX: u32 = 1;
 pub const SHAPE_CAPSULE: u32 = 2;
 
 pub const BODY_KINEMATIC: u32 = 1;
+pub const BODY_SLEEPING: u32 = 2;
+
+pub const ISLAND_WAKE: u32 = 1;
+pub const ISLAND_ACTIVE: u32 = 2;
 
 pub const CONTACT_MAX_POINTS: u32 = 4;
 
@@ -83,7 +89,7 @@ pub struct RigidBodyRecord {
     pub flags: u32,
     pub collision_group: u32,
     pub collision_mask: u32,
-    _pad6: u32,
+    pub sleep_timer: f32,
     _pad7: u32,
     _pad8: u32,
     pub inverse_inertia_body: [f32; 3],
@@ -120,7 +126,7 @@ impl RigidBodyRecord {
             flags: if desc.kinematic { BODY_KINEMATIC } else { 0 },
             collision_group: desc.collision_group,
             collision_mask: desc.collision_mask,
-            _pad6: 0,
+            sleep_timer: 0.0,
             _pad7: 0,
             _pad8: 0,
             inverse_inertia_body: desc.shape.inverse_inertia_diagonal(inverse_mass),
@@ -187,10 +193,10 @@ pub struct SimParamsRecord {
     pub grid_cell_size: f32,
     pub max_cells_per_body: u32,
     _pad0: u32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
-    _pad4: f32,
+    pub sleep_velocity: f32,
+    pub sleep_angular_velocity: f32,
+    pub sleep_time: f32,
+    pub wake_velocity: f32,
     _pad5: f32,
 }
 
@@ -213,10 +219,10 @@ impl SimParamsRecord {
             grid_cell_size: config.broadphase_cell_size,
             max_cells_per_body: 8,
             _pad0: 0,
-            _pad1: 0.0,
-            _pad2: 0.0,
-            _pad3: 0.0,
-            _pad4: 0.0,
+            sleep_velocity: config.sleep_velocity,
+            sleep_angular_velocity: config.sleep_angular_velocity,
+            sleep_time: config.sleep_time,
+            wake_velocity: config.wake_velocity,
             _pad5: 0.0,
         }
     }
@@ -430,6 +436,28 @@ impl BodyCommandRecord {
             extra: IMPULSE_AT_POINT,
             _pad: 0,
             body,
+            collider: ColliderRecord::zeroed(),
+        }
+    }
+
+    pub fn sleep(slot: u32) -> Self {
+        Self {
+            kind: COMMAND_SLEEP,
+            slot,
+            extra: 0,
+            _pad: 0,
+            body: RigidBodyRecord::zeroed(),
+            collider: ColliderRecord::zeroed(),
+        }
+    }
+
+    pub fn wake(slot: u32) -> Self {
+        Self {
+            kind: COMMAND_WAKE,
+            slot,
+            extra: 0,
+            _pad: 0,
+            body: RigidBodyRecord::zeroed(),
             collider: ColliderRecord::zeroed(),
         }
     }

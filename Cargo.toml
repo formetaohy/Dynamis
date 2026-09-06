@@ -43,6 +43,7 @@ dynamis-sim = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
+dynamis-layout = { workspace = true }
 pollster = { workspace = true }
 wgpu = { workspace = true }
 

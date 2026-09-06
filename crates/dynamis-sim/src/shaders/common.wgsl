@@ -15,10 +15,10 @@ struct SimParams {
     grid_cell_size: f32,
     max_cells_per_body: u32,
     _pad0: u32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
-    _pad4: f32,
+    sleep_velocity: f32,
+    sleep_angular_velocity: f32,
+    sleep_time: f32,
+    wake_velocity: f32,
     _pad5: f32,
 }
 
@@ -41,7 +41,7 @@ struct RigidBody {
     flags: u32,
     collision_group: u32,
     collision_mask: u32,
-    _pad6: u32,
+    sleep_timer: f32,
     _pad7: u32,
     _pad8: u32,
     inverse_inertia_body: vec3f,
@@ -165,6 +165,21 @@ fn sign_normalize(v: vec3f) -> vec3f {
         return v / n;
     }
     return vec3f(0.0, 1.0, 0.0);
+}
+
+fn body_is_inert(body: RigidBody) -> bool {
+    return body.inverse_mass == 0.0 || (body.flags & BODY_SLEEPING) != 0u;
+}
+
+fn body_frozen(body: RigidBody) -> RigidBody {
+    var frozen = body;
+    frozen.inverse_mass = 0.0;
+    frozen.inverse_inertia_body = vec3f(0.0);
+    return frozen;
+}
+
+fn body_is_dynamic(body: RigidBody) -> bool {
+    return body.inverse_mass > 0.0 && (body.flags & BODY_KINEMATIC) == 0u;
 }
 
 struct TangentBasis {

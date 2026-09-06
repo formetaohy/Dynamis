@@ -54,6 +54,9 @@ impl Simulation {
             query_capacity,
             constraint_capacity,
         );
+        buffers
+            .prev_contact_count
+            .write(gpu.queue(), bytemuck::cast_slice(&[DispatchArgs::none()]));
         let stages = build_stages(gpu.device(), &buffers);
         Self {
             gpu,
@@ -130,6 +133,10 @@ impl Simulation {
         self.buffers.contacts.buffer()
     }
 
+    pub fn debug_prev_contacts(&self) -> &wgpu::Buffer {
+        self.buffers.prev_contacts.buffer()
+    }
+
     pub fn queue(&self) -> &wgpu::Queue {
         self.gpu.queue()
     }
@@ -185,6 +192,7 @@ impl Simulation {
             velocity: desc.velocity,
             angular_velocity: desc.angular_velocity,
             inverse_mass: body.inverse_mass,
+            sleeping: false,
             step: self.step_index,
         });
         self.shapes[id as usize] = desc.shape;
@@ -479,6 +487,7 @@ impl Simulation {
             self.alive.len() as u32,
             self.config.solve_iterations,
             self.config.position_iterations,
+            self.island_rounds(),
             self.queries.len() as u32,
         );
         let stale_bodies = self.buffers.bodies_readback.enqueue(
@@ -524,9 +533,23 @@ impl Simulation {
         self.collect_readbacks();
     }
 
+    pub fn wake(&mut self, handle: BodyHandle) {
+        let slot = self.command_slot(handle);
+        self.commands.push(BodyCommandRecord::wake(slot));
+    }
+
+    pub fn sleep(&mut self, handle: BodyHandle) {
+        let slot = self.command_slot(handle);
+        self.commands.push(BodyCommandRecord::sleep(slot));
+    }
+
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
         self.states[handle.id as usize].expect("body state is unavailable")
+    }
+
+    fn island_rounds(&self) -> u32 {
+        (self.capacity as u32).ilog2() + 1
     }
 
     fn is_kinematic(&self, handle: BodyHandle) -> bool {
@@ -622,6 +645,7 @@ impl Simulation {
                 velocity: record.velocity,
                 angular_velocity: record.angular_velocity,
                 inverse_mass: record.inverse_mass,
+                sleeping: record.flags & dynamis_layout::BODY_SLEEPING != 0,
                 step,
             });
         }

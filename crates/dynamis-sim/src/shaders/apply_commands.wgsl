@@ -11,6 +11,14 @@ struct BodyCommand {
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> colliders: array<Collider>;
 @group(0) @binding(3) var<storage, read> command_count: atomic<u32>;
+@group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
+
+fn body_woken(body: RigidBody) -> RigidBody {
+    var woken = body;
+    woken.flags = woken.flags & ~BODY_SLEEPING;
+    woken.sleep_timer = 0.0;
+    return woken;
+}
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -66,14 +74,26 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
                 colliders[command.slot] = command.collider;
             }
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
             bodies[command.slot] = body;
         } else if (command.kind == COMMAND_FORCE) {
             var body = bodies[command.slot];
             body.force = body.force + command.body.force;
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
             bodies[command.slot] = body;
         } else if (command.kind == COMMAND_TORQUE) {
             var body = bodies[command.slot];
             body.torque = body.torque + command.body.torque;
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
             bodies[command.slot] = body;
         } else if (command.kind == COMMAND_IMPULSE) {
             var body = bodies[command.slot];
@@ -81,6 +101,24 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             body.velocity = body.velocity + impulse * body.inverse_mass;
             body.angular_velocity =
                 body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body.position, impulse));
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
+            bodies[command.slot] = body;
+        } else if (command.kind == COMMAND_SLEEP) {
+            var body = bodies[command.slot];
+            body.flags = body.flags | BODY_SLEEPING;
+            body.velocity = vec3f(0.0);
+            body.angular_velocity = vec3f(0.0);
+            body.sleep_timer = 0.0;
+            atomicStore(&wake_flags[command.slot], 0u);
+            bodies[command.slot] = body;
+        } else if (command.kind == COMMAND_WAKE) {
+            var body = bodies[command.slot];
+            body.flags = body.flags & ~BODY_SLEEPING;
+            body.sleep_timer = 0.0;
+            atomicOr(&wake_flags[command.slot], 1u);
             bodies[command.slot] = body;
         }
     }

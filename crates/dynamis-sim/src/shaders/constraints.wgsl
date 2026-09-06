@@ -1,6 +1,7 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
 @group(0) @binding(2) var<storage, read_write> constraints: array<Constraint>;
+@group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
 const MAX_CONSTRAINT_ROWS: u32 = 6u;
 
@@ -15,6 +16,12 @@ struct RowOutcome {
     first: RigidBody,
     second: RigidBody,
     accumulated: f32,
+}
+
+fn constraint_breach(anchor_a: vec3f, anchor_b: vec3f, constraint: Constraint) -> bool {
+    let separation = length(anchor_b - anchor_a);
+    let goal = select(0.0, constraint.distance, constraint.kind == CONSTRAINT_DISTANCE);
+    return abs(separation - goal) > 0.05;
 }
 
 fn constraint_anchor(body: RigidBody, local: vec3f) -> vec3f {
@@ -86,6 +93,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     var first = bodies[constraint.a];
     var second = bodies[constraint.b];
+    let first_sleeping = (first.flags & BODY_SLEEPING) != 0u;
+    let second_sleeping = (second.flags & BODY_SLEEPING) != 0u;
+    if (body_is_inert(first)) {
+        first = body_frozen(first);
+    }
+    if (body_is_inert(second)) {
+        second = body_frozen(second);
+    }
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     var accumulated = constraint.accumulated;
@@ -190,6 +205,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     constraint.accumulated = accumulated;
     constraints[index] = constraint;
+    if (first_sleeping && !second_sleeping && constraint_breach(anchor_a, anchor_b, constraint)) {
+        atomicOr(&wake_flags[constraint.a], 1u);
+    }
+    if (second_sleeping && !first_sleeping && constraint_breach(anchor_a, anchor_b, constraint)) {
+        atomicOr(&wake_flags[constraint.b], 1u);
+    }
+    first.inverse_mass = bodies[constraint.a].inverse_mass;
+    first.inverse_inertia_body = bodies[constraint.a].inverse_inertia_body;
+    second.inverse_mass = bodies[constraint.b].inverse_mass;
+    second.inverse_inertia_body = bodies[constraint.b].inverse_inertia_body;
     bodies[constraint.a] = first;
     bodies[constraint.b] = second;
 }
