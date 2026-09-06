@@ -11,7 +11,4 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     prev_contacts[index] = contacts[contact_indices[index]];
-    if (index == 0u) {
-        prev_contact_count[0] = contact_count[0];
-    }
 }

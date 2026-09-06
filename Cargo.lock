@@ -190,6 +190,7 @@ version = "0.4.1"
 name = "dynamis-query"
 version = "0.4.1"
 dependencies = [
+ "bytemuck",
  "dynamis-layout",
  "dynamis-model",
 ]

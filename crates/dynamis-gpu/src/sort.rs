@@ -102,7 +102,7 @@ impl GpuSort {
                 &format!("{label} histogram {index}"),
                 &shifted_shader(histogram_shader, (index * 8) as u32),
                 "main",
-                &histogram_bindings,
+                &[&histogram_bindings[..]],
                 THREADS,
             )
         });
@@ -112,7 +112,7 @@ impl GpuSort {
                 &format!("{label} assign {index}"),
                 &shifted_shader(assign_shader, (index * 8) as u32),
                 "main",
-                &assign_bindings,
+                &[&assign_bindings[..]],
                 256,
             )
         });
@@ -122,7 +122,7 @@ impl GpuSort {
                 &format!("{label} scatter {index}"),
                 &shifted_shader(scatter_shader, (index * 8) as u32),
                 "main",
-                &scatter_bindings,
+                &[&scatter_bindings[..]],
                 THREADS,
             )
         });
@@ -169,6 +169,7 @@ impl GpuSort {
         encoder.clear_buffer(self.histogram.buffer(), 0, None);
         let histogram_group = self.histogram_pipelines[pass].create_bind_group(
             device,
+            0,
             &[
                 BindGroupEntry {
                     binding: 0,
@@ -197,6 +198,7 @@ impl GpuSort {
 
         let assign_group = self.assign_pipelines[pass].create_bind_group(
             device,
+            0,
             &[
                 BindGroupEntry {
                     binding: 0,
@@ -224,6 +226,7 @@ impl GpuSort {
 
         let scatter_group = self.scatter_pipelines[pass].create_bind_group(
             device,
+            0,
             &[
                 BindGroupEntry {
                     binding: 0,
@@ -295,7 +298,8 @@ impl GpuSort {
             };
 
             let histogram_group = self.histogram_pipelines[pass].create_bind_group(
-                device,
+            device,
+            0,
                 &[
                     BindGroupEntry {
                         binding: 0,
@@ -323,7 +327,8 @@ impl GpuSort {
             );
 
             let assign_group = self.assign_pipelines[pass].create_bind_group(
-                device,
+            device,
+            0,
                 &[
                     BindGroupEntry {
                         binding: 0,
@@ -355,7 +360,8 @@ impl GpuSort {
                 (keys_lo_out, keys_hi_out, values_out)
             };
             let scatter_group = self.scatter_pipelines[pass].create_bind_group(
-                device,
+            device,
+            0,
                 &[
                     BindGroupEntry {
                         binding: 0,

@@ -1,0 +1,60 @@
+use crate::shape::Shape;
+
+#[derive(Clone, Copy, Debug)]
+pub struct ColliderDesc {
+    pub shape: Shape,
+    pub offset: [f32; 3],
+    pub rotation: [f32; 4],
+    pub friction: f32,
+    pub restitution: f32,
+    pub sensor: bool,
+}
+
+impl ColliderDesc {
+    pub fn new(shape: Shape) -> Self {
+        Self {
+            shape,
+            offset: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            friction: 0.5,
+            restitution: 0.0,
+            sensor: false,
+        }
+    }
+
+    pub fn offset(mut self, offset: [f32; 3]) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    pub fn rotation(mut self, rotation: [f32; 4]) -> Self {
+        assert!(
+            (rotation[0] * rotation[0]
+                + rotation[1] * rotation[1]
+                + rotation[2] * rotation[2]
+                + rotation[3] * rotation[3]
+                - 1.0)
+                .abs()
+                < 1e-4,
+            "rotation must be a unit quaternion"
+        );
+        self.rotation = rotation;
+        self
+    }
+
+    pub fn friction(mut self, friction: f32) -> Self {
+        assert!(friction >= 0.0, "friction must be non-negative");
+        self.friction = friction;
+        self
+    }
+
+    pub fn restitution(mut self, restitution: f32) -> Self {
+        self.restitution = restitution;
+        self
+    }
+
+    pub fn sensor(mut self, sensor: bool) -> Self {
+        self.sensor = sensor;
+        self
+    }
+}

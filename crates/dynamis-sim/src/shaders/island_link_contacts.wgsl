@@ -15,13 +15,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let contact = contacts[index];
-    if (contact.point_count == 0u) {
+    if (contact.point_count == 0u || contact.sensor == 1u) {
         return;
     }
-    let first = bodies[contact.a];
-    let second = bodies[contact.b];
+    let first = bodies[contact.a / 4u];
+    let second = bodies[contact.b / 4u];
     if (body_is_dynamic(first) && (first.flags & BODY_SLEEPING) == 0u &&
         body_is_dynamic(second) && (second.flags & BODY_SLEEPING) == 0u) {
-        island_link(contact.a, contact.b);
+        island_link(contact.a / 4u, contact.b / 4u);
     }
 }

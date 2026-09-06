@@ -10,11 +10,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let contact = contacts[index];
-    if (contact.point_count == 0u) {
+    if (contact.point_count == 0u || contact.sensor == 1u) {
         return;
     }
-    let first_original = bodies[contact.a];
-    let second_original = bodies[contact.b];
+    let first_slot = contact.a / 4u;
+    let second_slot = contact.b / 4u;
+    let first_original = bodies[first_slot];
+    let second_original = bodies[second_slot];
     var first = first_original;
     var second = second_original;
     if (body_is_inert(first_original)) {
@@ -43,6 +45,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     first.inverse_inertia_body = first_original.inverse_inertia_body;
     second.inverse_mass = second_original.inverse_mass;
     second.inverse_inertia_body = second_original.inverse_inertia_body;
-    bodies[contact.a] = first;
-    bodies[contact.b] = second;
+    bodies[first_slot] = first;
+    bodies[second_slot] = second;
 }

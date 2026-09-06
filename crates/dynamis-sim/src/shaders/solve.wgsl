@@ -3,6 +3,7 @@
 @group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(3) var<storage, read> contact_count: atomic<u32>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read> bucket_values: array<u32>;
 
 fn wake_on_impact(
     slot: u32,
@@ -19,14 +20,15 @@ fn wake_on_impact(
     }
 }
 
-
 fn solve_contact(index: u32) {
     let contact = contacts[index];
-    if (contact.point_count == 0u) {
+    if (contact.point_count == 0u || contact.sensor == 1u) {
         return;
     }
-    let first_original = bodies[contact.a];
-    let second_original = bodies[contact.b];
+    let first_slot = contact.a / 4u;
+    let second_slot = contact.b / 4u;
+    let first_original = bodies[first_slot];
+    let second_original = bodies[second_slot];
     var first = first_original;
     var second = second_original;
     if (body_is_inert(first_original)) {
@@ -81,12 +83,12 @@ fn solve_contact(index: u32) {
         }
     }
     wake_on_impact(
-        contact.a,
+        first_slot,
         first_original,
         second_original,
     );
     wake_on_impact(
-        contact.b,
+        second_slot,
         second_original,
         first_original,
     );
@@ -94,14 +96,14 @@ fn solve_contact(index: u32) {
     first.inverse_inertia_body = first_original.inverse_inertia_body;
     second.inverse_mass = second_original.inverse_mass;
     second.inverse_inertia_body = second_original.inverse_inertia_body;
-    bodies[contact.a] = first;
-    bodies[contact.b] = second;
+    bodies[first_slot] = first;
+    bodies[second_slot] = second;
 }
 
-@compute @workgroup_size(64u)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(local_invocation_id) lid: vec3u) {
     let count = atomicLoad(&contact_count);
     for (var index = lid.x; index < count; index = index + 64u) {
-        solve_contact(index);
+        solve_contact(bucket_values[index]);
     }
 }

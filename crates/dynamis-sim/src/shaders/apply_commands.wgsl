@@ -2,9 +2,9 @@ struct BodyCommand {
     kind: u32,
     slot: u32,
     extra: u32,
-    _pad: u32,
+    aux: u32,
     body: RigidBody,
-    collider: Collider,
+    colliders: array<Collider, MAX_COLLIDERS_PER_BODY>,
 }
 
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
@@ -30,11 +30,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let command = commands[i];
         if (command.kind == COMMAND_ADD) {
             bodies[command.slot] = command.body;
-            colliders[command.slot] = command.collider;
+            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
+                colliders[command.slot * MAX_COLLIDERS_PER_BODY + c] = command.colliders[c];
+            }
         } else if (command.kind == COMMAND_REMOVE) {
             if (command.slot != command.extra) {
                 bodies[command.slot] = bodies[command.extra];
-                colliders[command.slot] = colliders[command.extra];
+                for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
+                    colliders[command.slot * MAX_COLLIDERS_PER_BODY + c] = colliders[command.extra * MAX_COLLIDERS_PER_BODY + c];
+                }
             }
         } else if (command.kind == COMMAND_PATCH) {
             var body = bodies[command.slot];
@@ -66,13 +70,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 body.collision_mask = command.body.collision_mask;
             }
             if ((command.extra & PATCH_KINEMATIC) != 0u) {
-                body.flags = command.body.flags;
+                body.flags = (body.flags & ~BODY_KINEMATIC) | (command.body.flags & BODY_KINEMATIC);
                 body.inverse_mass = command.body.inverse_mass;
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
             }
+            if ((command.extra & PATCH_CCD) != 0u) {
+                body.flags = (body.flags & ~BODY_CCD) | (command.body.flags & BODY_CCD);
+            }
             if ((command.extra & PATCH_COLLIDER) != 0u) {
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
-                colliders[command.slot] = command.collider;
+                colliders[command.slot * MAX_COLLIDERS_PER_BODY + command.aux] = command.colliders[0];
             }
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);
@@ -82,6 +89,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else if (command.kind == COMMAND_FORCE) {
             var body = bodies[command.slot];
             body.force = body.force + command.body.force;
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
+            bodies[command.slot] = body;
+        } else if (command.kind == COMMAND_FORCE_AT_POINT) {
+            var body = bodies[command.slot];
+            body.force = body.force + command.body.force;
+            body.torque = body.torque + cross(command.body.position - body.position, command.body.force);
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);
             }
@@ -101,6 +117,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             body.velocity = body.velocity + impulse * body.inverse_mass;
             body.angular_velocity =
                 body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body.position, impulse));
+            if ((body.flags & BODY_SLEEPING) != 0u) {
+                atomicOr(&wake_flags[command.slot], 1u);
+            }
+            body = body_woken(body);
+            bodies[command.slot] = body;
+        } else if (command.kind == COMMAND_ANGULAR_IMPULSE) {
+            var body = bodies[command.slot];
+            body.angular_velocity =
+                body.angular_velocity + apply_inverse_inertia(body, command.body.angular_velocity);
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);
             }

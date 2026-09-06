@@ -5,32 +5,30 @@
 @group(0) @binding(4) var<storage, read> pair_keys_lo: array<u32>;
 @group(0) @binding(5) var<storage, read> pair_count: atomic<u32>;
 
-fn world_shape_hit(origin: vec3f, direction: vec3f, extent: f32, body: RigidBody, collider: Collider, expand: f32) -> ShapeHit {
-    let center = body.position + quat_rotate(body.orientation, collider.local_offset);
-    if (collider.shape == SHAPE_SPHERE) {
-        return ray_sphere(origin, direction, extent, center, collider.radius + expand);
-    }
-    if (collider.shape == SHAPE_BOX) {
-        let q = quat_mul(body.orientation, collider.local_rotation);
-        return ray_box(origin, direction, extent, center, q, collider.half_extents + expand);
-    }
-    let axis = quat_rotate(body.orientation, vec3f(0.0, 1.0, 0.0));
-    return ray_capsule(origin, direction, extent, center, axis, collider.half_height, collider.radius + expand);
-}
-
 fn sweep_retreat(
     moving: RigidBody, moving_collider: Collider,
     static_body: RigidBody, static_collider: Collider,
 ) -> f32 {
+    if (!body_has_ccd(moving)) {
+        return 1.0;
+    }
     let motion = moving.position - moving.prev_position;
     let sweep_length = length(motion);
     let bound = min_radius(moving_collider) + min_radius(static_collider);
     if (sweep_length <= bound * 0.5) {
         return 1.0;
     }
-    let hit = world_shape_hit(
-        moving.prev_position, motion / sweep_length, sweep_length,
-        static_body, static_collider, min_radius(moving_collider),
+    let moving_world = world_collider(moving, moving_collider);
+    let static_world = world_collider(static_body, static_collider);
+    if (static_world.kind == SHAPE_NONE) {
+        return 1.0;
+    }
+    let hit = convex_hit_at(
+        moving_world,
+        moving.prev_position,
+        motion / sweep_length,
+        static_world,
+        min_radius(moving_collider),
     );
     if (hit.distance <= 0.0 || hit.distance >= sweep_length) {
         return 1.0;
@@ -49,28 +47,49 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = pair_keys_hi[index];
     let second_slot = pair_keys_lo[index];
-    var first = bodies[first_slot];
-    var second = bodies[second_slot];
+    var first = bodies[first_slot / 4u];
+    var second = bodies[second_slot / 4u];
     if (first.inverse_mass == 0.0 && (first.flags & BODY_KINEMATIC) == 0u &&
         second.inverse_mass == 0.0 && (second.flags & BODY_KINEMATIC) == 0u) {
         return;
     }
-    if ((first.collision_group & second.collision_mask) == 0u ||
-        (second.collision_group & first.collision_mask) == 0u) {
+    if (!body_world_intersects(first, second.collision_group, second.collision_mask)) {
         return;
     }
     let first_collider = colliders[first_slot];
     let second_collider = colliders[second_slot];
+    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+        return;
+    }
+    let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD;
+    let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD;
+    if (first_world_geom || second_world_geom) {
+        return;
+    }
     let first_time = sweep_retreat(first, first_collider, second, second_collider);
     if (first_time < 1.0) {
         let first_motion = first.position - first.prev_position;
         first.position = first.prev_position + first_motion * first_time;
-        bodies[first_slot] = first;
+        let first_world = world_collider(first, first_collider);
+        let second_world = world_collider(second, second_collider);
+        let axis = sign_normalize(second_world.center - first_world.center);
+        let normal_speed = dot(first.velocity, axis);
+        if (normal_speed > 0.0) {
+            first.velocity = first.velocity - axis * normal_speed * (1.0 + first.restitution);
+        }
+        bodies[first_slot / 4u] = first;
     }
     let second_time = sweep_retreat(second, second_collider, first, first_collider);
     if (second_time < 1.0) {
         let second_motion = second.position - second.prev_position;
         second.position = second.prev_position + second_motion * second_time;
-        bodies[second_slot] = second;
+        let first_world = world_collider(first, first_collider);
+        let second_world = world_collider(second, second_collider);
+        let axis = sign_normalize(first_world.center - second_world.center);
+        let normal_speed = dot(second.velocity, axis);
+        if (normal_speed > 0.0) {
+            second.velocity = second.velocity - axis * normal_speed * (1.0 + second.restitution);
+        }
+        bodies[second_slot / 4u] = second;
     }
 }

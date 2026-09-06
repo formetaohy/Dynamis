@@ -34,6 +34,18 @@ impl GpuBuffer {
         queue.write_buffer(&self.buffer, 0, bytes);
     }
 
+    pub fn write_at(&self, queue: &Queue, offset: u64, bytes: &[u8]) {
+        assert!(
+            self.usage.contains(BufferUsages::COPY_DST),
+            "buffer write requires COPY_DST usage"
+        );
+        assert!(
+            offset + bytes.len() as u64 <= self.size,
+            "write exceeds buffer size"
+        );
+        queue.write_buffer(&self.buffer, offset, bytes);
+    }
+
     pub fn as_binding(&self) -> wgpu::BindingResource<'_> {
         wgpu::BindingResource::Buffer(wgpu::BufferBinding {
             buffer: &self.buffer,

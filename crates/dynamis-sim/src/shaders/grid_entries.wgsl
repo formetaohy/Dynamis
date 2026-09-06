@@ -19,26 +19,32 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= params.body_count) {
         return;
     }
-    let aabb = aabbs[index];
     let cell_size = params.grid_cell_size;
-    let min_cell = vec3i(floor(aabb.min / cell_size));
-    let max_cell = vec3i(floor(aabb.max / cell_size));
-    let span = max_cell - min_cell + vec3i(1);
-    let cell_count = span.x * span.y * span.z;
-    if (cell_count > i32(params.max_cells_per_body)) {
-        let slot = atomicAdd(&large_count, 1u);
-        if (slot < arrayLength(&large_bodies)) {
-            large_bodies[slot] = index;
+    for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
+        let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
+        let aabb = aabbs[collider_index];
+        if (aabb.min.x > aabb.max.x) {
+            continue;
         }
-        return;
-    }
-    for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
-        for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
-            for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
-                let slot = atomicAdd(&entry_count, 1u);
-                if (slot < arrayLength(&entry_keys_hi)) {
-                    entry_keys_hi[slot] = cell_hash(vec3i(dx, dy, dz));
-                    entry_keys_lo[slot] = index;
+        let min_cell = vec3i(floor(aabb.min / cell_size));
+        let max_cell = vec3i(floor(aabb.max / cell_size));
+        let span = max_cell - min_cell + vec3i(1);
+        let cell_count = span.x * span.y * span.z;
+        if (cell_count > i32(params.max_cells_per_collider)) {
+            let slot = atomicAdd(&large_count, 1u);
+            if (slot < arrayLength(&large_bodies)) {
+                large_bodies[slot] = collider_index;
+            }
+            continue;
+        }
+        for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
+            for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
+                for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
+                    let slot = atomicAdd(&entry_count, 1u);
+                    if (slot < arrayLength(&entry_keys_hi)) {
+                        entry_keys_hi[slot] = cell_hash(vec3i(dx, dy, dz));
+                        entry_keys_lo[slot] = collider_index;
+                    }
                 }
             }
         }

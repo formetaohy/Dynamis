@@ -1,5 +1,4 @@
-use dynamis::GpuContext;
-use dynamis::{BodyDesc, BodyHandle, PhysicsConfig, Simulation};
+use dynamis::{BodyDesc, BodyHandle, GpuContext, PhysicsConfig, QueryFilter, Simulation};
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -30,7 +29,7 @@ fn raycast_hits_nearest_body() {
     let mut sim = Simulation::new(gpu, 4, static_config());
     let near = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
     let far = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 10.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("raycast should hit");
@@ -48,7 +47,7 @@ fn raycast_misses_when_out_of_range() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let _target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 10.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     assert_eq!(sim.query_hit(query), None, "raycast should miss");
@@ -60,7 +59,7 @@ fn raycast_hits_static_and_dynamic_bodies() {
     let mut sim = Simulation::new(gpu, 4, static_config());
     let dynamic = sim.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 8.0]));
     let statics = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 3.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("raycast should hit");
@@ -74,7 +73,7 @@ fn raycast_misses_when_body_behind_origin() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let _behind = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, -5.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     assert_eq!(
@@ -89,7 +88,7 @@ fn raycast_origin_inside_body_hits() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 0.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("origin inside body should hit");
@@ -106,7 +105,7 @@ fn sphere_query_reports_overlap() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 0.0]));
-    let query = sim.sphere_query([0.0, 0.0, 0.8], 0.5);
+    let query = sim.sphere_query([0.0, 0.0, 0.8], 0.5, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim
@@ -125,7 +124,7 @@ fn sphere_query_misses_when_separated() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let _target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 0.0]));
-    let query = sim.sphere_query([0.0, 0.0, 5.0], 0.5);
+    let query = sim.sphere_query([0.0, 0.0, 5.0], 0.5, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     assert_eq!(sim.query_hit(query), None, "separated spheres must not hit");
@@ -136,7 +135,7 @@ fn query_result_carries_simulation_step() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 4, static_config());
     let _target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("raycast should hit");
@@ -151,7 +150,7 @@ fn raycast_queries_resolve_on_latest_state() {
     sim.step(DT);
     sim.wait();
     sim.set_position(target, [0.0, 0.0, 30.0]);
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     assert_eq!(
@@ -167,8 +166,8 @@ fn batched_queries_resolve_in_submission_order() {
     let mut sim = Simulation::new(gpu, 4, static_config());
     let near = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
     let far = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 8.0]));
-    let first = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 30.0);
-    let second = sim.raycast([0.0, 0.0, 9.5], [0.0, 0.0, -1.0], 30.0);
+    let first = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 30.0, &QueryFilter::default());
+    let second = sim.raycast([0.0, 0.0, 9.5], [0.0, 0.0, -1.0], 30.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     assert_eq!(sim.query_hit(first).expect("first should hit").body, near);
@@ -180,7 +179,7 @@ fn query_results_stay_readable_across_steps() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 2, static_config());
     let target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("first should hit");
@@ -201,13 +200,13 @@ fn stale_query_handle_panics() {
     let (_gpu_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 2, static_config());
     let _target = sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
-    let first = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+    let first = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let _ = sim.query_hit(first);
     let query_capacity = sim.capacity() * 2;
     for _ in 0..query_capacity {
-        sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+        sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     }
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -223,11 +222,11 @@ fn query_ring_exhausted_panics() {
     let mut sim = Simulation::new(gpu, 2, static_config());
     let query_capacity = sim.capacity() * 2;
     for _ in 0..query_capacity {
-        sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+        sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     }
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
         }))
         .is_err()
     );
@@ -239,7 +238,7 @@ fn raycast_panics_on_non_positive_distance() {
     let mut sim = Simulation::new(gpu, 4, static_config());
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0);
+            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, &QueryFilter::default());
         }))
         .is_err()
     );
@@ -251,7 +250,7 @@ fn raycast_panics_on_zero_direction() {
     let mut sim = Simulation::new(gpu, 4, static_config());
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 10.0);
+            sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 10.0, &QueryFilter::default());
         }))
         .is_err()
     );
@@ -268,7 +267,7 @@ fn bullet_sweep_prevents_tunneling() {
     let mut stopped: Option<BodyHandle> = None;
     for _ in 0..10 {
         let travel = 3.0;
-        let query = sim.raycast(muzzle, [0.0, 0.0, 1.0], travel);
+        let query = sim.raycast(muzzle, [0.0, 0.0, 1.0], travel, &QueryFilter::default());
         sim.step(DT);
         sim.wait();
         match sim.query_hit(query) {

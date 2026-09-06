@@ -6,6 +6,16 @@ pub struct GpuContext {
     queue: Queue,
 }
 
+impl Clone for GpuContext {
+    fn clone(&self) -> Self {
+        Self {
+            adapter: self.adapter.clone(),
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+        }
+    }
+}
+
 impl GpuContext {
     pub async fn new() -> Self {
         let instance = Instance::new(InstanceDescriptor::new_without_display_handle());
@@ -22,7 +32,7 @@ impl GpuContext {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("dynamis device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits: adapter.limits(),
                 memory_hints: MemoryHints::default(),
                 ..Default::default()
             })

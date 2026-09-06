@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> pair_keys_hi: array<u32>;
 @group(0) @binding(4) var<storage, read_write> pair_keys_lo: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pair_count: atomic<u32>;
+@group(0) @binding(6) var<storage, read> colliders: array<Collider>;
 
 fn emit_pair(first: u32, second: u32) {
     if (first == second) {
@@ -28,7 +29,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (large_count == 0u) {
         return;
     }
-    for (var i = 0u; i < large_count; i = i + 1u) {
-        emit_pair(large_bodies[i], index);
+    for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
+        let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
+        if (colliders[collider_index].kind == SHAPE_NONE) {
+            continue;
+        }
+        for (var large = 0u; large < large_count; large = large + 1u) {
+            emit_pair(large_bodies[large], collider_index);
+        }
     }
 }

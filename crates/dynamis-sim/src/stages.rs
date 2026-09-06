@@ -1,18 +1,25 @@
-use crate::buffers::{MAX_CELLS_PER_BODY, StageBuffers};
+use crate::buffers::{MAX_CELLS_PER_COLLIDER, StageBuffers};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, GpuSort};
 use dynamis_layout::{
-    BODY_KINEMATIC, BODY_SLEEPING, COMMAND_ADD, COMMAND_CONSTRAINT_ADD,
-    COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE,
-    COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISTANCE,
-    CONSTRAINT_FIXED, CONSTRAINT_INVALID, CONSTRAINT_PRISMATIC, CONSTRAINT_REVOLUTE,
-    CONTACT_MAX_POINTS, IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, NO_BODY,
-    PATCH_ANGULAR_VELOCITY, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS,
-    PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION,
-    PATCH_VELOCITY, QUERY_RAY, QUERY_SPHERE, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
+    BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD,
+    COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
+    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
+    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
+    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
+    CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_REVOLUTE,
+    CONTACT_MAX_POINTS, EVENT_BEGIN, EVENT_END, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS,
+    FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE,
+    MAX_COLLIDERS_PER_BODY, MAX_HITS_PER_QUERY, NO_BODY, PATCH_ANGULAR_VELOCITY,
+    PATCH_CCD, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC,
+    PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_BOX,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_CYLINDER,
+    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_SOURCE_HEIGHTFIELD,
+    SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH, SHAPE_SPHERE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
+const SHAPE_TRIANGLE: u32 = 8;
 
 fn shader_constants() -> String {
     format!(
@@ -21,8 +28,10 @@ fn shader_constants() -> String {
          const COMMAND_REMOVE: u32 = {COMMAND_REMOVE}u;\n\
          const COMMAND_PATCH: u32 = {COMMAND_PATCH}u;\n\
          const COMMAND_FORCE: u32 = {COMMAND_FORCE}u;\n\
+         const COMMAND_FORCE_AT_POINT: u32 = {COMMAND_FORCE_AT_POINT}u;\n\
          const COMMAND_TORQUE: u32 = {COMMAND_TORQUE}u;\n\
          const COMMAND_IMPULSE: u32 = {COMMAND_IMPULSE}u;\n\
+         const COMMAND_ANGULAR_IMPULSE: u32 = {COMMAND_ANGULAR_IMPULSE}u;\n\
          const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
          const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
          const COMMAND_SLEEP: u32 = {COMMAND_SLEEP}u;\n\
@@ -39,11 +48,23 @@ fn shader_constants() -> String {
          const PATCH_GROUP: u32 = {PATCH_GROUP}u;\n\
          const PATCH_MASK: u32 = {PATCH_MASK}u;\n\
          const PATCH_KINEMATIC: u32 = {PATCH_KINEMATIC}u;\n\
+         const PATCH_CCD: u32 = {PATCH_CCD}u;\n\
+         const SHAPE_NONE: u32 = {SHAPE_NONE}u;\n\
          const SHAPE_SPHERE: u32 = {SHAPE_SPHERE}u;\n\
          const SHAPE_BOX: u32 = {SHAPE_BOX}u;\n\
          const SHAPE_CAPSULE: u32 = {SHAPE_CAPSULE}u;\n\
+         const SHAPE_CYLINDER: u32 = {SHAPE_CYLINDER}u;\n\
+         const SHAPE_HULL: u32 = {SHAPE_HULL}u;\n\
+         const SHAPE_MESH: u32 = {SHAPE_MESH}u;\n\
+         const SHAPE_HEIGHTFIELD: u32 = {SHAPE_HEIGHTFIELD}u;\n\
+         const SHAPE_TRIANGLE: u32 = {SHAPE_TRIANGLE}u;\n\
+         const SHAPE_SOURCE_HULL: u32 = {SHAPE_SOURCE_HULL}u;\n\
+         const SHAPE_SOURCE_MESH: u32 = {SHAPE_SOURCE_MESH}u;\n\
+         const SHAPE_SOURCE_HEIGHTFIELD: u32 = {SHAPE_SOURCE_HEIGHTFIELD}u;\n\
          const BODY_KINEMATIC: u32 = {BODY_KINEMATIC}u;\n\
          const BODY_SLEEPING: u32 = {BODY_SLEEPING}u;\n\
+         const BODY_CCD: u32 = {BODY_CCD}u;\n\
+         const COLLIDER_SENSOR: u32 = {COLLIDER_SENSOR}u;\n\
          const ISLAND_WAKE: u32 = {ISLAND_WAKE}u;\n\
          const ISLAND_ACTIVE: u32 = {ISLAND_ACTIVE}u;\n\
          const CONTACT_MAX_POINTS: u32 = {CONTACT_MAX_POINTS}u;\n\
@@ -53,23 +74,39 @@ fn shader_constants() -> String {
          const CONSTRAINT_PRISMATIC: u32 = {CONSTRAINT_PRISMATIC}u;\n\
          const CONSTRAINT_FIXED: u32 = {CONSTRAINT_FIXED}u;\n\
          const CONSTRAINT_INVALID: u32 = {CONSTRAINT_INVALID}u;\n\
+         const CONSTRAINT_DISABLE_COLLISIONS: u32 = {CONSTRAINT_DISABLE_COLLISIONS}u;\n\
+         const CONSTRAINT_HAS_LIMIT: u32 = {CONSTRAINT_HAS_LIMIT}u;\n\
+         const CONSTRAINT_HAS_MOTOR: u32 = {CONSTRAINT_HAS_MOTOR}u;\n\
+         const CONSTRAINT_IS_SPRING: u32 = {CONSTRAINT_IS_SPRING}u;\n\
          const QUERY_RAY: u32 = {QUERY_RAY}u;\n\
          const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n\
+         const QUERY_BOX: u32 = {QUERY_BOX}u;\n\
+         const QUERY_SWEEP: u32 = {QUERY_SWEEP}u;\n\
+         const FILTER_IGNORE_SENSORS: u32 = {FILTER_IGNORE_SENSORS}u;\n\
+         const FILTER_IGNORE_SLEEPING: u32 = {FILTER_IGNORE_SLEEPING}u;\n\
+         const FILTER_IGNORE_STATIC: u32 = {FILTER_IGNORE_STATIC}u;\n\
+         const FILTER_IGNORE_KINEMATIC: u32 = {FILTER_IGNORE_KINEMATIC}u;\n\
+         const EVENT_BEGIN: u32 = {EVENT_BEGIN}u;\n\
+         const EVENT_END: u32 = {EVENT_END}u;\n\
          const NO_BODY: u32 = {NO_BODY}u;\n\
          const NO_HIT: f32 = 3.402823466e38;\n\
-         const MAX_CELLS_PER_BODY: u32 = {MAX_CELLS_PER_BODY}u;\n"
+         const MAX_CELLS_PER_COLLIDER: u32 = {MAX_CELLS_PER_COLLIDER}u;\n\
+         const MAX_COLLIDERS_PER_BODY: u32 = {MAX_COLLIDERS_PER_BODY}u;\n\
+         const MAX_HITS_PER_QUERY: u32 = {MAX_HITS_PER_QUERY}u;\n"
     )
 }
 
 pub(crate) const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
+pub(crate) const SHAPES_FRAGMENT: &str = include_str!("shaders/shapes.wgsl");
 
 fn assemble_shader(body: &str) -> String {
-    format!("{COMMON_SHADER}\n{}\n{body}", shader_constants())
+    format!("{COMMON_SHADER}\n{body}\n{SHAPES_FRAGMENT}\n{}", shader_constants())
 }
 
 struct Stage {
     pipeline: ComputePipeline,
     bind_group: BindGroup,
+    shapes_group: BindGroup,
 }
 
 impl Stage {
@@ -79,21 +116,33 @@ impl Stage {
         shader: &str,
         bindings: &[BindingKind],
         resources: &[&GpuBuffer],
+        shape_resources: &[&GpuBuffer],
     ) -> Self {
         assert_eq!(bindings.len(), resources.len(), "stage binding mismatch");
+        let shape_specs = shape_resources
+            .iter()
+            .enumerate()
+            .map(|(position, _)| BindingSpec {
+                binding: position as u32,
+                kind: BindingKind::ReadOnlyStorage,
+            })
+            .collect::<Vec<_>>();
         let pipeline = ComputePipeline::new(
             device,
             label,
             shader,
             "main",
-            &bindings
-                .iter()
-                .enumerate()
-                .map(|(position, kind)| BindingSpec {
-                    binding: position as u32,
-                    kind: *kind,
-                })
-                .collect::<Vec<_>>(),
+            &[
+                &bindings
+                    .iter()
+                    .enumerate()
+                    .map(|(position, kind)| BindingSpec {
+                        binding: position as u32,
+                        kind: *kind,
+                    })
+                    .collect::<Vec<_>>()[..],
+                &shape_specs[..],
+            ],
             WORKGROUP_SIZE,
         );
         let entries: Vec<BindGroupEntry> = bindings
@@ -105,38 +154,49 @@ impl Stage {
                 resource: buffer.as_binding(),
             })
             .collect();
-        let bind_group = pipeline.create_bind_group(device, &entries);
+        let bind_group = pipeline.create_bind_group(device, 0, &entries);
+        let shape_entries = shape_resources
+            .iter()
+            .enumerate()
+            .map(|(position, buffer)| BindGroupEntry {
+                binding: position as u32,
+                resource: buffer.as_binding(),
+            })
+            .collect::<Vec<_>>();
+        let shapes_group = pipeline.create_bind_group(device, 1, &shape_entries);
         Self {
             pipeline,
             bind_group,
+            shapes_group,
         }
     }
 
     fn dispatch(&self, encoder: &mut CommandEncoder, elements: u32) {
         let workgroups = self.pipeline.workgroup_count(elements);
         self.pipeline
-            .dispatch(encoder, &self.bind_group, workgroups);
+            .dispatch(encoder, &[&self.bind_group, &self.shapes_group], workgroups);
     }
 
     fn dispatch_indirect(&self, encoder: &mut CommandEncoder, args: &GpuBuffer) {
         self.pipeline
-            .dispatch_indirect(encoder, &self.bind_group, args);
+            .dispatch_indirect(encoder, &[&self.bind_group, &self.shapes_group], args);
     }
 
     fn dispatch_indirect_workgrouped(&self, encoder: &mut CommandEncoder, args: &GpuBuffer) {
         self.pipeline
-            .dispatch_indirect_workgrouped(encoder, &self.bind_group, args);
+            .dispatch_indirect_workgrouped(encoder, &[&self.bind_group, &self.shapes_group], args);
     }
 
     fn dispatch_workgroups(&self, encoder: &mut CommandEncoder, workgroups: u32) {
         self.pipeline
-            .dispatch(encoder, &self.bind_group, workgroups);
+            .dispatch(encoder, &[&self.bind_group, &self.shapes_group], workgroups);
     }
 }
 
 pub(crate) struct Stages {
     apply_commands: Stage,
     apply_constraint_commands: Stage,
+    joint_filter: Stage,
     integrate: Stage,
     broadphase_aabb: Stage,
     grid_entries: Stage,
@@ -145,13 +205,17 @@ pub(crate) struct Stages {
     narrowphase: Stage,
     contact_index: Stage,
     contact_match: Stage,
+    events_end: Stage,
     contact_archive: Stage,
+    prev_count_sync: Stage,
     island_init: Stage,
     island_link_contacts: Stage,
     island_link_constraints: Stage,
     island_jump: Stage,
     island_aggregate: Stage,
     island_broadcast: Stage,
+    bucket_contacts: Stage,
+    bucket_constraints: Stage,
     ccd_sweep: Stage,
     solve: Stage,
     solve_constraints: Stage,
@@ -183,6 +247,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.command_count,
                 &buffers.wake_flags,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         apply_constraint_commands: Stage::build(
             device,
@@ -198,6 +263,27 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.constraints,
                 &buffers.constraint_command_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        joint_filter: Stage::build(
+            device,
+            "joint_filter",
+            &assemble_shader(include_str!("shaders/joint_filter.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.constraints,
+                &buffers.joint_hi,
+                &buffers.joint_lo,
+                &buffers.joint_count,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         integrate: Stage::build(
             device,
@@ -205,6 +291,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             &assemble_shader(include_str!("shaders/integrate.wgsl")),
             &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
             &[&buffers.params, &buffers.bodies_current],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         broadphase_aabb: Stage::build(
             device,
@@ -222,6 +309,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.colliders,
                 &buffers.aabbs,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         grid_entries: Stage::build(
             device,
@@ -245,6 +333,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.large_bodies,
                 &buffers.large_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         broadphase_pairs: Stage::build(
             device,
@@ -268,6 +357,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.pairs.keys_lo,
                 &buffers.pair_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         large_pairs: Stage::build(
             device,
@@ -280,6 +370,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.params,
@@ -288,7 +379,9 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.pairs.keys_hi,
                 &buffers.pairs.keys_lo,
                 &buffers.pair_count,
+                &buffers.colliders,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         narrowphase: Stage::build(
             device,
@@ -302,6 +395,9 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.bodies_current,
@@ -311,7 +407,11 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contacts,
                 &buffers.contact_count,
                 &buffers.pair_count,
+                &buffers.joint_hi,
+                &buffers.joint_lo,
+                &buffers.joint_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         contact_index: Stage::build(
             device,
@@ -331,6 +431,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contact_keys_lo,
                 &buffers.contact_indices,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         contact_match: Stage::build(
             device,
@@ -344,6 +445,8 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.contact_indices,
@@ -353,7 +456,34 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.prev_contact_count,
                 &buffers.contacts,
                 &buffers.contact_count,
+                &buffers.events,
+                &buffers.event_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        events_end: Stage::build(
+            device,
+            "events_end",
+            &assemble_shader(include_str!("shaders/events_end.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.prev_contacts,
+                &buffers.prev_contact_count,
+                &buffers.contact_keys_hi,
+                &buffers.contact_keys_lo,
+                &buffers.contact_count,
+                &buffers.events,
+                &buffers.event_count,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         contact_archive: Stage::build(
             device,
@@ -373,6 +503,21 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.prev_contact_count,
                 &buffers.contact_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        prev_count_sync: Stage::build(
+            device,
+            "prev_count_sync",
+            &assemble_shader(include_str!("shaders/prev_count_sync.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.contact_count,
+                &buffers.prev_contact_count,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_init: Stage::build(
             device,
@@ -388,13 +533,13 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.island_parents,
                 &buffers.island_state,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_link_contacts: Stage::build(
             device,
             "island_link_contacts",
             &assemble_shader(include_str!("shaders/island_link_contacts.wgsl")),
-            &
-            [
+            &[
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
@@ -406,6 +551,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contact_count,
                 &buffers.island_parents,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_link_constraints: Stage::build(
             device,
@@ -423,6 +569,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.constraints,
                 &buffers.island_parents,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_jump: Stage::build(
             device,
@@ -430,6 +577,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             &assemble_shader(include_str!("shaders/island_jump.wgsl")),
             &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
             &[&buffers.params, &buffers.island_parents],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_aggregate: Stage::build(
             device,
@@ -449,6 +597,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.island_state,
                 &buffers.wake_flags,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         island_broadcast: Stage::build(
             device,
@@ -468,6 +617,53 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.island_state,
                 &buffers.wake_flags,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        bucket_contacts: Stage::build(
+            device,
+            "bucket_contacts",
+            &assemble_shader(include_str!("shaders/bucket_contacts.wgsl")),
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.island_parents,
+                &buffers.contact_count,
+                &buffers.contact_keys_hi,
+                &buffers.contact_indices,
+                &buffers.pairs.keys_hi,
+                &buffers.pairs.keys_lo,
+                &buffers.pairs.values,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
+        ),
+        bucket_constraints: Stage::build(
+            device,
+            "bucket_constraints",
+            &assemble_shader(include_str!("shaders/bucket_constraints.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.island_parents,
+                &buffers.constraints,
+                &buffers.entries.keys_hi,
+                &buffers.entries.keys_lo,
+                &buffers.entries.values,
+            ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         ccd_sweep: Stage::build(
             device,
@@ -480,6 +676,10 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.params,
@@ -488,7 +688,12 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.pairs.keys_hi,
                 &buffers.pairs.keys_lo,
                 &buffers.pair_count,
+                &buffers.shapes,
+                &buffers.shape_vertices,
+                &buffers.shape_triangles,
+                &buffers.shape_nodes,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         solve: Stage::build(
             device,
@@ -500,6 +705,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.params,
@@ -507,7 +713,9 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contacts,
                 &buffers.contact_count,
                 &buffers.wake_flags,
+                &buffers.pairs.values,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         solve_constraints: Stage::build(
             device,
@@ -518,13 +726,16 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.bodies_current,
                 &buffers.constraints,
                 &buffers.wake_flags,
+                &buffers.entries.values,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         solve_position: Stage::build(
             device,
@@ -542,6 +753,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 &buffers.contacts,
                 &buffers.contact_count,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         query: Stage::build(
             device,
@@ -551,16 +763,31 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
                 BindingKind::Uniform,
             ],
             &[
                 &buffers.queries,
                 &buffers.bodies_current,
                 &buffers.colliders,
-                &buffers.query_results,
+                &buffers.aabbs,
+                &buffers.entries.keys_hi,
+                &buffers.entries.keys_lo,
+                &buffers.entry_count,
+                &buffers.query_headers,
+                &buffers.query_hits,
+                &buffers.large_bodies,
+                &buffers.large_count,
                 &buffers.params,
             ],
+            &[&buffers.shapes, &buffers.shape_vertices, &buffers.shape_triangles, &buffers.shape_nodes],
         ),
         sort: GpuSort::new(device, "sim sort", buffers.sort_scratch.capacity_u32()),
         sort_hi: GpuBuffer::new(
@@ -601,6 +828,19 @@ pub(crate) fn encode_physics(
 ) {
     stages.apply_commands.dispatch(encoder, 1);
     stages.apply_constraint_commands.dispatch(encoder, 1);
+    stages.joint_filter.dispatch(encoder, buffers.constraint_capacity());
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.joint_count,
+        buffers.constraint_capacity(),
+        &buffers.joint_lo,
+        &buffers.joint_hi,
+        &buffers.entries.values,
+        &stages.sort_lo,
+        &stages.sort_hi,
+        &stages.sort_values,
+    );
     stages.integrate.dispatch(encoder, body_count);
     stages.broadphase_aabb.dispatch(encoder, body_count);
     stages.grid_entries.dispatch(encoder, body_count);
@@ -666,6 +906,36 @@ pub(crate) fn encode_physics(
     for _ in 0..island_rounds {
         stages.island_jump.dispatch(encoder, body_count);
     }
+    stages
+        .bucket_contacts
+        .dispatch_indirect(encoder, &buffers.contact_count);
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.contact_count,
+        buffers.pairs.capacity_u32(),
+        &buffers.pairs.keys_lo,
+        &buffers.pairs.keys_hi,
+        &buffers.pairs.values,
+        &stages.sort_hi,
+        &stages.sort_lo,
+        &stages.sort_values,
+    );
+    stages
+        .bucket_constraints
+        .dispatch(encoder, buffers.constraint_capacity());
+    stages.sort.sort_64(
+        device,
+        encoder,
+        &buffers.constraint_count_state,
+        buffers.entries.capacity_u32(),
+        &buffers.entries.keys_lo,
+        &buffers.entries.keys_hi,
+        &buffers.entries.values,
+        &stages.sort_hi,
+        &stages.sort_lo,
+        &stages.sort_values,
+    );
     stages.island_aggregate.dispatch(encoder, body_count);
     stages.island_broadcast.dispatch(encoder, body_count);
     for _ in 0..solve_iterations {
@@ -680,8 +950,12 @@ pub(crate) fn encode_physics(
             .dispatch_indirect(encoder, &buffers.contact_count);
     }
     stages
+        .events_end
+        .dispatch_indirect(encoder, &buffers.prev_contact_count);
+    stages
         .contact_archive
         .dispatch_indirect(encoder, &buffers.contact_count);
+    stages.prev_count_sync.dispatch(encoder, 1);
     if query_count > 0 {
         stages.query.dispatch_workgroups(encoder, query_count);
     }

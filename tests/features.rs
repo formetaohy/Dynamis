@@ -1,4 +1,4 @@
-use dynamis::{BodyDesc, ConstraintDesc, ConstraintKind, GpuContext, PhysicsConfig, Simulation};
+use dynamis::{BodyDesc, ConstraintDesc, GpuContext, PhysicsConfig, QueryFilter, Shape, Simulation};
 use std::sync::{Mutex, MutexGuard};
 
 const DT: f32 = 1.0 / 60.0;
@@ -271,7 +271,15 @@ fn fixed_constraint_rigidly_links() {
 #[test]
 fn revolute_constraint_allows_hinge_rotation() {
     let (_guard, gpu) = serialized_gpu();
-    let mut sim = Simulation::new(gpu, 8, static_config());
+    let mut sim = Simulation::new(
+        gpu,
+        8,
+        PhysicsConfig {
+            sleep_velocity: 0.0,
+            sleep_angular_velocity: 0.0,
+            ..static_config()
+        },
+    );
     let anchor = sim.spawn(BodyDesc::static_sphere(0.1).position([0.0, 0.0, 0.0]));
     let arm = sim.spawn(BodyDesc::cuboid([0.1, 1.0, 0.1]).position([0.0, 1.0, 0.0]));
     sim.add_constraint(
@@ -368,7 +376,7 @@ fn set_shape_switches_collider() {
     );
     let ground = sim.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 0.0]));
     let _ = ground;
-    sim.set_shape(ball, dynamis::ShapeDesc::cuboid([0.5, 0.5, 0.5]));
+    sim.set_shape(ball, Shape::cuboid([0.5, 0.5, 0.5]));
     for _ in 0..300 {
         sim.step(DT);
     }
@@ -385,7 +393,7 @@ fn raycast_hits_box_shape() {
     let (_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, static_config());
     let cube = sim.spawn(BodyDesc::cuboid([1.0, 1.0, 1.0]).position([0.0, 0.0, 5.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("ray should hit cube");
@@ -403,7 +411,7 @@ fn raycast_hits_capsule_shape() {
     let mut sim = Simulation::new(gpu, 8, static_config());
     let capsule = sim.spawn(BodyDesc::capsule(0.5, 1.0).position([0.0, 0.0, 5.0]));
     let _ = capsule;
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 20.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("ray should hit capsule");
@@ -419,7 +427,7 @@ fn query_returns_point_and_normal() {
     let (_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, static_config());
     sim.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 2.0]));
-    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0);
+    let query = sim.raycast([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 10.0, &QueryFilter::default());
     sim.step(DT);
     sim.wait();
     let hit = sim.query_hit(query).expect("hit");
@@ -502,17 +510,11 @@ fn invalid_constraint_kind_with_zero_axis_panics() {
     let mut sim = Simulation::new(gpu, 8, static_config());
     let first = sim.spawn(BodyDesc::sphere(0.2));
     let second = sim.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
-    let desc = ConstraintDesc {
-        kind: ConstraintKind::Revolute,
-        anchor_a: [0.0; 3],
-        anchor_b: [0.0; 3],
-        axis: [0.0; 3],
-        distance: 0.0,
-    };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        sim.add_constraint(first, second, desc);
+        ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0; 3]);
     }));
     assert!(result.is_err(), "zero revolute axis must panic");
+    let _ = (first, second);
 }
 
 #[test]
@@ -562,6 +564,7 @@ fn high_speed_bullet_does_not_tunnel() {
     let _target = sim.spawn(BodyDesc::static_sphere(0.1));
     let bullet = sim.spawn(
         BodyDesc::sphere(0.5)
+            .ccd(true)
             .position([-5.0, 0.0, 0.0])
             .velocity([60.0, 0.0, 0.0])
             .restitution(0.0),
@@ -661,6 +664,7 @@ fn swept_aabb_covers_fast_motion() {
     let _target = sim.spawn(BodyDesc::static_sphere(0.2).position([4.0, 0.0, 0.0]));
     let bullet = sim.spawn(
         BodyDesc::sphere(0.3)
+            .ccd(true)
             .position([0.0, 0.0, 0.0])
             .velocity([90.0, 0.0, 0.0])
             .restitution(0.0),

@@ -5,6 +5,9 @@
 @group(0) @binding(4) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(5) var<storage, read_write> contact_count: atomic<u32>;
 @group(0) @binding(6) var<storage, read> pair_count: atomic<u32>;
+@group(0) @binding(7) var<storage, read> joint_hi: array<u32>;
+@group(0) @binding(8) var<storage, read> joint_lo: array<u32>;
+@group(0) @binding(9) var<storage, read> joint_count: array<u32>;
 
 fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).point_count = 0u;
@@ -20,12 +23,34 @@ fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
     (*contact).point_count = count + 1u;
 }
 
+fn pair_joined(first_body: u32, second_body: u32) -> bool {
+    let count = joint_count[0];
+    if (count == 0u) {
+        return false;
+    }
+    let a = min(first_body, second_body);
+    let b = max(first_body, second_body);
+    var lo = 0u;
+    var hi = count;
+    while (lo < hi) {
+        let mid = (lo + hi) / 2u;
+        if (joint_hi[mid] < a || (joint_hi[mid] == a && joint_lo[mid] < b)) {
+            lo = mid + 1u;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo < count && joint_hi[lo] == a && joint_lo[lo] == b;
+}
+
 fn sphere_sphere(
     first: RigidBody, first_collider: Collider,
     second: RigidBody, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    let delta = second.position - first.position;
+    let first_center = box_center(first, first_collider);
+    let second_center = box_center(second, second_collider);
+    let delta = second_center - first_center;
     let distance = length(delta);
     let radius_sum = first_collider.radius + second_collider.radius;
     contact_emit(&contact, sign_normalize(delta));
@@ -34,11 +59,11 @@ fn sphere_sphere(
     }
     var normal = sign_normalize(delta);
     if (distance <= 1e-6) {
-        let relative = relative_velocity(first, second, second.position, first.position);
+        let relative = relative_velocity(first, second, second_center, first_center);
         normal = select(normal, -normalize(relative), length(relative) > 1e-6);
     }
     let depth = radius_sum - distance;
-    let point = first.position + normal * (first_collider.radius - depth * 0.5);
+    let point = first_center + normal * (first_collider.radius - depth * 0.5);
     manifold_push(&contact, point, depth);
     return contact;
 }
@@ -64,7 +89,7 @@ fn sphere_box(
     box_body: RigidBody, box_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    let center = sphere.position;
+    let center = sphere.position + quat_rotate(sphere.orientation, sphere_collider.local_offset);
     let closest = closest_point_box(center, box_body, box_collider);
     let delta = closest - center;
     let distance = length(delta);
@@ -84,7 +109,8 @@ fn sphere_box(
 }
 
 fn capsule_segment(body: RigidBody, collider: Collider) -> Segment {
-    let axis = quat_rotate(body.orientation, vec3f(0.0, 1.0, 0.0));
+    let q = quat_mul(body.orientation, collider.local_rotation);
+    let axis = quat_rotate(q, vec3f(0.0, 1.0, 0.0));
     let center = box_center(body, collider);
     return Segment(center - axis * collider.half_height, center + axis * collider.half_height);
 }
@@ -95,8 +121,9 @@ fn sphere_capsule(
 ) -> Contact {
     var contact: Contact;
     let seg = capsule_segment(capsule, capsule_collider);
-    let closest = closest_point_segment(sphere.position, seg.start, seg.end);
-    let delta = closest - sphere.position;
+    let center = sphere.position + quat_rotate(sphere.orientation, sphere_collider.local_offset);
+    let closest = closest_point_segment(center, seg.start, seg.end);
+    let delta = closest - center;
     let distance = length(delta);
     let radius_sum = sphere_collider.radius + capsule_collider.radius;
     contact_emit(&contact, sign_normalize(delta));
@@ -173,11 +200,58 @@ fn capsule_capsule(
     return contact;
 }
 
+fn box_face_corners(body: RigidBody, collider: Collider, face_normal: vec3f) -> array<vec3f, 4> {
+    let axes = box_rotated_axes(body, collider);
+    let center = box_center(body, collider);
+    var axis = 0u;
+    for (var i = 1u; i < 3u; i = i + 1u) {
+        if (abs(dot(face_normal, axes[i])) > abs(dot(face_normal, axes[axis]))) {
+            axis = i;
+        }
+    }
+    let sign = select(1.0, -1.0, dot(face_normal, axes[axis]) < 0.0);
+    let n = axes[axis] * sign;
+    let u = axes[(axis + 1u) % 3u];
+    let v = axes[(axis + 2u) % 3u];
+    let e = collider.half_extents[axis] * sign;
+    var corners: array<vec3f, 4>;
+    corners[0] = center + n * e + u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
+    corners[1] = center + n * e - u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
+    corners[2] = center + n * e - u * collider.half_extents[(axis + 1u) % 3u] - v * collider.half_extents[(axis + 2u) % 3u];
+    corners[3] = center + n * e + u * collider.half_extents[(axis + 1u) % 3u] - v * collider.half_extents[(axis + 2u) % 3u];
+    return corners;
+}
+
+fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_normal: vec3f, out_points: ptr<function, array<vec3f, 8>>) -> u32 {
+    var out_count = 0u;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let current = points[i];
+        let next = points[(i + 1u) % count];
+        let current_dist = dot(current - plane_point, plane_normal);
+        let next_dist = dot(next - plane_point, plane_normal);
+        if (current_dist <= 0.0) {
+            if (out_count < 8u) {
+                (*out_points)[out_count] = current;
+                out_count = out_count + 1u;
+            }
+        }
+        if (current_dist * next_dist < 0.0) {
+            let t = current_dist / (current_dist - next_dist);
+            if (out_count < 8u) {
+                (*out_points)[out_count] = current + (next - current) * t;
+                out_count = out_count + 1u;
+            }
+        }
+    }
+    return out_count;
+}
+
 fn box_box_sat(
     first: RigidBody, first_collider: Collider,
     second: RigidBody, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
+    contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
     let axes_a = box_rotated_axes(first, first_collider);
     let axes_b = box_rotated_axes(second, second_collider);
     let he_a = first_collider.half_extents;
@@ -187,38 +261,39 @@ fn box_box_sat(
     let delta = center_b - center_a;
     var best = 1e30;
     var best_axis = vec3f(0.0, 1.0, 0.0);
-
-    var i = 0;
+    var best_side = 0u;
+    var index = 0u;
     loop {
-        if (i >= 3) {
+        if (index >= 3u) {
             break;
         }
-        let axis = axes_a[i];
+        let axis = axes_a[index];
         let ra = abs(dot(delta, axis));
         let rb = abs(dot(axes_b[0], axis)) * he_b.x + abs(dot(axes_b[1], axis)) * he_b.y + abs(dot(axes_b[2], axis)) * he_b.z;
-        let overlap = he_a[i] + rb - ra;
+        let overlap = he_a[index] + rb - ra;
         if (overlap < best) {
             best = overlap;
             best_axis = axis;
+            best_side = index;
         }
-        i = i + 1;
+        index = index + 1u;
     }
-    i = 0;
+    index = 0u;
     loop {
-        if (i >= 3) {
+        if (index >= 3u) {
             break;
         }
-        let axis = axes_b[i];
+        let axis = axes_b[index];
         let projected_delta = abs(dot(delta, axis));
         let projected_a = abs(dot(axes_a[0], axis)) * he_a.x + abs(dot(axes_a[1], axis)) * he_a.y + abs(dot(axes_a[2], axis)) * he_a.z;
-        let overlap = he_b[i] + projected_a - projected_delta;
+        let overlap = he_b[index] + projected_a - projected_delta;
         if (overlap < best) {
             best = overlap;
             best_axis = axis;
+            best_side = 3u + index;
         }
-        i = i + 1;
+        index = index + 1u;
     }
-
     for (var ia = 0u; ia < 3u; ia = ia + 1u) {
         for (var ib = 0u; ib < 3u; ib = ib + 1u) {
             let axis = cross(axes_a[ia], axes_b[ib]);
@@ -234,19 +309,90 @@ fn box_box_sat(
             if (overlap < best) {
                 best = overlap;
                 best_axis = n;
+                best_side = 6u + ia * 3u + ib;
             }
         }
     }
-
     if (best <= 0.0) {
-        contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
         return contact;
     }
     let signed = select(best_axis, -best_axis, dot(best_axis, delta) < 0.0);
-    let depth = best;
-    let point = box_face_point(second, second_collider, -signed);
-    contact_emit(&contact, signed);
-    manifold_push(&contact, point, depth);
+    if (best_side >= 6u) {
+        let depth = best;
+        let point = box_face_point(second, second_collider, -signed);
+        contact.normal = signed;
+        manifold_push(&contact, point, depth);
+        return contact;
+    }
+    var reference: RigidBody;
+    var reference_collider: Collider;
+    var incident: RigidBody;
+    var incident_collider: Collider;
+    var face_normal = signed;
+    if (best_side < 3u) {
+        reference = first;
+        reference_collider = first_collider;
+        incident = second;
+        incident_collider = second_collider;
+    } else {
+        reference = second;
+        reference_collider = second_collider;
+        incident = first;
+        incident_collider = first_collider;
+        face_normal = -signed;
+    }
+    let ref_normal = face_normal;
+    let ref_center = box_face_point(reference, reference_collider, ref_normal);
+    let ref_corners = box_face_corners(reference, reference_collider, ref_normal);
+    let incident_ax = box_rotated_axes(incident, incident_collider);
+    var face_axis = 0u;
+    for (var i = 1u; i < 3u; i = i + 1u) {
+        if (abs(dot(incident_ax[i], ref_normal)) > abs(dot(incident_ax[face_axis], ref_normal))) {
+            face_axis = i;
+        }
+    }
+    let incident_normal = incident_ax[face_axis] * select(1.0, -1.0, dot(incident_ax[face_axis], ref_normal) > 0.0);
+    let incident_corners = box_face_corners(incident, incident_collider, incident_normal);
+    var polygon: array<vec3f, 8>;
+    var polygon_count = 4u;
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        polygon[i] = incident_corners[i];
+    }
+    for (var side = 0u; side < 4u; side = side + 1u) {
+        let current = ref_corners[side];
+        let next = ref_corners[(side + 1u) % 4u];
+        let plane_normal = normalize(cross(next - current, ref_normal));
+        polygon_count = clip_polygon(polygon, polygon_count, current, plane_normal, &polygon);
+        if (polygon_count == 0u) {
+            return contact;
+        }
+    }
+    contact.normal = signed;
+    var candidates: array<ManifoldPoint, 8>;
+    var candidate_count = 0u;
+    for (var i = 0u; i < polygon_count; i = i + 1u) {
+        let depth = dot(ref_center - polygon[i], ref_normal);
+        if (depth >= 0.0 && candidate_count < 8u) {
+            candidates[candidate_count] = ManifoldPoint(polygon[i] - ref_normal * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
+            candidate_count = candidate_count + 1u;
+        }
+    }
+    if (candidate_count == 0u) {
+        return contact;
+    }
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
+        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
+            if (candidates[j].depth > candidates[i].depth) {
+                let tmp = candidates[i];
+                candidates[i] = candidates[j];
+                candidates[j] = tmp;
+            }
+        }
+    }
+    var keep = min(candidate_count, CONTACT_MAX_POINTS);
+    for (var i = 0u; i < keep; i = i + 1u) {
+        manifold_push(&contact, candidates[i].position, candidates[i].depth);
+    }
     return contact;
 }
 
@@ -255,27 +401,61 @@ fn box_capsule(
     capsule: RigidBody, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
+    contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
     let seg = capsule_segment(capsule, capsule_collider);
-    let closest_a = closest_point_box(seg.start, box_body, box_collider);
-    let closest_b = closest_point_box(seg.end, box_body, box_collider);
-    let delta_a = closest_a - seg.start;
-    let delta_b = closest_b - seg.end;
-    let depth_a = capsule_collider.radius - length(delta_a);
-    let depth_b = capsule_collider.radius - length(delta_b);
-    var depth = depth_a;
-    var normal = sign_normalize(delta_a);
-    var point = closest_a;
-    if (depth_b > depth) {
-        depth = depth_b;
-        normal = sign_normalize(delta_b);
-        point = closest_b;
+    var candidates: array<ManifoldPoint, 8>;
+    var candidate_normals: array<vec3f, 8>;
+    var candidate_count = 0u;
+    for (var i = 0u; i < 3u; i = i + 1u) {
+        let t = f32(i) * (1.0 / 2.0);
+        let point = seg.start + (seg.end - seg.start) * t;
+        let closest = closest_point_box(point, box_body, box_collider);
+        let delta = point - closest;
+        let distance = length(delta);
+        let depth = capsule_collider.radius - distance;
+        if (depth > 0.0) {
+            var normal = sign_normalize(delta);
+            if (distance <= 1e-6) {
+                normal = box_deep_normal(point, box_body, box_collider);
+            }
+            let contact_point = closest + normal * (depth * 0.5);
+            var found = false;
+            for (var existing = 0u; existing < candidate_count; existing = existing + 1u) {
+                if (length(candidates[existing].position - contact_point) < 0.05) {
+                    found = true;
+                }
+            }
+            if (found) {
+                continue;
+            }
+            candidates[candidate_count] = ManifoldPoint(contact_point, depth, 0.0, 0.0, 0.0, 0.0);
+            candidate_normals[candidate_count] = normal;
+            candidate_count = candidate_count + 1u;
+        }
     }
-    contact_emit(&contact, normal);
-    if (depth <= 0.0) {
+    if (candidate_count == 0u) {
         return contact;
     }
-    manifold_push(&contact, point, depth);
+    var best_depth = -1e30;
+    var best_normal = vec3f(0.0, 1.0, 0.0);
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
+        if (candidates[i].depth > best_depth) {
+            best_depth = candidates[i].depth;
+            best_normal = candidate_normals[i];
+        }
+    }
+    contact.normal = best_normal;
+    var keep = min(candidate_count, 2u);
+    for (var i = 0u; i < keep; i = i + 1u) {
+        manifold_push(&contact, candidates[i].position, candidates[i].depth);
+    }
     return contact;
+}
+
+fn manifold_from_hit(contact: ptr<function, Contact>, hit: ShapeHit) {
+    if (hit.distance <= 0.0) {
+        manifold_push(contact, hit.point, -hit.distance);
+    }
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -289,46 +469,108 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = pair_keys_hi[index];
     let second_slot = pair_keys_lo[index];
-    let first = bodies[first_slot];
-    let second = bodies[second_slot];
-    if (first.inverse_mass == 0.0 && (first.flags & BODY_KINEMATIC) == 0u &&
-        second.inverse_mass == 0.0 && (second.flags & BODY_KINEMATIC) == 0u) {
+    let first_body_slot = first_slot / 4u;
+    let second_body_slot = second_slot / 4u;
+    let first = bodies[first_body_slot];
+    let second = bodies[second_body_slot];
+    if (body_is_static(first) && body_is_static(second)) {
         return;
     }
-    if ((first.collision_group & second.collision_mask) == 0u ||
-        (second.collision_group & first.collision_mask) == 0u) {
+    if (!body_world_intersects(first, second.collision_group, second.collision_mask)) {
+        return;
+    }
+    if (pair_joined(first_body_slot, second_body_slot)) {
         return;
     }
     let first_collider = colliders[first_slot];
     let second_collider = colliders[second_slot];
+
+    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+        return;
+    }
     var contact: Contact;
-    if (first_collider.shape == SHAPE_SPHERE && second_collider.shape == SHAPE_SPHERE) {
-        contact = sphere_sphere(first, first_collider, second, second_collider);
-    } else if (first_collider.shape == SHAPE_SPHERE && second_collider.shape == SHAPE_BOX) {
-        contact = sphere_box(first, first_collider, second, second_collider);
-    } else if (first_collider.shape == SHAPE_SPHERE && second_collider.shape == SHAPE_CAPSULE) {
-        contact = sphere_capsule(first, first_collider, second, second_collider);
-    } else if (first_collider.shape == SHAPE_BOX && second_collider.shape == SHAPE_SPHERE) {
-        let swapped = sphere_box(second, second_collider, first, first_collider);
-        contact = swapped;
-        contact.normal = -contact.normal;
-    } else if (first_collider.shape == SHAPE_BOX && second_collider.shape == SHAPE_BOX) {
-        contact = box_box_sat(first, first_collider, second, second_collider);
-    } else if (first_collider.shape == SHAPE_BOX && second_collider.shape == SHAPE_CAPSULE) {
-        contact = box_capsule(first, first_collider, second, second_collider);
-    } else if (first_collider.shape == SHAPE_CAPSULE && second_collider.shape == SHAPE_SPHERE) {
-        let swapped = sphere_capsule(second, second_collider, first, first_collider);
-        contact = swapped;
-        contact.normal = -contact.normal;
-    } else if (first_collider.shape == SHAPE_CAPSULE && second_collider.shape == SHAPE_BOX) {
-        let swapped = box_capsule(second, second_collider, first, first_collider);
-        contact = swapped;
-        contact.normal = -contact.normal;
+    var generated = false;
+    let sensor = collider_is_sensor(first_collider) || collider_is_sensor(second_collider);
+    let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD;
+    let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD;
+    if (first_world_geom && second_world_geom) {
+        return;
+    }
+    if (first_world_geom) {
+        let world_second = world_collider(second, second_collider);
+        let hit = scene_convex_hit(first_collider.source, world_second);
+        if (hit.distance <= 0.0) {
+            contact_emit(&contact, hit.normal);
+            generated = true;
+            manifold_from_hit(&contact, hit);
+        }
+
+    } else if (second_world_geom) {
+        let world_first = world_collider(first, first_collider);
+        let hit = scene_convex_hit(second_collider.source, world_first);
+        if (hit.distance <= 0.0) {
+            contact_emit(&contact, -hit.normal);
+            generated = true;
+            let flipped = ShapeHit(hit.distance, hit.point, -hit.normal);
+            manifold_from_hit(&contact, flipped);
+        }
     } else {
-        contact = capsule_capsule(first, first_collider, second, second_collider);
+        let shape_a = first_collider.kind;
+        let shape_b = second_collider.kind;
+        if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_SPHERE) {
+            contact = sphere_sphere(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_BOX) {
+            contact = sphere_box(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CAPSULE) {
+            contact = sphere_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_SPHERE) {
+            let swapped = sphere_box(second, second_collider, first, first_collider);
+            contact = swapped;
+            contact.normal = -contact.normal;
+            generated = true;
+        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_BOX) {
+            contact = box_box_sat(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_CAPSULE) {
+            contact = box_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_SPHERE) {
+            let swapped = sphere_capsule(second, second_collider, first, first_collider);
+            contact = swapped;
+            contact.normal = -contact.normal;
+            generated = true;
+        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_BOX) {
+            let swapped = box_capsule(second, second_collider, first, first_collider);
+            contact = swapped;
+            contact.normal = -contact.normal;
+            generated = true;
+        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
+            contact = capsule_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else {
+            let world_first = world_collider(first, first_collider);
+            let world_second = world_collider(second, second_collider);
+            let hit = convex_hit(world_first, world_second);
+            if (hit.distance <= 0.0) {
+                contact_emit(&contact, hit.normal);
+                generated = true;
+                manifold_from_hit(&contact, hit);
+            }
+        }
+    }
+    if (!generated) {
+        return;
     }
     contact.a = first_slot;
     contact.b = second_slot;
+    contact.sensor = select(0u, 1u, sensor);
+    contact.first_body_id = first.body_id;
+    contact.second_body_id = second.body_id;
+    contact.first_generation = first.generation;
+    contact.second_generation = second.generation;
     if (contact.point_count > 0u) {
         let slot = atomicAdd(&contact_count, 1u);
         if (slot < arrayLength(&contacts)) {

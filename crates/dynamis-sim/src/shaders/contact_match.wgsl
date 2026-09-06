@@ -5,6 +5,8 @@
 @group(0) @binding(4) var<storage, read> prev_contact_count: array<u32>;
 @group(0) @binding(5) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(6) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(7) var<storage, read_write> events: array<ContactEvent>;
+@group(0) @binding(8) var<storage, read_write> event_count: atomic<u32>;
 
 const NORMAL_MATCH: f32 = 0.7;
 
@@ -29,6 +31,13 @@ fn prev_find(key_hi: u32, key_lo: u32) -> u32 {
     return NO_BODY;
 }
 
+fn emit_event(kind: u32, sensor: u32, first_id: u32, first_generation: u32, second_id: u32, second_generation: u32, point: vec3f, normal: vec3f) {
+    let slot = atomicAdd(&event_count, 1u);
+    if (slot < arrayLength(&events)) {
+        events[slot] = ContactEvent(kind, sensor, first_id, first_generation, second_id, second_generation, point, 0.0, normal, 0.0);
+    }
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.x;
@@ -36,11 +45,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let prev_slot = prev_find(contact_keys_hi[index], contact_keys_lo[index]);
-    if (prev_slot == NO_BODY) {
-        return;
-    }
     let orig = contact_indices[index];
     var contact = contacts[orig];
+    if (prev_slot == NO_BODY) {
+        let point = contact.points[0].position;
+        emit_event(EVENT_BEGIN, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
+        return;
+    }
     let prev = prev_contacts[prev_slot];
     if (dot(contact.normal, prev.normal) < NORMAL_MATCH) {
         return;

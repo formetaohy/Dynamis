@@ -10,5 +10,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+bytemuck = { workspace = true }
 dynamis-layout = { workspace = true }
 dynamis-model = { workspace = true }

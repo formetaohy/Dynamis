@@ -1,4 +1,5 @@
 mod buffers;
+mod shape_pool;
 mod simulation;
 mod stages;
 
