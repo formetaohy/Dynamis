@@ -3,9 +3,14 @@ pub struct PhysicsConfig {
     pub damping: f32,
     pub angular_damping: f32,
     pub solve_iterations: u32,
+    pub position_iterations: u32,
     pub relaxation: f32,
     pub slop: f32,
     pub restitution_threshold: f32,
+    pub max_velocity: f32,
+    pub max_angular_velocity: f32,
+    pub broadphase_cell_size: f32,
+    pub broadphase_cells_per_axis: u32,
 }
 
 impl Default for PhysicsConfig {
@@ -15,9 +20,14 @@ impl Default for PhysicsConfig {
             damping: 0.05,
             angular_damping: 0.05,
             solve_iterations: 12,
+            position_iterations: 6,
             relaxation: 0.8,
             slop: 0.005,
             restitution_threshold: 1.0,
+            max_velocity: 200.0,
+            max_angular_velocity: 400.0,
+            broadphase_cell_size: 2.0,
+            broadphase_cells_per_axis: 128,
         }
     }
 }

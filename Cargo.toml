@@ -42,7 +42,9 @@ dynamis-query = { workspace = true }
 dynamis-sim = { workspace = true }
 
 [dev-dependencies]
+bytemuck = { workspace = true }
 pollster = { workspace = true }
+wgpu = { workspace = true }
 
 [[example]]
 name = "falling_spheres"

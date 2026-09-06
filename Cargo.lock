@@ -155,18 +155,22 @@ dependencies = [
 name = "dynamis"
 version = "0.4.0"
 dependencies = [
+ "bytemuck",
  "dynamis-gpu",
  "dynamis-layout",
  "dynamis-model",
  "dynamis-query",
  "dynamis-sim",
  "pollster",
+ "wgpu",
 ]
 
 [[package]]
 name = "dynamis-gpu"
 version = "0.4.0"
 dependencies = [
+ "bytemuck",
+ "pollster",
  "wgpu",
 ]
 

@@ -7,6 +7,7 @@ use wgpu::{
 pub struct GpuBuffer {
     buffer: Buffer,
     size: BufferAddress,
+    usage: BufferUsages,
 }
 
 impl GpuBuffer {
@@ -17,10 +18,14 @@ impl GpuBuffer {
             usage,
             mapped_at_creation: false,
         });
-        Self { buffer, size }
+        Self { buffer, size, usage }
     }
 
     pub fn write(&self, queue: &Queue, bytes: &[u8]) {
+        assert!(
+            self.usage.contains(BufferUsages::COPY_DST),
+            "buffer write requires COPY_DST usage"
+        );
         assert!(bytes.len() as u64 <= self.size, "write exceeds buffer size");
         queue.write_buffer(&self.buffer, 0, bytes);
     }
@@ -39,6 +44,10 @@ impl GpuBuffer {
 
     pub fn buffer(&self) -> &Buffer {
         &self.buffer
+    }
+
+    pub fn size(&self) -> BufferAddress {
+        self.size
     }
 }
 

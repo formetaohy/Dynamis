@@ -1,15 +1,17 @@
-use crate::buffers::StageBuffers;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer};
+use crate::buffers::{MAX_CELLS_PER_BODY, StageBuffers};
+use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, GpuSort};
 use dynamis_layout::{
-    COMMAND_ADD, COMMAND_FORCE, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE,
-    IMPULSE_AT_POINT, PATCH_ANGULAR_VELOCITY, PATCH_FRICTION, PATCH_INVERSE_MASS,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RADIUS, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_RAY,
-    QUERY_SPHERE,
+    BODY_KINEMATIC, COMMAND_ADD, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
+    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_TORQUE, CONSTRAINT_BALL,
+    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_INVALID, CONSTRAINT_PRISMATIC,
+    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, IMPULSE_AT_POINT, NO_BODY, PATCH_COLLIDER,
+    PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION,
+    PATCH_POSITION, PATCH_RESTITUTION, PATCH_ANGULAR_VELOCITY, PATCH_VELOCITY, QUERY_RAY,
+    QUERY_SPHERE, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_SPHERE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
-const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 
 fn shader_constants() -> String {
     format!(
@@ -20,19 +22,40 @@ fn shader_constants() -> String {
          const COMMAND_FORCE: u32 = {COMMAND_FORCE}u;\n\
          const COMMAND_TORQUE: u32 = {COMMAND_TORQUE}u;\n\
          const COMMAND_IMPULSE: u32 = {COMMAND_IMPULSE}u;\n\
+         const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
+         const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
          const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
          const PATCH_POSITION: u32 = {PATCH_POSITION}u;\n\
          const PATCH_VELOCITY: u32 = {PATCH_VELOCITY}u;\n\
          const PATCH_INVERSE_MASS: u32 = {PATCH_INVERSE_MASS}u;\n\
-         const PATCH_RADIUS: u32 = {PATCH_RADIUS}u;\n\
+         const PATCH_COLLIDER: u32 = {PATCH_COLLIDER}u;\n\
          const PATCH_RESTITUTION: u32 = {PATCH_RESTITUTION}u;\n\
          const PATCH_ORIENTATION: u32 = {PATCH_ORIENTATION}u;\n\
          const PATCH_ANGULAR_VELOCITY: u32 = {PATCH_ANGULAR_VELOCITY}u;\n\
          const PATCH_FRICTION: u32 = {PATCH_FRICTION}u;\n\
+         const PATCH_GROUP: u32 = {PATCH_GROUP}u;\n\
+         const PATCH_MASK: u32 = {PATCH_MASK}u;\n\
+         const PATCH_KINEMATIC: u32 = {PATCH_KINEMATIC}u;\n\
+         const SHAPE_SPHERE: u32 = {SHAPE_SPHERE}u;\n\
+         const SHAPE_BOX: u32 = {SHAPE_BOX}u;\n\
+         const SHAPE_CAPSULE: u32 = {SHAPE_CAPSULE}u;\n\
+         const BODY_KINEMATIC: u32 = {BODY_KINEMATIC}u;\n\
+         const CONTACT_MAX_POINTS: u32 = {CONTACT_MAX_POINTS}u;\n\
+         const CONSTRAINT_BALL: u32 = {CONSTRAINT_BALL}u;\n\
+         const CONSTRAINT_DISTANCE: u32 = {CONSTRAINT_DISTANCE}u;\n\
+         const CONSTRAINT_REVOLUTE: u32 = {CONSTRAINT_REVOLUTE}u;\n\
+         const CONSTRAINT_PRISMATIC: u32 = {CONSTRAINT_PRISMATIC}u;\n\
+         const CONSTRAINT_FIXED: u32 = {CONSTRAINT_FIXED}u;\n\
+         const CONSTRAINT_INVALID: u32 = {CONSTRAINT_INVALID}u;\n\
          const QUERY_RAY: u32 = {QUERY_RAY}u;\n\
-         const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n"
+         const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n\
+         const NO_BODY: u32 = {NO_BODY}u;\n\
+         const NO_HIT: f32 = 3.402823466e38;\n\
+         const MAX_CELLS_PER_BODY: u32 = {MAX_CELLS_PER_BODY}u;\n"
     )
 }
+
+pub(crate) const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 
 fn assemble_shader(body: &str) -> String {
     format!("{COMMON_SHADER}\n{}\n{body}", shader_constants())
@@ -48,7 +71,6 @@ impl Stage {
         device: &Device,
         label: &str,
         shader: &str,
-        entry: &str,
         bindings: &[BindingKind],
         resources: &[&GpuBuffer],
     ) -> Self {
@@ -57,7 +79,7 @@ impl Stage {
             device,
             label,
             shader,
-            entry,
+            "main",
             &bindings
                 .iter()
                 .enumerate()
@@ -90,25 +112,39 @@ impl Stage {
             .dispatch(encoder, &self.bind_group, workgroups);
     }
 
-    fn dispatch_workgroups(&self, encoder: &mut CommandEncoder, workgroups: u32) {
-        self.pipeline
-            .dispatch(encoder, &self.bind_group, workgroups);
-    }
-
     fn dispatch_indirect(&self, encoder: &mut CommandEncoder, args: &GpuBuffer) {
         self.pipeline
             .dispatch_indirect(encoder, &self.bind_group, args);
+    }
+
+    fn dispatch_indirect_workgrouped(&self, encoder: &mut CommandEncoder, args: &GpuBuffer) {
+        self.pipeline
+            .dispatch_indirect_workgrouped(encoder, &self.bind_group, args);
+    }
+
+    fn dispatch_workgroups(&self, encoder: &mut CommandEncoder, workgroups: u32) {
+        self.pipeline
+            .dispatch(encoder, &self.bind_group, workgroups);
     }
 }
 
 pub(crate) struct Stages {
     apply_commands: Stage,
+    apply_constraint_commands: Stage,
     integrate: Stage,
     broadphase_aabb: Stage,
+    grid_entries: Stage,
     broadphase_pairs: Stage,
+    large_pairs: Stage,
     narrowphase: Stage,
     solve: Stage,
+    solve_constraints: Stage,
+    solve_position: Stage,
     query: Stage,
+    sort: GpuSort,
+    sort_hi: GpuBuffer,
+    sort_lo: GpuBuffer,
+    sort_values: GpuBuffer,
 }
 
 pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
@@ -117,49 +153,122 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             device,
             "apply_commands",
             &assemble_shader(include_str!("shaders/apply_commands.wgsl")),
-            "main",
+            &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.commands,
+                &buffers.bodies_current,
+                &buffers.colliders,
+                &buffers.command_count,
+            ],
+        ),
+        apply_constraint_commands: Stage::build(
+            device,
+            "apply_constraint_commands",
+            &assemble_shader(include_str!("shaders/apply_constraint_commands.wgsl")),
             &[
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
             ],
-            &[&buffers.commands, &buffers.bodies, &buffers.command_count],
+            &[
+                &buffers.constraint_commands,
+                &buffers.constraints,
+                &buffers.constraint_command_count,
+            ],
         ),
         integrate: Stage::build(
             device,
             "integrate",
             &assemble_shader(include_str!("shaders/integrate.wgsl")),
-            "main",
             &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
-            &[&buffers.params, &buffers.bodies],
+            &[&buffers.params, &buffers.bodies_current],
         ),
         broadphase_aabb: Stage::build(
             device,
             "broadphase_aabb",
             &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl")),
-            "main",
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.colliders,
+                &buffers.aabbs,
+            ],
+        ),
+        grid_entries: Stage::build(
+            device,
+            "grid_entries",
+            &assemble_shader(include_str!("shaders/grid_entries.wgsl")),
             &[
                 BindingKind::Uniform,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
-            ],
-            &[&buffers.params, &buffers.bodies, &buffers.aabbs],
-        ),
-        broadphase_pairs: Stage::build(
-            device,
-            "broadphase_pairs",
-            &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl")),
-            "main",
-            &[
-                BindingKind::Uniform,
-                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
                 BindingKind::ReadWriteStorage,
             ],
             &[
                 &buffers.params,
                 &buffers.aabbs,
-                &buffers.pairs,
+                &buffers.entries.keys_hi,
+                &buffers.entries.keys_lo,
+                &buffers.entry_count,
+                &buffers.large_bodies,
+                &buffers.large_count,
+            ],
+        ),
+        broadphase_pairs: Stage::build(
+            device,
+            "broadphase_pairs",
+            &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.entries.keys_hi,
+                &buffers.entries.keys_lo,
+                &buffers.entry_count,
+                &buffers.pairs.keys_hi,
+                &buffers.pairs.keys_lo,
+                &buffers.pair_count,
+            ],
+        ),
+        large_pairs: Stage::build(
+            device,
+            "large_pairs",
+            &assemble_shader(include_str!("shaders/large_pairs.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.large_bodies,
+                &buffers.large_count,
+                &buffers.pairs.keys_hi,
+                &buffers.pairs.keys_lo,
                 &buffers.pair_count,
             ],
         ),
@@ -167,8 +276,9 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             device,
             "narrowphase",
             &assemble_shader(include_str!("shaders/narrowphase.wgsl")),
-            "main",
             &[
+                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
@@ -176,8 +286,10 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
                 BindingKind::ReadOnlyStorage,
             ],
             &[
-                &buffers.bodies,
-                &buffers.pairs,
+                &buffers.bodies_current,
+                &buffers.colliders,
+                &buffers.pairs.keys_hi,
+                &buffers.pairs.keys_lo,
                 &buffers.contacts,
                 &buffers.contact_count,
                 &buffers.pair_count,
@@ -187,16 +299,47 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             device,
             "solve",
             &assemble_shader(include_str!("shaders/solve.wgsl")),
-            "main",
             &[
                 BindingKind::Uniform,
                 BindingKind::ReadWriteStorage,
-                BindingKind::ReadOnlyStorage,
+                BindingKind::ReadWriteStorage,
                 BindingKind::ReadOnlyStorage,
             ],
             &[
                 &buffers.params,
-                &buffers.bodies,
+                &buffers.bodies_current,
+                &buffers.contacts,
+                &buffers.contact_count,
+            ],
+        ),
+        solve_constraints: Stage::build(
+            device,
+            "solve_constraints",
+            &assemble_shader(include_str!("shaders/constraints.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
+                &buffers.constraints,
+            ],
+        ),
+        solve_position: Stage::build(
+            device,
+            "solve_position",
+            &assemble_shader(include_str!("shaders/solve_position.wgsl")),
+            &[
+                BindingKind::Uniform,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadWriteStorage,
+                BindingKind::ReadOnlyStorage,
+            ],
+            &[
+                &buffers.params,
+                &buffers.bodies_current,
                 &buffers.contacts,
                 &buffers.contact_count,
             ],
@@ -205,8 +348,8 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             device,
             "query",
             &assemble_shader(include_str!("shaders/queries.wgsl")),
-            "main",
             &[
+                BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadOnlyStorage,
                 BindingKind::ReadWriteStorage,
@@ -214,37 +357,87 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers) -> Stages {
             ],
             &[
                 &buffers.queries,
-                &buffers.bodies,
+                &buffers.bodies_current,
+                &buffers.colliders,
                 &buffers.query_results,
                 &buffers.params,
             ],
         ),
+        sort: GpuSort::new(device, "sim sort"),
+        sort_hi: GpuBuffer::new(
+            device,
+            "sort scratch hi",
+            buffers.sort_scratch.keys_hi.size(),
+            wgpu::BufferUsages::STORAGE,
+        ),
+        sort_lo: GpuBuffer::new(
+            device,
+            "sort scratch lo",
+            buffers.sort_scratch.keys_lo.size(),
+            wgpu::BufferUsages::STORAGE,
+        ),
+        sort_values: GpuBuffer::new(
+            device,
+            "sort scratch values",
+            buffers.sort_scratch.values.size(),
+            wgpu::BufferUsages::STORAGE,
+        ),
     }
 }
 
+#[expect(clippy::too_many_arguments, reason = "physics encoding carries the full stage set, buffers and frame parameters")]
 pub(crate) fn encode_physics(
     stages: &Stages,
     buffers: &StageBuffers,
+    device: &Device,
+    queue: &wgpu::Queue,
     encoder: &mut CommandEncoder,
     body_count: u32,
     solve_iterations: u32,
+    position_iterations: u32,
     query_count: u32,
 ) {
     stages.apply_commands.dispatch(encoder, 1);
+    stages.apply_constraint_commands.dispatch(encoder, 1);
     stages.integrate.dispatch(encoder, body_count);
     stages.broadphase_aabb.dispatch(encoder, body_count);
-    let pair_total = if body_count >= 2 {
-        body_count * (body_count - 1) / 2
-    } else {
-        0
-    };
-    stages.broadphase_pairs.dispatch(encoder, pair_total);
-    stages
-        .narrowphase
-        .dispatch_indirect(encoder, &buffers.pair_count);
+    stages.grid_entries.dispatch(encoder, body_count);
+    stages.sort.sort_64(
+        device,
+        queue,
+        &buffers.entry_count,
+        buffers.entries.capacity_u32(),
+        &buffers.entries.keys_lo,
+        &buffers.entries.keys_hi,
+        &buffers.entries.values,
+        &stages.sort_hi,
+        &stages.sort_lo,
+        &stages.sort_values,
+    );
+    stages.broadphase_pairs.dispatch_indirect_workgrouped(encoder, &buffers.entry_count);
+    stages.large_pairs.dispatch(encoder, body_count);
+    stages.sort.sort_64(
+        device,
+        queue,
+        &buffers.pair_count,
+        buffers.pairs.capacity_u32(),
+        &buffers.pairs.keys_lo,
+        &buffers.pairs.keys_hi,
+        &buffers.pairs.values,
+        &stages.sort_hi,
+        &stages.sort_lo,
+        &stages.sort_values,
+    );
+    stages.narrowphase.dispatch_indirect(encoder, &buffers.pair_count);
     for _ in 0..solve_iterations {
+        stages.solve_constraints.dispatch(encoder, buffers.constraint_capacity());
         stages
             .solve
+            .dispatch_indirect(encoder, &buffers.contact_count);
+    }
+    for _ in 0..position_iterations {
+        stages
+            .solve_position
             .dispatch_indirect(encoder, &buffers.contact_count);
     }
     if query_count > 0 {

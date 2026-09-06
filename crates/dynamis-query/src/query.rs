@@ -12,6 +12,8 @@ pub struct QueryHandle {
 pub struct QueryHit {
     pub body: BodyHandle,
     pub distance: f32,
+    pub point: [f32; 3],
+    pub normal: [f32; 3],
     pub step: u64,
 }
 
@@ -85,6 +87,8 @@ impl QueryPool {
                         generation: record.body_generation,
                     },
                     distance: record.distance,
+                    point: record.point,
+                    normal: record.normal,
                     step: batch.step,
                 })
             } else {

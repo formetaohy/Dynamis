@@ -90,6 +90,10 @@ impl ComputePipeline {
         &self.bind_group_layout
     }
 
+    pub fn pipeline(&self) -> &WgpuComputePipeline {
+        &self.pipeline
+    }
+
     pub fn workgroup_size(&self) -> u32 {
         self.workgroup_size
     }
@@ -117,6 +121,21 @@ impl ComputePipeline {
     }
 
     pub fn dispatch_indirect(
+        &self,
+        encoder: &mut CommandEncoder,
+        bind_group: &BindGroup,
+        args: &GpuBuffer,
+    ) {
+        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+            label: None,
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, bind_group, &[]);
+        pass.dispatch_workgroups_indirect(args.as_indirect_args(), 0);
+    }
+
+    pub fn dispatch_indirect_workgrouped(
         &self,
         encoder: &mut CommandEncoder,
         bind_group: &BindGroup,

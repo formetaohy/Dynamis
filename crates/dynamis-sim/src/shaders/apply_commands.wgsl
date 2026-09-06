@@ -4,11 +4,13 @@ struct BodyCommand {
     extra: u32,
     _pad: u32,
     body: RigidBody,
+    collider: Collider,
 }
 
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read> command_count: atomic<u32>;
+@group(0) @binding(2) var<storage, read_write> colliders: array<Collider>;
+@group(0) @binding(3) var<storage, read> command_count: atomic<u32>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -20,9 +22,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let command = commands[i];
         if (command.kind == COMMAND_ADD) {
             bodies[command.slot] = command.body;
+            colliders[command.slot] = command.collider;
         } else if (command.kind == COMMAND_REMOVE) {
             if (command.slot != command.extra) {
                 bodies[command.slot] = bodies[command.extra];
+                colliders[command.slot] = colliders[command.extra];
             }
         } else if (command.kind == COMMAND_PATCH) {
             var body = bodies[command.slot];
@@ -35,9 +39,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if ((command.extra & PATCH_INVERSE_MASS) != 0u) {
                 body.inverse_mass = command.body.inverse_mass;
             }
-            if ((command.extra & PATCH_RADIUS) != 0u) {
-                body.radius = command.body.radius;
-            }
             if ((command.extra & PATCH_RESTITUTION) != 0u) {
                 body.restitution = command.body.restitution;
             }
@@ -49,6 +50,21 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
             if ((command.extra & PATCH_FRICTION) != 0u) {
                 body.friction = command.body.friction;
+            }
+            if ((command.extra & PATCH_GROUP) != 0u) {
+                body.collision_group = command.body.collision_group;
+            }
+            if ((command.extra & PATCH_MASK) != 0u) {
+                body.collision_mask = command.body.collision_mask;
+            }
+            if ((command.extra & PATCH_KINEMATIC) != 0u) {
+                body.flags = command.body.flags;
+                body.inverse_mass = command.body.inverse_mass;
+                body.inverse_inertia_body = command.body.inverse_inertia_body;
+            }
+            if ((command.extra & PATCH_COLLIDER) != 0u) {
+                body.inverse_inertia_body = command.body.inverse_inertia_body;
+                colliders[command.slot] = command.collider;
             }
             bodies[command.slot] = body;
         } else if (command.kind == COMMAND_FORCE) {
@@ -63,11 +79,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             var body = bodies[command.slot];
             let impulse = command.body.velocity;
             body.velocity = body.velocity + impulse * body.inverse_mass;
-            if ((command.extra & IMPULSE_AT_POINT) != 0u) {
-                let arm = command.body.position - body.position;
-                body.angular_velocity =
-                    body.angular_velocity + inverse_inertia(body) * cross(arm, impulse);
-            }
+            body.angular_velocity =
+                body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body.position, impulse));
             bodies[command.slot] = body;
         }
     }
