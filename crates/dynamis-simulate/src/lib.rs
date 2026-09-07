@@ -1,6 +1,6 @@
-mod buffers;
+mod buffer;
 mod shape_pool;
 mod simulation;
-mod stages;
+mod stage;
 
 pub use simulation::{DebugBuffer, Simulation};

@@ -1,5 +1,5 @@
 [package]
-name = "dynamis-gpu"
+name = "dynamis-kernel"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -7,7 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+dynamis-gpu = { workspace = true }
 wgpu = { workspace = true }
+
+[dev-dependencies]
+bytemuck = { workspace = true }
+pollster = { workspace = true }
 
 [lints]
 workspace = true

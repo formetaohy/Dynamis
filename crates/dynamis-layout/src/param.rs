@@ -1,4 +1,4 @@
-use crate::constants::MAX_CELLS_PER_COLLIDER;
+use crate::constant::MAX_CELLS_PER_COLLIDER;
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::PhysicsConfig;
 

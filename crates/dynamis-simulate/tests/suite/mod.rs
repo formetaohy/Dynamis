@@ -1,8 +1,8 @@
 pub mod common;
-pub mod constraints;
+pub mod constraint;
 pub mod determinism;
 pub mod dynamics;
-pub mod events;
-pub mod queries;
-pub mod shapes;
+pub mod event;
+pub mod query;
+pub mod shape;
 pub mod simulation;

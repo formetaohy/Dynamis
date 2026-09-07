@@ -1,5 +1,5 @@
-use crate::buffer::GpuBuffer;
-use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
+use dynamis_gpu::GpuBuffer;
+use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;

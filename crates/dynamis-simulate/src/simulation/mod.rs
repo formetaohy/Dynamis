@@ -1,12 +1,12 @@
-mod bodies;
-mod constraints;
-mod events;
-mod queries;
-mod shapes;
+mod body;
+mod constraint;
+mod event;
+mod query;
+mod shape;
 
-use crate::buffers::StageBuffers;
+use crate::buffer::StageBuffers;
 use crate::shape_pool::ShapePool;
-use crate::stages::{Stages, build_stages, encode_physics};
+use crate::stage::{Stages, build_stages, encode_physics};
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{

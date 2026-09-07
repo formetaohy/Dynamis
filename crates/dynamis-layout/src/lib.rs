@@ -1,16 +1,16 @@
 mod body;
 mod collider;
-mod constants;
+mod constant;
 mod constraint;
 mod contact;
 mod event;
-mod params;
+mod param;
 mod query;
 mod shape;
 
 pub use body::{BodyCommandRecord, RigidBodyRecord, matching_flags};
 pub use collider::{AabbRecord, ColliderRecord};
-pub use constants::{
+pub use constant::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
     COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
@@ -29,6 +29,6 @@ pub use constants::{
 pub use constraint::{ConstraintCommandRecord, ConstraintRecord};
 pub use contact::{ContactRecord, ManifoldPointRecord, PairRecord};
 pub use event::ContactEventRecord;
-pub use params::{DispatchArgs, SimParamsRecord};
+pub use param::{DispatchArgs, SimParamsRecord};
 pub use query::{QueryHitRecord, QueryRecord, QueryResultHeader};
 pub use shape::{BvhNodeRecord, ShapeSourceRecord};

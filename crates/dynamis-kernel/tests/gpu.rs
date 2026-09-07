@@ -1,4 +1,5 @@
-use dynamis_gpu::{ComputeRecorder, GpuBucketSort, GpuBuffer, GpuContext, GpuCountArgs, GpuSort};
+use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext};
+use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 

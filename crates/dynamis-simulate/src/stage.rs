@@ -1,8 +1,8 @@
-use crate::buffers::{COMPACT_BLOCK, StageBuffers};
+use crate::buffer::{COMPACT_BLOCK, StageBuffers};
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBucketSort, GpuBuffer,
-    GpuContext, GpuCountArgs, GpuSort,
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
 };
+use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,

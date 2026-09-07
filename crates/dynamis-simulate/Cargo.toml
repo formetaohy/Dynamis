@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true }
 dynamis-gpu = { workspace = true }
+dynamis-kernel = { workspace = true }
 dynamis-layout = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-query = { workspace = true }

@@ -1,4 +1,4 @@
-use crate::constants::{
+use crate::constant::{
     COLLIDER_SENSOR, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
     SHAPE_MESH, SHAPE_SPHERE,
 };
