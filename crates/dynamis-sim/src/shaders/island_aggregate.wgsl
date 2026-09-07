@@ -1,6 +1,6 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read> island_parents: array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(3) var<storage, read_write> island_state: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
 

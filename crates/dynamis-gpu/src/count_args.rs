@@ -1,5 +1,5 @@
 use crate::buffer::GpuBuffer;
-use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
+use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 /// Converts a GPU-written element count into `dispatch_workgroups_indirect`
@@ -15,7 +15,7 @@ pub struct GpuCountArgs {
 }
 
 impl GpuCountArgs {
-    pub fn new(device: &Device, label: &str) -> Self {
+    pub fn new(context: &GpuContext, label: &str) -> Self {
         let shader = "@group(0) @binding(0) var<storage, read> count: array<u32>;\n\
                       @group(0) @binding(1) var<storage, read_write> args: array<u32>;\n\n\
                       @compute @workgroup_size(1u)\n\
@@ -41,7 +41,7 @@ impl GpuCountArgs {
             },
         ];
         Self {
-            pipeline: ComputePipeline::new(device, label, shader, "main", &[&specs[..]], 1),
+            pipeline: context.compute_pipeline(label, shader, "main", &[&specs[..]], 1),
             bindings: std::sync::Mutex::new(None),
         }
     }
@@ -49,7 +49,10 @@ impl GpuCountArgs {
     fn bindings(&self, device: &Device, count: &GpuBuffer, args: &GpuBuffer) -> BindGroup {
         let mut guard = self.bindings.lock().unwrap();
         let key = (count.token(), args.token());
-        if guard.as_ref().is_none_or(|(count_key, args_key, _)| (*count_key, *args_key) != key) {
+        if guard
+            .as_ref()
+            .is_none_or(|(count_key, args_key, _)| (*count_key, *args_key) != key)
+        {
             let group = self.pipeline.create_bind_group(
                 device,
                 0,
@@ -66,10 +69,20 @@ impl GpuCountArgs {
             );
             *guard = Some((count.token(), args.token(), group));
         }
-        guard.as_ref().expect("bindings ensured just above").2.clone()
+        guard
+            .as_ref()
+            .expect("bindings ensured just above")
+            .2
+            .clone()
     }
 
-    pub fn encode(&self, device: &Device, recorder: &mut ComputeRecorder, count: &GpuBuffer, args: &GpuBuffer) {
+    pub fn encode(
+        &self,
+        device: &Device,
+        recorder: &mut ComputeRecorder,
+        count: &GpuBuffer,
+        args: &GpuBuffer,
+    ) {
         let group = self.bindings(device, count, args);
         recorder.record(&self.pipeline, &[&group], 1);
     }

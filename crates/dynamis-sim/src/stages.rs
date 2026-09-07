@@ -1,23 +1,22 @@
-use crate::buffers::{MAX_CELLS_PER_COLLIDER, StageBuffers, COMPACT_BLOCK};
+use crate::buffers::{COMPACT_BLOCK, MAX_CELLS_PER_COLLIDER, StageBuffers};
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBucketSort, GpuBuffer,
-    GpuCountArgs, GpuSort,
+    GpuContext, GpuCountArgs, GpuSort,
 };
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD,
-    COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
-    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
-    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
-    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
-    CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_REVOLUTE,
-    CONTACT_MAX_POINTS, EVENT_BEGIN, EVENT_END, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS,
-    FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE,
-    MAX_COLLIDERS_PER_BODY, MAX_HITS_PER_QUERY, NO_BODY, PATCH_ANGULAR_VELOCITY,
-    PATCH_CCD, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC,
-    PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_BOX,
-    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_CYLINDER,
-    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_SOURCE_HEIGHTFIELD,
-    SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH, SHAPE_SPHERE,
+    BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
+    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
+    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
+    CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
+    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING,
+    CONSTRAINT_PRISMATIC, CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, EVENT_BEGIN, EVENT_END,
+    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
+    IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, MAX_COLLIDERS_PER_BODY, MAX_HITS_PER_QUERY,
+    NO_BODY, PATCH_ANGULAR_VELOCITY, PATCH_CCD, PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP,
+    PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK, PATCH_ORIENTATION, PATCH_POSITION,
+    PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_BOX, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_BOX,
+    SHAPE_CAPSULE, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE,
+    SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH, SHAPE_SPHERE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
@@ -103,7 +102,10 @@ pub(crate) const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 pub(crate) const SHAPES_FRAGMENT: &str = include_str!("shaders/shapes.wgsl");
 
 fn assemble_shader(body: &str) -> String {
-    format!("{COMMON_SHADER}\n{body}\n{SHAPES_FRAGMENT}\n{}", shader_constants())
+    format!(
+        "{COMMON_SHADER}\n{body}\n{SHAPES_FRAGMENT}\n{}",
+        shader_constants()
+    )
 }
 
 struct Stage {
@@ -114,7 +116,7 @@ struct Stage {
 
 impl Stage {
     fn build(
-        device: &Device,
+        context: &GpuContext,
         label: &str,
         shader: &str,
         bindings: &[BindingKind],
@@ -130,8 +132,7 @@ impl Stage {
                 kind: BindingKind::ReadOnlyStorage,
             })
             .collect::<Vec<_>>();
-        let pipeline = ComputePipeline::new(
-            device,
+        let pipeline = context.compute_pipeline(
             label,
             shader,
             "main",
@@ -157,7 +158,7 @@ impl Stage {
                 resource: buffer.as_binding(),
             })
             .collect();
-        let bind_group = pipeline.create_bind_group(device, 0, &entries);
+        let bind_group = pipeline.create_bind_group(context.device(), 0, &entries);
         let shape_entries = shape_resources
             .iter()
             .enumerate()
@@ -166,7 +167,7 @@ impl Stage {
                 resource: buffer.as_binding(),
             })
             .collect::<Vec<_>>();
-        let shapes_group = pipeline.create_bind_group(device, 1, &shape_entries);
+        let shapes_group = pipeline.create_bind_group(context.device(), 1, &shape_entries);
         Self {
             pipeline,
             bind_group,
@@ -245,7 +246,12 @@ pub(crate) struct Stages {
     constraint_bucket: GpuBucketSort,
 }
 
-pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacity: u32) -> Stages {
+pub(crate) fn build_stages(
+    context: &GpuContext,
+    buffers: &StageBuffers,
+    body_capacity: u32,
+) -> Stages {
+    let device = context.device();
     let shape_resources = [
         &buffers.shapes,
         &buffers.shape_vertices,
@@ -253,7 +259,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &buffers.shape_nodes,
     ];
     let apply_commands = Stage::build(
-        device,
+        context,
         "apply_commands",
         &assemble_shader(include_str!("shaders/apply_commands.wgsl")),
         &[
@@ -273,7 +279,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let apply_constraint_commands = Stage::build(
-        device,
+        context,
         "apply_constraint_commands",
         &assemble_shader(include_str!("shaders/apply_constraint_commands.wgsl")),
         &[
@@ -289,7 +295,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let joint_filter = Stage::build(
-        device,
+        context,
         "joint_filter",
         &assemble_shader(include_str!("shaders/joint_filter.wgsl")),
         &[
@@ -309,18 +315,15 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let integrate = Stage::build(
-        device,
+        context,
         "integrate",
         &assemble_shader(include_str!("shaders/integrate.wgsl")),
-        &[
-            BindingKind::Uniform,
-            BindingKind::ReadWriteStorage,
-        ],
+        &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
         &[&buffers.params, &buffers.bodies_current],
         &shape_resources,
     );
     let broadphase_aabb = Stage::build(
-        device,
+        context,
         "broadphase_aabb",
         &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl")),
         &[
@@ -338,7 +341,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let grid_entries = Stage::build(
-        device,
+        context,
         "grid_entries",
         &assemble_shader(include_str!("shaders/grid_entries.wgsl")),
         &[
@@ -362,14 +365,14 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let broadphase_pairs = Stage::build(
-        device,
+        context,
         "broadphase_pairs",
         &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl")),
         &[
             BindingKind::Uniform,
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
@@ -386,13 +389,13 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let large_pairs = Stage::build(
-        device,
+        context,
         "large_pairs",
         &assemble_shader(include_str!("shaders/large_pairs.wgsl")),
         &[
             BindingKind::Uniform,
             BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
@@ -410,7 +413,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let narrowphase = Stage::build(
-        device,
+        context,
         "narrowphase",
         &assemble_shader(include_str!("shaders/narrowphase.wgsl")),
         &[
@@ -420,7 +423,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
@@ -440,7 +443,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let compact_scan = Stage::build(
-        device,
+        context,
         "compact_scan",
         &assemble_shader(include_str!("shaders/compact_scan.wgsl")),
         &[
@@ -458,7 +461,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let compact_offsets = Stage::build(
-        device,
+        context,
         "compact_offsets",
         &assemble_shader(include_str!("shaders/compact_offsets.wgsl")),
         &[
@@ -474,7 +477,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let compact_scatter = Stage::build(
-        device,
+        context,
         "compact_scatter",
         &assemble_shader(include_str!("shaders/compact_scatter.wgsl")),
         &[
@@ -498,7 +501,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let events_end = Stage::build(
-        device,
+        context,
         "events_end",
         &assemble_shader(include_str!("shaders/events_end.wgsl")),
         &[
@@ -520,7 +523,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let contact_archive = Stage::build(
-        device,
+        context,
         "contact_archive",
         &assemble_shader(include_str!("shaders/contact_archive.wgsl")),
         &[
@@ -536,18 +539,15 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let prev_count_sync = Stage::build(
-        device,
+        context,
         "prev_count_sync",
         &assemble_shader(include_str!("shaders/prev_count_sync.wgsl")),
-        &[
-            BindingKind::ReadOnlyStorage,
-            BindingKind::ReadWriteStorage,
-        ],
+        &[BindingKind::ReadOnlyStorage, BindingKind::ReadWriteStorage],
         &[&buffers.contact_count, &buffers.prev_contact_count],
         &shape_resources,
     );
     let island_init = Stage::build(
-        device,
+        context,
         "island_init",
         &assemble_shader(include_str!("shaders/island_init.wgsl")),
         &[
@@ -555,17 +555,21 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
         ],
-        &[&buffers.params, &buffers.island_parents, &buffers.island_state],
+        &[
+            &buffers.params,
+            &buffers.island_parents,
+            &buffers.island_state,
+        ],
         &shape_resources,
     );
     let island_link_contacts = Stage::build(
-        device,
+        context,
         "island_link_contacts",
         &assemble_shader(include_str!("shaders/island_link_contacts.wgsl")),
         &[
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
         ],
         &[
@@ -577,7 +581,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let island_link_constraints = Stage::build(
-        device,
+        context,
         "island_link_constraints",
         &assemble_shader(include_str!("shaders/island_link_constraints.wgsl")),
         &[
@@ -595,7 +599,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let island_jump = Stage::build(
-        device,
+        context,
         "island_jump",
         &assemble_shader(include_str!("shaders/island_jump.wgsl")),
         &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
@@ -603,13 +607,13 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let island_aggregate = Stage::build(
-        device,
+        context,
         "island_aggregate",
         &assemble_shader(include_str!("shaders/island_aggregate.wgsl")),
         &[
             BindingKind::Uniform,
             BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
         ],
@@ -623,14 +627,14 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let island_broadcast = Stage::build(
-        device,
+        context,
         "island_broadcast",
         &assemble_shader(include_str!("shaders/island_broadcast.wgsl")),
         &[
             BindingKind::Uniform,
             BindingKind::ReadWriteStorage,
-            BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
         ],
         &[
@@ -643,7 +647,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let gather_contact_keys_b = Stage::build(
-        device,
+        context,
         "gather_contact_keys_b",
         &assemble_shader(include_str!("shaders/gather_contact_keys_b.wgsl")),
         &[
@@ -661,7 +665,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let gather_constraint_keys = Stage::build(
-        device,
+        context,
         "gather_constraint_keys",
         &assemble_shader(include_str!("shaders/gather_constraint_keys.wgsl")),
         &[
@@ -683,7 +687,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let reset_gather_boundaries = Stage::build(
-        device,
+        context,
         "reset_gather_boundaries",
         &assemble_shader(include_str!("shaders/reset_gather_boundaries.wgsl")),
         &[
@@ -703,7 +707,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let mark_contact_boundaries = Stage::build(
-        device,
+        context,
         "mark_contact_boundaries",
         &assemble_shader(include_str!("shaders/mark_contact_boundaries.wgsl")),
         &[
@@ -723,7 +727,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let mark_constraint_boundaries = Stage::build(
-        device,
+        context,
         "mark_constraint_boundaries",
         &assemble_shader(include_str!("shaders/mark_constraint_boundaries.wgsl")),
         &[
@@ -743,7 +747,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let ccd_sweep = Stage::build(
-        device,
+        context,
         "ccd_sweep",
         &assemble_shader(include_str!("shaders/ccd_sweep.wgsl")),
         &[
@@ -752,7 +756,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
-            BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.params,
@@ -765,7 +769,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let contact_match = Stage::build(
-        device,
+        context,
         "contact_match",
         &assemble_shader(include_str!("shaders/contact_match.wgsl")),
         &[
@@ -787,7 +791,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let contact_solve_extract = Stage::build(
-        device,
+        context,
         "contact_solve_extract",
         &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl")),
         &[
@@ -809,7 +813,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let constraint_solve_extract = Stage::build(
-        device,
+        context,
         "constraint_solve_extract",
         &assemble_shader(include_str!("shaders/constraint_solve_extract.wgsl")),
         &[
@@ -829,7 +833,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let body_apply_solver = Stage::build(
-        device,
+        context,
         "body_apply_solver",
         &assemble_shader(include_str!("shaders/body_apply_solver.wgsl")),
         &[
@@ -871,7 +875,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let position_solve_extract = Stage::build(
-        device,
+        context,
         "position_solve_extract",
         &assemble_shader(include_str!("shaders/position_solve_extract.wgsl")),
         &[
@@ -891,7 +895,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let body_apply_positions = Stage::build(
-        device,
+        context,
         "body_apply_positions",
         &assemble_shader(include_str!("shaders/body_apply_positions.wgsl")),
         &[
@@ -919,7 +923,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         &shape_resources,
     );
     let query = Stage::build(
-        device,
+        context,
         "query",
         &assemble_shader(include_str!("shaders/queries.wgsl")),
         &[
@@ -952,7 +956,7 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         ],
         &shape_resources,
     );
-    let sort = GpuSort::new(device, "sim sort", buffers.sort_scratch.capacity_u32());
+    let sort = GpuSort::new(context, "sim sort", buffers.sort_scratch.capacity_u32());
     let sort_hi = GpuBuffer::new(
         device,
         "sort scratch hi",
@@ -971,15 +975,15 @@ pub(crate) fn build_stages(device: &Device, buffers: &StageBuffers, body_capacit
         buffers.sort_scratch.values.size(),
         wgpu::BufferUsages::STORAGE,
     );
-    let sort_args = GpuCountArgs::new(device, "sim sort args");
+    let sort_args = GpuCountArgs::new(context, "sim sort args");
     let contact_bucket = GpuBucketSort::new(
-        device,
+        context,
         "contact bucket",
         body_capacity,
         buffers.contact_capacity(),
     );
     let constraint_bucket = GpuBucketSort::new(
-        device,
+        context,
         "constraint bucket",
         body_capacity,
         buffers.constraint_capacity(),
@@ -1050,10 +1054,15 @@ pub(crate) fn encode_physics(
     stages.apply_commands.dispatch(&mut recorder, 1);
     stages.apply_constraint_commands.dispatch(&mut recorder, 1);
     if constraint_active {
-        stages.joint_filter.dispatch(&mut recorder, buffers.constraint_capacity());
         stages
-            .sort_args
-            .encode(device, &mut recorder, &buffers.joint_count, &buffers.joint_args);
+            .joint_filter
+            .dispatch(&mut recorder, buffers.constraint_capacity());
+        stages.sort_args.encode(
+            device,
+            &mut recorder,
+            &buffers.joint_count,
+            &buffers.joint_args,
+        );
         let joint_words = sort_words(buffers.constraint_capacity());
         stages.sort.sort_64(
             device,
@@ -1069,14 +1078,17 @@ pub(crate) fn encode_physics(
             &stages.sort_hi,
             &stages.sort_values,
         );
-        }
+    }
     stages.integrate.dispatch(&mut recorder, body_count);
     let slot_words = sort_words(body_count);
     stages.broadphase_aabb.dispatch(&mut recorder, body_count);
     stages.grid_entries.dispatch(&mut recorder, body_count);
-    stages
-        .sort_args
-        .encode(device, &mut recorder, &buffers.entry_count, &buffers.entry_args);
+    stages.sort_args.encode(
+        device,
+        &mut recorder,
+        &buffers.entry_count,
+        &buffers.entry_args,
+    );
     stages.sort.sort_64(
         device,
         &mut recorder,
@@ -1095,9 +1107,12 @@ pub(crate) fn encode_physics(
         .broadphase_pairs
         .dispatch_indirect(&mut recorder, &buffers.entry_args);
     stages.large_pairs.dispatch(&mut recorder, body_count);
-    stages
-        .sort_args
-        .encode(device, &mut recorder, &buffers.pair_count, &buffers.pair_args);
+    stages.sort_args.encode(
+        device,
+        &mut recorder,
+        &buffers.pair_count,
+        &buffers.pair_args,
+    );
     stages.sort.sort_64(
         device,
         &mut recorder,
@@ -1119,14 +1134,19 @@ pub(crate) fn encode_physics(
         .narrowphase
         .dispatch_indirect(&mut recorder, &buffers.pair_args);
     let compact_blocks = buffers.pairs.capacity_u32().div_ceil(COMPACT_BLOCK);
-    stages.compact_scan.dispatch_workgroups(&mut recorder, compact_blocks);
+    stages
+        .compact_scan
+        .dispatch_workgroups(&mut recorder, compact_blocks);
     stages.compact_offsets.dispatch_workgroups(&mut recorder, 1);
     stages
         .compact_scatter
         .dispatch_indirect(&mut recorder, &buffers.pair_args);
-    stages
-        .sort_args
-        .encode(device, &mut recorder, &buffers.contact_count, &buffers.contact_args);
+    stages.sort_args.encode(
+        device,
+        &mut recorder,
+        &buffers.contact_count,
+        &buffers.contact_args,
+    );
     stages
         .contact_match
         .dispatch_indirect(&mut recorder, &buffers.contact_args);
@@ -1159,14 +1179,12 @@ pub(crate) fn encode_physics(
         stages
             .gather_constraint_keys
             .dispatch(&mut recorder, buffers.constraint_capacity());
-        stages
-            .sort_args
-            .encode(
-                device,
-                &mut recorder,
-                &buffers.constraint_count_state,
-                &buffers.constraint_args,
-            );
+        stages.sort_args.encode(
+            device,
+            &mut recorder,
+            &buffers.constraint_count_state,
+            &buffers.constraint_args,
+        );
         stages.constraint_bucket.sort(
             device,
             &mut recorder,
@@ -1188,7 +1206,9 @@ pub(crate) fn encode_physics(
             &buffers.constraint_gather_b_values_out,
         );
     }
-    stages.reset_gather_boundaries.dispatch(&mut recorder, body_count);
+    stages
+        .reset_gather_boundaries
+        .dispatch(&mut recorder, body_count);
     stages
         .mark_contact_boundaries
         .dispatch_indirect(&mut recorder, &buffers.contact_args);
@@ -1214,7 +1234,9 @@ pub(crate) fn encode_physics(
         stages
             .position_solve_extract
             .dispatch_indirect(&mut recorder, &buffers.contact_args);
-        stages.body_apply_positions.dispatch(&mut recorder, body_count);
+        stages
+            .body_apply_positions
+            .dispatch(&mut recorder, body_count);
     }
     drop(recorder);
     let mut tail = ComputeRecorder::begin(encoder, "physics tail");
@@ -1225,9 +1247,12 @@ pub(crate) fn encode_physics(
         .contact_archive
         .dispatch_indirect(&mut tail, &buffers.contact_args);
     stages.prev_count_sync.dispatch(&mut tail, 1);
-    stages
-        .sort_args
-        .encode(device, &mut tail, &buffers.prev_contact_count, &buffers.prev_args);
+    stages.sort_args.encode(
+        device,
+        &mut tail,
+        &buffers.prev_contact_count,
+        &buffers.prev_args,
+    );
     if query_count > 0 {
         stages.query.dispatch_workgroups(&mut tail, query_count);
     }

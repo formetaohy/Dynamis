@@ -1,111 +1,64 @@
-use dynamis_example_common as common;
-use bevy::prelude::*;
-use common::{
-    camera::orbit_camera,
-    physics::{Dynamics, PhysicsBody, advance_physics, sync_visuals},
-    scene::{indexed_color, primitive_mesh, setup_scene, standard_material},
-};
 use dynamis::{BodyDesc, BodyHandle, ConstraintDesc, Shape, Simulation};
+use dynamis_example_common as common;
+use dynamis_example_render::{App, AppContext, Color, MeshId, Transform, Vec3};
 
-
-#[derive(Component)]
-struct Hud;
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "dynamis joints".into(),
-                ..default()
-            }),
-            ..default()
-        }))
-        .add_systems(Startup, setup)
-        .add_systems(Update, (advance_physics, sync_visuals, orbit_camera, update_hud).chain())
-        .run();
+struct Example {
+    dynamics: common::physics::Dynamics,
+    bodies: Vec<(BodyHandle, MeshId)>,
+    orbit: common::camera::Orbit,
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut dynamics = Dynamics::with_capacity(64);
-    setup_scene(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        &mut dynamics.simulation,
-    );
-    spawn_chain(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-    );
-    spawn_pendulum(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-    );
-    spawn_motor(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-    );
-    commands.insert_resource(dynamics);
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font_size: FontSize::Px(18.0),
-            ..default()
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    App::new(
+        "dynamis joints",
+        Example {
+            dynamics: common::physics::Dynamics::with_capacity(64),
+            bodies: Vec::new(),
+            orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
-        TextColor(Color::srgb_u8(230, 232, 235)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(12.0),
-            left: Val::Px(12.0),
-            ..default()
-        },
-        Hud,
-    ));
+    )
+    .on_startup(setup)
+    .on_update(update)
+    .run()
+}
+
+fn setup(ctx: &mut AppContext, example: &mut Example) {
+    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
+    spawn_chain(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+    spawn_pendulum(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+    spawn_motor(ctx, &mut example.dynamics.simulation, &mut example.bodies);
 }
 
 fn spawn_visual(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
     desc: BodyDesc,
     shape: Shape,
     color: Color,
 ) -> BodyHandle {
     let position = desc.position;
     let handle = simulation.spawn(desc);
-    commands.spawn((
-        Mesh3d(primitive_mesh(&shape, meshes)),
-        MeshMaterial3d(standard_material(materials, color)),
+    let mesh = ctx.spawn(
+        &common::scene::geometry_from_shape(&shape),
+        common::scene::standard_material(color),
         Transform::from_xyz(position[0], position[1], position[2]),
-        PhysicsBody(handle),
-    ));
+    );
+    bodies.push((handle, mesh));
     handle
 }
 
 fn spawn_chain(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     let radius = 0.34;
     let spacing = 1.1;
     let anchor = spawn_visual(
-        commands,
+        ctx,
         simulation,
-        meshes,
-        materials,
+        bodies,
         BodyDesc::static_sphere(0.42).position([0.0, 13.0, 0.0]),
         Shape::sphere(0.42),
         Color::srgb(0.72, 0.74, 0.78),
@@ -115,13 +68,12 @@ fn spawn_chain(
         let x = 0.4 + index as f32 * 0.3;
         let y = 13.0 - (index + 1) as f32 * spacing;
         let handle = spawn_visual(
-            commands,
+            ctx,
             simulation,
-            meshes,
-            materials,
+            bodies,
             BodyDesc::sphere(radius).position([x, y, 0.0]).friction(0.4),
             Shape::sphere(radius),
-            indexed_color(index),
+            common::scene::indexed_color(index),
         );
         simulation.add_constraint(
             previous,
@@ -133,25 +85,22 @@ fn spawn_chain(
 }
 
 fn spawn_pendulum(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     let pivot = spawn_visual(
-        commands,
+        ctx,
         simulation,
-        meshes,
-        materials,
+        bodies,
         BodyDesc::static_sphere(0.35).position([-8.5, 10.0, 0.0]),
         Shape::sphere(0.35),
         Color::srgb(0.72, 0.74, 0.78),
     );
     let bob = spawn_visual(
-        commands,
+        ctx,
         simulation,
-        meshes,
-        materials,
+        bodies,
         BodyDesc::sphere(0.55)
             .position([-8.5, 7.0, 0.0])
             .velocity([2.0, 0.0, 0.0])
@@ -159,30 +108,33 @@ fn spawn_pendulum(
         Shape::sphere(0.55),
         Color::srgb(0.25, 0.85, 0.6),
     );
-    simulation.add_constraint(pivot, bob, ConstraintDesc::distance([0.0; 3], [0.0; 3], 3.0));
+    simulation.add_constraint(
+        pivot,
+        bob,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 3.0),
+    );
 }
 
 fn spawn_motor(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     let axle = spawn_visual(
-        commands,
+        ctx,
         simulation,
-        meshes,
-        materials,
+        bodies,
         BodyDesc::static_sphere(0.35).position([8.5, 10.5, 0.0]),
         Shape::sphere(0.35),
         Color::srgb(0.72, 0.74, 0.78),
     );
     let blade = spawn_visual(
-        commands,
+        ctx,
         simulation,
-        meshes,
-        materials,
-        BodyDesc::cuboid([1.3, 0.14, 0.14]).position([8.5, 10.5, 0.0]).friction(0.5),
+        bodies,
+        BodyDesc::cuboid([1.3, 0.14, 0.14])
+            .position([8.5, 10.5, 0.0])
+            .friction(0.5),
         Shape::cuboid([1.3, 0.14, 0.14]),
         Color::srgb(0.9, 0.3, 0.3),
     );
@@ -193,11 +145,14 @@ fn spawn_motor(
     );
 }
 
-fn update_hud(time: Res<Time>, dynamics: Res<Dynamics>, mut hud: Single<&mut Text, With<Hud>>) {
-    hud.0 = format!(
+fn update(ctx: &mut AppContext, example: &mut Example) {
+    common::physics::advance_physics(ctx, &mut example.dynamics);
+    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::camera::orbit_camera(ctx, &mut example.orbit);
+    ctx.hud = format!(
         "bodies: {}   constraints: {}   fps: {:.0}\nball chain   distance pendulum   revolute motor\nright-drag: orbit   wheel: zoom",
-        dynamics.simulation.count(),
-        dynamics.simulation.constraints().len(),
-        1.0 / time.delta_secs().max(1e-6),
+        example.dynamics.simulation.count(),
+        example.dynamics.simulation.constraints().len(),
+        1.0 / ctx.time.delta_secs().max(1e-6),
     );
 }

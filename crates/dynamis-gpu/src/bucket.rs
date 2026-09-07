@@ -1,5 +1,5 @@
 use crate::buffer::GpuBuffer;
-use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
+use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
@@ -25,6 +25,10 @@ struct BucketBindGroups {
 }
 
 impl BucketBindGroups {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "bucket sort carries both key/value channels and their outputs explicitly"
+    )]
     fn build(
         device: &Device,
         bucket: &GpuBucketSort,
@@ -114,7 +118,8 @@ pub struct GpuBucketSort {
 }
 
 impl GpuBucketSort {
-    pub fn new(device: &Device, label: &str, buckets: u32, data_capacity: u32) -> Self {
+    pub fn new(context: &GpuContext, label: &str, buckets: u32, data_capacity: u32) -> Self {
+        let device = context.device();
         let histogram_spec = [
             BindingSpec {
                 binding: 0,
@@ -183,32 +188,28 @@ impl GpuBucketSort {
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
-        let histogram_pipeline = ComputePipeline::new(
-            device,
+        let histogram_pipeline = context.compute_pipeline(
             &format!("{label} histogram"),
             &bucketed_shader(include_str!("shaders/bucket_histogram.wgsl"), buckets),
             "main",
             &[&histogram_spec[..]],
             THREADS,
         );
-        let prefix_pipeline = ComputePipeline::new(
-            device,
+        let prefix_pipeline = context.compute_pipeline(
             &format!("{label} prefix"),
             &bucketed_shader(include_str!("shaders/bucket_prefix.wgsl"), buckets),
             "main",
             &[&prefix_spec[..]],
             THREADS,
         );
-        let block_prefix_pipeline = ComputePipeline::new(
-            device,
+        let block_prefix_pipeline = context.compute_pipeline(
             &format!("{label} block prefix"),
             &bucketed_shader(include_str!("shaders/bucket_block_prefix.wgsl"), buckets),
             "main",
             &[&block_prefix_spec[..]],
             THREADS,
         );
-        let scatter_pipeline = ComputePipeline::new(
-            device,
+        let scatter_pipeline = context.compute_pipeline(
             &format!("{label} scatter"),
             &bucketed_shader(include_str!("shaders/bucket_scatter.wgsl"), buckets),
             "main",
@@ -285,6 +286,10 @@ impl GpuBucketSort {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "bucket sort carries both key/value channels and their outputs explicitly"
+    )]
     fn bindings(
         &self,
         device: &Device,
@@ -296,7 +301,10 @@ impl GpuBucketSort {
         count_holder: &GpuBuffer,
     ) -> std::sync::MutexGuard<'_, Option<BucketBindGroups>> {
         let mut guard = self.bindings.lock().unwrap();
-        if guard.as_ref().is_none_or(|cached| cached.channels != channels) {
+        if guard
+            .as_ref()
+            .is_none_or(|cached| cached.channels != channels)
+        {
             *guard = Some(BucketBindGroups::build(
                 device,
                 self,
@@ -311,6 +319,10 @@ impl GpuBucketSort {
         guard
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "bucket sort carries both key/value channels and their outputs explicitly"
+    )]
     pub fn sort(
         &self,
         device: &Device,
@@ -329,8 +341,15 @@ impl GpuBucketSort {
             values_out: values_out.token(),
             count: count_holder.token(),
         };
-        let guard = self
-            .bindings(device, channels, keys, values, keys_out, values_out, count_holder);
+        let guard = self.bindings(
+            device,
+            channels,
+            keys,
+            values,
+            keys_out,
+            values_out,
+            count_holder,
+        );
         let bindings = guard.as_ref().expect("bindings ensured just above");
         recorder.record_indirect(&self.histogram_pipeline, &[&bindings.histogram], args, 16);
         recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);

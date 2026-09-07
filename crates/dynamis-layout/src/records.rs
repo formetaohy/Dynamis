@@ -12,7 +12,7 @@ const _: () = {
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ManifoldPointRecord>() == 32);
     assert!(size_of::<ContactRecord>() == 176);
-    assert!(size_of::<ContactEventRecord>() == 56);
+    assert!(size_of::<ContactEventRecord>() == 64);
     assert!(size_of::<ConstraintRecord>() == 144);
     assert!(size_of::<DispatchArgs>() == 12);
     assert!(size_of::<BodyCommandRecord>() == 512);
@@ -391,10 +391,12 @@ pub struct ContactEventRecord {
     pub first_generation: u32,
     pub second_id: u32,
     pub second_generation: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
     pub point: [f32; 3],
-    pub _pad0: f32,
+    pub _pad2: f32,
     pub normal: [f32; 3],
-    pub _pad1: f32,
+    pub _pad3: f32,
 }
 
 #[repr(C)]
@@ -727,11 +729,7 @@ impl QueryRecord {
         }
     }
 
-    pub fn sphere(
-        center: [f32; 3],
-        radius: f32,
-        filter: &dynamis_model::QueryFilter,
-    ) -> Self {
+    pub fn sphere(center: [f32; 3], radius: f32, filter: &dynamis_model::QueryFilter) -> Self {
         Self {
             kind: QUERY_SPHERE,
             shape_kind: SHAPE_SPHERE,

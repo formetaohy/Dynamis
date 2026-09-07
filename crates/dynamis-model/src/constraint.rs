@@ -53,8 +53,7 @@ impl ConstraintDesc {
     }
 
     pub fn ball(anchor_a: [f32; 3], anchor_b: [f32; 3]) -> Self {
-        Self::base(ConstraintKind::Ball)
-            .anchors(anchor_a, anchor_b)
+        Self::base(ConstraintKind::Ball).anchors(anchor_a, anchor_b)
     }
 
     pub fn distance(anchor_a: [f32; 3], anchor_b: [f32; 3], distance: f32) -> Self {
@@ -101,10 +100,7 @@ impl ConstraintDesc {
     }
 
     pub fn limit(mut self, min: f32, max: f32) -> Self {
-        assert!(
-            max >= min,
-            "constraint limit max must not be below min"
-        );
+        assert!(max >= min, "constraint limit max must not be below min");
         self.limit = Some(ConstraintLimit { min, max });
         self
     }

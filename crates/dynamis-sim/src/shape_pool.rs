@@ -1,4 +1,6 @@
-use dynamis_layout::{BvhNodeRecord, SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH};
+use dynamis_layout::{
+    BvhNodeRecord, SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH,
+};
 use dynamis_model::ShapeSourceHandle;
 
 #[derive(Clone, Copy)]
@@ -182,12 +184,7 @@ impl ShapePool {
 fn build_bvh(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<BvhNodeRecord> {
     let mut nodes = Vec::new();
     let mut order = (0..triangles.len() as u32).collect::<Vec<_>>();
-    build_node(
-        vertices,
-        triangles,
-        &mut order,
-        &mut nodes,
-    );
+    build_node(vertices, triangles, &mut order, &mut nodes);
     nodes
 }
 
@@ -227,11 +224,7 @@ fn build_node(
         nodes[node_index as usize].right = 1;
         return;
     }
-    let extent = [
-        max[0] - min[0],
-        max[1] - min[1],
-        max[2] - min[2],
-    ];
+    let extent = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
     let axis = if extent[0] >= extent[1] && extent[0] >= extent[2] {
         0
     } else if extent[1] >= extent[2] {

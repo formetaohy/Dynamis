@@ -4,15 +4,15 @@ use crate::stages::{Stages, build_stages, encode_physics};
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{
-    BodyCommandRecord, BODY_CCD, BODY_SLEEPING, ColliderRecord, ConstraintCommandRecord,
+    BODY_CCD, BODY_SLEEPING, BodyCommandRecord, ColliderRecord, ConstraintCommandRecord,
     ConstraintRecord, DispatchArgs, PATCH_ANGULAR_VELOCITY, PATCH_CCD, PATCH_COLLIDER,
     PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QueryRecord,
     QueryResultHeader, RigidBodyRecord, SimParamsRecord,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintDesc, ConstraintHandle,
-    ContactEvent, ContactEventKind, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintDesc, ConstraintHandle, ContactEvent,
+    ContactEventKind, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
     inverse_inertia_diagonal,
 };
 use dynamis_query::{QueryHandle, QueryHit, QueryPool};
@@ -78,7 +78,7 @@ impl Simulation {
         buffers
             .prev_contact_count
             .write(gpu.queue(), bytemuck::cast_slice(&[DispatchArgs::none()]));
-        let stages = build_stages(gpu.device(), &buffers, capacity as u32);
+        let stages = build_stages(&gpu, &buffers, capacity as u32);
         let query_header_bytes = query_capacity * std::mem::size_of::<QueryResultHeader>();
         let zeros = vec![0u8; query_header_bytes];
         buffers.query_headers.write(gpu.queue(), &zeros);
@@ -155,9 +155,10 @@ impl Simulation {
             query_capacity,
             self.constraint_capacity,
         );
-        buffers
-            .prev_contact_count
-            .write(self.gpu.queue(), bytemuck::cast_slice(&[DispatchArgs::none()]));
+        buffers.prev_contact_count.write(
+            self.gpu.queue(),
+            bytemuck::cast_slice(&[DispatchArgs::none()]),
+        );
         self.shape_pool.reset_upload_cursor();
         self.shape_pool.upload_pending(
             self.gpu.queue(),
@@ -167,7 +168,7 @@ impl Simulation {
             &buffers.shape_nodes,
         );
         self.sync_state_to(&buffers, capacity);
-        let stages = build_stages(self.gpu.device(), &buffers, capacity as u32);
+        let stages = build_stages(&self.gpu, &buffers, capacity as u32);
         self.buffers = buffers;
         self.stages = stages;
         self.capacity = capacity;
@@ -180,12 +181,8 @@ impl Simulation {
             let id = handle.id as usize;
             let desc = self.build_desc(id);
             let inertia = self.compound_solid_inertia(&desc);
-            let mut body_record = RigidBodyRecord::build(
-                &desc,
-                handle.id,
-                handle.generation,
-                inertia,
-            );
+            let mut body_record =
+                RigidBodyRecord::build(&desc, handle.id, handle.generation, inertia);
             if let Some(state) = self.state_snapshot(id) {
                 body_record.position = state.position;
                 body_record.prev_position = state.position;
@@ -268,6 +265,9 @@ impl Simulation {
             .iter()
             .filter(|collider| !collider.sensor)
             .collect::<Vec<_>>();
+        if solid.is_empty() {
+            return [0.0; 3];
+        }
         let count = solid.len().max(1) as f32;
         let mass = 1.0 / inverse_mass;
         let mut sum = [0.0f32; 3];
@@ -609,13 +609,18 @@ impl Simulation {
         self.collider_descs[handle.id as usize][index] = collider;
         let asc = self.description(handle);
         let mut record = RigidBodyRecord::zeroed();
-        record.inverse_mass = self
-            .states[handle.id as usize]
+        record.inverse_mass = self.states[handle.id as usize]
             .map(|state| state.inverse_mass)
             .unwrap_or(0.0);
         record.inverse_inertia_body = self.compound_solid_inertia(&asc);
         let record_collider = self.collider_record(&collider);
-        self.schedule_patch_collider(handle, PATCH_COLLIDER, record, record_collider, index as u32);
+        self.schedule_patch_collider(
+            handle,
+            PATCH_COLLIDER,
+            record,
+            record_collider,
+            index as u32,
+        );
     }
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
@@ -669,8 +674,16 @@ impl Simulation {
         self.validate(handle);
         let asc = self.description(handle);
         let mut record = RigidBodyRecord::zeroed();
-        record.flags = if kinematic { dynamis_layout::BODY_KINEMATIC } else { 0 };
-        record.inverse_mass = if kinematic { 0.0 } else { self.inverse_mass_of(&asc) };
+        record.flags = if kinematic {
+            dynamis_layout::BODY_KINEMATIC
+        } else {
+            0
+        };
+        record.inverse_mass = if kinematic {
+            0.0
+        } else {
+            self.inverse_mass_of(&asc)
+        };
         record.inverse_inertia_body = self.compound_solid_inertia(&asc);
         self.schedule_patch(handle, PATCH_KINEMATIC, record);
     }
@@ -687,12 +700,7 @@ impl Simulation {
         self.commands.push(BodyCommandRecord::force(slot, force));
     }
 
-    pub fn apply_force_at_point(
-        &mut self,
-        handle: BodyHandle,
-        force: [f32; 3],
-        point: [f32; 3],
-    ) {
+    pub fn apply_force_at_point(&mut self, handle: BodyHandle, force: [f32; 3], point: [f32; 3]) {
         let slot = self.command_slot(handle);
         self.commands
             .push(BodyCommandRecord::force_at_point(slot, force, point));
@@ -837,10 +845,7 @@ impl Simulation {
         assert!(length > 0.0, "sweep length must be positive");
         assert!(direction != [0.0; 3], "sweep direction must be non-zero");
         self.assert_unit(orientation);
-        assert!(
-            shape.is_convex(),
-            "sweep queries require a convex shape"
-        );
+        assert!(shape.is_convex(), "sweep queries require a convex shape");
         self.submit_query(QueryRecord::sweep(
             shape,
             orientation,
@@ -955,7 +960,8 @@ impl Simulation {
         let stale_queries = if self.queries.is_empty() {
             None
         } else {
-            let header_bytes = self.query_pool.capacity() * std::mem::size_of::<QueryResultHeader>();
+            let header_bytes =
+                self.query_pool.capacity() * std::mem::size_of::<QueryResultHeader>();
             encoder.copy_buffer_to_buffer(
                 self.buffers.query_headers.buffer(),
                 0,
@@ -1048,7 +1054,11 @@ impl Simulation {
     }
 
     fn inverse_mass_of(&self, desc: &BodyDesc) -> f32 {
-        if desc.mass > 0.0 { 1.0 / desc.mass } else { 0.0 }
+        if desc.mass > 0.0 {
+            1.0 / desc.mass
+        } else {
+            0.0
+        }
     }
 
     fn description(&self, handle: BodyHandle) -> BodyDesc {
@@ -1096,7 +1106,12 @@ impl Simulation {
             slot,
             mask,
             record,
-            [collider, ColliderRecord::zeroed(), ColliderRecord::zeroed(), ColliderRecord::zeroed()],
+            [
+                collider,
+                ColliderRecord::zeroed(),
+                ColliderRecord::zeroed(),
+                ColliderRecord::zeroed(),
+            ],
             index,
         ));
     }
@@ -1181,7 +1196,8 @@ impl Simulation {
 
     fn consume_events(&mut self, step: u64, bytes: &[u8]) {
         let event_count = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
-        let events_bytes = &bytes[12..12 + self.event_capacity * std::mem::size_of::<dynamis_layout::ContactEventRecord>()];
+        let events_bytes = &bytes[12..12
+            + self.event_capacity * std::mem::size_of::<dynamis_layout::ContactEventRecord>()];
         let records: &[dynamis_layout::ContactEventRecord] = bytemuck::cast_slice(events_bytes);
         let count = event_count.min(self.event_capacity);
         for record in &records[..count] {
@@ -1245,5 +1261,9 @@ impl Simulation {
 }
 
 fn layout_inverse_mass(desc: &BodyDesc) -> f32 {
-    if desc.mass > 0.0 { 1.0 / desc.mass } else { 0.0 }
+    if desc.mass > 0.0 {
+        1.0 / desc.mass
+    } else {
+        0.0
+    }
 }

@@ -45,11 +45,12 @@ impl<'a> ComputeRecorder<'a> {
         for (group, bind_group) in bind_groups.iter().enumerate() {
             self.pass.set_bind_group(group as u32, *bind_group, &[]);
         }
-        self.pass.dispatch_workgroups_indirect(args.as_indirect_args(), offset);
+        self.pass
+            .dispatch_workgroups_indirect(args.as_indirect_args(), offset);
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindingKind {
     Uniform,
     ReadOnlyStorage,
@@ -61,6 +62,7 @@ pub struct BindingSpec {
     pub kind: BindingKind,
 }
 
+#[derive(Clone)]
 pub struct ComputePipeline {
     pipeline: WgpuComputePipeline,
     bind_group_layouts: Vec<BindGroupLayout>,
@@ -114,10 +116,7 @@ impl ComputePipeline {
                 })
             })
             .collect::<Vec<_>>();
-        let layouts = bind_group_layouts
-            .iter()
-            .map(Some)
-            .collect::<Vec<_>>();
+        let layouts = bind_group_layouts.iter().map(Some).collect::<Vec<_>>();
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some(label),
             bind_group_layouts: &layouts,

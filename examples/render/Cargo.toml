@@ -1,0 +1,16 @@
+[package]
+name = "dynamis-example-render"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { workspace = true }
+font8x8 = "0.3"
+glam = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+
+[lints]
+workspace = true

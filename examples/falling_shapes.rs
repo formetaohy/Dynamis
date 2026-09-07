@@ -1,73 +1,38 @@
+use dynamis::{BodyDesc, BodyHandle, Shape, Simulation};
 use dynamis_example_common as common;
-use bevy::prelude::*;
-use common::{
-    camera::orbit_camera,
-    physics::{Dynamics, PhysicsBody, advance_physics, sync_visuals},
-    scene::{indexed_color, primitive_mesh, setup_scene, standard_material},
-};
-use dynamis::{BodyDesc, Shape, Simulation};
-
+use dynamis_example_render::{App, AppContext, MeshId, Transform, Vec3};
 
 const BODY_COUNT: usize = 128;
 
-#[derive(Component)]
-struct Hud;
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "dynamis falling shapes".into(),
-                ..default()
-            }),
-            ..default()
-        }))
-        .add_systems(Startup, setup)
-        .add_systems(Update, (advance_physics, sync_visuals, orbit_camera, update_hud).chain())
-        .run();
+struct Example {
+    dynamics: common::physics::Dynamics,
+    bodies: Vec<(BodyHandle, MeshId)>,
+    orbit: common::camera::Orbit,
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut dynamics = Dynamics::with_capacity(BODY_COUNT + 4);
-    setup_scene(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        &mut dynamics.simulation,
-    );
-    spawn_collection(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-    );
-    commands.insert_resource(dynamics);
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font_size: FontSize::Px(18.0),
-            ..default()
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    App::new(
+        "dynamis falling shapes",
+        Example {
+            dynamics: common::physics::Dynamics::with_capacity(BODY_COUNT + 4),
+            bodies: Vec::new(),
+            orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
-        TextColor(Color::srgb_u8(230, 232, 235)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(12.0),
-            left: Val::Px(12.0),
-            ..default()
-        },
-        Hud,
-    ));
+    )
+    .on_startup(setup)
+    .on_update(update)
+    .run()
+}
+
+fn setup(ctx: &mut AppContext, example: &mut Example) {
+    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
+    spawn_collection(ctx, &mut example.dynamics.simulation, &mut example.bodies);
 }
 
 fn spawn_collection(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     for index in 0..BODY_COUNT {
         let radius = 0.35 + (index % 5) as f32 * 0.07;
@@ -75,14 +40,14 @@ fn spawn_collection(
             0 => (
                 BodyDesc::sphere(radius),
                 Shape::sphere(radius),
-                indexed_color(index),
+                common::scene::indexed_color(index),
             ),
             1 => {
                 let half = [radius, radius * 0.9, radius * 1.1];
                 (
                     BodyDesc::cuboid(half),
                     Shape::cuboid(half),
-                    indexed_color(index),
+                    common::scene::indexed_color(index),
                 )
             }
             2 => {
@@ -90,7 +55,7 @@ fn spawn_collection(
                 (
                     BodyDesc::capsule(narrow, radius),
                     Shape::capsule(narrow, radius),
-                    indexed_color(index + 2),
+                    common::scene::indexed_color(index + 2),
                 )
             }
             _ => {
@@ -98,7 +63,7 @@ fn spawn_collection(
                 (
                     BodyDesc::cylinder(narrow, radius),
                     Shape::cylinder(narrow, radius),
-                    indexed_color(index + 4),
+                    common::scene::indexed_color(index + 4),
                 )
             }
         };
@@ -112,26 +77,30 @@ fn spawn_collection(
                 .restitution(0.2 + (index % 4) as f32 * 0.08)
                 .friction(0.7),
         );
-        commands.spawn((
-            Mesh3d(primitive_mesh(&shape, meshes)),
-            MeshMaterial3d(standard_material(materials, color)),
+        let mesh = ctx.spawn(
+            &common::scene::geometry_from_shape(&shape),
+            common::scene::standard_material(color),
             Transform::from_xyz(x, y, z),
-            PhysicsBody(handle),
-        ));
+        );
+        bodies.push((handle, mesh));
     }
 }
 
-fn update_hud(time: Res<Time>, dynamics: Res<Dynamics>, mut hud: Single<&mut Text, With<Hud>>) {
-    let sleeping = dynamics
+fn update(ctx: &mut AppContext, example: &mut Example) {
+    common::physics::advance_physics(ctx, &mut example.dynamics);
+    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::camera::orbit_camera(ctx, &mut example.orbit);
+    let sleeping = example
+        .dynamics
         .simulation
         .bodies()
         .iter()
-        .filter(|handle| dynamics.simulation.read_state(**handle).sleeping)
+        .filter(|handle| example.dynamics.simulation.read_state(**handle).sleeping)
         .count();
-    hud.0 = format!(
+    ctx.hud = format!(
         "bodies: {}   sleeping: {}   fps: {:.0}\nright-drag: orbit   wheel: zoom",
-        dynamics.simulation.count(),
+        example.dynamics.simulation.count(),
         sleeping,
-        1.0 / time.delta_secs().max(1e-6),
+        1.0 / ctx.time.delta_secs().max(1e-6),
     );
 }

@@ -147,6 +147,12 @@ impl Profiler {
     }
 }
 
+impl Default for Profiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,7 +183,10 @@ mod tests {
         profiler.measure("other", || 0);
         let work = profiler.phase("work").expect("work phase exists");
         assert_eq!(work.count(), 2);
-        assert_eq!(profiler.phase("other").expect("other phase exists").count(), 1);
+        assert_eq!(
+            profiler.phase("other").expect("other phase exists").count(),
+            1
+        );
         assert_eq!(profiler.phases().len(), 2);
     }
 

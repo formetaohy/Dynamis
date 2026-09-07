@@ -10,22 +10,26 @@ license = "MIT"
 repository = "https://github.com/formetaohy/Dynamis"
 
 [workspace.dependencies]
-bevy = { version = "0.19", default-features = false, features = [
-    "default_app",
-    "default_platform",
-    "3d_bevy_render",
-    "ui_api",
-    "ui_bevy_render",
-] }
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
-wgpu = "30"
+wgpu = { version = "30", default-features = false, features = [
+    "std",
+    "parking_lot",
+    "dx12",
+    "metal",
+    "vulkan",
+    "wgsl",
+] }
+winit = "0.30"
+glam = "0.32"
+font8x8 = "0.3"
 dynamis-gpu = { version = "0.4.1", path = "crates/dynamis-gpu" }
 dynamis-layout = { version = "0.4.1", path = "crates/dynamis-layout" }
 dynamis-model = { version = "0.4.1", path = "crates/dynamis-model" }
 dynamis-profile = { version = "0.4.1", path = "crates/dynamis-profile" }
 dynamis-query = { version = "0.4.1", path = "crates/dynamis-query" }
 dynamis-sim = { version = "0.4.1", path = "crates/dynamis-sim" }
+dynamis-example-render = { path = "examples/render" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -50,13 +54,11 @@ dynamis-query = { workspace = true }
 dynamis-sim = { workspace = true }
 
 [dev-dependencies]
-bevy = { workspace = true }
 dynamis-example-common = { path = "examples/common" }
+dynamis-example-render = { workspace = true }
 bytemuck = { workspace = true }
-dynamis-layout = { workspace = true }
 dynamis-profile = { workspace = true }
 pollster = { workspace = true }
-wgpu = { workspace = true }
 
 [[example]]
 name = "falling_shapes"

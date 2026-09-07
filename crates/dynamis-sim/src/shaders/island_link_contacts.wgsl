@@ -1,6 +1,6 @@
 @group(0) @binding(0) var<storage, read> bodies: array<RigidBody>;
 @group(0) @binding(1) var<storage, read> contacts: array<Contact>;
-@group(0) @binding(2) var<storage, read> contact_count: atomic<u32>;
+@group(0) @binding(2) var<storage, read_write> contact_count: atomic<u32>;
 @group(0) @binding(3) var<storage, read_write> island_parents: array<atomic<u32>>;
 
 fn island_link(a: u32, b: u32) {

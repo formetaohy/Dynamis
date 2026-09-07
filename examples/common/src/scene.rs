@@ -1,57 +1,32 @@
-use crate::camera::Orbit;
-use crate::physics::PhysicsBody;
-use bevy::prelude::*;
-use dynamis::{BodyDesc, Shape, Simulation};
+use dynamis::Simulation;
+use dynamis_example_render::{
+    AppContext, Color, EulerRot, Geometry, Material, Quat, Transform, Vec3,
+};
 
 pub const GROUND_HALF: f32 = 30.0;
 
-#[derive(Component)]
-pub struct MaterialHandle(pub Handle<StandardMaterial>);
-
-pub fn setup_scene(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    simulation: &mut Simulation,
-) {
-    let ground = simulation.spawn(
-        BodyDesc::cuboid([GROUND_HALF, 0.5, GROUND_HALF])
+pub fn setup_scene(ctx: &mut AppContext, simulation: &mut Simulation) {
+    simulation.spawn(
+        dynamis::BodyDesc::cuboid([GROUND_HALF, 0.5, GROUND_HALF])
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
     );
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(GROUND_HALF * 2.0, 1.0, GROUND_HALF * 2.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
+    ctx.spawn(
+        &Geometry::Cuboid {
+            half_extents: [GROUND_HALF, 0.5, GROUND_HALF],
+        },
+        Material {
             base_color: Color::srgb(0.2, 0.23, 0.26),
-            perceptual_roughness: 0.95,
-            ..default()
-        })),
+            roughness: 0.95,
+            ..Default::default()
+        },
         Transform::from_xyz(0.0, -0.5, 0.0),
-        PhysicsBody(ground),
-    ));
-    commands.spawn((
-        Camera3d::default(),
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: 90.0,
-            ..default()
-        },
-        Transform::default(),
-        Orbit {
-            yaw: 0.7,
-            pitch: 0.42,
-            distance: 42.0,
-            target: Vec3::new(0.0, 3.0, 0.0),
-        },
-    ));
-    commands.spawn((
-        DirectionalLight {
-            color: Color::srgb_u8(255, 240, 214),
-            illuminance: 9000.0,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.9, 0.7, 0.0)),
-    ));
+    );
+    ctx.lights.direction = Quat::from_euler(EulerRot::XYZ, -0.9, 0.7, 0.0) * Vec3::NEG_Z;
+    ctx.lights.color = Color::srgb(1.0, 0.94, 0.84);
+    ctx.lights.intensity = 1.6;
+    ctx.lights.ambient = Color::srgb(0.72, 0.74, 0.78);
+    ctx.lights.ambient_intensity = 0.35;
 }
 
 pub fn indexed_color(index: usize) -> Color {
@@ -69,35 +44,34 @@ pub fn indexed_color(index: usize) -> Color {
     Color::srgb_u8(red, green, blue)
 }
 
-pub fn primitive_mesh(shape: &Shape, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
+pub fn geometry_from_shape(shape: &dynamis::Shape) -> Geometry {
     match *shape {
-        Shape::Sphere { radius } => meshes.add(Sphere::new(radius)),
-        Shape::Box { half_extents } => meshes.add(Cuboid::new(
-            half_extents[0] * 2.0,
-            half_extents[1] * 2.0,
-            half_extents[2] * 2.0,
-        )),
-        Shape::Capsule {
+        dynamis::Shape::Sphere { radius } => Geometry::Sphere { radius },
+        dynamis::Shape::Box { half_extents } => Geometry::Cuboid { half_extents },
+        dynamis::Shape::Capsule {
             radius,
             half_height,
-        } => meshes.add(Capsule3d::new(radius, half_height * 2.0)),
-        Shape::Cylinder {
+        } => Geometry::Capsule {
             radius,
             half_height,
-        } => meshes.add(Cylinder::new(radius, half_height * 2.0)),
-        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => {
-            panic!("vertex-sourced shapes have no bevy counterpart")
+        },
+        dynamis::Shape::Cylinder {
+            radius,
+            half_height,
+        } => Geometry::Cylinder {
+            radius,
+            half_height,
+        },
+        dynamis::Shape::Hull(_) | dynamis::Shape::Mesh(_) | dynamis::Shape::HeightField(_) => {
+            panic!("vertex-sourced shapes have no render counterpart")
         }
     }
 }
 
-pub fn standard_material(
-    materials: &mut Assets<StandardMaterial>,
-    color: Color,
-) -> Handle<StandardMaterial> {
-    materials.add(StandardMaterial {
+pub fn standard_material(color: Color) -> Material {
+    Material {
         base_color: color,
-        perceptual_roughness: 0.55,
-        ..default()
-    })
+        roughness: 0.55,
+        ..Default::default()
+    }
 }

@@ -3,7 +3,7 @@
 @group(0) @binding(2) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(3) var<storage, read> pair_keys_hi: array<u32>;
 @group(0) @binding(4) var<storage, read> pair_keys_lo: array<u32>;
-@group(0) @binding(5) var<storage, read> pair_count: atomic<u32>;
+@group(0) @binding(5) var<storage, read_write> pair_count: atomic<u32>;
 
 fn sweep_retreat(
     moving: RigidBody, moving_collider: Collider,

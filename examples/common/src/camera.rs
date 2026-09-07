@@ -1,7 +1,5 @@
-use bevy::input::mouse::{MouseMotion, MouseWheel};
-use bevy::prelude::*;
+use dynamis_example_render::{AppContext, Vec3};
 
-#[derive(Component)]
 pub struct Orbit {
     pub yaw: f32,
     pub pitch: f32,
@@ -9,35 +7,31 @@ pub struct Orbit {
     pub target: Vec3,
 }
 
-pub fn orbit_camera(
-    mut cameras: Query<(&mut Transform, &mut Orbit)>,
-    buttons: Res<ButtonInput<MouseButton>>,
-    mut motion: MessageReader<MouseMotion>,
-    mut wheel: MessageReader<MouseWheel>,
-) {
-    let mut yaw = 0.0;
-    let mut pitch = 0.0;
-    let mut zoom = 0.0;
-    for event in motion.read() {
-        if buttons.pressed(MouseButton::Right) {
-            yaw -= event.delta.x * 0.008;
-            pitch -= event.delta.y * 0.008;
+impl Orbit {
+    pub const fn new(yaw: f32, pitch: f32, distance: f32, target: Vec3) -> Self {
+        Self {
+            yaw,
+            pitch,
+            distance,
+            target,
         }
     }
-    for event in wheel.read() {
-        zoom += event.y;
+}
+
+pub fn orbit_camera(ctx: &mut AppContext, orbit: &mut Orbit) {
+    if ctx.input.right_down {
+        orbit.yaw -= ctx.input.cursor_delta.0 * 0.008;
+        orbit.pitch = (orbit.pitch - ctx.input.cursor_delta.1 * 0.008).clamp(-1.45, 1.45);
     }
-    for (mut transform, mut orbit) in &mut cameras {
-        orbit.yaw += yaw;
-        orbit.pitch = (orbit.pitch + pitch).clamp(-1.45, 1.45);
-        orbit.distance = (orbit.distance * (1.0 - zoom * 0.04)).clamp(4.0, 120.0);
-        let horizontal = orbit.yaw.cos();
-        let offset = Vec3::new(
-            horizontal * orbit.pitch.cos(),
-            orbit.pitch.sin(),
-            horizontal * orbit.pitch.sin(),
-        );
-        transform.translation = orbit.target + offset * orbit.distance;
-        transform.look_at(orbit.target, Vec3::Y);
+    if ctx.input.wheel != 0.0 {
+        orbit.distance = (orbit.distance * (1.0 - ctx.input.wheel * 0.04)).clamp(4.0, 120.0);
     }
+    let horizontal = orbit.yaw.cos();
+    let offset = Vec3::new(
+        horizontal * orbit.pitch.cos(),
+        orbit.pitch.sin(),
+        horizontal * orbit.pitch.sin(),
+    );
+    ctx.camera.eye = orbit.target + offset * orbit.distance;
+    ctx.camera.target = orbit.target;
 }

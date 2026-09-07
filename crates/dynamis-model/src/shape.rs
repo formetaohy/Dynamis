@@ -6,20 +6,10 @@ pub struct ShapeSourceHandle {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
-    Sphere {
-        radius: f32,
-    },
-    Box {
-        half_extents: [f32; 3],
-    },
-    Capsule {
-        radius: f32,
-        half_height: f32,
-    },
-    Cylinder {
-        radius: f32,
-        half_height: f32,
-    },
+    Sphere { radius: f32 },
+    Box { half_extents: [f32; 3] },
+    Capsule { radius: f32, half_height: f32 },
+    Cylinder { radius: f32, half_height: f32 },
     Hull(ShapeSourceHandle),
     Mesh(ShapeSourceHandle),
     HeightField(ShapeSourceHandle),

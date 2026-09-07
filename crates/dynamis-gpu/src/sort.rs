@@ -1,5 +1,5 @@
 use crate::buffer::GpuBuffer;
-use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
+use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
@@ -56,6 +56,10 @@ struct SortBindGroups {
 }
 
 impl SortBindGroups {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "radix sort carries three key channels and their outputs explicitly"
+    )]
     fn build(
         device: &Device,
         sort: &GpuSort,
@@ -169,7 +173,8 @@ pub struct GpuSort {
 }
 
 impl GpuSort {
-    pub fn new(device: &Device, label: &str, capacity: u32) -> Self {
+    pub fn new(context: &GpuContext, label: &str, capacity: u32) -> Self {
+        let device = context.device();
         let blocks = capacity.div_ceil(THREADS).max(1);
         let histogram_spec = [
             BindingSpec {
@@ -249,8 +254,7 @@ impl GpuSort {
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
-        let prefix_pipeline = ComputePipeline::new(
-            device,
+        let prefix_pipeline = context.compute_pipeline(
             &format!("{label} prefix"),
             include_str!("shaders/sort_prefix.wgsl"),
             "main",
@@ -259,8 +263,7 @@ impl GpuSort {
         );
         let histogram_shader = include_str!("shaders/sort_histogram.wgsl");
         let histogram_pipelines = std::array::from_fn(|index| {
-            ComputePipeline::new(
-                device,
+            context.compute_pipeline(
                 &format!("{label} histogram {index}"),
                 &shifted_shader(histogram_shader, (index * 8) as u32),
                 "main",
@@ -270,8 +273,7 @@ impl GpuSort {
         });
         let scatter_shader = include_str!("shaders/sort_scatter.wgsl");
         let scatter_pipelines = std::array::from_fn(|index| {
-            ComputePipeline::new(
-                device,
+            context.compute_pipeline(
                 &format!("{label} scatter {index}"),
                 &shifted_shader(scatter_shader, (index * 8) as u32),
                 "main",
@@ -339,6 +341,10 @@ impl GpuSort {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "radix sort carries three key channels and their outputs explicitly"
+    )]
     fn bindings(
         &self,
         device: &Device,
@@ -383,14 +389,22 @@ impl GpuSort {
         hi_words: u32,
     ) {
         let pass_ranges = [0..lo_words, 4..(4 + hi_words)];
-        let mut executed = 0usize;
-        for pass_index in pass_ranges.into_iter().flatten() {
+        for (executed, pass_index) in pass_ranges.into_iter().flatten().enumerate() {
             let parity = executed % 2;
-            executed += 1;
             let pass_index = pass_index as usize;
-            recorder.record_indirect(&self.histogram_pipelines[pass_index], &[&bindings.histogram[parity]], args, 16);
+            recorder.record_indirect(
+                &self.histogram_pipelines[pass_index],
+                &[&bindings.histogram[parity]],
+                args,
+                16,
+            );
             recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
-            recorder.record_indirect(&self.scatter_pipelines[pass_index], &[&bindings.scatter[parity]], args, 16);
+            recorder.record_indirect(
+                &self.scatter_pipelines[pass_index],
+                &[&bindings.scatter[parity]],
+                args,
+                16,
+            );
         }
     }
 
@@ -414,7 +428,13 @@ impl GpuSort {
         values_out: &GpuBuffer,
     ) {
         let channels = SortChannels::of(
-            count_holder, keys_lo, keys_hi, values, keys_lo_out, keys_hi_out, values_out,
+            count_holder,
+            keys_lo,
+            keys_hi,
+            values,
+            keys_lo_out,
+            keys_hi_out,
+            values_out,
         );
         let guard = self.bindings(
             device,

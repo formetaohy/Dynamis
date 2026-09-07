@@ -100,7 +100,8 @@ fn ray_hit(query: Query, body: RigidBody, collider: Collider) -> ShapeHit {
         let world = world_collider(body, collider);
         return ray_cylinder(query.origin, direction, query.extent, world.center, shape_axis(world), world.half_height, world.radius);
     }
-    return scene_raycast(collider.source, query.origin, direction, query.extent);
+    let world = world_collider(body, collider);
+    return ray_scene(world, query.origin, direction, query.extent);
 }
 
 fn query_shape_world(query: Query, center: vec3f) -> WorldShape {
@@ -202,12 +203,20 @@ fn query_world_aabb(query: Query) -> Aabb {
 }
 
 fn emit_hit(query: Query, body: RigidBody, collider: Collider, distance: f32, point: vec3f, normal: vec3f) {
-    let base = query.slot * MAX_HITS_PER_QUERY;
-    let slot = atomicAdd(&query_headers[query.slot].count, 1u);
-    if (slot >= query.max_hits || slot >= MAX_HITS_PER_QUERY) {
-        atomicStore(&query_headers[query.slot].overflow, 1u);
-        return;
+    var slot = 0u;
+    loop {
+        let current = atomicLoad(&query_headers[query.slot].count);
+        if (current >= query.max_hits || current >= MAX_HITS_PER_QUERY) {
+            atomicStore(&query_headers[query.slot].overflow, 1u);
+            return;
+        }
+        let result = atomicCompareExchangeWeak(&query_headers[query.slot].count, current, current + 1u);
+        if (result.exchanged) {
+            slot = current;
+            break;
+        }
     }
+    let base = query.slot * MAX_HITS_PER_QUERY;
     if (base + slot < arrayLength(&query_hits)) {
         query_hits[base + slot] = QueryHit(body.body_id, body.generation, distance, 0u, point, 0.0, normal, 0.0);
     }

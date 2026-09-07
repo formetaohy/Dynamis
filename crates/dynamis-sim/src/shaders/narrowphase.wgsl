@@ -4,7 +4,7 @@
 @group(0) @binding(3) var<storage, read> pair_keys_lo: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contacts_raw: array<Contact>;
 @group(0) @binding(5) var<storage, read_write> contact_valid: array<u32>;
-@group(0) @binding(6) var<storage, read> pair_count: atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> pair_count: atomic<u32>;
 @group(0) @binding(7) var<storage, read> joint_hi: array<u32>;
 @group(0) @binding(8) var<storage, read> joint_lo: array<u32>;
 @group(0) @binding(9) var<storage, read> joint_count: array<u32>;

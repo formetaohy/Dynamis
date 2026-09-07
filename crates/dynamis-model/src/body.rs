@@ -101,7 +101,10 @@ impl BodyDesc {
     }
 
     pub fn sensor(mut self, sensor: bool) -> Self {
-        assert!(!self.colliders.is_empty(), "a body needs at least one collider");
+        assert!(
+            !self.colliders.is_empty(),
+            "a body needs at least one collider"
+        );
         self.colliders[0].sensor = sensor;
         self
     }

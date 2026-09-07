@@ -1164,6 +1164,21 @@ fn ray_triangle(origin: vec3f, direction: vec3f, extent: f32, a: vec3f, b: vec3f
     return ShapeHit(t, point, select(normal, -normal, det < 0.0));
 }
 
+fn ray_scene(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let inv_rotation = quat_conjugate(world.rotation);
+    let local_origin = quat_rotate(inv_rotation, origin - world.center);
+    let local_direction = quat_rotate(inv_rotation, direction);
+    let local = scene_raycast(world.source, local_origin, local_direction, extent);
+    if (local.distance == NO_HIT) {
+        return local;
+    }
+    var hit: ShapeHit;
+    hit.distance = local.distance;
+    hit.point = world.center + quat_rotate(world.rotation, local.point);
+    hit.normal = quat_rotate(world.rotation, local.normal);
+    return hit;
+}
+
 fn scene_raycast(source_index: u32, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
     let source = shape_sources[source_index];
     if (source.kind == SHAPE_SOURCE_HULL) {
@@ -1397,7 +1412,7 @@ fn convex_hit_at(
         let axis = shape_axis(static_target);
         return ray_cylinder(start, direction, NO_HIT, static_target.center, axis, static_target.half_height, static_target.radius + expand);
     }
-    return scene_raycast(static_target.source, start, direction, NO_HIT);
+    return ray_scene(static_target, start, direction, NO_HIT);
 }
 
 fn box_center(body: RigidBody, collider: Collider) -> vec3f {

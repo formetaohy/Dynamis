@@ -1,19 +1,11 @@
-use dynamis_example_common as common;
-use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
-use common::{
-    camera::orbit_camera,
-    physics::{Dynamics, PhysicsBody, advance_physics, sync_visuals},
-    scene::{MaterialHandle, indexed_color, primitive_mesh, setup_scene, standard_material},
-};
 use dynamis::{BodyDesc, BodyHandle, QueryFilter, QueryHandle, Shape, Simulation};
+use dynamis_example_common as common;
+use dynamis_example_render::{App, AppContext, Color, MeshId, Transform, Vec3};
 use std::collections::HashMap;
-
 
 const QUERY_SETTLE: f32 = 0.5;
 const HIGHLIGHT_SECONDS: f32 = 1.5;
 
-#[derive(Resource, Default)]
 struct Interactions {
     pending: Vec<PendingQuery>,
     highlights: Vec<(BodyHandle, f32)>,
@@ -28,7 +20,10 @@ struct PendingQuery {
 
 #[derive(Clone, Copy)]
 enum QueryKind {
-    Ray { origin: [f32; 3], direction: [f32; 3] },
+    Ray {
+        origin: [f32; 3],
+        direction: [f32; 3],
+    },
     Sphere,
 }
 
@@ -40,93 +35,55 @@ struct RayRecord {
     hit: bool,
 }
 
-#[derive(Resource, Default)]
-struct BodyEntities(HashMap<u32, Entity>);
-
-#[derive(Component)]
-struct Hud;
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "dynamis queries".into(),
-                ..default()
-            }),
-            ..default()
-        }))
-        .init_resource::<Interactions>()
-        .init_resource::<BodyEntities>()
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                advance_physics,
-                sync_visuals,
-                orbit_camera,
-                handle_input,
-                resolve_queries,
-                highlight,
-                draw_queries,
-                update_hud,
-            )
-                .chain(),
-        )
-        .run();
+struct Example {
+    dynamics: common::physics::Dynamics,
+    bodies: Vec<(BodyHandle, MeshId)>,
+    entities: HashMap<u32, MeshId>,
+    interactions: Interactions,
+    orbit: common::camera::Orbit,
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut dynamics = Dynamics::with_capacity(120);
-    setup_scene(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        &mut dynamics.simulation,
-    );
-    let mut entities = BodyEntities::default();
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    App::new(
+        "dynamis queries",
+        Example {
+            dynamics: common::physics::Dynamics::with_capacity(120),
+            bodies: Vec::new(),
+            entities: HashMap::new(),
+            interactions: Interactions {
+                pending: Vec::new(),
+                highlights: Vec::new(),
+                last_ray: None,
+            },
+            orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
+        },
+    )
+    .on_startup(setup)
+    .on_update(update)
+    .run()
+}
+
+fn setup(ctx: &mut AppContext, example: &mut Example) {
+    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
     spawn_towers(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-        &mut entities,
+        ctx,
+        &mut example.dynamics.simulation,
+        &mut example.bodies,
+        &mut example.entities,
     );
     spawn_rollers(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-        &mut entities,
+        ctx,
+        &mut example.dynamics.simulation,
+        &mut example.bodies,
+        &mut example.entities,
     );
-    commands.insert_resource(dynamics);
-    commands.insert_resource(entities);
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font_size: FontSize::Px(18.0),
-            ..default()
-        },
-        TextColor(Color::srgb_u8(230, 232, 235)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(12.0),
-            left: Val::Px(12.0),
-            ..default()
-        },
-        Hud,
-    ));
 }
 
 fn spawn_towers(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    entities: &mut BodyEntities,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
+    entities: &mut HashMap<u32, MeshId>,
 ) {
     for tower in 0..3 {
         for level in 0..6 {
@@ -140,26 +97,23 @@ fn spawn_towers(
                     .friction(0.7)
                     .restitution(0.05),
             );
-            let entity = spawn_entity(
-                commands,
-                meshes,
-                materials,
-                handle,
+            let mesh = spawn_entity(
+                ctx,
                 Shape::cuboid(half),
                 [x, y, z],
-                indexed_color(tower * 2 + level),
+                common::scene::indexed_color(tower * 2 + level),
             );
-            entities.0.insert(handle.id, entity);
+            bodies.push((handle, mesh));
+            entities.insert(handle.id, mesh);
         }
     }
 }
 
 fn spawn_rollers(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    entities: &mut BodyEntities,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
+    entities: &mut HashMap<u32, MeshId>,
 ) {
     for index in 0..6 {
         let radius = 0.3 + (index % 3) as f32 * 0.08;
@@ -173,71 +127,66 @@ fn spawn_rollers(
                 .restitution(0.3)
                 .friction(0.5),
         );
-        let entity = spawn_entity(
-            commands,
-            meshes,
-            materials,
-            handle,
+        let mesh = spawn_entity(
+            ctx,
             Shape::sphere(radius),
             [x, y, z],
-            indexed_color(index + 4),
+            common::scene::indexed_color(index + 4),
         );
-        entities.0.insert(handle.id, entity);
+        bodies.push((handle, mesh));
+        entities.insert(handle.id, mesh);
     }
 }
 
-fn spawn_entity(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    handle: BodyHandle,
-    shape: Shape,
-    position: [f32; 3],
-    color: Color,
-) -> Entity {
-    let material = standard_material(materials, color);
-    commands
-        .spawn((
-            Mesh3d(primitive_mesh(&shape, meshes)),
-            MeshMaterial3d(material.clone()),
-            MaterialHandle(material),
-            Transform::from_xyz(position[0], position[1], position[2]),
-            PhysicsBody(handle),
-        ))
-        .id()
+fn spawn_entity(ctx: &mut AppContext, shape: Shape, position: [f32; 3], color: Color) -> MeshId {
+    ctx.spawn(
+        &common::scene::geometry_from_shape(&shape),
+        common::scene::standard_material(color),
+        Transform::from_xyz(position[0], position[1], position[2]),
+    )
 }
 
-fn handle_input(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    time: Res<Time>,
-    mut interactions: ResMut<Interactions>,
-    mut dynamics: ResMut<Dynamics>,
-) {
-    let Ok(window) = windows.single() else { return };
-    let Ok((camera, view)) = cameras.single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-    let Ok(ray) = camera.viewport_to_world(view, cursor) else { return };
-    let origin = ray.origin.to_array();
-    let direction = ray.direction.as_vec3().to_array();
-    if buttons.just_pressed(MouseButton::Left) {
-        let handle = dynamics
-            .simulation
-            .raycast(origin, direction, 120.0, &QueryFilter::default());
-        interactions.pending.push(PendingQuery {
+fn update(ctx: &mut AppContext, example: &mut Example) {
+    common::physics::advance_physics(ctx, &mut example.dynamics);
+    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::camera::orbit_camera(ctx, &mut example.orbit);
+    handle_input(ctx, example);
+    resolve_queries(ctx, example);
+    highlight(ctx, example);
+    draw_queries(ctx, example);
+    ctx.hud = format!(
+        "left click: raycast + impulse   right click: sphere query\nactive: {}   fps: {:.0}",
+        example.interactions.highlights.len(),
+        1.0 / ctx.time.delta_secs().max(1e-6),
+    );
+}
+
+fn handle_input(ctx: &mut AppContext, example: &mut Example) {
+    let Some((cursor_x, cursor_y)) = ctx.input.cursor else {
+        return;
+    };
+    let (origin, direction) = ctx.ray_from_screen(cursor_x, cursor_y);
+    let origin = origin.to_array();
+    let direction = direction.to_array();
+    if ctx.input.left_pressed {
+        let handle =
+            example
+                .dynamics
+                .simulation
+                .raycast(origin, direction, 120.0, &QueryFilter::default());
+        example.interactions.pending.push(PendingQuery {
             handle,
-            submitted: time.elapsed_secs(),
+            submitted: ctx.time.elapsed_secs(),
             kind: QueryKind::Ray { origin, direction },
         });
     }
-    if buttons.just_pressed(MouseButton::Right) {
+    if ctx.input.right_pressed {
         let center = [
             origin[0] + direction[0] * 14.0,
             origin[1] + direction[1] * 14.0,
             origin[2] + direction[2] * 14.0,
         ];
-        let handle = dynamics.simulation.sphere_query(
+        let handle = example.dynamics.simulation.sphere_query(
             center,
             3.0,
             &QueryFilter {
@@ -245,29 +194,25 @@ fn handle_input(
                 ..QueryFilter::default()
             },
         );
-        interactions.pending.push(PendingQuery {
+        example.interactions.pending.push(PendingQuery {
             handle,
-            submitted: time.elapsed_secs(),
+            submitted: ctx.time.elapsed_secs(),
             kind: QueryKind::Sphere,
         });
     }
 }
 
-fn resolve_queries(
-    time: Res<Time>,
-    mut dynamics: ResMut<Dynamics>,
-    mut interactions: ResMut<Interactions>,
-) {
-    let now = time.elapsed_secs();
-    let pending = std::mem::take(&mut interactions.pending);
+fn resolve_queries(ctx: &mut AppContext, example: &mut Example) {
+    let now = ctx.time.elapsed_secs();
+    let pending = std::mem::take(&mut example.interactions.pending);
     for pending in pending {
         if now - pending.submitted < QUERY_SETTLE {
-            interactions.pending.push(pending);
+            example.interactions.pending.push(pending);
             continue;
         }
         match pending.kind {
             QueryKind::Ray { origin, direction } => {
-                let simulation = &mut dynamics.simulation;
+                let simulation = &mut example.dynamics.simulation;
                 match simulation.query_hit(pending.handle) {
                     Some(hit) => {
                         let state = simulation.read_state(hit.body);
@@ -283,7 +228,7 @@ fn resolve_queries(
                             direction[2] * power,
                         ];
                         simulation.apply_impulse_at_point(hit.body, impulse, hit.point);
-                        interactions.last_ray = Some(RayRecord {
+                        example.interactions.last_ray = Some(RayRecord {
                             origin,
                             direction,
                             point: hit.point,
@@ -292,7 +237,7 @@ fn resolve_queries(
                         });
                     }
                     None => {
-                        interactions.last_ray = Some(RayRecord {
+                        example.interactions.last_ray = Some(RayRecord {
                             origin,
                             direction,
                             point: [
@@ -307,93 +252,62 @@ fn resolve_queries(
                 }
             }
             QueryKind::Sphere => {
-                for hit in dynamics.simulation.query_hits(pending.handle) {
-                    interactions.highlights.push((hit.body, now + HIGHLIGHT_SECONDS));
+                for hit in example.dynamics.simulation.query_hits(pending.handle) {
+                    example
+                        .interactions
+                        .highlights
+                        .push((hit.body, now + HIGHLIGHT_SECONDS));
                 }
             }
         }
     }
 }
 
-fn highlight(
-    time: Res<Time>,
-    mut interactions: ResMut<Interactions>,
-    bodies: Res<BodyEntities>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    visuals: Query<&MaterialHandle>,
-) {
-    let now = time.elapsed_secs();
+fn highlight(ctx: &mut AppContext, example: &mut Example) {
+    let now = ctx.time.elapsed_secs();
     let mut index = 0;
-    while index < interactions.highlights.len() {
-        let (body, until) = interactions.highlights[index];
+    while index < example.interactions.highlights.len() {
+        let (body, until) = example.interactions.highlights[index];
         if now >= until {
-            set_emissive(body, 0.0, &bodies, &visuals, &mut materials);
-            interactions.highlights.swap_remove(index);
+            set_emissive(ctx, example, body, 0.0);
+            example.interactions.highlights.swap_remove(index);
             continue;
         }
         let intensity = ((until - now) / HIGHLIGHT_SECONDS).min(1.0);
-        set_emissive(body, intensity, &bodies, &visuals, &mut materials);
+        set_emissive(ctx, example, body, intensity);
         index += 1;
     }
 }
 
-fn set_emissive(
-    body: BodyHandle,
-    intensity: f32,
-    bodies: &BodyEntities,
-    visuals: &Query<&MaterialHandle>,
-    materials: &mut Assets<StandardMaterial>,
-) {
-    let Some(&entity) = bodies.0.get(&body.id) else { return };
-    let Ok(handle) = visuals.get(entity) else { return };
-    let Some(mut material) = materials.get_mut(&handle.0) else { return };
-    material.emissive = LinearRgba::new(intensity * 0.4, intensity * 0.9, intensity * 0.25, 1.0);
+fn set_emissive(ctx: &mut AppContext, example: &Example, body: BodyHandle, intensity: f32) {
+    let Some(&mesh) = example.entities.get(&body.id) else {
+        return;
+    };
+    ctx.mesh_material(mesh).emissive =
+        Color::srgb(intensity * 0.4, intensity * 0.9, intensity * 0.25);
 }
 
-fn draw_queries(
-    mut gizmos: Gizmos,
-    interactions: Res<Interactions>,
-    bodies: Res<BodyEntities>,
-    transforms: Query<&GlobalTransform, With<PhysicsBody>>,
-) {
-    if let Some(ray) = &interactions.last_ray {
-        gizmos.ray(
+fn draw_queries(ctx: &mut AppContext, example: &Example) {
+    if let Some(ray) = &example.interactions.last_ray {
+        ctx.gizmo_ray(
             Vec3::from(ray.origin),
             Vec3::from(ray.direction) * 120.0,
             Color::srgb(1.0, 0.8, 0.2),
         );
-        gizmos.sphere(
-            Isometry3d::from_translation(Vec3::from(ray.point)),
-            0.22,
-            Color::srgb(1.0, 0.35, 0.2),
-        );
+        ctx.gizmo_sphere(Vec3::from(ray.point), 0.22, Color::srgb(1.0, 0.35, 0.2));
         if ray.hit {
-            gizmos.ray(
+            ctx.gizmo_ray(
                 Vec3::from(ray.point),
                 Vec3::from(ray.normal) * 1.5,
                 Color::srgb(0.3, 1.0, 0.9),
             );
         }
     }
-    for (body, _) in &interactions.highlights {
-        let Some(&entity) = bodies.0.get(&body.id) else { continue };
-        let Ok(transform) = transforms.get(entity) else { continue };
-        gizmos.sphere(
-            Isometry3d::from_translation(transform.translation()),
-            0.85,
-            Color::srgb(0.3, 0.9, 0.4),
-        );
+    for (body, _) in &example.interactions.highlights {
+        let Some(&mesh) = example.entities.get(&body.id) else {
+            continue;
+        };
+        let center = ctx.mesh_transform(mesh).translation;
+        ctx.gizmo_sphere(center, 0.85, Color::srgb(0.3, 0.9, 0.4));
     }
-}
-
-fn update_hud(
-    time: Res<Time>,
-    interactions: Res<Interactions>,
-    mut hud: Single<&mut Text, With<Hud>>,
-) {
-    hud.0 = format!(
-        "left click: raycast + impulse   right click: sphere query\nactive: {}   fps: {:.0}",
-        interactions.highlights.len(),
-        1.0 / time.delta_secs().max(1e-6),
-    );
 }

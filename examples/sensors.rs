@@ -1,130 +1,67 @@
-use dynamis_example_common as common;
-use bevy::prelude::*;
-use common::{
-    camera::orbit_camera,
-    physics::{Dynamics, PhysicsBody, advance_physics, sync_visuals},
-    scene::{indexed_color, primitive_mesh, setup_scene, standard_material},
-};
 use dynamis::{BodyDesc, BodyHandle, ContactEventKind, Shape, Simulation};
-
+use dynamis_example_common as common;
+use dynamis_example_render::{App, AppContext, Color, Material, MeshId, Transform, Vec3};
 
 const BALL_COUNT: usize = 40;
 const GATE_Y: [f32; 3] = [3.0, 6.0, 9.0];
 
-#[derive(Resource)]
-struct Gates {
-    states: Vec<GateState>,
-}
-
 struct GateState {
     body: BodyHandle,
-    material: Handle<StandardMaterial>,
+    mesh: MeshId,
     entered: usize,
     flash: f32,
 }
 
-#[derive(Component)]
-struct Hud;
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "dynamis sensors".into(),
-                ..default()
-            }),
-            ..default()
-        }))
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                advance_physics,
-                collect_events,
-                update_gates,
-                sync_visuals,
-                orbit_camera,
-                update_hud,
-            )
-                .chain(),
-        )
-        .run();
+struct Example {
+    dynamics: common::physics::Dynamics,
+    bodies: Vec<(BodyHandle, MeshId)>,
+    gates: Vec<GateState>,
+    orbit: common::camera::Orbit,
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut dynamics = Dynamics::with_capacity(80);
-    setup_scene(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        &mut dynamics.simulation,
-    );
-    let mut gates = Gates { states: Vec::new() };
-    spawn_gates(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-        &mut gates,
-    );
-    spawn_balls(
-        &mut commands,
-        &mut dynamics.simulation,
-        &mut meshes,
-        &mut materials,
-    );
-    commands.insert_resource(dynamics);
-    commands.insert_resource(gates);
-    commands.spawn((
-        Text::new(""),
-        TextFont {
-            font_size: FontSize::Px(18.0),
-            ..default()
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    App::new(
+        "dynamis sensors",
+        Example {
+            dynamics: common::physics::Dynamics::with_capacity(80),
+            bodies: Vec::new(),
+            gates: Vec::new(),
+            orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
-        TextColor(Color::srgb_u8(230, 232, 235)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(12.0),
-            left: Val::Px(12.0),
-            ..default()
-        },
-        Hud,
-    ));
+    )
+    .on_startup(setup)
+    .on_update(update)
+    .run()
 }
 
-fn spawn_gates(
-    commands: &mut Commands,
-    simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    gates: &mut Gates,
-) {
+fn setup(ctx: &mut AppContext, example: &mut Example) {
+    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
+    spawn_gates(ctx, &mut example.dynamics.simulation, &mut example.gates);
+    spawn_balls(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+}
+
+fn spawn_gates(ctx: &mut AppContext, simulation: &mut Simulation, gates: &mut Vec<GateState>) {
     for y in GATE_Y {
+        let shape = Shape::cuboid([5.0, 0.25, 5.0]);
         let body = simulation.spawn(
             BodyDesc::cuboid([5.0, 0.25, 5.0])
                 .sensor(true)
                 .mass(0.0)
                 .position([0.0, y, 0.0]),
         );
-        let material = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.2, 0.8, 0.95, 0.25),
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        });
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(10.0, 0.5, 10.0))),
-            MeshMaterial3d(material.clone()),
+        let mesh = ctx.spawn(
+            &common::scene::geometry_from_shape(&shape),
+            Material {
+                base_color: Color::srgba(0.2, 0.8, 0.95, 0.25),
+                roughness: 1.0,
+                unlit: true,
+                ..Default::default()
+            },
             Transform::from_xyz(0.0, y, 0.0),
-            PhysicsBody(body),
-        ));
-        gates.states.push(GateState {
+        );
+        gates.push(GateState {
             body,
-            material,
+            mesh,
             entered: 0,
             flash: 0.0,
         });
@@ -132,10 +69,9 @@ fn spawn_gates(
 }
 
 fn spawn_balls(
-    commands: &mut Commands,
+    ctx: &mut AppContext,
     simulation: &mut Simulation,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     for index in 0..BALL_COUNT {
         let radius = 0.3 + (index % 4) as f32 * 0.06;
@@ -148,21 +84,39 @@ fn spawn_balls(
                 .restitution(0.25)
                 .friction(0.8),
         );
-        commands.spawn((
-            Mesh3d(primitive_mesh(&Shape::sphere(radius), meshes)),
-            MeshMaterial3d(standard_material(materials, indexed_color(index))),
+        let mesh = ctx.spawn(
+            &common::scene::geometry_from_shape(&Shape::sphere(radius)),
+            common::scene::standard_material(common::scene::indexed_color(index)),
             Transform::from_xyz(x, y, z),
-            PhysicsBody(handle),
-        ));
+        );
+        bodies.push((handle, mesh));
     }
 }
 
-fn collect_events(mut dynamics: ResMut<Dynamics>, mut gates: ResMut<Gates>) {
+fn update(ctx: &mut AppContext, example: &mut Example) {
+    common::physics::advance_physics(ctx, &mut example.dynamics);
+    collect_events(&mut example.dynamics, &mut example.gates);
+    update_gates(ctx, &mut example.gates);
+    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::camera::orbit_camera(ctx, &mut example.orbit);
+    let counts = example
+        .gates
+        .iter()
+        .map(|gate| gate.entered.to_string())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    ctx.hud = format!(
+        "sensor gates entered: {counts}   fps: {:.0}\nright-drag: orbit   wheel: zoom",
+        1.0 / ctx.time.delta_secs().max(1e-6),
+    );
+}
+
+fn collect_events(dynamics: &mut common::physics::Dynamics, gates: &mut [GateState]) {
     for event in dynamics.simulation.drain_events() {
         if !event.sensor {
             continue;
         }
-        for gate in &mut gates.states {
+        for gate in &mut *gates {
             if (event.first == gate.body || event.second == gate.body)
                 && event.kind == ContactEventKind::Begin
             {
@@ -173,29 +127,11 @@ fn collect_events(mut dynamics: ResMut<Dynamics>, mut gates: ResMut<Gates>) {
     }
 }
 
-fn update_gates(
-    time: Res<Time>,
-    mut gates: ResMut<Gates>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    for gate in &mut gates.states {
-        gate.flash = (gate.flash - time.delta_secs() * 1.5).max(0.0);
+fn update_gates(ctx: &mut AppContext, gates: &mut [GateState]) {
+    for gate in gates {
+        gate.flash = (gate.flash - ctx.time.delta_secs() * 1.5).max(0.0);
         let light = 0.25 + gate.flash * 0.75;
-        if let Some(mut material) = materials.get_mut(&gate.material) {
-            material.base_color = Color::srgba(0.2 * light, 0.8 * light, 0.95 * light, 0.3);
-        }
+        ctx.mesh_material(gate.mesh).base_color =
+            Color::srgba(0.2 * light, 0.8 * light, 0.95 * light, 0.3);
     }
-}
-
-fn update_hud(time: Res<Time>, gates: Res<Gates>, mut hud: Single<&mut Text, With<Hud>>) {
-    let counts = gates
-        .states
-        .iter()
-        .map(|gate| gate.entered.to_string())
-        .collect::<Vec<_>>()
-        .join(" / ");
-    hud.0 = format!(
-        "sensor gates entered: {counts}   fps: {:.0}\nright-drag: orbit   wheel: zoom",
-        1.0 / time.delta_secs().max(1e-6),
-    );
 }

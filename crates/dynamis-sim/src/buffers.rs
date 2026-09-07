@@ -149,15 +149,18 @@ impl StageBuffers {
         let params_bytes = size_of::<SimParamsRecord>() as u64;
         let query_bytes = (query_capacity * size_of::<QueryRecord>()) as u64;
         let query_header_bytes = (query_capacity * size_of::<QueryResultHeader>()) as u64;
-        let query_hit_bytes =
-            (query_capacity * 4 * size_of::<QueryHitRecord>()) as u64;
+        let query_hit_bytes = (query_capacity * 4 * size_of::<QueryHitRecord>()) as u64;
         let entry_capacity = collider_capacity * MAX_CELLS_PER_COLLIDER as usize;
         let joint_bytes = (constraint_capacity * size_of::<u32>()) as u64;
         let shape_bytes = ((shape_sources * size_of::<ShapeSourceRecord>()).max(16)) as u64;
-        let vertex_bytes = ((shape_sources * SHAPE_VERTICES_PER_SOURCE as usize * 16).max(16)) as u64;
-        let triangle_bytes = ((shape_sources * SHAPE_TRIANGLES_PER_SOURCE as usize * 16).max(16)) as u64;
-        let node_bytes = ((shape_sources * SHAPE_NODES_PER_SOURCE as usize
-            * size_of::<BvhNodeRecord>()).max(16)) as u64;
+        let vertex_bytes =
+            ((shape_sources * SHAPE_VERTICES_PER_SOURCE as usize * 16).max(16)) as u64;
+        let triangle_bytes =
+            ((shape_sources * SHAPE_TRIANGLES_PER_SOURCE as usize * 16).max(16)) as u64;
+        let node_bytes = ((shape_sources
+            * SHAPE_NODES_PER_SOURCE as usize
+            * size_of::<BvhNodeRecord>())
+        .max(16)) as u64;
         let events_bytes = (pair_capacity * size_of::<ContactEventRecord>()) as u64;
         let compact_blocks = (pair_capacity as u64).div_ceil(COMPACT_BLOCK as u64);
         let compact_bytes = (compact_blocks * size_of::<u32>() as u64) as u64;
@@ -305,7 +308,10 @@ impl StageBuffers {
                 device,
                 "previous contact count",
                 counter_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+                BufferUsages::STORAGE
+                    | BufferUsages::INDIRECT
+                    | BufferUsages::COPY_DST
+                    | BufferUsages::COPY_SRC,
             ),
             prev_args: GpuBuffer::new(
                 device,
@@ -367,19 +373,12 @@ impl StageBuffers {
                 state_bytes,
                 BufferUsages::STORAGE,
             ),
-            wake_flags: GpuBuffer::new(
-                device,
-                "wake flags",
-                state_bytes,
-                BufferUsages::STORAGE,
-            ),
+            wake_flags: GpuBuffer::new(device, "wake flags", state_bytes, BufferUsages::STORAGE),
             constraints: GpuBuffer::new(
                 device,
                 "constraints",
                 constraint_bytes,
-                BufferUsages::STORAGE
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::COPY_SRC,               
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             constraint_gather_a_keys: GpuBuffer::new(
                 device,
@@ -585,7 +584,11 @@ impl StageBuffers {
                 "query results readback",
                 query_header_bytes + query_hit_bytes,
             ),
-            events_readback: GpuReadback::new(device, "events readback", events_bytes + counter_bytes),
+            events_readback: GpuReadback::new(
+                device,
+                "events readback",
+                events_bytes + counter_bytes,
+            ),
             sort_scratch: SortSlots::new(device, "sort scratch", entry_capacity.max(pair_capacity)),
         }
     }
