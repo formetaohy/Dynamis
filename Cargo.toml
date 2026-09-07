@@ -29,7 +29,7 @@ dynamis-layout = { version = "0.4.2", path = "crates/dynamis-layout" }
 dynamis-model = { version = "0.4.2", path = "crates/dynamis-model" }
 dynamis-profile = { version = "0.4.2", path = "crates/dynamis-profile" }
 dynamis-query = { version = "0.4.2", path = "crates/dynamis-query" }
-dynamis-sim = { version = "0.4.2", path = "crates/dynamis-sim" }
+dynamis-simulate = { version = "0.4.2", path = "crates/dynamis-simulate" }
 dynamis-example-common = { path = "examples/common" }
 dynamis-example-render = { path = "examples/render" }
 
@@ -52,7 +52,7 @@ repository.workspace = true
 dynamis-gpu = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-query = { workspace = true }
-dynamis-sim = { workspace = true }
+dynamis-simulate = { workspace = true }
 
 [dev-dependencies]
 dynamis-example-common = { workspace = true }

@@ -5,7 +5,7 @@ use dynamis_example_render::{App, AppContext, MeshId, Transform, Vec3};
 const BODY_COUNT: usize = 128;
 
 struct Example {
-    dynamics: common::physics::Dynamics,
+    simulator: common::physics::Simulator,
     bodies: Vec<(BodyHandle, MeshId)>,
     orbit: common::camera::Orbit,
 }
@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
         "dynamis falling shapes",
         Example {
-            dynamics: common::physics::Dynamics::with_capacity(BODY_COUNT + 4),
+            simulator: common::physics::Simulator::with_capacity(BODY_COUNT + 4),
             bodies: Vec::new(),
             orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
@@ -25,8 +25,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
-    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
-    spawn_collection(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+    common::scene::setup_scene(ctx, &mut example.simulator.simulation);
+    spawn_collection(ctx, &mut example.simulator.simulation, &mut example.bodies);
 }
 
 fn spawn_collection(
@@ -87,19 +87,19 @@ fn spawn_collection(
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
-    common::physics::advance_physics(ctx, &mut example.dynamics);
-    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::physics::advance_physics(ctx, &mut example.simulator);
+    common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
     common::camera::orbit_camera(ctx, &mut example.orbit);
     let sleeping = example
-        .dynamics
+        .simulator
         .simulation
         .bodies()
         .iter()
-        .filter(|handle| example.dynamics.simulation.read_state(**handle).sleeping)
+        .filter(|handle| example.simulator.simulation.read_state(**handle).sleeping)
         .count();
     ctx.hud = format!(
         "bodies: {}   sleeping: {}   fps: {:.0}\nright-drag: orbit   wheel: zoom",
-        example.dynamics.simulation.count(),
+        example.simulator.simulation.count(),
         sleeping,
         1.0 / ctx.time.delta_secs().max(1e-6),
     );

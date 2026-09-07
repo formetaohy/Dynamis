@@ -13,7 +13,7 @@ struct GateState {
 }
 
 struct Example {
-    dynamics: common::physics::Dynamics,
+    simulator: common::physics::Simulator,
     bodies: Vec<(BodyHandle, MeshId)>,
     gates: Vec<GateState>,
     orbit: common::camera::Orbit,
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
         "dynamis sensors",
         Example {
-            dynamics: common::physics::Dynamics::with_capacity(80),
+            simulator: common::physics::Simulator::with_capacity(80),
             bodies: Vec::new(),
             gates: Vec::new(),
             orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
@@ -35,9 +35,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
-    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
-    spawn_gates(ctx, &mut example.dynamics.simulation, &mut example.gates);
-    spawn_balls(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+    common::scene::setup_scene(ctx, &mut example.simulator.simulation);
+    spawn_gates(ctx, &mut example.simulator.simulation, &mut example.gates);
+    spawn_balls(ctx, &mut example.simulator.simulation, &mut example.bodies);
 }
 
 fn spawn_gates(ctx: &mut AppContext, simulation: &mut Simulation, gates: &mut Vec<GateState>) {
@@ -94,10 +94,10 @@ fn spawn_balls(
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
-    common::physics::advance_physics(ctx, &mut example.dynamics);
-    collect_events(&mut example.dynamics, &mut example.gates);
+    common::physics::advance_physics(ctx, &mut example.simulator);
+    collect_events(&mut example.simulator, &mut example.gates);
     update_gates(ctx, &mut example.gates);
-    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
     common::camera::orbit_camera(ctx, &mut example.orbit);
     let counts = example
         .gates
@@ -111,8 +111,8 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
     );
 }
 
-fn collect_events(dynamics: &mut common::physics::Dynamics, gates: &mut [GateState]) {
-    for event in dynamics.simulation.drain_events() {
+fn collect_events(simulator: &mut common::physics::Simulator, gates: &mut [GateState]) {
+    for event in simulator.simulation.drain_events() {
         if !event.sensor {
             continue;
         }

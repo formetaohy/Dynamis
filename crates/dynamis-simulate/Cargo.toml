@@ -1,5 +1,5 @@
 [package]
-name = "dynamis-sim"
+name = "dynamis-simulate"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

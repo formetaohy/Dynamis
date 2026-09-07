@@ -1,6 +1,6 @@
 use super::common::{DT, distance, settle, sim, static_config};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn hinge_angle(orientation: [f32; 4]) -> f32 {

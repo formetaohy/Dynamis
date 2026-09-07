@@ -36,7 +36,7 @@ struct RayRecord {
 }
 
 struct Example {
-    dynamics: common::physics::Dynamics,
+    simulator: common::physics::Simulator,
     bodies: Vec<(BodyHandle, MeshId)>,
     entities: HashMap<u32, MeshId>,
     interactions: Interactions,
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
         "dynamis queries",
         Example {
-            dynamics: common::physics::Dynamics::with_capacity(120),
+            simulator: common::physics::Simulator::with_capacity(120),
             bodies: Vec::new(),
             entities: HashMap::new(),
             interactions: Interactions {
@@ -64,16 +64,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
-    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
+    common::scene::setup_scene(ctx, &mut example.simulator.simulation);
     spawn_towers(
         ctx,
-        &mut example.dynamics.simulation,
+        &mut example.simulator.simulation,
         &mut example.bodies,
         &mut example.entities,
     );
     spawn_rollers(
         ctx,
-        &mut example.dynamics.simulation,
+        &mut example.simulator.simulation,
         &mut example.bodies,
         &mut example.entities,
     );
@@ -147,8 +147,8 @@ fn spawn_entity(ctx: &mut AppContext, shape: Shape, position: [f32; 3], color: C
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
-    common::physics::advance_physics(ctx, &mut example.dynamics);
-    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::physics::advance_physics(ctx, &mut example.simulator);
+    common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
     common::camera::orbit_camera(ctx, &mut example.orbit);
     handle_input(ctx, example);
     resolve_queries(ctx, example);
@@ -169,7 +169,7 @@ fn handle_input(ctx: &mut AppContext, example: &mut Example) {
     let origin = origin.to_array();
     let direction = direction.to_array();
     if ctx.input.left_pressed {
-        let handle = example.dynamics.simulation.ray_query(
+        let handle = example.simulator.simulation.ray_query(
             origin,
             direction,
             120.0,
@@ -187,7 +187,7 @@ fn handle_input(ctx: &mut AppContext, example: &mut Example) {
             origin[1] + direction[1] * 14.0,
             origin[2] + direction[2] * 14.0,
         ];
-        let handle = example.dynamics.simulation.sphere_query(
+        let handle = example.simulator.simulation.sphere_query(
             center,
             3.0,
             &QueryFilter {
@@ -213,7 +213,7 @@ fn resolve_queries(ctx: &mut AppContext, example: &mut Example) {
         }
         match pending.kind {
             QueryKind::Ray { origin, direction } => {
-                let simulation = &mut example.dynamics.simulation;
+                let simulation = &mut example.simulator.simulation;
                 match simulation.query_hit(pending.handle) {
                     Some(hit) => {
                         let state = simulation.read_state(hit.body);
@@ -253,7 +253,7 @@ fn resolve_queries(ctx: &mut AppContext, example: &mut Example) {
                 }
             }
             QueryKind::Sphere => {
-                for hit in example.dynamics.simulation.query_hits(pending.handle) {
+                for hit in example.simulator.simulation.query_hits(pending.handle) {
                     example
                         .interactions
                         .highlights

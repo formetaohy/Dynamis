@@ -3,12 +3,12 @@ use dynamis_example_render::{AppContext, MeshId, Quat, Vec3};
 
 const PHYSICS_STEP: f32 = 1.0 / 60.0;
 
-pub struct Dynamics {
+pub struct Simulator {
     pub simulation: Simulation,
     accumulator: f32,
 }
 
-impl Dynamics {
+impl Simulator {
     pub fn with_capacity(capacity: usize) -> Self {
         let gpu = pollster::block_on(GpuContext::new());
         Self {
@@ -18,17 +18,17 @@ impl Dynamics {
     }
 }
 
-pub fn advance_physics(ctx: &AppContext, dynamics: &mut Dynamics) {
-    dynamics.accumulator = (dynamics.accumulator + ctx.time.delta_secs()).min(PHYSICS_STEP * 8.0);
-    while dynamics.accumulator >= PHYSICS_STEP {
-        dynamics.simulation.step(PHYSICS_STEP);
-        dynamics.accumulator -= PHYSICS_STEP;
+pub fn advance_physics(ctx: &AppContext, simulator: &mut Simulator) {
+    simulator.accumulator = (simulator.accumulator + ctx.time.delta_secs()).min(PHYSICS_STEP * 8.0);
+    while simulator.accumulator >= PHYSICS_STEP {
+        simulator.simulation.step(PHYSICS_STEP);
+        simulator.accumulator -= PHYSICS_STEP;
     }
 }
 
-pub fn sync_visuals(ctx: &mut AppContext, dynamics: &Dynamics, bodies: &[(BodyHandle, MeshId)]) {
+pub fn sync_visuals(ctx: &mut AppContext, simulator: &Simulator, bodies: &[(BodyHandle, MeshId)]) {
     for (body, mesh) in bodies {
-        let state = dynamics.simulation.read_state(*body);
+        let state = simulator.simulation.read_state(*body);
         let transform = ctx.mesh_transform(*mesh);
         transform.translation = Vec3::from(state.position);
         transform.rotation = Quat::from_xyzw(

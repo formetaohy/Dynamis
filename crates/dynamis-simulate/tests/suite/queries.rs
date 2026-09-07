@@ -1,6 +1,6 @@
 use super::common::{DT, settle, sim, static_config};
 use dynamis_model::{BodyDesc, QueryFilter, Shape};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn query_static(

@@ -1,6 +1,6 @@
 use super::common::{DT, gpu, gravity_config, sim, static_config};
 use dynamis_model::{BodyDesc, PhysicsConfig};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn sphere_inertia(radius: f32, mass: f32) -> f32 {

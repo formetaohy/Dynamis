@@ -3,7 +3,7 @@ use super::common::{
 };
 use dynamis_layout::ContactRecord;
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_sim::{DebugBuffer, Simulation};
+use dynamis_simulate::{DebugBuffer, Simulation};
 
 const GRAVITY: f32 = 9.81;
 

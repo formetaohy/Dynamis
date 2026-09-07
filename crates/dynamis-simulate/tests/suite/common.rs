@@ -1,6 +1,6 @@
 use dynamis_gpu::GpuContext;
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 use std::sync::OnceLock;
 
 pub const DT: f32 = 1.0 / 60.0;

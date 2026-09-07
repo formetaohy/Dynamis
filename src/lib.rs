@@ -8,4 +8,4 @@ pub use dynamis_model::{
     ContactEventKind, MAX_COLLIDERS_PER_BODY, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
 };
 pub use dynamis_query::{QueryHandle, QueryHit};
-pub use dynamis_sim::{DebugBuffer, Simulation};
+pub use dynamis_simulate::{DebugBuffer, Simulation};

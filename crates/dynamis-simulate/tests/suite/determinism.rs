@@ -1,6 +1,6 @@
 use super::common::{DT, sim};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, ConstraintDesc, PhysicsConfig, Shape};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 
 struct Scenario {
     handles: Vec<BodyHandle>,

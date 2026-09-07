@@ -1,6 +1,6 @@
 use super::common::{DT, flat_mesh_floor, settle, sim, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
-use dynamis_sim::Simulation;
+use dynamis_simulate::Simulation;
 
 struct RayCase {
     name: &'static str,

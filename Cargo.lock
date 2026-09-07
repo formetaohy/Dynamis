@@ -380,7 +380,7 @@ dependencies = [
  "dynamis-model",
  "dynamis-profile",
  "dynamis-query",
- "dynamis-sim",
+ "dynamis-simulate",
  "pollster",
 ]
 
@@ -440,7 +440,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dynamis-sim"
+name = "dynamis-simulate"
 version = "0.4.2"
 dependencies = [
  "bytemuck",

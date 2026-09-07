@@ -3,7 +3,7 @@ use dynamis_example_common as common;
 use dynamis_example_render::{App, AppContext, Color, MeshId, Transform, Vec3};
 
 struct Example {
-    dynamics: common::physics::Dynamics,
+    simulator: common::physics::Simulator,
     bodies: Vec<(BodyHandle, MeshId)>,
     orbit: common::camera::Orbit,
 }
@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
         "dynamis joints",
         Example {
-            dynamics: common::physics::Dynamics::with_capacity(64),
+            simulator: common::physics::Simulator::with_capacity(64),
             bodies: Vec::new(),
             orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
@@ -23,10 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
-    common::scene::setup_scene(ctx, &mut example.dynamics.simulation);
-    spawn_chain(ctx, &mut example.dynamics.simulation, &mut example.bodies);
-    spawn_pendulum(ctx, &mut example.dynamics.simulation, &mut example.bodies);
-    spawn_motor(ctx, &mut example.dynamics.simulation, &mut example.bodies);
+    common::scene::setup_scene(ctx, &mut example.simulator.simulation);
+    spawn_chain(ctx, &mut example.simulator.simulation, &mut example.bodies);
+    spawn_pendulum(ctx, &mut example.simulator.simulation, &mut example.bodies);
+    spawn_motor(ctx, &mut example.simulator.simulation, &mut example.bodies);
 }
 
 fn spawn_visual(
@@ -146,13 +146,13 @@ fn spawn_motor(
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
-    common::physics::advance_physics(ctx, &mut example.dynamics);
-    common::physics::sync_visuals(ctx, &example.dynamics, &example.bodies);
+    common::physics::advance_physics(ctx, &mut example.simulator);
+    common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
     common::camera::orbit_camera(ctx, &mut example.orbit);
     ctx.hud = format!(
         "bodies: {}   constraints: {}   fps: {:.0}\nball chain   distance pendulum   revolute motor\nright-drag: orbit   wheel: zoom",
-        example.dynamics.simulation.count(),
-        example.dynamics.simulation.constraints().len(),
+        example.simulator.simulation.count(),
+        example.simulator.simulation.constraints().len(),
         1.0 / ctx.time.delta_secs().max(1e-6),
     );
 }
