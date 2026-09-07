@@ -20,7 +20,7 @@ pub struct BodyState {
 
 pub const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
 pub const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
-pub const BODY_DESC_COLLIDERS_MAX: usize = 4;
+pub const MAX_COLLIDERS_PER_BODY: usize = 4;
 
 #[derive(Clone, Debug)]
 pub struct BodyDesc {
@@ -54,7 +54,7 @@ impl BodyDesc {
 
     pub fn collider(mut self, collider: ColliderDesc) -> Self {
         assert!(
-            self.colliders.len() < BODY_DESC_COLLIDERS_MAX,
+            self.colliders.len() < MAX_COLLIDERS_PER_BODY,
             "a body supports at most four colliders"
         );
         self.colliders.push(collider);
@@ -81,6 +81,14 @@ impl BodyDesc {
         Self {
             mass: 0.0,
             ..Self::sphere(radius)
+        }
+    }
+
+    pub fn inverse_mass(&self) -> f32 {
+        if self.kinematic || self.mass <= 0.0 {
+            0.0
+        } else {
+            1.0 / self.mass
         }
     }
 

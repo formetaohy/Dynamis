@@ -26,12 +26,12 @@ struct RigidBody {
     position: vec3f,
     _pad0: f32,
     prev_position: vec3f,
-    _prev_pad: f32,
+    _pad1: f32,
     orientation: vec4f,
     velocity: vec3f,
-    _pad1: f32,
-    angular_velocity: vec3f,
     _pad2: f32,
+    angular_velocity: vec3f,
+    _pad3: f32,
     inverse_mass: f32,
     restitution: f32,
     friction: f32,
@@ -42,14 +42,14 @@ struct RigidBody {
     collision_group: u32,
     collision_mask: u32,
     sleep_timer: f32,
-    _pad7: u32,
-    _pad8: u32,
+    _pad4: u32,
+    _pad5: u32,
     inverse_inertia_body: vec3f,
-    _pad3: f32,
+    _pad6: f32,
     force: vec3f,
-    _pad4: f32,
+    _pad7: f32,
     torque: vec3f,
-    _pad5: f32,
+    _pad8: f32,
 }
 
 struct Collider {
@@ -128,7 +128,7 @@ struct Contact {
     first_generation: u32,
     second_generation: u32,
     normal: vec3f,
-    _pad2: f32,
+    _pad0: f32,
     points: array<ManifoldPoint, CONTACT_MAX_POINTS>,
 }
 
@@ -172,14 +172,14 @@ struct Query {
     radius: f32,
     half_height: f32,
     _pad1: f32,
-    _pad1b: f32,
-    half_extents: vec3f,
     _pad2: f32,
-    orientation: vec4f,
+    half_extents: vec3f,
     _pad3: f32,
+    orientation: vec4f,
     _pad4: f32,
     _pad5: f32,
     _pad6: f32,
+    _pad7: f32,
 }
 
 struct QueryResultHeader {
@@ -364,7 +364,7 @@ fn support(world: WorldShape, direction: vec3f) -> vec3f {
     if (world.kind == SHAPE_SPHERE) {
         return world.center + n * world.radius;
     }
-    if (world.kind == SHAPE_BOX) {
+    if (world.kind == SHAPE_CUBOID) {
         let local = quat_rotate(quat_conjugate(world.rotation), d);
         let signs = select(vec3f(-1.0), vec3f(1.0), local > vec3f(0.0));
         return world.center + quat_rotate(world.rotation, signs * world.half_extents);
@@ -962,7 +962,7 @@ fn min_radius(collider: Collider) -> f32 {
     if (collider.kind == SHAPE_SPHERE) {
         return collider.radius;
     }
-    if (collider.kind == SHAPE_BOX) {
+    if (collider.kind == SHAPE_CUBOID) {
         return min(min(collider.half_extents.x, collider.half_extents.y), collider.half_extents.z);
     }
     if (collider.kind == SHAPE_CAPSULE) {
@@ -978,7 +978,7 @@ fn world_aabb_of(world: WorldShape) -> Aabb {
     var extent = vec3f(0.0);
     if (world.kind == SHAPE_SPHERE) {
         extent = vec3f(world.radius);
-    } else if (world.kind == SHAPE_BOX) {
+    } else if (world.kind == SHAPE_CUBOID) {
         let e = world.half_extents;
         extent = abs(quat_rotate(world.rotation, vec3f(e.x, 0.0, 0.0)))
             + abs(quat_rotate(world.rotation, vec3f(0.0, e.y, 0.0)))
@@ -1400,7 +1400,7 @@ fn convex_hit_at(
     if (static_target.kind == SHAPE_SPHERE) {
         return ray_sphere(start, direction, NO_HIT, static_target.center, static_target.radius + expand);
     }
-    if (static_target.kind == SHAPE_BOX) {
+    if (static_target.kind == SHAPE_CUBOID) {
         let q = static_target.rotation;
         return ray_box(start, direction, NO_HIT, static_target.center, q, static_target.half_extents + vec3f(expand));
     }

@@ -91,7 +91,7 @@ fn raycast_reaches_every_convex_shape_exactly() {
     for case in cases {
         let mut world = sim(8, static_config());
         let (body, expected) = (case.build)(&mut world);
-        let query = world.raycast(
+        let query = world.ray_query(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             20.0,
@@ -280,7 +280,7 @@ fn collider_offset_shifts_hit_surface() {
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).offset([0.0, 0.0, -0.5]))
             .position([0.0, 0.0, 5.0]),
     );
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -310,7 +310,7 @@ fn collider_rotation_reshapes_hit_geometry() {
         )
         .position([0.0, 0.0, 5.0]),
     );
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -337,7 +337,7 @@ fn set_collider_and_set_shape_replace_geometry() {
     world.set_collider(body, 0, ColliderDesc::new(Shape::sphere(0.9)));
     world.step(DT);
     world.wait();
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 2.0, 0.0],
         [0.0, -1.0, 0.0],
         10.0,

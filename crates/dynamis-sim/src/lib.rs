@@ -3,4 +3,4 @@ mod shape_pool;
 mod simulation;
 mod stages;
 
-pub use simulation::Simulation;
+pub use simulation::{DebugBuffer, Simulation};

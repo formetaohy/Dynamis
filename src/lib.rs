@@ -5,7 +5,7 @@ pub use dynamis_gpu::{
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintDesc, ConstraintHandle,
     ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring, ContactEvent,
-    ContactEventKind, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
+    ContactEventKind, MAX_COLLIDERS_PER_BODY, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
 };
 pub use dynamis_query::{QueryHandle, QueryHit};
-pub use dynamis_sim::Simulation;
+pub use dynamis_sim::{DebugBuffer, Simulation};

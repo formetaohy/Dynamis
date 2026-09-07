@@ -88,7 +88,7 @@ fn ray_hit(query: Query, body: RigidBody, collider: Collider) -> ShapeHit {
         let world = world_collider(body, collider);
         return ray_sphere(query.origin, direction, query.extent, world.center, world.radius);
     }
-    if (collider.kind == SHAPE_BOX) {
+    if (collider.kind == SHAPE_CUBOID) {
         let world = world_collider(body, collider);
         return ray_box(query.origin, direction, query.extent, world.center, world.rotation, world.half_extents);
     }

@@ -5,9 +5,9 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-dynamis = { path = "../.." }
+dynamis = { workspace = true }
 dynamis-example-render = { workspace = true }
-pollster = "0.4"
+pollster = { workspace = true }
 
 [lints]
 workspace = true

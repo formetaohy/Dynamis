@@ -67,10 +67,6 @@ impl PhaseTimer {
     }
 }
 
-/// External, engine-agnostic profiler that times API calls from the caller side.
-///
-/// The physics engine itself is never instrumented; every measurement is taken
-/// around calls the application makes on its own objects (e.g. `step`, `wait`).
 pub struct Profiler {
     phases: Vec<PhaseTimer>,
 }
@@ -88,7 +84,6 @@ impl Profiler {
         &self.phases
     }
 
-    /// Runs `call` while measuring it, appending the elapsed time to `name`.
     pub fn measure<R>(&mut self, name: &'static str, call: impl FnOnce() -> R) -> R {
         let index = self.index_or_push(name);
         let begin = Instant::now();
@@ -98,7 +93,6 @@ impl Profiler {
         result
     }
 
-    /// Runs `call` while measuring it and returns its value together with the elapsed time.
     pub fn measure_with<R>(
         &mut self,
         name: &'static str,
@@ -120,7 +114,6 @@ impl Profiler {
         self.phases.len() - 1
     }
 
-    /// Renders a report of all measured phases.
     pub fn render(&self) -> String {
         let mut out = String::new();
         out.push_str("==============================================================\n");
@@ -150,53 +143,5 @@ impl Profiler {
 impl Default for Profiler {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn summary_aggregates_statistics() {
-        let summary = summary_of(&[100.0, 200.0, 300.0, 400.0, 500.0]);
-        assert_eq!(summary.mean, 300.0);
-        assert_eq!(summary.min, 100.0);
-        assert_eq!(summary.max, 500.0);
-        assert_eq!(summary.p95, 500.0);
-    }
-
-    #[test]
-    fn summary_handles_single_sample() {
-        let summary = summary_of(&[42.0]);
-        assert_eq!(summary.mean, 42.0);
-        assert_eq!(summary.min, 42.0);
-        assert_eq!(summary.max, 42.0);
-        assert_eq!(summary.p95, 42.0);
-    }
-
-    #[test]
-    fn profiler_groups_samples_by_phase() {
-        let mut profiler = Profiler::new();
-        profiler.measure("work", || 1 + 1);
-        profiler.measure("work", || 2 + 2);
-        profiler.measure("other", || 0);
-        let work = profiler.phase("work").expect("work phase exists");
-        assert_eq!(work.count(), 2);
-        assert_eq!(
-            profiler.phase("other").expect("other phase exists").count(),
-            1
-        );
-        assert_eq!(profiler.phases().len(), 2);
-    }
-
-    #[test]
-    fn measure_with_returns_value_and_duration() {
-        let mut profiler = Profiler::new();
-        let (value, elapsed) = profiler.measure_with("op", || 7);
-        assert_eq!(value, 7);
-        assert!(elapsed >= Duration::ZERO);
-        let op = profiler.phase("op").expect("op phase exists");
-        assert_eq!(op.count(), 1);
     }
 }

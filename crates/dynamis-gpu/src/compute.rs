@@ -6,13 +6,6 @@ use wgpu::{
     PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
-/// Records every dispatch of a physics frame into a single compute pass.
-///
-/// The runtime tracks buffer usage per dispatch and inserts the required
-/// barriers between dispatches inside the pass, so splitting a frame into
-/// dozens of one-dispatch passes buys nothing but submission overhead.
-/// A recorder owns the pass until dropped, at which point the encoder is
-/// released for copies and buffer operations.
 pub struct ComputeRecorder<'a> {
     pass: wgpu::ComputePass<'a>,
 }

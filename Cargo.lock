@@ -377,7 +377,6 @@ dependencies = [
  "dynamis-example-common",
  "dynamis-example-render",
  "dynamis-gpu",
- "dynamis-layout",
  "dynamis-model",
  "dynamis-profile",
  "dynamis-query",

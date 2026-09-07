@@ -169,11 +169,12 @@ fn handle_input(ctx: &mut AppContext, example: &mut Example) {
     let origin = origin.to_array();
     let direction = direction.to_array();
     if ctx.input.left_pressed {
-        let handle =
-            example
-                .dynamics
-                .simulation
-                .raycast(origin, direction, 120.0, &QueryFilter::default());
+        let handle = example.dynamics.simulation.ray_query(
+            origin,
+            direction,
+            120.0,
+            &QueryFilter::default(),
+        );
         example.interactions.pending.push(PendingQuery {
             handle,
             submitted: ctx.time.elapsed_secs(),

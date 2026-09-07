@@ -30,7 +30,7 @@ pub struct ConstraintDesc {
     pub anchor_a: [f32; 3],
     pub anchor_b: [f32; 3],
     pub axis: [f32; 3],
-    pub distance: f32,
+    pub rest_length: f32,
     pub limit: Option<ConstraintLimit>,
     pub motor: Option<ConstraintMotor>,
     pub spring: Option<ConstraintSpring>,
@@ -44,7 +44,7 @@ impl ConstraintDesc {
             anchor_a: [0.0; 3],
             anchor_b: [0.0; 3],
             axis: [0.0, 1.0, 0.0],
-            distance: 0.0,
+            rest_length: 0.0,
             limit: None,
             motor: None,
             spring: None,
@@ -60,21 +60,21 @@ impl ConstraintDesc {
         assert!(distance >= 0.0, "constraint distance must be non-negative");
         Self::base(ConstraintKind::Distance)
             .anchors(anchor_a, anchor_b)
-            .with_distance(distance)
+            .rest_length(distance)
     }
 
     pub fn revolute(anchor_a: [f32; 3], anchor_b: [f32; 3], axis: [f32; 3]) -> Self {
         assert!(axis != [0.0; 3], "revolute axis must be non-zero");
         Self::base(ConstraintKind::Revolute)
             .anchors(anchor_a, anchor_b)
-            .with_axis(axis)
+            .axis(axis)
     }
 
     pub fn prismatic(anchor_a: [f32; 3], anchor_b: [f32; 3], axis: [f32; 3]) -> Self {
         assert!(axis != [0.0; 3], "prismatic axis must be non-zero");
         Self::base(ConstraintKind::Prismatic)
             .anchors(anchor_a, anchor_b)
-            .with_axis(axis)
+            .axis(axis)
     }
 
     pub fn fixed(anchor_a: [f32; 3], anchor_b: [f32; 3]) -> Self {
@@ -87,15 +87,18 @@ impl ConstraintDesc {
         self
     }
 
-    pub fn with_axis(mut self, axis: [f32; 3]) -> Self {
+    pub fn axis(mut self, axis: [f32; 3]) -> Self {
         assert!(axis != [0.0; 3], "constraint axis must be non-zero");
         self.axis = axis;
         self
     }
 
-    pub fn with_distance(mut self, distance: f32) -> Self {
-        assert!(distance >= 0.0, "constraint distance must be non-negative");
-        self.distance = distance;
+    pub fn rest_length(mut self, rest_length: f32) -> Self {
+        assert!(
+            rest_length >= 0.0,
+            "constraint distance must be non-negative"
+        );
+        self.rest_length = rest_length;
         self
     }
 

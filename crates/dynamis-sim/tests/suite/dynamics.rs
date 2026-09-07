@@ -3,7 +3,7 @@ use super::common::{
 };
 use dynamis_layout::ContactRecord;
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_sim::Simulation;
+use dynamis_sim::{DebugBuffer, Simulation};
 
 const GRAVITY: f32 = 9.81;
 
@@ -379,9 +379,13 @@ fn resting_contact_carries_warm_start_impulse() {
         world.step(DT);
     }
     world.wait();
-    let count = read_u32(&world, world.debug_contact_count());
+    let count = read_u32(&world, world.debug_buffer(DebugBuffer::ContactCount));
     assert_eq!(count, 1, "resting ball must hold exactly one contact");
-    let contacts: Vec<ContactRecord> = read_records(&world, world.debug_contacts(), count as usize);
+    let contacts: Vec<ContactRecord> = read_records(
+        &world,
+        world.debug_buffer(DebugBuffer::Contacts),
+        count as usize,
+    );
     let impulse = contacts[0].points[0].accumulated_normal;
     assert!(
         impulse > 0.01,
@@ -392,8 +396,11 @@ fn resting_contact_carries_warm_start_impulse() {
     }
     world.step(DT);
     world.wait();
-    let archived: Vec<ContactRecord> =
-        read_records(&world, world.debug_prev_contacts(), count as usize);
+    let archived: Vec<ContactRecord> = read_records(
+        &world,
+        world.debug_buffer(DebugBuffer::PrevContacts),
+        count as usize,
+    );
     assert_eq!(archived[0].a, contacts[0].a);
     assert_eq!(archived[0].b, contacts[0].b);
     assert_eq!(

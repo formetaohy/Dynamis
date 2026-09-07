@@ -1,0 +1,50 @@
+use super::Simulation;
+use crate::shape_pool::{PoolKind, height_field_triangles};
+use dynamis_model::{Shape, ShapeSourceHandle};
+
+impl Simulation {
+    pub fn add_hull(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
+        self.allocate_shape(PoolKind::Hull, vertices, triangles.to_vec())
+    }
+
+    pub fn add_mesh(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
+        self.allocate_shape(PoolKind::Mesh, vertices, triangles.to_vec())
+    }
+
+    pub fn add_height_field(
+        &mut self,
+        rows: u32,
+        cols: u32,
+        heights: &[f32],
+        cell_size: [f32; 2],
+    ) -> ShapeSourceHandle {
+        let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
+        self.allocate_shape(PoolKind::HeightField, &vertices, triangles)
+    }
+
+    fn allocate_shape(
+        &mut self,
+        kind: PoolKind,
+        vertices: &[[f32; 3]],
+        triangles: Vec<[u32; 3]>,
+    ) -> ShapeSourceHandle {
+        let handle = self.shape_pool.allocate(kind, vertices, &triangles);
+        self.shape_pool.upload_pending(
+            self.gpu.queue(),
+            &self.buffers.shapes,
+            &self.buffers.shape_vertices,
+            &self.buffers.shape_triangles,
+            &self.buffers.shape_nodes,
+        );
+        handle
+    }
+
+    pub(super) fn shape_bounds(&self, shape: &Shape) -> Option<([f32; 3], [f32; 3])> {
+        match shape {
+            Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => {
+                Some(self.shape_pool.record(*handle).bounds)
+            }
+            _ => None,
+        }
+    }
+}

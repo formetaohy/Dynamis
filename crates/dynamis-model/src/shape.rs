@@ -7,7 +7,7 @@ pub struct ShapeSourceHandle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
     Sphere { radius: f32 },
-    Box { half_extents: [f32; 3] },
+    Cuboid { half_extents: [f32; 3] },
     Capsule { radius: f32, half_height: f32 },
     Cylinder { radius: f32, half_height: f32 },
     Hull(ShapeSourceHandle),
@@ -24,9 +24,9 @@ impl Shape {
     pub fn cuboid(half_extents: [f32; 3]) -> Self {
         assert!(
             half_extents.iter().all(|extent| *extent > 0.0),
-            "box half extents must be strictly positive"
+            "cuboid half extents must be strictly positive"
         );
-        Self::Box { half_extents }
+        Self::Cuboid { half_extents }
     }
 
     pub fn capsule(radius: f32, half_height: f32) -> Self {
@@ -68,7 +68,7 @@ impl Shape {
     pub fn bounding_radius(&self) -> f32 {
         match *self {
             Self::Sphere { radius } => radius,
-            Self::Box { half_extents } => {
+            Self::Cuboid { half_extents } => {
                 let x = half_extents[0];
                 let y = half_extents[1];
                 let z = half_extents[2];
@@ -109,7 +109,7 @@ pub fn inverse_inertia_diagonal(
             let i = 2.0 / 5.0 * mass * radius * radius;
             [1.0 / i; 3]
         }
-        Shape::Box { half_extents } => {
+        Shape::Cuboid { half_extents } => {
             let hx = half_extents[0];
             let hy = half_extents[1];
             let hz = half_extents[2];

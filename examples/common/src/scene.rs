@@ -47,7 +47,7 @@ pub fn indexed_color(index: usize) -> Color {
 pub fn geometry_from_shape(shape: &dynamis::Shape) -> Geometry {
     match *shape {
         dynamis::Shape::Sphere { radius } => Geometry::Sphere { radius },
-        dynamis::Shape::Box { half_extents } => Geometry::Cuboid { half_extents },
+        dynamis::Shape::Cuboid { half_extents } => Geometry::Cuboid { half_extents },
         dynamis::Shape::Capsule {
             radius,
             half_height,

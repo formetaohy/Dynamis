@@ -7,9 +7,9 @@ use dynamis_layout::{
     CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
     CONSTRAINT_REVOLUTE, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, DispatchArgs,
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    PATCH_POSITION, PATCH_VELOCITY, QUERY_BOX, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord,
-    RigidBodyRecord, SHAPE_BOX, SHAPE_CAPSULE, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_SPHERE, SimParamsRecord,
+    PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
+    QueryRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
+    SHAPE_HULL, SHAPE_MESH, SHAPE_SPHERE, SimParamsRecord,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, PhysicsConfig, QueryFilter, Shape};
 use std::panic::catch_unwind;
@@ -56,7 +56,7 @@ fn collider_record_encodes_every_shape_kind() {
     assert_eq!(sphere.flags & COLLIDER_SENSOR, 0);
 
     let box_record = ColliderRecord::build(&ColliderDesc::new(Shape::cuboid([1.0, 2.0, 3.0])), 0);
-    assert_eq!(box_record.kind, SHAPE_BOX);
+    assert_eq!(box_record.kind, SHAPE_CUBOID);
     assert_eq!(box_record.half_extents, [1.0, 2.0, 3.0]);
 
     let capsule = ColliderRecord::build(&ColliderDesc::new(Shape::capsule(0.3, 1.0)), 0);
@@ -230,10 +230,10 @@ fn query_record_encodes_kinds_and_filters() {
     assert_eq!(sphere.radius, 0.7);
     assert_eq!(sphere.extent, 0.7);
 
-    let box_query = QueryRecord::box_query([0.0; 3], [1.0, 2.0, 3.0], &QueryFilter::default());
-    assert_eq!(box_query.kind, QUERY_BOX);
-    assert_eq!(box_query.shape_kind, SHAPE_BOX);
-    assert_eq!(box_query.half_extents, [1.0, 2.0, 3.0]);
+    let cuboid_query = QueryRecord::cuboid([0.0; 3], [1.0, 2.0, 3.0], &QueryFilter::default());
+    assert_eq!(cuboid_query.kind, QUERY_CUBOID);
+    assert_eq!(cuboid_query.shape_kind, SHAPE_CUBOID);
+    assert_eq!(cuboid_query.half_extents, [1.0, 2.0, 3.0]);
 
     let sweep = QueryRecord::sweep(
         &Shape::capsule(0.4, 1.0),

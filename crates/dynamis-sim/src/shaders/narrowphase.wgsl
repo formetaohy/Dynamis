@@ -530,21 +530,21 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_SPHERE) {
             contact = sphere_sphere(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_BOX) {
+        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CUBOID) {
             contact = sphere_box(first, first_collider, second, second_collider);
             generated = true;
         } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CAPSULE) {
             contact = sphere_capsule(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_SPHERE) {
+        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_SPHERE) {
             let swapped = sphere_box(second, second_collider, first, first_collider);
             contact = swapped;
             contact.normal = -contact.normal;
             generated = true;
-        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_BOX) {
+        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CUBOID) {
             contact = box_box_sat(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_CAPSULE) {
+        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CAPSULE) {
             contact = box_capsule(first, first_collider, second, second_collider);
             generated = true;
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_SPHERE) {
@@ -552,7 +552,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             contact = swapped;
             contact.normal = -contact.normal;
             generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_BOX) {
+        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CUBOID) {
             let swapped = box_capsule(second, second_collider, first, first_collider);
             contact = swapped;
             contact.normal = -contact.normal;
@@ -560,7 +560,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
             contact = capsule_capsule(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_BOX) {
+        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CUBOID) {
             let swapped = box_capsule(second, second_collider, first, first_collider);
             contact = swapped;
             contact.normal = -contact.normal;
@@ -579,7 +579,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CYLINDER) {
             contact = capsule_capsule(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_CYLINDER) {
+        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CYLINDER) {
             contact = box_capsule(first, first_collider, second, second_collider);
             generated = true;
         } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CYLINDER) {

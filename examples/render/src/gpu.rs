@@ -190,7 +190,7 @@ impl Gpu {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: std::num::NonZeroU64::new(
-                                size_of::<Instance>() as u64,
+                                size_of::<Instance>() as u64
                             ),
                         },
                         count: None,
@@ -559,8 +559,11 @@ impl Gpu {
         let plan = plan_instances(meshes, camera);
         self.ensure_instance_capacity(plan.instances.len());
         if !plan.instances.is_empty() {
-            self.queue
-                .write_buffer(&self.instances_buffer, 0, bytemuck::cast_slice(&plan.instances));
+            self.queue.write_buffer(
+                &self.instances_buffer,
+                0,
+                bytemuck::cast_slice(&plan.instances),
+            );
         }
 
         self.ensure_line_capacity(lines.len());
@@ -790,7 +793,11 @@ fn plan_instances(meshes: &[MeshSlot], camera: &Camera) -> InstancePlan {
                 instance_start: instances.len() as u32,
                 instance_count: transparent.len() as u32,
             });
-            instances.extend(transparent.into_iter().map(|index| instance_for(&meshes[index])));
+            instances.extend(
+                transparent
+                    .into_iter()
+                    .map(|index| instance_for(&meshes[index])),
+            );
         }
     }
     let opaque_count = batches.len();

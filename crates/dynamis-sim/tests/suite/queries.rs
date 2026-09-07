@@ -16,7 +16,7 @@ fn ray_hits_nearest_and_reports_surface() {
     let mut world = sim(4, static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let _far = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -39,7 +39,7 @@ fn ray_hits_nearest_and_reports_surface() {
 fn ray_miss_variants() {
     let mut world = sim(4, static_config());
     let _target = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
-    let short = world.raycast(
+    let short = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         5.0,
@@ -51,7 +51,7 @@ fn ray_miss_variants() {
 
     let mut behind = sim(4, static_config());
     query_static(&mut behind, 0.5, [0.0, 0.0, -5.0]);
-    let backward = behind.raycast(
+    let backward = behind.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -70,7 +70,7 @@ fn ray_miss_variants() {
 fn ray_from_inside_body_returns_exit_distance() {
     let mut world = sim(4, static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -105,11 +105,11 @@ fn sphere_query_reports_penetration_and_miss() {
 }
 
 #[test]
-fn box_query_reports_overlap_and_outside() {
+fn cuboid_query_reports_overlap_and_outside() {
     let mut world = sim(4, static_config());
     query_static(&mut world, 1.0, [0.0, 0.0, 0.0]);
-    let inside = world.box_query([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], &QueryFilter::default());
-    let outside = world.box_query([0.0, 0.0, 10.0], [1.0, 1.0, 1.0], &QueryFilter::default());
+    let inside = world.cuboid_query([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], &QueryFilter::default());
+    let outside = world.cuboid_query([0.0, 0.0, 10.0], [1.0, 1.0, 1.0], &QueryFilter::default());
     world.step(DT);
     world.wait();
     assert!(world.query_hit(inside).is_some(), "box overlap must hit");
@@ -153,13 +153,13 @@ fn filters_skip_each_body_kind() {
     world.sleep(dynamic);
     settle(&mut world, 1);
 
-    let plain = world.raycast(
+    let plain = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
         &QueryFilter::default(),
     );
-    let no_static = world.raycast(
+    let no_static = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -168,7 +168,7 @@ fn filters_skip_each_body_kind() {
             ..QueryFilter::default()
         },
     );
-    let no_static_kinematic = world.raycast(
+    let no_static_kinematic = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -178,7 +178,7 @@ fn filters_skip_each_body_kind() {
             ..QueryFilter::default()
         },
     );
-    let also_no_sleeping = world.raycast(
+    let also_no_sleeping = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -189,7 +189,7 @@ fn filters_skip_each_body_kind() {
             ..QueryFilter::default()
         },
     );
-    let include_sensors = world.raycast(
+    let include_sensors = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -243,7 +243,7 @@ fn group_and_mask_filters_select_bodies() {
             .collision_group(2)
             .collision_mask(2),
     );
-    let group_one = world.raycast(
+    let group_one = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -253,7 +253,7 @@ fn group_and_mask_filters_select_bodies() {
             ..QueryFilter::default()
         },
     );
-    let group_two = world.raycast(
+    let group_two = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -263,7 +263,7 @@ fn group_and_mask_filters_select_bodies() {
             ..QueryFilter::default()
         },
     );
-    let mask_excludes_a = world.raycast(
+    let mask_excludes_a = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         20.0,
@@ -326,13 +326,13 @@ fn batched_queries_resolve_in_submission_order() {
     let mut world = sim(4, static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let far = query_static(&mut world, 0.5, [0.0, 0.0, 8.0]);
-    let first = world.raycast(
+    let first = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         30.0,
         &QueryFilter::default(),
     );
-    let second = world.raycast(
+    let second = world.ray_query(
         [0.0, 0.0, 9.5],
         [0.0, 0.0, -1.0],
         30.0,
@@ -348,7 +348,7 @@ fn batched_queries_resolve_in_submission_order() {
 fn results_persist_until_slot_reused() {
     let mut world = sim(2, static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         10.0,
@@ -366,7 +366,7 @@ fn results_persist_until_slot_reused() {
 fn ring_reuse_invalidates_stale_handle() {
     let mut world = sim(2, static_config());
     query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
-    let first = world.raycast(
+    let first = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         10.0,
@@ -376,7 +376,7 @@ fn ring_reuse_invalidates_stale_handle() {
     world.wait();
     let _ = world.query_hit(first);
     for _ in 0..world.capacity() * 2 {
-        world.raycast(
+        world.ray_query(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             10.0,
@@ -393,7 +393,7 @@ fn ring_reuse_invalidates_stale_handle() {
 fn ring_exhaustion_panics_without_results() {
     let mut world = sim(2, static_config());
     for _ in 0..world.capacity() * 2 {
-        world.raycast(
+        world.ray_query(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             10.0,
@@ -402,7 +402,7 @@ fn ring_exhaustion_panics_without_results() {
     }
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.raycast(
+            world.ray_query(
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],
                 10.0,
@@ -421,7 +421,7 @@ fn raycast_resolves_against_latest_state() {
     world.step(DT);
     world.wait();
     world.set_position(target, [0.0, 0.0, 30.0]);
-    let query = world.raycast(
+    let query = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         10.0,
@@ -441,7 +441,7 @@ fn query_validation_panics() {
     let mut world = sim(4, static_config());
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.raycast(
+            world.ray_query(
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],
                 0.0,
@@ -452,7 +452,7 @@ fn query_validation_panics() {
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.raycast(
+            world.ray_query(
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 0.0],
                 10.0,
@@ -469,7 +469,7 @@ fn query_validation_panics() {
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.box_query([0.0; 3], [0.0, 1.0, 1.0], &QueryFilter::default());
+            world.cuboid_query([0.0; 3], [0.0, 1.0, 1.0], &QueryFilter::default());
         }))
         .is_err()
     );

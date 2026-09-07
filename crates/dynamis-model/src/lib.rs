@@ -6,7 +6,7 @@ mod event;
 mod query;
 mod shape;
 
-pub use body::{BODY_DESC_COLLIDERS_MAX, BodyDesc, BodyHandle, BodyState};
+pub use body::{BodyDesc, BodyHandle, BodyState, MAX_COLLIDERS_PER_BODY};
 pub use collider::ColliderDesc;
 pub use config::PhysicsConfig;
 pub use constraint::{

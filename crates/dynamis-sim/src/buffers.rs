@@ -1,13 +1,13 @@
 use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{
     AabbRecord, BodyCommandRecord, BvhNodeRecord, ColliderRecord, ConstraintCommandRecord,
-    ConstraintRecord, ContactEventRecord, ContactRecord, DispatchArgs, QueryHitRecord, QueryRecord,
-    QueryResultHeader, RigidBodyRecord, ShapeSourceRecord, SimParamsRecord,
+    ConstraintRecord, ContactEventRecord, ContactRecord, DispatchArgs, MAX_CELLS_PER_COLLIDER,
+    QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord, ShapeSourceRecord,
+    SimParamsRecord,
 };
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device, Queue};
 
-pub(crate) const MAX_CELLS_PER_COLLIDER: u32 = 8;
 pub(crate) const SHAPE_VERTICES_PER_SOURCE: u32 = 4096;
 pub(crate) const SHAPE_TRIANGLES_PER_SOURCE: u32 = 8192;
 pub(crate) const SHAPE_NODES_PER_SOURCE: u32 = 16384;
