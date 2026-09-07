@@ -2319,11 +2319,6 @@ version = "0.4.1"
 [[package]]
 name = "dynamis-profile"
 version = "0.4.1"
-dependencies = [
- "bytemuck",
- "dynamis-sim",
- "wgpu 30.0.1",
-]
 
 [[package]]
 name = "dynamis-query"

@@ -10,6 +10,3 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-bytemuck = { workspace = true }
-dynamis-sim = { workspace = true }
-wgpu = { workspace = true }

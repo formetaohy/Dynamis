@@ -1,8 +1,5 @@
 use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation};
-use dynamis_sim::StageId;
-use dynamis_profile::{
-    ProfileReport, StageSampler, StageSummary, adapter_label, summary_of,
-};
+use dynamis_profile::Profiler;
 use std::time::Instant;
 
 const DEFAULT_BODIES: usize = 128;
@@ -19,77 +16,64 @@ fn main() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_STEPS);
     let gpu = pollster::block_on(GpuContext::new());
+    let adapter = gpu.adapter_info();
+
+    let mut profiler = Profiler::new();
+    let mut sim = profiler.measure("simulation_new", || {
+        Simulation::new(gpu.clone(), bodies + 4, PhysicsConfig::default())
+    });
+    profiler.measure("spawn_scene", || {
+        spawn_scene(&mut sim, bodies);
+        sim.spawn(
+            BodyDesc::cuboid([30.0, 0.5, 30.0])
+                .mass(0.0)
+                .position([0.0, -0.5, 0.0]),
+        );
+    });
     println!(
-        "benchmark: {} bodies, {} steps on {}",
-        bodies,
+        "benchmark: {} bodies, {} steps on {} {:?} backend {:?}",
+        sim.count(),
         steps,
-        adapter_label(&gpu.adapter_info())
+        adapter.name,
+        adapter.device_type,
+        adapter.backend,
     );
-    println!("timestamps supported: {}\n", gpu.supports_timestamps());
 
-    let mut sim = Simulation::new(gpu.clone(), bodies + 4, PhysicsConfig::default());
-    spawn_scene(&mut sim, bodies);
-    let ground = sim.spawn(
-        BodyDesc::cuboid([30.0, 0.5, 30.0])
-            .mass(0.0)
-            .position([0.0, -0.5, 0.0]),
-    );
-    let _ = ground;
-    println!("spawned {} bodies", sim.count());
-
-    if !sim.enable_profiling() {
-        println!("warning: device lacks timestamp queries, GPU profile unavailable");
-    }
-
+    let begin = Instant::now();
     for _ in 0..WARMUP_STEPS {
-        sim.step(1.0 / 60.0);
+        profiler.measure("step", || sim.step(1.0 / 60.0));
     }
-    sim.wait();
+    profiler.measure("wait", || sim.wait());
 
-    let mut cpu_times = Vec::with_capacity(steps);
-    let mut sampler = StageSampler::new();
     for _ in 0..steps {
-        let begin = Instant::now();
-        sim.step(1.0 / 60.0);
-        cpu_times.push(begin.elapsed().as_nanos() as f64);
-        sim.poll_stage_samples();
-        if let Some(stage_samples) = sim.stage_samples() {
-            sampler.record(stage_samples);
-        }
+        profiler.measure("step", || sim.step(1.0 / 60.0));
     }
-    sim.wait();
+    profiler.measure("wait", || sim.wait());
+    let total_wall = begin.elapsed();
 
-    let cpu = summary_of(&cpu_times);
-    let gpu_total = summary_of(&sampler.total_series());
-    let stages = StageId::ALL
-        .iter()
-        .map(|stage| {
-            let series = sampler.stage_series(*stage);
-            let summary = summary_of(&series);
-            let share = summary.mean / gpu_total.mean.max(1e-9);
-            StageSummary {
-                stage: *stage,
-                gpu: summary,
-                share,
-            }
-        })
-        .collect::<Vec<_>>();
-    let report = ProfileReport {
-        adapter: adapter_label(&gpu.adapter_info()),
-        body_count: sim.count(),
-        steps,
-        cpu_step: cpu,
-        gpu_total,
-        stages,
-    };
-    println!("{}", report.render());
-    let step_time_s = cpu.mean / 1_000_000_000.0;
+    let step_phase = profiler.phase("step").expect("step samples exist");
+    let wait_phase = profiler.phase("wait").expect("wait samples exist");
+    let step_summary = step_phase.summary();
+    let wait_summary = wait_phase.summary();
+    let wait_total = wait_phase.total();
+
+    println!("{}", profiler.render());
+    let gpu_per_step = wait_total / 2.0;
+    println!("gpu  per step mean : {}", format_elapsed(gpu_per_step));
+    println!("cpu  submit mean   : {}", format_elapsed(step_summary.mean));
+    println!("cpu  submit p95    : {}", format_elapsed(step_summary.p95));
+    println!("gpu  drain min     : {}", format_elapsed(wait_summary.min));
+    println!("gpu  drain max     : {}", format_elapsed(wait_summary.max));
     println!(
-        "throughput: {:.0} body-steps/s  (simulated {:.1}s in {:.3}s)",
-        sim.count() as f64 * steps as f64 / step_time_s,
+        "throughput  : {:.0} body-steps/s  simulated {:.1}s in {:.3}s",
+        sim.count() as f64 * steps as f64 / total_wall.as_secs_f64(),
         steps as f64 / 60.0,
-        step_time_s * steps as f64
+        total_wall.as_secs_f64(),
     );
+}
+
+fn format_elapsed(ns: f64) -> String {
+    dynamis_profile::format_ns(ns)
 }
 
 fn spawn_scene(sim: &mut Simulation, count: usize) {
