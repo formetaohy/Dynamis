@@ -1,7 +1,6 @@
 use dynamis_gpu::{ComputeRecorder, GpuBucketSort, GpuBuffer, GpuContext, GpuCountArgs, GpuSort};
 use std::sync::OnceLock;
-use wgpu::BufferUsages;
-use wgpu::{Backend, Backends, Instance};
+use wgpu::{Backend, BufferUsages};
 
 static CONTEXT: OnceLock<GpuContext> = OnceLock::new();
 
@@ -306,6 +305,7 @@ fn backend_never_gl() {
 #[cfg(target_os = "windows")]
 #[test]
 fn windows_prefers_dx12_when_vulkan_available() {
+    use wgpu::{Backends, Instance};
     let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let has_dx12 = !pollster::block_on(instance.enumerate_adapters(Backends::DX12)).is_empty();
     let has_vulkan = !pollster::block_on(instance.enumerate_adapters(Backends::VULKAN)).is_empty();
