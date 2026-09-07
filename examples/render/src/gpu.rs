@@ -2,10 +2,10 @@ use crate::geometry::{LineVertex, Vertex};
 use crate::text;
 use crate::{Camera, Geometry, Lights, Material, Transform};
 use bytemuck::{Pod, Zeroable};
+use std::collections::HashMap;
 use std::sync::Arc;
 use winit::window::Window;
 
-const INSTANCE_STRIDE: usize = 256;
 const INITIAL_INSTANCES: usize = 256;
 const INITIAL_LINES: usize = 4096;
 const TEXT_VERTICES: usize = 6;
@@ -27,7 +27,7 @@ struct LightUniform {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct InstanceUniform {
+struct Instance {
     model: [[f32; 4]; 4],
     normal: [[f32; 4]; 4],
     base_color: [f32; 4],
@@ -42,12 +42,52 @@ struct TextVertex {
     uv: [f32; 2],
 }
 
-pub(crate) struct MeshSlot {
-    pub material: Material,
-    pub transform: Transform,
+struct MeshResource {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+}
+
+pub(crate) struct MeshSlot {
+    pub material: Material,
+    pub transform: Transform,
+    resource: usize,
+}
+
+struct Batch {
+    resource: usize,
+    instance_start: u32,
+    instance_count: u32,
+}
+
+struct InstancePlan {
+    instances: Vec<Instance>,
+    batches: Vec<Batch>,
+    opaque_count: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct GeometryKey([u64; 4]);
+
+fn geometry_key(geometry: &Geometry) -> GeometryKey {
+    let bits = |value: f32| value.to_bits() as u64;
+    match *geometry {
+        Geometry::Sphere { radius } => GeometryKey([0, bits(radius), 0, 0]),
+        Geometry::Cuboid { half_extents } => GeometryKey([
+            1,
+            bits(half_extents[0]),
+            bits(half_extents[1]),
+            bits(half_extents[2]),
+        ]),
+        Geometry::Capsule {
+            radius,
+            half_height,
+        } => GeometryKey([2, bits(radius), bits(half_height), 0]),
+        Geometry::Cylinder {
+            radius,
+            half_height,
+        } => GeometryKey([3, bits(radius), bits(half_height), 0]),
+    }
 }
 
 pub(crate) struct Gpu {
@@ -72,6 +112,8 @@ pub(crate) struct Gpu {
     text_bind_group: wgpu::BindGroup,
     text_texture: wgpu::Texture,
     text_vertex_buffer: wgpu::Buffer,
+    resources: Vec<MeshResource>,
+    resource_lookup: HashMap<GeometryKey, usize>,
 }
 
 impl Gpu {
@@ -108,10 +150,10 @@ impl Gpu {
         let camera_buffer = create_uniform_buffer(&device, "camera", 80);
         let lights_buffer = create_uniform_buffer(&device, "lights", 48);
         let instance_capacity = INITIAL_INSTANCES;
-        let instances_buffer = create_uniform_buffer(
+        let instances_buffer = create_storage_buffer(
             &device,
             "instances",
-            (instance_capacity * INSTANCE_STRIDE) as u64,
+            instance_capacity * size_of::<Instance>(),
         );
         let line_capacity = INITIAL_LINES;
         let lines_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -145,10 +187,10 @@ impl Gpu {
                         binding: 2,
                         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: true,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
                             min_binding_size: std::num::NonZeroU64::new(
-                                size_of::<InstanceUniform>() as u64,
+                                size_of::<Instance>() as u64,
                             ),
                         },
                         count: None,
@@ -189,6 +231,7 @@ impl Gpu {
             &global_pipeline_layout,
             &mesh_shader,
             None,
+            Some(true),
         );
         let mesh_transparent_pipeline = create_mesh_pipeline(
             &device,
@@ -196,6 +239,7 @@ impl Gpu {
             &global_pipeline_layout,
             &mesh_shader,
             Some(wgpu::BlendState::ALPHA_BLENDING),
+            Some(false),
         );
 
         let line_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -352,7 +396,13 @@ impl Gpu {
                 })],
             },
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &text_shader,
@@ -396,6 +446,8 @@ impl Gpu {
             text_bind_group,
             text_texture,
             text_vertex_buffer,
+            resources: Vec::new(),
+            resource_lookup: HashMap::new(),
         }
     }
 
@@ -418,11 +470,23 @@ impl Gpu {
     }
 
     pub fn mesh_slot(
-        &self,
+        &mut self,
         geometry: &Geometry,
         material: Material,
         transform: Transform,
     ) -> MeshSlot {
+        MeshSlot {
+            material,
+            transform,
+            resource: self.resource_index(geometry),
+        }
+    }
+
+    fn resource_index(&mut self, geometry: &Geometry) -> usize {
+        let key = geometry_key(geometry);
+        if let Some(&index) = self.resource_lookup.get(&key) {
+            return index;
+        }
         let data = geometry.build();
         let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("mesh vertices"),
@@ -440,13 +504,14 @@ impl Gpu {
         });
         self.queue
             .write_buffer(&index_buffer, 0, bytemuck::cast_slice(&data.indices));
-        MeshSlot {
-            material,
-            transform,
+        let resource = self.resources.len();
+        self.resources.push(MeshResource {
             vertex_buffer,
             index_buffer,
             index_count: data.indices.len() as u32,
-        }
+        });
+        self.resource_lookup.insert(key, resource);
+        resource
     }
 
     pub fn render(
@@ -491,10 +556,12 @@ impl Gpu {
             }),
         );
 
-        let uniforms = build_instance_uniforms(meshes);
-        self.ensure_instance_capacity(meshes.len());
-        self.queue
-            .write_buffer(&self.instances_buffer, 0, &uniforms.bytes);
+        let plan = plan_instances(meshes, camera);
+        self.ensure_instance_capacity(plan.instances.len());
+        if !plan.instances.is_empty() {
+            self.queue
+                .write_buffer(&self.instances_buffer, 0, bytemuck::cast_slice(&plan.instances));
+        }
 
         self.ensure_line_capacity(lines.len());
         if !lines.is_empty() {
@@ -589,16 +656,15 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if !uniforms.opaque.is_empty() {
+            if !plan.batches.is_empty() {
+                pass.set_bind_group(0, &self.global_bind_group, &[]);
                 pass.set_pipeline(&self.mesh_pipeline);
-                for index in &uniforms.opaque {
-                    draw_mesh(&mut pass, &self.global_bind_group, &meshes[*index], *index);
+                for batch in &plan.batches[..plan.opaque_count] {
+                    self.draw_instance_batch(&mut pass, batch);
                 }
-            }
-            if !uniforms.transparent.is_empty() {
                 pass.set_pipeline(&self.mesh_transparent_pipeline);
-                for index in &uniforms.transparent {
-                    draw_mesh(&mut pass, &self.global_bind_group, &meshes[*index], *index);
+                for batch in &plan.batches[plan.opaque_count..] {
+                    self.draw_instance_batch(&mut pass, batch);
                 }
             }
             if !lines.is_empty() {
@@ -618,13 +684,27 @@ impl Gpu {
         self.queue.present(frame);
     }
 
+    fn draw_instance_batch(&self, pass: &mut wgpu::RenderPass<'_>, batch: &Batch) {
+        let resource = &self.resources[batch.resource];
+        pass.set_vertex_buffer(0, resource.vertex_buffer.slice(..));
+        pass.set_index_buffer(resource.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(
+            0..resource.index_count,
+            0,
+            batch.instance_start..batch.instance_start + batch.instance_count,
+        );
+    }
+
     fn ensure_instance_capacity(&mut self, count: usize) {
         if count <= self.instance_capacity {
             return;
         }
         self.instance_capacity = (self.instance_capacity * 2).max(count);
-        let size = (self.instance_capacity * INSTANCE_STRIDE) as u64;
-        self.instances_buffer = create_uniform_buffer(&self.device, "instances", size);
+        self.instances_buffer = create_storage_buffer(
+            &self.device,
+            "instances",
+            self.instance_capacity * size_of::<Instance>(),
+        );
         self.recreate_global_bind_group();
     }
 
@@ -633,10 +713,9 @@ impl Gpu {
             return;
         }
         self.line_capacity = (self.line_capacity * 2).max(count);
-        let size = (self.line_capacity * size_of::<LineVertex>()) as u64;
         self.lines_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gizmo lines"),
-            size,
+            size: (self.line_capacity * size_of::<LineVertex>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -668,66 +747,87 @@ impl Gpu {
     }
 }
 
-struct InstanceBatch {
-    bytes: Vec<u8>,
-    opaque: Vec<usize>,
-    transparent: Vec<usize>,
-}
-
-fn build_instance_uniforms(meshes: &[MeshSlot]) -> InstanceBatch {
-    let mut bytes = Vec::with_capacity(meshes.len() * INSTANCE_STRIDE);
-    let mut opaque = Vec::new();
-    let mut transparent = Vec::new();
+fn plan_instances(meshes: &[MeshSlot], camera: &Camera) -> InstancePlan {
+    let mut resource_groups: Vec<(usize, Vec<usize>)> = Vec::new();
     for (index, mesh) in meshes.iter().enumerate() {
-        let model = mesh.transform.matrix();
-        let normal = model.inverse().transpose();
-        let base_color = mesh.material.base_color.linear_channels();
-        let emissive = mesh.material.emissive.linear_channels();
-        let uniform = InstanceUniform {
-            model: model.to_cols_array_2d(),
-            normal: normal.to_cols_array_2d(),
-            base_color,
-            emissive: [
-                emissive[0],
-                emissive[1],
-                emissive[2],
-                if mesh.material.unlit { 1.0 } else { 0.0 },
-            ],
-            params: [
-                mesh.material.roughness.clamp(0.05, 1.0).powi(2),
-                0.0,
-                0.0,
-                0.0,
-            ],
-        };
-        bytes.extend_from_slice(bytemuck::bytes_of(&uniform));
-        bytes.resize(
-            bytes.len() + INSTANCE_STRIDE - size_of::<InstanceUniform>(),
-            0,
-        );
-        if mesh.material.base_color.a < 1.0 {
-            transparent.push(index);
+        if let Some(position) = resource_groups
+            .iter()
+            .position(|(resource, _)| *resource == mesh.resource)
+        {
+            resource_groups[position].1.push(index);
         } else {
-            opaque.push(index);
+            resource_groups.push((mesh.resource, vec![index]));
         }
     }
-    InstanceBatch {
-        bytes,
-        opaque,
-        transparent,
+    let view = camera.view_matrix();
+    let mut instances = Vec::with_capacity(meshes.len());
+    let mut batches = Vec::new();
+    let mut transparent_batches = Vec::new();
+    for (resource, group) in resource_groups {
+        let opaque: Vec<usize> = group
+            .iter()
+            .copied()
+            .filter(|index| !is_transparent(&meshes[*index]))
+            .collect();
+        if !opaque.is_empty() {
+            batches.push(Batch {
+                resource,
+                instance_start: instances.len() as u32,
+                instance_count: opaque.len() as u32,
+            });
+            instances.extend(opaque.into_iter().map(|index| instance_for(&meshes[index])));
+        }
+        let mut transparent: Vec<usize> = group
+            .into_iter()
+            .filter(|index| is_transparent(&meshes[*index]))
+            .collect();
+        transparent.sort_by(|left, right| {
+            camera_depth(view, &meshes[*left]).total_cmp(&camera_depth(view, &meshes[*right]))
+        });
+        if !transparent.is_empty() {
+            transparent_batches.push(Batch {
+                resource,
+                instance_start: instances.len() as u32,
+                instance_count: transparent.len() as u32,
+            });
+            instances.extend(transparent.into_iter().map(|index| instance_for(&meshes[index])));
+        }
+    }
+    let opaque_count = batches.len();
+    batches.extend(transparent_batches);
+    InstancePlan {
+        instances,
+        batches,
+        opaque_count,
     }
 }
 
-fn draw_mesh(
-    pass: &mut wgpu::RenderPass<'_>,
-    bind_group: &wgpu::BindGroup,
-    mesh: &MeshSlot,
-    index: usize,
-) {
-    pass.set_bind_group(0, bind_group, &[(index * INSTANCE_STRIDE) as u32]);
-    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+fn is_transparent(mesh: &MeshSlot) -> bool {
+    mesh.material.base_color.a < 1.0
+}
+
+fn camera_depth(view: glam::Mat4, mesh: &MeshSlot) -> f32 {
+    (view * mesh.transform.translation.extend(1.0)).z
+}
+
+fn instance_for(mesh: &MeshSlot) -> Instance {
+    let model = mesh.transform.matrix();
+    let normal = model.inverse().transpose();
+    let base_color = mesh.material.base_color.linear_channels();
+    let emissive = mesh.material.emissive.linear_channels();
+    let roughness = mesh.material.roughness.clamp(0.05, 1.0);
+    Instance {
+        model: model.to_cols_array_2d(),
+        normal: normal.to_cols_array_2d(),
+        base_color,
+        emissive: [
+            emissive[0],
+            emissive[1],
+            emissive[2],
+            if mesh.material.unlit { 1.0 } else { 0.0 },
+        ],
+        params: [roughness * roughness, 0.0, 0.0, 0.0],
+    }
 }
 
 fn build_text_vertices(raster: &text::Raster, width: u32, height: u32) -> Vec<TextVertex> {
@@ -790,6 +890,15 @@ fn create_uniform_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu:
     })
 }
 
+fn create_storage_buffer(device: &wgpu::Device, label: &str, size: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: size as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn create_depth_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("depth"),
@@ -814,6 +923,7 @@ fn create_mesh_pipeline(
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
     blend: Option<wgpu::BlendState>,
+    depth_write: Option<bool>,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mesh pipeline"),
@@ -842,7 +952,7 @@ fn create_mesh_pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24Plus,
-            depth_write_enabled: Some(true),
+            depth_write_enabled: depth_write,
             depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),

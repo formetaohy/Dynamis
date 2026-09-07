@@ -1,5 +1,3 @@
-//! 极简 wgpu 渲染器：窗口、网格、材质、光照、相机、gizmo 与 HUD 文本。
-
 mod geometry;
 mod gpu;
 mod text;
@@ -160,10 +158,13 @@ pub struct Camera {
 }
 
 impl Camera {
+    pub fn view_matrix(&self) -> Mat4 {
+        Mat4::look_at_rh(self.eye, self.target, self.up)
+    }
+
     pub fn view_projection(&self, aspect: f32) -> Mat4 {
-        let view = Mat4::look_at_rh(self.eye, self.target, self.up);
         let projection = Mat4::perspective_rh(self.fov_y, aspect, self.near, self.far);
-        projection * view
+        projection * self.view_matrix()
     }
 
     pub fn ray_from_screen(&self, x: f32, y: f32, width: f32, height: f32) -> (Vec3, Vec3) {

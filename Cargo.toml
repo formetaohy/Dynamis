@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*", "examples/*"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -23,12 +23,12 @@ wgpu = { version = "30", default-features = false, features = [
 winit = "0.30"
 glam = "0.32"
 font8x8 = "0.3"
-dynamis-gpu = { version = "0.4.1", path = "crates/dynamis-gpu" }
-dynamis-layout = { version = "0.4.1", path = "crates/dynamis-layout" }
-dynamis-model = { version = "0.4.1", path = "crates/dynamis-model" }
-dynamis-profile = { version = "0.4.1", path = "crates/dynamis-profile" }
-dynamis-query = { version = "0.4.1", path = "crates/dynamis-query" }
-dynamis-sim = { version = "0.4.1", path = "crates/dynamis-sim" }
+dynamis-gpu = { version = "0.4.2", path = "crates/dynamis-gpu" }
+dynamis-layout = { version = "0.4.2", path = "crates/dynamis-layout" }
+dynamis-model = { version = "0.4.2", path = "crates/dynamis-model" }
+dynamis-profile = { version = "0.4.2", path = "crates/dynamis-profile" }
+dynamis-query = { version = "0.4.2", path = "crates/dynamis-query" }
+dynamis-sim = { version = "0.4.2", path = "crates/dynamis-sim" }
 dynamis-example-render = { path = "examples/render" }
 
 [workspace.lints.rust]

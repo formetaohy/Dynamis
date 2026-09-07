@@ -19,7 +19,7 @@ struct Instance {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> lights: Lights;
-@group(0) @binding(2) var<uniform> instance: Instance;
+@group(0) @binding(2) var<storage, read> instances: array<Instance>;
 
 struct VertexInput {
     @location(0) position: vec3f,
@@ -30,20 +30,28 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4f,
     @location(0) normal: vec3f,
     @location(1) world_position: vec3f,
+    @interpolate(flat)
+    @location(2) instance_index: u32,
 }
 
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
+fn vs_main(
+    @builtin(instance_index) instance_index: u32,
+    input: VertexInput,
+) -> VertexOutput {
+    let instance = instances[instance_index];
     let world_position = instance.model * vec4f(input.position, 1.0);
     var output: VertexOutput;
     output.clip_position = camera.view_proj * world_position;
     output.normal = (instance.normal * vec4f(input.normal, 0.0)).xyz;
     output.world_position = world_position.xyz;
+    output.instance_index = instance_index;
     return output;
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+    let instance = instances[input.instance_index];
     let base_color = instance.base_color;
     if instance.emissive.w > 0.5 {
         return vec4f(base_color.rgb + instance.emissive.rgb, base_color.a);
@@ -53,7 +61,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let diffuse = max(dot(normal, light_dir), 0.0);
     let view_dir = normalize(camera.eye.xyz - input.world_position);
     let half_dir = normalize(light_dir + view_dir);
-    let shininess = 2.0 / (instance.params.x * instance.params.x);
+    let shininess = 2.0 / max(instance.params.x, 1e-4);
     let specular = pow(max(dot(normal, half_dir), 0.0), shininess) * 0.5;
     let lit = base_color.rgb * (lights.ambient.rgb + diffuse * lights.color.rgb)
         + specular * lights.color.rgb;
