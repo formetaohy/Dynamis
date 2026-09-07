@@ -1,3 +1,11 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialCombine {
+    Multiply,
+    Min,
+    Max,
+    Average,
+}
+
 pub struct PhysicsConfig {
     pub gravity: [f32; 3],
     pub damping: f32,
@@ -14,6 +22,8 @@ pub struct PhysicsConfig {
     pub sleep_angular_velocity: f32,
     pub sleep_time: f32,
     pub wake_velocity: f32,
+    pub friction_combine: MaterialCombine,
+    pub restitution_combine: MaterialCombine,
 }
 
 impl Default for PhysicsConfig {
@@ -34,6 +44,8 @@ impl Default for PhysicsConfig {
             sleep_angular_velocity: 0.5,
             sleep_time: 0.5,
             wake_velocity: 0.4,
+            friction_combine: MaterialCombine::Multiply,
+            restitution_combine: MaterialCombine::Max,
         }
     }
 }

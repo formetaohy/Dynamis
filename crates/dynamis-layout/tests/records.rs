@@ -4,12 +4,13 @@ use dynamis_layout::{
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
     COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
     CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
-    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
+    CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
+    CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
     CONSTRAINT_REVOLUTE, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, DispatchArgs,
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
     PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
     QueryRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
-    SHAPE_HULL, SHAPE_MESH, SHAPE_SPHERE, SimParamsRecord,
+    SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
@@ -194,6 +195,8 @@ fn sim_params_record_maps_config() {
         sleep_angular_velocity: 0.4,
         sleep_time: 0.8,
         wake_velocity: 0.6,
+        friction_combine: dynamis_model::MaterialCombine::Min,
+        restitution_combine: dynamis_model::MaterialCombine::Average,
     };
     let record = SimParamsRecord::new(&config, 1.0 / 60.0, 11, 2);
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
@@ -356,4 +359,89 @@ fn constraint_command_and_dispatch_args_encode() {
     assert_eq!(DispatchArgs::none().x, 0);
     assert_eq!(DispatchArgs::none().y, 1);
     assert_eq!(DispatchArgs::sized(42).x, 42);
+}
+
+#[test]
+fn collider_record_applies_scale_and_plane_kind() {
+    let scaled = ColliderRecord::build(
+        &ColliderDesc::new(Shape::cuboid([1.0, 2.0, 3.0])).scale([2.0, 1.0, 0.5]),
+        0,
+    );
+    assert_eq!(scaled.half_extents, [2.0, 2.0, 1.5]);
+    assert_eq!(scaled.scale, [1.0, 1.0, 1.0]);
+    let non_uniform = ColliderRecord::build(
+        &ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 0.5]),
+        0,
+    );
+    assert_eq!(non_uniform.radius, 0.5);
+    assert_eq!(non_uniform.scale, [2.0, 1.0, 0.5]);
+    let uniform = ColliderRecord::build(
+        &ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 2.0, 2.0]),
+        0,
+    );
+    assert_eq!(uniform.radius, 1.0);
+    assert_eq!(uniform.scale, [1.0, 1.0, 1.0]);
+    let plane = ColliderRecord::build(&ColliderDesc::new(Shape::plane()), 0);
+    assert_eq!(plane.kind, SHAPE_PLANE);
+}
+
+#[test]
+fn constraint_record_encodes_swing_break_gear_pulley() {
+    let swinging = ConstraintRecord::build(
+        &ConstraintDesc::ball([0.0; 3], [0.0; 3])
+            .limit(-0.5, 0.5)
+            .swing(0.7, 0.9),
+        0,
+        1,
+    );
+    assert_ne!(swinging.flags & CONSTRAINT_HAS_LIMIT, 0);
+    assert_ne!(swinging.flags & CONSTRAINT_HAS_SWING, 0);
+    assert_eq!(swinging.swing_a, 0.7);
+    assert_eq!(swinging.swing_b, 0.9);
+
+    let motor = ConstraintRecord::build(
+        &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0])
+            .motor(3.0)
+            .motor_force(40.0)
+            .break_threshold(100.0, 5.0),
+        0,
+        1,
+    );
+    assert_eq!(motor.motor_speed, 3.0);
+    assert_eq!(motor.motor_max_force, 40.0);
+    assert_ne!(motor.flags & CONSTRAINT_HAS_BREAK, 0);
+    assert_eq!(motor.break_force, 100.0);
+    assert_eq!(motor.break_torque, 5.0);
+
+    let gear = ConstraintRecord::build(
+        &ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.5),
+        0,
+        1,
+    );
+    assert_eq!(gear.kind, CONSTRAINT_GEAR);
+    assert_eq!(gear.axis_a, [0.0, 1.0, 0.0]);
+    assert_eq!(gear.axis_b, [0.0, 0.0, 1.0]);
+    assert_eq!(gear.gear_ratio, 2.5);
+
+    let pulley = ConstraintRecord::build(
+        &ConstraintDesc::pulley(
+            [0.0; 3],
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [3.0, 2.0, 0.0],
+            4.0,
+        ),
+        0,
+        1,
+    );
+    assert_eq!(pulley.kind, CONSTRAINT_PULLEY);
+    assert_eq!(pulley.distance, 4.0);
+    assert_eq!(pulley.pulley_fixed_a, [0.0, 2.0, 0.0]);
+    assert_eq!(pulley.pulley_fixed_b, [3.0, 2.0, 0.0]);
+    let dual_axis = ConstraintRecord::build(
+        &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).axis_b([0.0, 0.0, 1.0]),
+        0,
+        1,
+    );
+    assert_eq!(dual_axis.axis_b, [0.0, 0.0, 1.0]);
 }

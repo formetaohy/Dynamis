@@ -131,3 +131,34 @@ fn compute_mass_properties_distributes_mass_over_solids() {
     assert!(properties.inverse_inertia.iter().all(|value| *value >= 0.0));
     assert!(properties.inverse_inertia[0] > 0.0);
 }
+
+#[test]
+fn scaled_sphere_inertia_uses_axial_transform() {
+    let colliders = vec![ColliderDesc::new(Shape::sphere(1.0)).scale([2.0, 1.0, 1.0])];
+    let mass = compute_mass_properties(&colliders, 5.0, None, |_| None);
+    let m = mass.inverse_inertia;
+    let i = [
+        1.0 / m[0],
+        1.0 / m[1],
+        1.0 / m[2],
+        1.0 / m[3],
+        1.0 / m[4],
+        1.0 / m[5],
+    ];
+    let ellipsoid_y = 5.0 / 5.0 * (4.0 + 1.0);
+    assert!(
+        (i[3] - ellipsoid_y).abs() < 1e-5,
+        "I_y = m/5(b²+c²), got {}",
+        i[3]
+    );
+    let ellipsoid_x = 5.0 / 5.0 * (1.0 + 1.0);
+    assert!(
+        (i[0] - ellipsoid_x).abs() < 1e-5,
+        "I_x = m/5(c²+a²), got {}",
+        i[0]
+    );
+    assert!(
+        m[1].abs() < 1e-6 && m[2].abs() < 1e-6,
+        "scale keeps axes diagonal"
+    );
+}

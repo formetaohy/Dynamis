@@ -389,9 +389,10 @@ impl GpuSort {
         hi_words: u32,
     ) {
         let pass_ranges = [0..lo_words, 4..(4 + hi_words)];
-        for (executed, pass_index) in pass_ranges.into_iter().flatten().enumerate() {
+        let passes = pass_ranges.into_iter().flatten().collect::<Vec<_>>();
+        for (executed, pass_index) in passes.iter().enumerate() {
             let parity = executed % 2;
-            let pass_index = pass_index as usize;
+            let pass_index = *pass_index as usize;
             recorder.record_indirect(
                 &self.histogram_pipelines[pass_index],
                 &[&bindings.histogram[parity]],
@@ -401,6 +402,22 @@ impl GpuSort {
             recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
             recorder.record_indirect(
                 &self.scatter_pipelines[pass_index],
+                &[&bindings.scatter[parity]],
+                args,
+                16,
+            );
+        }
+        if passes.len() % 2 == 1 {
+            let parity = passes.len() % 2;
+            recorder.record_indirect(
+                &self.histogram_pipelines[7],
+                &[&bindings.histogram[parity]],
+                args,
+                16,
+            );
+            recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
+            recorder.record_indirect(
+                &self.scatter_pipelines[7],
                 &[&bindings.scatter[parity]],
                 args,
                 16,

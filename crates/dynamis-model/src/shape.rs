@@ -13,6 +13,7 @@ pub enum Shape {
     Hull(ShapeSourceHandle),
     Mesh(ShapeSourceHandle),
     HeightField(ShapeSourceHandle),
+    Plane,
 }
 
 impl Shape {
@@ -65,6 +66,10 @@ impl Shape {
         Self::HeightField(source)
     }
 
+    pub fn plane() -> Self {
+        Self::Plane
+    }
+
     pub fn bounding_radius(&self) -> f32 {
         match *self {
             Self::Sphere { radius } => radius,
@@ -82,15 +87,15 @@ impl Shape {
                 radius,
                 half_height,
             } => (half_height * half_height + radius * radius).sqrt(),
-            Self::Hull(_) | Self::Mesh(_) | Self::HeightField(_) => 0.0,
+            Self::Hull(_) | Self::Mesh(_) | Self::HeightField(_) | Self::Plane => 0.0,
         }
     }
 
     pub fn is_world_geometry(&self) -> bool {
-        matches!(self, Self::Mesh(_) | Self::HeightField(_))
+        matches!(self, Self::Mesh(_) | Self::HeightField(_) | Self::Plane)
     }
 
     pub fn is_convex(&self) -> bool {
-        !matches!(self, Self::Mesh(_) | Self::HeightField(_))
+        !matches!(self, Self::Mesh(_) | Self::HeightField(_) | Self::Plane)
     }
 }

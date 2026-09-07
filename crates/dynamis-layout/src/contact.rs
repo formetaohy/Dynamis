@@ -4,7 +4,7 @@ const _: () = {
     use std::mem::size_of;
     assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ManifoldPointRecord>() == 32);
-    assert!(size_of::<ContactRecord>() == 176);
+    assert!(size_of::<ContactRecord>() == 192);
 };
 
 #[repr(C)]
@@ -38,5 +38,9 @@ pub struct ContactRecord {
     pub second_generation: u32,
     pub normal: [f32; 3],
     pub _pad0: f32,
+    pub friction: f32,
+    pub restitution: f32,
+    pub _pad_material: f32,
+    pub _pad_material2: f32,
     pub points: [ManifoldPointRecord; 4],
 }

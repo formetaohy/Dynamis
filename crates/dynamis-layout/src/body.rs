@@ -10,7 +10,7 @@ use dynamis_model::{BodyDesc, MassProperties};
 const _: () = {
     use std::mem::size_of;
     assert!(size_of::<RigidBodyRecord>() == 208);
-    assert!(size_of::<BodyCommandRecord>() == 544);
+    assert!(size_of::<BodyCommandRecord>() == 608);
 };
 
 #[repr(C)]

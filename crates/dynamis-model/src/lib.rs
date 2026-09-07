@@ -9,10 +9,10 @@ mod shape;
 
 pub use body::{BodyDesc, BodyHandle, BodyState, MAX_COLLIDERS_PER_BODY};
 pub use collider::ColliderDesc;
-pub use config::PhysicsConfig;
+pub use config::{MaterialCombine, PhysicsConfig};
 pub use constraint::{
-    ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor,
-    ConstraintSpring,
+    ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
+    ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
 pub use event::{ContactEvent, ContactEventKind};
 pub use mass::{MassProperties, compute_mass_properties};

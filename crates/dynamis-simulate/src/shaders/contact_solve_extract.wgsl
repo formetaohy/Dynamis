@@ -55,7 +55,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (normal_speed < 0.0) {
             let normal_mass = point_momentum_mass(first, second, position, position, normal);
             var accumulated = contact.points[point_index].accumulated_normal;
-            var restitution = max(first.restitution, second.restitution);
+            var restitution = contact.restitution;
             if (normal_speed > -params.restitution_threshold) {
                 restitution = 0.0;
             }
@@ -68,7 +68,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let velocity_after = relative_velocity(first, second, position, position);
             let tangent_speed = dot(velocity_after, tangents.first);
             let tangent_mass = point_momentum_mass(first, second, position, position, tangents.first);
-            let friction = sqrt(first.friction * second.friction);
+            let friction = contact.friction;
             let friction_limit = friction * accumulated;
             var accumulated_tangent_1 = contact.points[point_index].accumulated_tangent_1;
             var next_tangent_1 = clamp(accumulated_tangent_1 - tangent_speed / tangent_mass, -friction_limit, friction_limit);

@@ -2,8 +2,8 @@ use super::Simulation;
 use bytemuck::Zeroable;
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY, PATCH_CCD,
-    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, RigidBodyRecord,
+    PATCH_COLLIDER, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION,
+    PATCH_POSITION, PATCH_VELOCITY, RigidBodyRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, MAX_COLLIDERS_PER_BODY, MassProperties, Shape,
@@ -188,14 +188,7 @@ impl Simulation {
             "collider index out of range"
         );
         self.collider_descs[handle.id as usize][index] = collider;
-        let mass_properties = self.mass_properties_of(handle.id as usize);
-        let mut record = RigidBodyRecord::zeroed();
-        record.inverse_mass = self.states[handle.id as usize]
-            .map(|state| state.inverse_mass)
-            .unwrap_or(0.0);
-        record.com = mass_properties.com;
-        record.inverse_inertia_body = mass_properties.inverse_inertia;
-        let record_collider = self.collider_record(&collider);
+        let (record, record_collider) = self.collider_patch(handle, index);
         self.schedule_patch_collider(
             handle,
             PATCH_COLLIDER,
@@ -203,6 +196,22 @@ impl Simulation {
             record_collider,
             index as u32,
         );
+    }
+
+    fn collider_patch(
+        &self,
+        handle: BodyHandle,
+        index: usize,
+    ) -> (RigidBodyRecord, ColliderRecord) {
+        let mass_properties = self.mass_properties_of(handle.id as usize);
+        let mut record = RigidBodyRecord::zeroed();
+        record.inverse_mass = self.states[handle.id as usize]
+            .map(|state| state.inverse_mass)
+            .unwrap_or(0.0);
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
+        let record_collider = self.collider_record(&self.collider_descs[handle.id as usize][index]);
+        (record, record_collider)
     }
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
@@ -218,6 +227,7 @@ impl Simulation {
                 rotation: existing.rotation,
                 friction: existing.friction,
                 restitution: existing.restitution,
+                scale: existing.scale,
                 sensor: existing.sensor,
             },
         );
@@ -225,17 +235,17 @@ impl Simulation {
 
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
         self.validate(handle);
-        let mut record = RigidBodyRecord::zeroed();
-        record.restitution = restitution;
-        self.schedule_patch(handle, PATCH_RESTITUTION, record);
+        self.collider_descs[handle.id as usize][0].restitution = restitution;
+        let (record, record_collider) = self.collider_patch(handle, 0);
+        self.schedule_patch_collider(handle, PATCH_COLLIDER, record, record_collider, 0);
     }
 
     pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
         assert!(friction >= 0.0, "friction must be non-negative");
         self.validate(handle);
-        let mut record = RigidBodyRecord::zeroed();
-        record.friction = friction;
-        self.schedule_patch(handle, PATCH_FRICTION, record);
+        self.collider_descs[handle.id as usize][0].friction = friction;
+        let (record, record_collider) = self.collider_patch(handle, 0);
+        self.schedule_patch_collider(handle, PATCH_COLLIDER, record, record_collider, 0);
     }
 
     pub fn set_collision_group(&mut self, handle: BodyHandle, group: u32) {

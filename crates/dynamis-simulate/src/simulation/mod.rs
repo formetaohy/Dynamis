@@ -10,8 +10,9 @@ use crate::stage::{Stages, build_stages, encode_physics};
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{
-    BODY_SLEEPING, BodyCommandRecord, ColliderRecord, ConstraintCommandRecord, ConstraintRecord,
-    DispatchArgs, QueryRecord, QueryResultHeader, RigidBodyRecord, SimParamsRecord,
+    BODY_SLEEPING, BodyCommandRecord, CONSTRAINT_INVALID, ColliderRecord, ConstraintCommandRecord,
+    ConstraintRecord, DispatchArgs, QueryRecord, QueryResultHeader, RigidBodyRecord,
+    SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MassProperties,
@@ -55,6 +56,8 @@ pub enum DebugBuffer {
     Constraints,
     Events,
     EventCount,
+    QueryHeaders,
+    QueryHits,
 }
 
 pub struct Simulation {
@@ -342,6 +345,8 @@ impl Simulation {
             DebugBuffer::Constraints => &self.buffers.constraints,
             DebugBuffer::Events => &self.buffers.events,
             DebugBuffer::EventCount => &self.buffers.event_count,
+            DebugBuffer::QueryHeaders => &self.buffers.query_headers,
+            DebugBuffer::QueryHits => &self.buffers.query_hits,
         };
         buffer.buffer()
     }
@@ -423,6 +428,12 @@ impl Simulation {
             self.buffers.bodies_current.buffer(),
             step,
         );
+        let stale_constraints = self.buffers.constraints_readback.enqueue(
+            device,
+            &mut encoder,
+            self.buffers.constraints.buffer(),
+            step,
+        );
         let stale_queries = if self.queries.is_empty() {
             None
         } else {
@@ -473,8 +484,12 @@ impl Simulation {
         self.buffers.bodies_readback.arm();
         self.buffers.queries_readback.arm();
         self.buffers.events_readback.arm();
+        self.buffers.constraints_readback.arm();
         if let Some((stale_step, bytes)) = stale_bodies {
             self.consume_bodies(stale_step, &bytes);
+        }
+        if let Some((stale_step, bytes)) = stale_constraints {
+            self.consume_constraints(stale_step, &bytes);
         }
         if let Some((stale_step, bytes)) = stale_queries {
             self.consume_queries(stale_step, &bytes);
@@ -506,6 +521,9 @@ impl Simulation {
         }
         for (step, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
             self.consume_queries(step, &bytes);
+        }
+        for (step, bytes) in self.buffers.constraints_readback.poll(self.gpu.device()) {
+            self.consume_constraints(step, &bytes);
         }
         while let Some((step, bytes)) = self.pending_events.pop_front() {
             self.consume_events(step, &bytes);
@@ -539,6 +557,26 @@ impl Simulation {
                 sleeping: record.flags & BODY_SLEEPING != 0,
                 step,
             });
+        }
+    }
+
+    fn consume_constraints(&mut self, _step: u64, bytes: &[u8]) {
+        let records: &[ConstraintRecord] = bytemuck::cast_slice(bytes);
+        let broken = records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| record.kind == CONSTRAINT_INVALID)
+            .map(|(slot, _)| slot)
+            .collect::<Vec<_>>();
+        for slot in broken.into_iter().rev() {
+            if slot >= self.constraint_alive.len() {
+                continue;
+            }
+            let handle = self.constraint_alive[slot];
+            let record = self.constraint_records[slot];
+            if record.kind != CONSTRAINT_INVALID {
+                self.remove_constraint(handle);
+            }
         }
     }
 

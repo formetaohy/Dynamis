@@ -7,6 +7,7 @@ pub struct ColliderDesc {
     pub rotation: [f32; 4],
     pub friction: f32,
     pub restitution: f32,
+    pub scale: [f32; 3],
     pub sensor: bool,
 }
 
@@ -18,6 +19,7 @@ impl ColliderDesc {
             rotation: [0.0, 0.0, 0.0, 1.0],
             friction: 0.5,
             restitution: 0.0,
+            scale: [1.0; 3],
             sensor: false,
         }
     }
@@ -50,6 +52,15 @@ impl ColliderDesc {
 
     pub fn restitution(mut self, restitution: f32) -> Self {
         self.restitution = restitution;
+        self
+    }
+
+    pub fn scale(mut self, scale: [f32; 3]) -> Self {
+        assert!(
+            scale.iter().all(|value| *value > 0.0),
+            "collider scale must be strictly positive"
+        );
+        self.scale = scale;
         self
     }
 

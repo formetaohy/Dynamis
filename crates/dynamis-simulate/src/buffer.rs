@@ -2,8 +2,8 @@ use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{
     AabbRecord, BodyCommandRecord, BvhNodeRecord, ColliderRecord, ConstraintCommandRecord,
     ConstraintRecord, ContactEventRecord, ContactRecord, DispatchArgs, MAX_CELLS_PER_COLLIDER,
-    QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord, ShapeSourceRecord,
-    SimParamsRecord,
+    MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord,
+    ShapeSourceRecord, SimParamsRecord,
 };
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device, Queue};
@@ -122,6 +122,7 @@ pub(crate) struct StageBuffers {
     pub(crate) bodies_readback: GpuReadback,
     pub(crate) queries_readback: GpuReadback,
     pub(crate) events_readback: GpuReadback,
+    pub(crate) constraints_readback: GpuReadback,
     pub(crate) sort_scratch: SortSlots,
 }
 
@@ -149,7 +150,8 @@ impl StageBuffers {
         let params_bytes = size_of::<SimParamsRecord>() as u64;
         let query_bytes = (query_capacity * size_of::<QueryRecord>()) as u64;
         let query_header_bytes = (query_capacity * size_of::<QueryResultHeader>()) as u64;
-        let query_hit_bytes = (query_capacity * 4 * size_of::<QueryHitRecord>()) as u64;
+        let query_hit_bytes =
+            (query_capacity * MAX_HITS_PER_QUERY as usize * size_of::<QueryHitRecord>()) as u64;
         let entry_capacity = collider_capacity * MAX_CELLS_PER_COLLIDER as usize;
         let joint_bytes = (constraint_capacity * size_of::<u32>()) as u64;
         let shape_bytes = ((shape_sources * size_of::<ShapeSourceRecord>()).max(16)) as u64;
@@ -588,6 +590,11 @@ impl StageBuffers {
                 device,
                 "events readback",
                 events_bytes + counter_bytes,
+            ),
+            constraints_readback: GpuReadback::new(
+                device,
+                "constraints readback",
+                constraint_bytes,
             ),
             sort_scratch: SortSlots::new(device, "sort scratch", entry_capacity.max(pair_capacity)),
         }

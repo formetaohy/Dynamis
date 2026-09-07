@@ -312,3 +312,163 @@ fn removing_constraint_allows_body_removal() {
     assert_eq!(world.count(), 1);
     assert!(world.constraints().is_empty());
 }
+
+fn twist_angle(orientation: [f32; 4]) -> f32 {
+    let q = orientation;
+    let y = q[1];
+    let w = q[3];
+    (2.0 * (y * w).atan2(w * w - y * y)).abs()
+}
+
+#[test]
+fn ball_twist_limit_caps_relative_rotation() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.2));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::ball([0.0; 3], [0.0; 3])
+            .axis([0.0, 0.0, 1.0])
+            .limit(-0.3, 0.3),
+    );
+    for _ in 0..120 {
+        world.apply_torque(second, [0.0, 0.0, 12.0]);
+        world.step(DT);
+    }
+    world.wait();
+    let state = world.read_state(second);
+    let angle = twist_angle(state.orientation);
+    assert!(
+        angle < 0.5,
+        "twist limit must cap relative rotation, got {angle} rad"
+    );
+}
+
+#[test]
+fn ball_swing_limit_caps_conical_sway() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.2));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::ball([0.0; 3], [0.0; 3]).swing(0.2, 0.2),
+    );
+    for _ in 0..120 {
+        world.apply_torque(second, [0.0, 20.0, 0.0]);
+        world.step(DT);
+    }
+    world.wait();
+    let state = world.read_state(second);
+    let q = state.orientation;
+    let axis = 2.0 * (q[0] * q[0] + q[2] * q[2]).sqrt();
+    let tilt = 2.0 * axis.clamp(0.0, 1.0).asin();
+    println!("swing q={q:?} tilt={tilt}");
+    assert!(
+        tilt < 0.45,
+        "swing limit must cap the sway angle, got {tilt} rad"
+    );
+}
+
+#[test]
+fn gear_constraint_links_angular_velocities() {
+    let mut world = sim(8, static_config());
+    let _anchor = world.spawn(BodyDesc::static_sphere(0.1));
+    let first = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::gear([0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 2.0),
+    );
+    world.set_angular_velocity(first, [0.0, 0.0, 10.0]);
+    for _ in 0..60 {
+        world.step(DT);
+    }
+    world.wait();
+    let a = world.read_state(first).angular_velocity[2];
+    let b = world.read_state(second).angular_velocity[2];
+    assert!(
+        (b - 2.0 * a).abs() < 1.0,
+        "gear must enforce omega_b = 2 * omega_a, got a={a} b={b}"
+    );
+}
+
+#[test]
+fn pulley_constraint_holds_rope_length() {
+    let mut world = sim(8, static_config());
+    let _anchor = world.spawn(BodyDesc::static_sphere(0.1));
+    let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 1.0, 0.0]));
+    let fixed_a = [0.0f32, 3.0, 0.0];
+    let fixed_b = [2.0f32, 3.0, 0.0];
+    let length = 2.0 + 2.0;
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::pulley([0.0; 3], [0.0; 3], fixed_a, fixed_b, length),
+    );
+    for _ in 0..90 {
+        world.apply_force(first, [0.0, 6.0, 0.0]);
+        world.step(DT);
+    }
+    world.wait();
+    let pa = world.read_state(first).position;
+    let pb = world.read_state(second).position;
+    let rope = distance(pa, fixed_a) + distance(pb, fixed_b);
+    assert!(
+        (rope - length).abs() < 0.3,
+        "pulley must hold the rope length, got {rope} vs {length}"
+    );
+}
+
+#[test]
+fn break_threshold_removes_constraint_under_load() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.3));
+    let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
+    let handle = world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::ball([0.0; 3], [0.3, 0.0, 0.0]).break_threshold(0.4, 0.0),
+    );
+    for _ in 0..90 {
+        world.apply_force(second, [0.0, 40.0, 0.0]);
+        world.step(DT);
+    }
+    world.wait();
+    assert!(
+        !world.constraints().contains(&handle),
+        "overloaded ball constraint must break and be removed"
+    );
+    let state = world.read_state(second);
+    assert!(
+        state.position[1] > 1.1,
+        "broken body must be free to move, got {:?}",
+        state.position
+    );
+}
+
+#[test]
+fn motor_force_cap_limits_driving_torque() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.3));
+    let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::revolute([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+            .motor(20.0)
+            .motor_force(0.5),
+    );
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let spin = world.read_state(second).angular_velocity[2].abs();
+    assert!(
+        spin < 6.0,
+        "a tiny motor force must cap the driven spin, got {spin}"
+    );
+}

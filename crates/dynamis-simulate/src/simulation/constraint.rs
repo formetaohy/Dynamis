@@ -39,12 +39,16 @@ impl Simulation {
     }
 
     fn validate_constraint_desc(&self, desc: &ConstraintDesc) {
-        if !matches!(
-            desc.kind,
-            dynamis_model::ConstraintKind::Ball | dynamis_model::ConstraintKind::Distance
-        ) && desc.axis == [0.0; 3]
-        {
-            panic!("constraint axis must be non-zero");
+        match desc.kind {
+            dynamis_model::ConstraintKind::Ball
+            | dynamis_model::ConstraintKind::Distance
+            | dynamis_model::ConstraintKind::Pulley => {}
+            dynamis_model::ConstraintKind::Gear => {}
+            _ => {
+                if desc.axis_a == [0.0; 3] {
+                    panic!("constraint axis must be non-zero");
+                }
+            }
         }
     }
 

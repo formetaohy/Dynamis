@@ -4,6 +4,7 @@ pub mod determinism;
 pub mod dynamics;
 pub mod event;
 pub mod mass;
+pub mod material;
 pub mod query;
 pub mod shape;
 pub mod simulation;

@@ -34,6 +34,8 @@ pub const SHAPE_CYLINDER: u32 = 4;
 pub const SHAPE_HULL: u32 = 5;
 pub const SHAPE_MESH: u32 = 6;
 pub const SHAPE_HEIGHTFIELD: u32 = 7;
+pub const SHAPE_TRIANGLE: u32 = 8;
+pub const SHAPE_PLANE: u32 = 9;
 
 pub const SHAPE_SOURCE_HULL: u32 = 1;
 pub const SHAPE_SOURCE_MESH: u32 = 2;
@@ -56,12 +58,17 @@ pub const CONSTRAINT_DISTANCE: u32 = 1;
 pub const CONSTRAINT_REVOLUTE: u32 = 2;
 pub const CONSTRAINT_PRISMATIC: u32 = 3;
 pub const CONSTRAINT_FIXED: u32 = 4;
+pub const CONSTRAINT_GEAR: u32 = 5;
+pub const CONSTRAINT_PULLEY: u32 = 6;
 pub const CONSTRAINT_INVALID: u32 = 0xFFFF_FFFF;
 
 pub const CONSTRAINT_DISABLE_COLLISIONS: u32 = 1;
 pub const CONSTRAINT_HAS_LIMIT: u32 = 2;
 pub const CONSTRAINT_HAS_MOTOR: u32 = 4;
 pub const CONSTRAINT_IS_SPRING: u32 = 8;
+pub const CONSTRAINT_HAS_SWING: u32 = 16;
+pub const CONSTRAINT_HAS_BREAK: u32 = 32;
+pub const CONSTRAINT_BROKEN: u32 = 64;
 
 pub const QUERY_RAY: u32 = 0;
 pub const QUERY_SPHERE: u32 = 1;
@@ -79,4 +86,4 @@ pub const EVENT_END: u32 = 1;
 pub const NO_BODY: u32 = 0xFFFF_FFFF;
 pub const NO_HIT: f32 = f32::MAX;
 
-pub const MAX_HITS_PER_QUERY: u32 = 4;
+pub const MAX_HITS_PER_QUERY: u32 = 16;

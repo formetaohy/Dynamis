@@ -26,7 +26,7 @@ pub fn compute_mass_properties(
     }
     let solid = colliders
         .iter()
-        .filter(|collider| !collider.sensor)
+        .filter(|collider| !collider.sensor && !matches!(collider.shape, Shape::Plane))
         .collect::<Vec<_>>();
     if solid.is_empty() {
         return MassProperties::zeroed();
@@ -45,7 +45,8 @@ pub fn compute_mass_properties(
     for collider in &solid {
         let shape_mass = mass / count;
         let local = analytic_inertia(&collider.shape, shape_mass, bounds(&collider.shape));
-        let rotated = inertia_rotate(local, collider.rotation);
+        let scaled = inertia_scale(local, collider.scale);
+        let rotated = inertia_rotate(scaled, collider.rotation);
         let offset = [
             collider.offset[0] - com[0],
             collider.offset[1] - com[1],
@@ -118,6 +119,7 @@ fn analytic_inertia(shape: &Shape, mass: f32, bounds: Option<([f32; 3], [f32; 3]
             let iz = mass / 12.0 * (ex * ex + ey * ey);
             [ix, 0.0, 0.0, iy, 0.0, iz]
         }
+        Shape::Plane => panic!("plane colliders carry no mass"),
     }
 }
 
@@ -131,6 +133,29 @@ fn inertia_translate(inertia: [f32; 6], offset: [f32; 3], mass: f32) -> [f32; 6]
         inertia[4] - mass * d[1] * d[2],
         inertia[5] + mass * (d[0] * d[0] + d[1] * d[1]),
     ]
+}
+
+fn inertia_scale(inertia: [f32; 6], scale: [f32; 3]) -> [f32; 6] {
+    let m = sym_to_mat(inertia);
+    let trace = m[0][0] + m[1][1] + m[2][2];
+    let second = [
+        [trace * 0.5 - m[0][0], -m[0][1], -m[0][2]],
+        [-m[1][0], trace * 0.5 - m[1][1], -m[1][2]],
+        [-m[2][0], -m[2][1], trace * 0.5 - m[2][2]],
+    ];
+    let mut scaled = [[0.0f32; 3]; 3];
+    for row in 0..3 {
+        for col in 0..3 {
+            scaled[row][col] = scale[row] * second[row][col] * scale[col];
+        }
+    }
+    let scaled_trace = scaled[0][0] + scaled[1][1] + scaled[2][2];
+    let result = [
+        [scaled_trace - scaled[0][0], -scaled[0][1], -scaled[0][2]],
+        [-scaled[1][0], scaled_trace - scaled[1][1], -scaled[1][2]],
+        [-scaled[2][0], -scaled[2][1], scaled_trace - scaled[2][2]],
+    ];
+    mat_to_sym(result)
 }
 
 fn inertia_rotate(inertia: [f32; 6], q: [f32; 4]) -> [f32; 6] {

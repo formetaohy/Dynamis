@@ -65,6 +65,7 @@ pub fn geometry_from_shape(shape: &dynamis::Shape) -> Geometry {
         dynamis::Shape::Hull(_) | dynamis::Shape::Mesh(_) | dynamis::Shape::HeightField(_) => {
             panic!("vertex-sourced shapes have no render counterpart")
         }
+        dynamis::Shape::Plane => panic!("plane shapes have no render counterpart"),
     }
 }
 

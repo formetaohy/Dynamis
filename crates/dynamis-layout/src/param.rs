@@ -1,10 +1,10 @@
 use crate::constant::MAX_CELLS_PER_COLLIDER;
 use bytemuck::{Pod, Zeroable};
-use dynamis_model::PhysicsConfig;
+use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<SimParamsRecord>() == 96);
+    assert!(size_of::<SimParamsRecord>() == 112);
     assert!(size_of::<DispatchArgs>() == 12);
 };
 
@@ -31,7 +31,11 @@ pub struct SimParamsRecord {
     pub sleep_angular_velocity: f32,
     pub sleep_time: f32,
     pub wake_velocity: f32,
+    pub friction_combine: u32,
+    pub restitution_combine: u32,
     pub _pad5: f32,
+    pub _pad6: f32,
+    pub _pad7: f32,
 }
 
 impl SimParamsRecord {
@@ -57,8 +61,21 @@ impl SimParamsRecord {
             sleep_angular_velocity: config.sleep_angular_velocity,
             sleep_time: config.sleep_time,
             wake_velocity: config.wake_velocity,
+            friction_combine: combine_code(config.friction_combine),
+            restitution_combine: combine_code(config.restitution_combine),
             _pad5: 0.0,
+            _pad6: 0.0,
+            _pad7: 0.0,
         }
+    }
+}
+
+fn combine_code(combine: MaterialCombine) -> u32 {
+    match combine {
+        MaterialCombine::Multiply => 0,
+        MaterialCombine::Min => 1,
+        MaterialCombine::Max => 2,
+        MaterialCombine::Average => 3,
     }
 }
 

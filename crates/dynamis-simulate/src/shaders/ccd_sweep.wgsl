@@ -74,7 +74,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let axis = sign_normalize(second_world.center - first_world.center);
         let normal_speed = dot(first.velocity, axis);
         if (normal_speed > 0.0) {
-            first.velocity = first.velocity - axis * normal_speed * (1.0 + first.restitution);
+            let restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
+            first.velocity = first.velocity - axis * normal_speed * (1.0 + restitution);
         }
         bodies[first_slot / 4u] = first;
     }
@@ -87,7 +88,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let axis = sign_normalize(first_world.center - second_world.center);
         let normal_speed = dot(second.velocity, axis);
         if (normal_speed > 0.0) {
-            second.velocity = second.velocity - axis * normal_speed * (1.0 + second.restitution);
+            let restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
+            second.velocity = second.velocity - axis * normal_speed * (1.0 + restitution);
         }
         bodies[second_slot / 4u] = second;
     }
