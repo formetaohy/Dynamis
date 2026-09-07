@@ -3,6 +3,7 @@ mod collider;
 mod config;
 mod constraint;
 mod event;
+mod mass;
 mod query;
 mod shape;
 
@@ -14,5 +15,6 @@ pub use constraint::{
     ConstraintSpring,
 };
 pub use event::{ContactEvent, ContactEventKind};
+pub use mass::{MassProperties, compute_mass_properties};
 pub use query::QueryFilter;
-pub use shape::{Shape, ShapeSourceHandle, inverse_inertia_diagonal};
+pub use shape::{Shape, ShapeSourceHandle};

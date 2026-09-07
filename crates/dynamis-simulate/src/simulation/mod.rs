@@ -14,8 +14,8 @@ use dynamis_layout::{
     DispatchArgs, QueryRecord, QueryResultHeader, RigidBodyRecord, SimParamsRecord,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, PhysicsConfig,
-    Shape, inverse_inertia_diagonal,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MassProperties,
+    PhysicsConfig, Shape,
 };
 use dynamis_query::QueryPool;
 use std::collections::VecDeque;
@@ -70,6 +70,8 @@ pub struct Simulation {
     commands: Vec<BodyCommandRecord>,
     collider_descs: Vec<Vec<ColliderDesc>>,
     masses: Vec<f32>,
+    com_overrides: Vec<Option<[f32; 3]>>,
+    inertia_overrides: Vec<Option<[f32; 6]>>,
     constraint_alive: Vec<ConstraintHandle>,
     constraint_index_of: Vec<u32>,
     constraint_generations: Vec<u32>,
@@ -130,6 +132,8 @@ impl Simulation {
             commands: Vec::new(),
             collider_descs: Vec::new(),
             masses: Vec::new(),
+            com_overrides: Vec::new(),
+            inertia_overrides: Vec::new(),
             constraint_alive: Vec::new(),
             constraint_index_of: vec![u32::MAX; capacity],
             constraint_generations: vec![1; capacity],
@@ -215,9 +219,8 @@ impl Simulation {
         for handle in self.alive.iter() {
             let id = handle.id as usize;
             let desc = self.build_desc(id);
-            let inertia = self.compound_solid_inertia(&desc);
-            let mut body_record =
-                RigidBodyRecord::build(&desc, handle.id, handle.generation, inertia);
+            let mass = self.mass_properties_of(id);
+            let mut body_record = RigidBodyRecord::build(&desc, handle.id, handle.generation, mass);
             if let Some(state) = self.state_snapshot(id) {
                 body_record.position = state.position;
                 body_record.prev_position = state.position;
@@ -269,6 +272,8 @@ impl Simulation {
             velocity: [0.0; 3],
             angular_velocity: [0.0; 3],
             mass: self.masses[id],
+            com: self.com_overrides[id],
+            inertia: self.inertia_overrides[id],
             collision_group: 0,
             collision_mask: 0,
             kinematic: false,
@@ -280,41 +285,17 @@ impl Simulation {
         self.states.get(id).cloned().flatten()
     }
 
+    fn mass_properties_of(&self, id: usize) -> MassProperties {
+        self.build_desc(id)
+            .mass_properties(|shape| self.shape_bounds(shape))
+    }
+
     fn collider_record(&self, desc: &ColliderDesc) -> ColliderRecord {
         let source = match desc.shape {
             Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => handle.id,
             _ => 0,
         };
         ColliderRecord::build(desc, source)
-    }
-
-    fn compound_solid_inertia(&self, desc: &BodyDesc) -> [f32; 3] {
-        let inverse_mass = desc.inverse_mass();
-        if inverse_mass == 0.0 {
-            return [0.0; 3];
-        }
-        let solid = desc
-            .colliders
-            .iter()
-            .filter(|collider| !collider.sensor)
-            .collect::<Vec<_>>();
-        if solid.is_empty() {
-            return [0.0; 3];
-        }
-        let count = solid.len().max(1) as f32;
-        let mass = 1.0 / inverse_mass;
-        let mut sum = [0.0f32; 3];
-        for collider in solid {
-            let fraction = inverse_inertia_diagonal(
-                &collider.shape,
-                1.0 / (mass / count),
-                self.shape_bounds(&collider.shape),
-            );
-            sum[0] += 1.0 / fraction[0];
-            sum[1] += 1.0 / fraction[1];
-            sum[2] += 1.0 / fraction[2];
-        }
-        [1.0 / sum[0], 1.0 / sum[1], 1.0 / sum[2]]
     }
 
     pub fn bodies_buffer(&self) -> &wgpu::Buffer {
@@ -554,6 +535,7 @@ impl Simulation {
                 velocity: record.velocity,
                 angular_velocity: record.angular_velocity,
                 inverse_mass: record.inverse_mass,
+                com: record.com,
                 sleeping: record.flags & BODY_SLEEPING != 0,
                 step,
             });

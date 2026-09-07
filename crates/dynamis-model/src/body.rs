@@ -14,6 +14,7 @@ pub struct BodyState {
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
     pub inverse_mass: f32,
+    pub com: [f32; 3],
     pub sleeping: bool,
     pub step: u64,
 }
@@ -30,6 +31,8 @@ pub struct BodyDesc {
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
     pub mass: f32,
+    pub com: Option<[f32; 3]>,
+    pub inertia: Option<[f32; 6]>,
     pub collision_group: u32,
     pub collision_mask: u32,
     pub kinematic: bool,
@@ -45,6 +48,8 @@ impl BodyDesc {
             velocity: [0.0; 3],
             angular_velocity: [0.0; 3],
             mass: 1.0,
+            com: None,
+            inertia: None,
             collision_group: DEFAULT_COLLISION_GROUP,
             collision_mask: DEFAULT_COLLISION_MASK,
             kinematic: false,
@@ -146,6 +151,33 @@ impl BodyDesc {
         assert!(mass >= 0.0, "mass must be non-negative");
         self.mass = mass;
         self
+    }
+
+    pub fn com(mut self, com: [f32; 3]) -> Self {
+        self.com = Some(com);
+        self
+    }
+
+    pub fn inertia(mut self, inertia: [f32; 6]) -> Self {
+        assert!(
+            inertia.iter().all(|value| value.is_finite()),
+            "inertia tensor must be finite"
+        );
+        self.inertia = Some(inertia);
+        self
+    }
+
+    pub fn mass_properties(
+        &self,
+        bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+    ) -> crate::mass::MassProperties {
+        if let Some(inertia) = self.inertia {
+            return crate::mass::MassProperties {
+                com: self.com.unwrap_or([0.0; 3]),
+                inverse_inertia: crate::mass::inertia_inverse(inertia),
+            };
+        }
+        crate::mass::compute_mass_properties(&self.colliders, self.mass, self.com, bounds)
     }
 
     pub fn collision_group(mut self, group: u32) -> Self {

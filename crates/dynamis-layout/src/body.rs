@@ -5,12 +5,12 @@ use crate::constant::{
     COMMAND_TORQUE, COMMAND_WAKE, IMPULSE_AT_POINT,
 };
 use bytemuck::{Pod, Zeroable};
-use dynamis_model::BodyDesc;
+use dynamis_model::{BodyDesc, MassProperties};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<RigidBodyRecord>() == 176);
-    assert!(size_of::<BodyCommandRecord>() == 512);
+    assert!(size_of::<RigidBodyRecord>() == 208);
+    assert!(size_of::<BodyCommandRecord>() == 544);
 };
 
 #[repr(C)]
@@ -37,8 +37,10 @@ pub struct RigidBodyRecord {
     pub sleep_timer: f32,
     pub _pad4: u32,
     pub _pad5: u32,
-    pub inverse_inertia_body: [f32; 3],
-    pub _pad6: f32,
+    pub com: [f32; 3],
+    pub _pad_com: f32,
+    pub inverse_inertia_body: [f32; 6],
+    pub _pad_inertia: [f32; 2],
     pub force: [f32; 3],
     pub _pad7: f32,
     pub torque: [f32; 3],
@@ -46,12 +48,7 @@ pub struct RigidBodyRecord {
 }
 
 impl RigidBodyRecord {
-    pub fn build(
-        desc: &BodyDesc,
-        body_id: u32,
-        generation: u32,
-        inverse_inertia_body: [f32; 3],
-    ) -> Self {
+    pub fn build(desc: &BodyDesc, body_id: u32, generation: u32, mass: MassProperties) -> Self {
         let inverse_mass = desc.inverse_mass();
         Self {
             position: desc.position,
@@ -75,8 +72,10 @@ impl RigidBodyRecord {
             sleep_timer: 0.0,
             _pad4: 0,
             _pad5: 0,
-            inverse_inertia_body,
-            _pad6: 0.0,
+            com: mass.com,
+            _pad_com: 0.0,
+            inverse_inertia_body: mass.inverse_inertia,
+            _pad_inertia: [0.0; 2],
             force: [0.0; 3],
             _pad7: 0.0,
             torque: [0.0; 3],

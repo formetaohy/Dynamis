@@ -44,8 +44,11 @@ struct RigidBody {
     sleep_timer: f32,
     _pad4: u32,
     _pad5: u32,
-    inverse_inertia_body: vec3f,
-    _pad6: f32,
+    com: vec3f,
+    _pad_com: f32,
+    inverse_inertia_body: array<f32, 6>,
+    _pad_inertia: f32,
+    _pad_inertia2: f32,
     force: vec3f,
     _pad7: f32,
     torque: vec3f,
@@ -250,7 +253,7 @@ fn body_is_inert(body: RigidBody) -> bool {
 fn body_frozen(body: RigidBody) -> RigidBody {
     var frozen = body;
     frozen.inverse_mass = 0.0;
-    frozen.inverse_inertia_body = vec3f(0.0);
+    frozen.inverse_inertia_body = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     return frozen;
 }
 
@@ -289,21 +292,34 @@ fn make_tangents(normal: vec3f) -> TangentBasis {
     return TangentBasis(t1, t2);
 }
 
+fn body_com(body: RigidBody) -> vec3f {
+    return body.position + quat_rotate(body.orientation, body.com);
+}
+
+fn inverse_inertia_apply(body: RigidBody, v: vec3f) -> vec3f {
+    let i = body.inverse_inertia_body;
+    return vec3f(
+        i[0] * v.x + i[1] * v.y + i[2] * v.z,
+        i[1] * v.x + i[3] * v.y + i[4] * v.z,
+        i[2] * v.x + i[4] * v.y + i[5] * v.z,
+    );
+}
+
 fn apply_inverse_inertia(body: RigidBody, v: vec3f) -> vec3f {
     let q = body.orientation;
     let local = quat_rotate(quat_conjugate(q), v);
-    return quat_rotate(q, body.inverse_inertia_body * local);
+    return quat_rotate(q, inverse_inertia_apply(body, local));
 }
 
 fn relative_velocity(body_a: RigidBody, body_b: RigidBody, point_a: vec3f, point_b: vec3f) -> vec3f {
-    let va = body_a.velocity + cross(body_a.angular_velocity, point_a - body_a.position);
-    let vb = body_b.velocity + cross(body_b.angular_velocity, point_b - body_b.position);
+    let va = body_a.velocity + cross(body_a.angular_velocity, point_a - body_com(body_a));
+    let vb = body_b.velocity + cross(body_b.angular_velocity, point_b - body_com(body_b));
     return vb - va;
 }
 
 fn point_momentum_mass(body_a: RigidBody, body_b: RigidBody, point_a: vec3f, point_b: vec3f, axis: vec3f) -> f32 {
-    let ra = point_a - body_a.position;
-    let rb = point_b - body_b.position;
+    let ra = point_a - body_com(body_a);
+    let rb = point_b - body_com(body_b);
     let rax = cross(ra, axis);
     let rbx = cross(rb, axis);
     return body_a.inverse_mass
@@ -321,10 +337,10 @@ fn apply_pair_impulse(
 ) {
     (*body_a).velocity = (*body_a).velocity - impulse * (*body_a).inverse_mass;
     (*body_a).angular_velocity = (*body_a).angular_velocity
-        - apply_inverse_inertia(*body_a, cross(point_a - (*body_a).position, impulse));
+        - apply_inverse_inertia(*body_a, cross(point_a - body_com(*body_a), impulse));
     (*body_b).velocity = (*body_b).velocity + impulse * (*body_b).inverse_mass;
     (*body_b).angular_velocity = (*body_b).angular_velocity
-        + apply_inverse_inertia(*body_b, cross(point_b - (*body_b).position, impulse));
+        + apply_inverse_inertia(*body_b, cross(point_b - body_com(*body_b), impulse));
 }
 
 struct Segment {
@@ -1390,12 +1406,183 @@ fn scene_convex_hit(source_index: u32, world: WorldShape) -> ShapeHit {
     return ShapeHit(-depth, closest.point_a, closest.normal);
 }
 
+fn convex_sweep_hit(moving: WorldShape, start: vec3f, direction: vec3f, obstacle: WorldShape) -> ShapeHit {
+    var t = 0.0;
+    var simplex: array<SimplexPoint, 4>;
+    var count = 0u;
+    for (var iter = 0u; iter < 24u; iter = iter + 1u) {
+        var moved = moving;
+        moved.center = start + direction * t;
+        let closest = convex_closest(moved, obstacle, &simplex, &count);
+        if (closest.penetrating) {
+            return ShapeHit(t, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+        }
+        if (closest.distance <= 1e-4) {
+            return ShapeHit(t, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+        }
+        t = t + closest.distance;
+        if (t > 1e8) {
+            return no_hit();
+        }
+    }
+    return no_hit();
+}
+
+fn triangle_plane_margin(triangle: u32, source_index: u32, world: WorldShape) -> f32 {
+    let points = triangle_points(source_index, triangle);
+    let n = sign_normalize(cross(points[1] - points[0], points[2] - points[0]));
+    let offset = dot(world.center - points[0], n);
+    return abs(offset);
+}
+
+fn scene_plane_margin(source_index: u32, world: WorldShape, out_triangle: ptr<function, u32>) -> f32 {
+    let source = shape_sources[source_index];
+    let world_aabb = world_aabb_of(world);
+    let pad = (world_aabb.max - world_aabb.min) * 0.5;
+    var best = 3.402823466e38;
+    var stack: array<u32, 64>;
+    var stack_count = 1u;
+    stack[0] = source.node_offset;
+    if (source.node_count == 0u) {
+        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
+            let margin = triangle_plane_margin(i, source_index, world);
+            if (margin < best) {
+                best = margin;
+                *out_triangle = i;
+            }
+        }
+        return best;
+    }
+    while (stack_count > 0u) {
+        stack_count = stack_count - 1u;
+        let node_index = stack[stack_count];
+        let node = shape_nodes[node_index];
+        if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
+            node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
+            node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
+            continue;
+        }
+        if (node.leaf == 1u) {
+            for (var i = 0u; i < node.right; i = i + 1u) {
+                let margin = triangle_plane_margin(node.left + i, source_index, world);
+                if (margin < best) {
+                    best = margin;
+                    *out_triangle = node.left + i;
+                }
+            }
+        } else {
+            if (stack_count + 2u > 64u) {
+                continue;
+            }
+            stack[stack_count] = node.left;
+            stack_count = stack_count + 1u;
+            stack[stack_count] = node.right;
+            stack_count = stack_count + 1u;
+        }
+    }
+    return best;
+}
+
+fn scene_plane_mesh_bounds(source_index: u32) -> Aabb {
+    let source = shape_sources[source_index];
+    if (source.node_count == 0u) {
+        var empty: Aabb;
+        empty.min = vec3f(3.402823466e38);
+        empty.max = vec3f(-3.402823466e38);
+        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
+            let points = triangle_points(source_index, i);
+            empty.min = min(empty.min, points[0]);
+            empty.min = min(empty.min, points[1]);
+            empty.min = min(empty.min, points[2]);
+            empty.max = max(empty.max, points[0]);
+            empty.max = max(empty.max, points[1]);
+            empty.max = max(empty.max, points[2]);
+        }
+        return empty;
+    }
+    let root = shape_nodes[source.node_offset];
+    var bounds: Aabb;
+    bounds.min = root.min;
+    bounds.max = root.max;
+    return bounds;
+}
+
+fn scene_sweep_hit(
+    moving: WorldShape,
+    start: vec3f,
+    direction: vec3f,
+    source_index: u32,
+    max_dist: f32,
+) -> ShapeHit {
+    let moving_bounds = world_aabb_of(moving);
+    let probe_radius = length((moving_bounds.max - moving_bounds.min) * 0.5);
+    if (probe_radius <= 0.0) {
+        return no_hit();
+    }
+    var triangle = 0u;
+    var moved = moving;
+    moved.center = start;
+    let origin = scene_plane_margin(source_index, moved, &triangle);
+    if (origin <= probe_radius) {
+        return no_hit();
+    }
+    let bounds = scene_plane_mesh_bounds(source_index);
+    let entry = ray_box(
+        start, direction, max_dist,
+        (bounds.min + bounds.max) * 0.5,
+        vec4f(0.0, 0.0, 0.0, 1.0),
+        (bounds.max - bounds.min) * 0.5 + vec3f(probe_radius),
+    );
+    if (entry.distance >= max_dist) {
+        return no_hit();
+    }
+    let scan_start = max(entry.distance - probe_radius, 0.0);
+    var scan = scan_start;
+    var lo = scan_start;
+    var hi = -1.0;
+    var hit_point = vec3f(0.0);
+    var hit_normal = vec3f(0.0, 1.0, 0.0);
+    for (var iter = 0u; iter < 4096u; iter = iter + 1u) {
+        scan = scan + probe_radius;
+        if (scan >= max_dist) {
+            return no_hit();
+        }
+        moved.center = start + direction * scan;
+        let margin = scene_plane_margin(source_index, moved, &triangle);
+        if (margin <= probe_radius) {
+            hi = scan;
+            break;
+        }
+        lo = scan;
+    }
+    if (hi < 0.0) {
+        return no_hit();
+    }
+    for (var iter = 0u; iter < 24u; iter = iter + 1u) {
+        let mid = (lo + hi) * 0.5;
+        moved.center = start + direction * mid;
+        let margin = scene_plane_margin(source_index, moved, &triangle);
+        if (margin <= probe_radius) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    moved.center = start + direction * (hi + 1e-4);
+    let closest = scene_convex_closest(source_index, moved, &triangle);
+    if (closest.penetrating) {
+        return ShapeHit(hi, closest.point_a, closest.normal);
+    }
+    return ShapeHit(hi, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+}
+
 fn convex_hit_at(
     moving: WorldShape,
     start: vec3f,
     direction: vec3f,
     static_target: WorldShape,
     expand: f32,
+    max_dist: f32,
 ) -> ShapeHit {
     if (static_target.kind == SHAPE_SPHERE) {
         return ray_sphere(start, direction, NO_HIT, static_target.center, static_target.radius + expand);
@@ -1412,7 +1599,10 @@ fn convex_hit_at(
         let axis = shape_axis(static_target);
         return ray_cylinder(start, direction, NO_HIT, static_target.center, axis, static_target.half_height, static_target.radius + expand);
     }
-    return ray_scene(static_target, start, direction, NO_HIT);
+    if (static_target.kind == SHAPE_HULL) {
+        return convex_sweep_hit(moving, start, direction, static_target);
+    }
+    return scene_sweep_hit(moving, start, direction, static_target.source, max_dist);
 }
 
 fn box_center(body: RigidBody, collider: Collider) -> vec3f {

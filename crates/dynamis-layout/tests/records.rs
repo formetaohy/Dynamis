@@ -11,7 +11,9 @@ use dynamis_layout::{
     QueryRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
     SHAPE_HULL, SHAPE_MESH, SHAPE_SPHERE, SimParamsRecord,
 };
-use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, PhysicsConfig, QueryFilter, Shape};
+use dynamis_model::{
+    BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
+};
 use std::panic::catch_unwind;
 
 #[test]
@@ -24,7 +26,15 @@ fn rigid_body_record_encodes_desc_fields() {
         .ccd(true)
         .restitution(0.4)
         .friction(0.6);
-    let record = RigidBodyRecord::build(&desc, 5, 9, [1.0, 2.0, 3.0]);
+    let record = RigidBodyRecord::build(
+        &desc,
+        5,
+        9,
+        MassProperties {
+            com: [0.5, 0.0, 0.0],
+            inverse_inertia: [1.0, 0.0, 0.0, 2.0, 0.0, 3.0],
+        },
+    );
     assert_eq!(record.inverse_mass, 0.0, "kinematic mass is infinite");
     assert_eq!(record.body_id, 5);
     assert_eq!(record.generation, 9);
@@ -35,9 +45,15 @@ fn rigid_body_record_encodes_desc_fields() {
     assert_eq!(record.friction, 0.6);
     assert_eq!(record.flags & BODY_KINEMATIC, BODY_KINEMATIC);
     assert_eq!(record.flags & BODY_CCD, BODY_CCD);
-    assert_eq!(record.inverse_inertia_body, [1.0, 2.0, 3.0]);
+    assert_eq!(record.com, [0.5, 0.0, 0.0]);
+    assert_eq!(record.inverse_inertia_body, [1.0, 0.0, 0.0, 2.0, 0.0, 3.0]);
 
-    let dynamic = RigidBodyRecord::build(&BodyDesc::sphere(0.5).mass(2.0), 0, 1, [0.0; 3]);
+    let dynamic = RigidBodyRecord::build(
+        &BodyDesc::sphere(0.5).mass(2.0),
+        0,
+        1,
+        MassProperties::zeroed(),
+    );
     assert_eq!(dynamic.inverse_mass, 0.5);
 }
 
@@ -279,7 +295,7 @@ fn query_record_encodes_kinds_and_filters() {
 
 #[test]
 fn body_commands_encode_their_payloads() {
-    let body = RigidBodyRecord::build(&BodyDesc::sphere(0.5), 1, 1, [0.0; 3]);
+    let body = RigidBodyRecord::build(&BodyDesc::sphere(0.5), 1, 1, MassProperties::zeroed());
     let add = BodyCommandRecord::add(2, body, [ColliderRecord::zeroed(); 4]);
     assert_eq!(add.kind, 0);
     assert_eq!(add.slot, 2);

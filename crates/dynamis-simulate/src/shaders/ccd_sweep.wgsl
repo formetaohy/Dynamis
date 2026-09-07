@@ -29,6 +29,7 @@ fn sweep_retreat(
         motion / sweep_length,
         static_world,
         min_radius(moving_collider),
+        sweep_length,
     );
     if (hit.distance <= 0.0 || hit.distance >= sweep_length) {
         return 1.0;
@@ -62,11 +63,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let first_collider = colliders[first_slot];
     let second_collider = colliders[second_slot];
     if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
-        return;
-    }
-    let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD;
-    let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD;
-    if (first_world_geom || second_world_geom) {
         return;
     }
     let first_time = sweep_retreat(first, first_collider, second, second_collider);

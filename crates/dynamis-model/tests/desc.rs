@@ -1,5 +1,5 @@
-use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, Shape, inverse_inertia_diagonal};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, Shape};
+use std::panic::catch_unwind;
 
 #[test]
 fn shape_constructors_reject_degenerate_geometry() {
@@ -64,43 +64,6 @@ fn constraint_descs_validate_inputs() {
         catch_unwind(|| { ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).spring(1.0, -0.5) })
             .is_err()
     );
-}
-
-#[test]
-fn inverse_inertia_diagonal_follows_shape_mass() {
-    assert_eq!(
-        inverse_inertia_diagonal(&Shape::sphere(0.5), 0.0, None),
-        [0.0; 3]
-    );
-    let sphere = inverse_inertia_diagonal(&Shape::sphere(0.5), 1.0, None);
-    let expected = 1.0 / (0.4 * 0.25);
-    assert!((sphere[0] - expected).abs() < 1e-6);
-    let box_inertia = inverse_inertia_diagonal(&Shape::cuboid([0.5, 0.5, 0.5]), 1.0, None);
-    let box_expected = 1.0 / (1.0 / 6.0);
-    assert!((box_inertia[0] - box_expected).abs() < 1e-6);
-    let static_geometry = catch_unwind(AssertUnwindSafe(|| {
-        inverse_inertia_diagonal(
-            &Shape::hull(dynamis_model::ShapeSourceHandle {
-                id: 0,
-                generation: 1,
-            }),
-            1.0,
-            None,
-        )
-    }));
-    assert!(
-        static_geometry.is_err(),
-        "world-geometry inertia needs bounds"
-    );
-    let with_bounds = inverse_inertia_diagonal(
-        &Shape::hull(dynamis_model::ShapeSourceHandle {
-            id: 0,
-            generation: 1,
-        }),
-        1.0,
-        Some(([0.0; 3], [2.0, 2.0, 2.0])),
-    );
-    assert!(with_bounds.iter().all(|inverse| *inverse > 0.0));
 }
 
 #[test]

@@ -48,8 +48,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if ((command.extra & PATCH_VELOCITY) != 0u) {
                 body.velocity = command.body.velocity;
             }
-            if ((command.extra & PATCH_INVERSE_MASS) != 0u) {
+            if ((command.extra & PATCH_MASS) != 0u) {
                 body.inverse_mass = command.body.inverse_mass;
+                body.com = command.body.com;
+                body.inverse_inertia_body = command.body.inverse_inertia_body;
             }
             if ((command.extra & PATCH_RESTITUTION) != 0u) {
                 body.restitution = command.body.restitution;
@@ -72,12 +74,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if ((command.extra & PATCH_KINEMATIC) != 0u) {
                 body.flags = (body.flags & ~BODY_KINEMATIC) | (command.body.flags & BODY_KINEMATIC);
                 body.inverse_mass = command.body.inverse_mass;
+                body.com = command.body.com;
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
             }
             if ((command.extra & PATCH_CCD) != 0u) {
                 body.flags = (body.flags & ~BODY_CCD) | (command.body.flags & BODY_CCD);
             }
             if ((command.extra & PATCH_COLLIDER) != 0u) {
+                body.com = command.body.com;
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
                 colliders[command.slot * MAX_COLLIDERS_PER_BODY + command.aux] = command.colliders[0];
             }
@@ -97,7 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else if (command.kind == COMMAND_FORCE_AT_POINT) {
             var body = bodies[command.slot];
             body.force = body.force + command.body.force;
-            body.torque = body.torque + cross(command.body.position - body.position, command.body.force);
+            body.torque = body.torque + cross(command.body.position - body_com(body), command.body.force);
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);
             }
@@ -116,7 +120,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let impulse = command.body.velocity;
             body.velocity = body.velocity + impulse * body.inverse_mass;
             body.angular_velocity =
-                body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body.position, impulse));
+                body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body_com(body), impulse));
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);
             }

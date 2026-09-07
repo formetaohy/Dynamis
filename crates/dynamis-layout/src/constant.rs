@@ -15,7 +15,7 @@ pub const IMPULSE_AT_POINT: u32 = 1;
 
 pub const PATCH_POSITION: u32 = 1;
 pub const PATCH_VELOCITY: u32 = 2;
-pub const PATCH_INVERSE_MASS: u32 = 4;
+pub const PATCH_MASS: u32 = 4;
 pub const PATCH_COLLIDER: u32 = 8;
 pub const PATCH_RESTITUTION: u32 = 16;
 pub const PATCH_ORIENTATION: u32 = 32;

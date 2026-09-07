@@ -2,10 +2,12 @@ use super::Simulation;
 use bytemuck::Zeroable;
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY, PATCH_CCD,
-    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_INVERSE_MASS, PATCH_KINEMATIC, PATCH_MASK,
+    PATCH_COLLIDER, PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS,
     PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, RigidBodyRecord,
 };
-use dynamis_model::{BodyDesc, BodyHandle, BodyState, ColliderDesc, MAX_COLLIDERS_PER_BODY, Shape};
+use dynamis_model::{
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, MAX_COLLIDERS_PER_BODY, MassProperties, Shape,
+};
 
 impl Simulation {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
@@ -24,10 +26,14 @@ impl Simulation {
         self.validate_world_geometry(&desc);
         self.masses.resize(self.alive.len(), 1.0);
         self.masses[id as usize] = desc.mass;
+        self.com_overrides.resize(self.alive.len(), None);
+        self.com_overrides[id as usize] = desc.com;
+        self.inertia_overrides.resize(self.alive.len(), None);
+        self.inertia_overrides[id as usize] = desc.inertia;
         self.collider_descs.resize(self.alive.len(), Vec::new());
         self.collider_descs[id as usize] = desc.colliders.clone();
-        let inertia = self.compound_solid_inertia(&desc);
-        let body = RigidBodyRecord::build(&desc, handle.id, handle.generation, inertia);
+        let mass = self.mass_properties_of(id as usize);
+        let body = RigidBodyRecord::build(&desc, handle.id, handle.generation, mass);
         let colliders = self.collider_block(&desc);
         self.record_state(id as usize, &desc, &body);
         self.commands
@@ -53,6 +59,7 @@ impl Simulation {
             velocity: desc.velocity,
             angular_velocity: desc.angular_velocity,
             inverse_mass: body.inverse_mass,
+            com: body.com,
             sleeping: false,
             step: self.step_index,
         });
@@ -128,15 +135,50 @@ impl Simulation {
         assert!(mass >= 0.0, "mass must be non-negative");
         self.validate(handle);
         self.masses[handle.id as usize] = mass;
-        let asc = self.description(handle);
-        let inverse_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
+        let inverse_mass = self.inverse_mass_of(handle);
+        let mass_properties = self.mass_properties_of(handle.id as usize);
         let mut record = RigidBodyRecord::zeroed();
         record.inverse_mass = inverse_mass;
-        record.inverse_inertia_body = self.compound_solid_inertia(&asc);
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
         if let Some(state) = self.states[handle.id as usize].as_mut() {
             state.inverse_mass = inverse_mass;
+            state.com = mass_properties.com;
         }
-        self.schedule_patch(handle, PATCH_INVERSE_MASS, record);
+        self.schedule_patch(handle, PATCH_MASS, record);
+    }
+
+    pub fn set_com(&mut self, handle: BodyHandle, com: [f32; 3]) {
+        self.validate(handle);
+        self.com_overrides[handle.id as usize] = Some(com);
+        let mass_properties = self.mass_properties_of(handle.id as usize);
+        let mut record = RigidBodyRecord::zeroed();
+        record.inverse_mass = self.inverse_mass_of(handle);
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
+        if let Some(state) = self.states[handle.id as usize].as_mut() {
+            state.com = mass_properties.com;
+        }
+        self.schedule_patch(handle, PATCH_MASS, record);
+    }
+
+    pub fn set_inertia(&mut self, handle: BodyHandle, inertia: [f32; 6]) {
+        self.validate(handle);
+        self.inertia_overrides[handle.id as usize] = Some(inertia);
+        let mass_properties = self.mass_properties_of(handle.id as usize);
+        let mut record = RigidBodyRecord::zeroed();
+        record.inverse_mass = self.inverse_mass_of(handle);
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
+        if let Some(state) = self.states[handle.id as usize].as_mut() {
+            state.com = mass_properties.com;
+        }
+        self.schedule_patch(handle, PATCH_MASS, record);
+    }
+
+    fn inverse_mass_of(&self, handle: BodyHandle) -> f32 {
+        let mass = self.masses[handle.id as usize];
+        if mass > 0.0 { 1.0 / mass } else { 0.0 }
     }
 
     pub fn set_collider(&mut self, handle: BodyHandle, index: usize, collider: ColliderDesc) {
@@ -146,12 +188,13 @@ impl Simulation {
             "collider index out of range"
         );
         self.collider_descs[handle.id as usize][index] = collider;
-        let asc = self.description(handle);
+        let mass_properties = self.mass_properties_of(handle.id as usize);
         let mut record = RigidBodyRecord::zeroed();
         record.inverse_mass = self.states[handle.id as usize]
             .map(|state| state.inverse_mass)
             .unwrap_or(0.0);
-        record.inverse_inertia_body = self.compound_solid_inertia(&asc);
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
         let record_collider = self.collider_record(&collider);
         self.schedule_patch_collider(
             handle,
@@ -211,11 +254,22 @@ impl Simulation {
 
     pub fn set_kinematic(&mut self, handle: BodyHandle, kinematic: bool) {
         self.validate(handle);
-        let asc = self.description(handle);
+        let mass = self.masses[handle.id as usize];
+        let inverse_mass = if kinematic || mass <= 0.0 {
+            0.0
+        } else {
+            1.0 / mass
+        };
+        let mass_properties = if kinematic {
+            MassProperties::zeroed()
+        } else {
+            self.mass_properties_of(handle.id as usize)
+        };
         let mut record = RigidBodyRecord::zeroed();
         record.flags = if kinematic { BODY_KINEMATIC } else { 0 };
-        record.inverse_mass = if kinematic { 0.0 } else { asc.inverse_mass() };
-        record.inverse_inertia_body = self.compound_solid_inertia(&asc);
+        record.inverse_mass = inverse_mass;
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
         self.schedule_patch(handle, PATCH_KINEMATIC, record);
     }
 
@@ -278,22 +332,6 @@ impl Simulation {
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
         self.states[handle.id as usize].expect("body state is unavailable")
-    }
-
-    fn description(&self, handle: BodyHandle) -> BodyDesc {
-        let id = handle.id as usize;
-        BodyDesc {
-            colliders: self.collider_descs[id].clone(),
-            position: [0.0; 3],
-            orientation: [0.0, 0.0, 0.0, 1.0],
-            velocity: [0.0; 3],
-            angular_velocity: [0.0; 3],
-            mass: self.masses[id],
-            collision_group: 0,
-            collision_mask: 0,
-            kinematic: false,
-            ccd: false,
-        }
     }
 
     fn command_slot(&self, handle: BodyHandle) -> u32 {
