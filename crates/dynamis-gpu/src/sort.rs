@@ -1,7 +1,6 @@
 use crate::buffer::GpuBuffer;
-use crate::{BindingKind, BindingSpec, ComputePipeline};
-use std::sync::atomic::{AtomicBool, Ordering};
-use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
+use crate::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
+use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
 const RADIX_PASSES: usize = 8;
@@ -44,8 +43,14 @@ impl SortChannels {
     }
 }
 
+#[derive(PartialEq, Eq)]
+struct SortArgs {
+    args: u64,
+}
+
 struct SortBindGroups {
     channels: SortChannels,
+    args: SortArgs,
     histogram: [BindGroup; 2],
     scatter: [BindGroup; 2],
 }
@@ -55,6 +60,7 @@ impl SortBindGroups {
         device: &Device,
         sort: &GpuSort,
         channels: SortChannels,
+        args: SortArgs,
         keys_lo: &GpuBuffer,
         keys_hi: &GpuBuffer,
         values: &GpuBuffer,
@@ -143,6 +149,7 @@ impl SortBindGroups {
         });
         Self {
             channels,
+            args,
             histogram,
             scatter,
         }
@@ -153,14 +160,11 @@ pub struct GpuSort {
     histogram_pipelines: [ComputePipeline; RADIX_PASSES],
     scatter_pipelines: [ComputePipeline; RADIX_PASSES],
     prefix_pipeline: ComputePipeline,
-    block_prefix_pipeline: ComputePipeline,
     prefix_group: BindGroup,
-    block_prefix_group: BindGroup,
     histogram: GpuBuffer,
     cursor: GpuBuffer,
     block_histogram: GpuBuffer,
     block_prefix: GpuBuffer,
-    cleared: AtomicBool,
     bindings: std::sync::Mutex<Option<SortBindGroups>>,
 }
 
@@ -236,17 +240,23 @@ impl GpuSort {
                 binding: 1,
                 kind: BindingKind::ReadWriteStorage,
             },
-        ];
-        let block_prefix_spec = [
             BindingSpec {
-                binding: 0,
+                binding: 2,
                 kind: BindingKind::ReadWriteStorage,
             },
             BindingSpec {
-                binding: 1,
+                binding: 3,
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
+        let prefix_pipeline = ComputePipeline::new(
+            device,
+            &format!("{label} prefix"),
+            include_str!("shaders/sort_prefix.wgsl"),
+            "main",
+            &[&prefix_spec[..]],
+            THREADS,
+        );
         let histogram_shader = include_str!("shaders/sort_histogram.wgsl");
         let histogram_pipelines = std::array::from_fn(|index| {
             ComputePipeline::new(
@@ -269,27 +279,11 @@ impl GpuSort {
                 THREADS,
             )
         });
-        let prefix_pipeline = ComputePipeline::new(
-            device,
-            &format!("{label} prefix"),
-            include_str!("shaders/sort_prefix.wgsl"),
-            "main",
-            &[&prefix_spec[..]],
-            THREADS,
-        );
-        let block_prefix_pipeline = ComputePipeline::new(
-            device,
-            &format!("{label} block prefix"),
-            include_str!("shaders/sort_block_prefix.wgsl"),
-            "main",
-            &[&block_prefix_spec[..]],
-            THREADS,
-        );
-        let histogram = GpuBuffer::new(
+        let histogram = GpuBuffer::zeroed(
             device,
             &format!("{label} histogram"),
             (BIN_COUNT * 4) as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE,
         );
         let cursor = GpuBuffer::new(
             device,
@@ -298,11 +292,11 @@ impl GpuSort {
             wgpu::BufferUsages::STORAGE,
         );
         let block_bytes = blocks as u64 * BIN_COUNT as u64 * 4;
-        let block_histogram = GpuBuffer::new(
+        let block_histogram = GpuBuffer::zeroed(
             device,
             &format!("{label} block histogram"),
             block_bytes,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE,
         );
         let block_prefix = GpuBuffer::new(
             device,
@@ -322,18 +316,12 @@ impl GpuSort {
                     binding: 1,
                     resource: cursor.as_binding(),
                 },
-            ],
-        );
-        let block_prefix_group = block_prefix_pipeline.create_bind_group(
-            device,
-            0,
-            &[
                 BindGroupEntry {
-                    binding: 0,
+                    binding: 2,
                     resource: block_histogram.as_binding(),
                 },
                 BindGroupEntry {
-                    binding: 1,
+                    binding: 3,
                     resource: block_prefix.as_binding(),
                 },
             ],
@@ -342,14 +330,11 @@ impl GpuSort {
             histogram_pipelines,
             scatter_pipelines,
             prefix_pipeline,
-            block_prefix_pipeline,
             prefix_group,
-            block_prefix_group,
             histogram,
             cursor,
             block_histogram,
             block_prefix,
-            cleared: AtomicBool::new(false),
             bindings: std::sync::Mutex::new(None),
         }
     }
@@ -358,6 +343,7 @@ impl GpuSort {
         &self,
         device: &Device,
         channels: SortChannels,
+        args: SortArgs,
         keys_lo: &GpuBuffer,
         keys_hi: &GpuBuffer,
         values: &GpuBuffer,
@@ -369,12 +355,13 @@ impl GpuSort {
         let mut guard = self.bindings.lock().unwrap();
         if guard
             .as_ref()
-            .is_none_or(|cached| cached.channels != channels)
+            .is_none_or(|cached| cached.channels != channels || cached.args != args)
         {
             *guard = Some(SortBindGroups::build(
                 device,
                 self,
                 channels,
+                args,
                 keys_lo,
                 keys_hi,
                 values,
@@ -389,34 +376,21 @@ impl GpuSort {
 
     fn encode_all_passes(
         &self,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder,
         bindings: &SortBindGroups,
-        workgroups: u32,
+        args: &GpuBuffer,
         lo_words: u32,
         hi_words: u32,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: None,
-            timestamp_writes: None,
-        });
         let pass_ranges = [0..lo_words, 4..(4 + hi_words)];
         let mut executed = 0usize;
         for pass_index in pass_ranges.into_iter().flatten() {
             let parity = executed % 2;
             executed += 1;
             let pass_index = pass_index as usize;
-            pass.set_pipeline(self.histogram_pipelines[pass_index].pipeline());
-            pass.set_bind_group(0, &bindings.histogram[parity], &[]);
-            pass.dispatch_workgroups(workgroups, 1, 1);
-            pass.set_pipeline(self.prefix_pipeline.pipeline());
-            pass.set_bind_group(0, &self.prefix_group, &[]);
-            pass.dispatch_workgroups(1, 1, 1);
-            pass.set_pipeline(self.block_prefix_pipeline.pipeline());
-            pass.set_bind_group(0, &self.block_prefix_group, &[]);
-            pass.dispatch_workgroups(1, 1, 1);
-            pass.set_pipeline(self.scatter_pipelines[pass_index].pipeline());
-            pass.set_bind_group(0, &bindings.scatter[parity], &[]);
-            pass.dispatch_workgroups(workgroups, 1, 1);
+            recorder.record_indirect(&self.histogram_pipelines[pass_index], &[&bindings.histogram[parity]], args, 16);
+            recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
+            recorder.record_indirect(&self.scatter_pipelines[pass_index], &[&bindings.scatter[parity]], args, 16);
         }
     }
 
@@ -427,9 +401,9 @@ impl GpuSort {
     pub fn sort_64(
         &self,
         device: &Device,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder,
         count_holder: &GpuBuffer,
-        capacity: u32,
+        args: &GpuBuffer,
         lo_words: u32,
         hi_words: u32,
         keys_lo: &GpuBuffer,
@@ -445,6 +419,7 @@ impl GpuSort {
         let guard = self.bindings(
             device,
             channels,
+            SortArgs { args: args.token() },
             keys_lo,
             keys_hi,
             values,
@@ -454,68 +429,7 @@ impl GpuSort {
             count_holder,
         );
         let bindings = guard.as_ref().expect("bindings ensured just above");
-        if !self.cleared.swap(true, Ordering::Relaxed) {
-            encoder.clear_buffer(self.histogram.buffer(), 0, None);
-            encoder.clear_buffer(self.block_histogram.buffer(), 0, None);
-        }
-        let workgroups = capacity.div_ceil(THREADS);
-        self.encode_all_passes(encoder, bindings, workgroups, lo_words, hi_words);
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "radix sort carries three key channels and their outputs explicitly"
-    )]
-    pub fn sort_pass(
-        &self,
-        device: &Device,
-        encoder: &mut CommandEncoder,
-        count_holder: &GpuBuffer,
-        capacity: u32,
-        pass_index: usize,
-        keys_lo: &GpuBuffer,
-        keys_hi: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_lo_out: &GpuBuffer,
-        keys_hi_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-    ) {
-        let channels = SortChannels::of(
-            count_holder, keys_lo, keys_hi, values, keys_lo_out, keys_hi_out, values_out,
-        );
-        let guard = self.bindings(
-            device,
-            channels,
-            keys_lo,
-            keys_hi,
-            values,
-            keys_lo_out,
-            keys_hi_out,
-            values_out,
-            count_holder,
-        );
-        let bindings = guard.as_ref().expect("bindings ensured just above");
-        if !self.cleared.swap(true, Ordering::Relaxed) {
-            encoder.clear_buffer(self.histogram.buffer(), 0, None);
-            encoder.clear_buffer(self.block_histogram.buffer(), 0, None);
-        }
-        let workgroups = capacity.div_ceil(THREADS);
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: None,
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(self.histogram_pipelines[pass_index as usize].pipeline());
-        pass.set_bind_group(0, &bindings.histogram[pass_index % 2], &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
-        pass.set_pipeline(self.prefix_pipeline.pipeline());
-        pass.set_bind_group(0, &self.prefix_group, &[]);
-        pass.dispatch_workgroups(1, 1, 1);
-        pass.set_pipeline(self.block_prefix_pipeline.pipeline());
-        pass.set_bind_group(0, &self.block_prefix_group, &[]);
-        pass.dispatch_workgroups(1, 1, 1);
-        pass.set_pipeline(self.scatter_pipelines[pass_index].pipeline());
-        pass.set_bind_group(0, &bindings.scatter[pass_index % 2], &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        self.encode_all_passes(recorder, bindings, args, lo_words, hi_words);
     }
 
     pub fn debug_histogram(&self) -> &GpuBuffer {

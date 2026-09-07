@@ -1,5 +1,6 @@
 pub use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, GpuBuffer, GpuContext, GpuReadback, GpuSort,
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBucketSort, GpuBuffer,
+    GpuContext, GpuCountArgs, GpuReadback, GpuSort,
 };
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintDesc, ConstraintHandle,

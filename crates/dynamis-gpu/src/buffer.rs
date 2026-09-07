@@ -30,6 +30,27 @@ impl GpuBuffer {
         }
     }
 
+    pub fn zeroed(device: &Device, label: &str, size: BufferAddress, usage: BufferUsages) -> Self {
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some(label),
+            size,
+            usage,
+            mapped_at_creation: true,
+        });
+        buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .expect("mapped at creation range unavailable")
+            .copy_from_slice(&vec![0u8; size as usize]);
+        buffer.unmap();
+        Self {
+            buffer,
+            size,
+            usage,
+            token: NEXT_BUFFER_TOKEN.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
     pub fn token(&self) -> u64 {
         self.token
     }

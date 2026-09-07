@@ -1,12 +1,9 @@
-@group(0) @binding(0) var<storage, read> contact_indices: array<u32>;
-@group(0) @binding(1) var<storage, read> contact_keys_hi: array<u32>;
-@group(0) @binding(2) var<storage, read> contact_keys_lo: array<u32>;
-@group(0) @binding(3) var<storage, read> prev_contacts: array<Contact>;
-@group(0) @binding(4) var<storage, read> prev_contact_count: array<u32>;
-@group(0) @binding(5) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(6) var<storage, read> contact_count: array<u32>;
-@group(0) @binding(7) var<storage, read_write> events: array<ContactEvent>;
-@group(0) @binding(8) var<storage, read_write> event_count: atomic<u32>;
+@group(0) @binding(0) var<storage, read_write> contacts: array<Contact>;
+@group(0) @binding(1) var<storage, read> prev_contacts: array<Contact>;
+@group(0) @binding(2) var<storage, read> prev_contact_count: array<u32>;
+@group(0) @binding(3) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(4) var<storage, read_write> events: array<ContactEvent>;
+@group(0) @binding(5) var<storage, read_write> event_count: atomic<u32>;
 
 const NORMAL_MATCH: f32 = 0.7;
 
@@ -44,9 +41,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= contact_count[0]) {
         return;
     }
-    let prev_slot = prev_find(contact_keys_hi[index], contact_keys_lo[index]);
-    let orig = contact_indices[index];
-    var contact = contacts[orig];
+    let prev_slot = prev_find(contacts[index].a, contacts[index].b);
+    var contact = contacts[index];
     if (prev_slot == NO_BODY) {
         let point = contact.points[0].position;
         emit_event(EVENT_BEGIN, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
@@ -61,5 +57,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         contact.points[point_index].accumulated_tangent_1 = prev.points[point_index].accumulated_tangent_1;
         contact.points[point_index].accumulated_tangent_2 = prev.points[point_index].accumulated_tangent_2;
     }
-    contacts[orig] = contact;
+    contacts[index] = contact;
 }

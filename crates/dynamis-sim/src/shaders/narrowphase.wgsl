@@ -2,8 +2,8 @@
 @group(0) @binding(1) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(2) var<storage, read> pair_keys_hi: array<u32>;
 @group(0) @binding(3) var<storage, read> pair_keys_lo: array<u32>;
-@group(0) @binding(4) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(5) var<storage, read_write> contact_count: atomic<u32>;
+@group(0) @binding(4) var<storage, read_write> contacts_raw: array<Contact>;
+@group(0) @binding(5) var<storage, read_write> contact_valid: array<u32>;
 @group(0) @binding(6) var<storage, read> pair_count: atomic<u32>;
 @group(0) @binding(7) var<storage, read> joint_hi: array<u32>;
 @group(0) @binding(8) var<storage, read> joint_lo: array<u32>;
@@ -470,6 +470,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= atomicLoad(&pair_count)) {
         return;
     }
+    contact_valid[index] = 0u;
     if (index > 0u && pair_keys_hi[index] == pair_keys_hi[index - 1u] && pair_keys_lo[index] == pair_keys_lo[index - 1u]) {
         return;
     }
@@ -606,9 +607,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     contact.first_generation = first.generation;
     contact.second_generation = second.generation;
     if (contact.point_count > 0u) {
-        let slot = atomicAdd(&contact_count, 1u);
-        if (slot < arrayLength(&contacts)) {
-            contacts[slot] = contact;
-        }
+        contacts_raw[index] = contact;
+        contact_valid[index] = 1u;
     }
 }

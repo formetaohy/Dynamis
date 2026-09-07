@@ -11,6 +11,7 @@ pub(crate) const MAX_CELLS_PER_COLLIDER: u32 = 8;
 pub(crate) const SHAPE_VERTICES_PER_SOURCE: u32 = 4096;
 pub(crate) const SHAPE_TRIANGLES_PER_SOURCE: u32 = 8192;
 pub(crate) const SHAPE_NODES_PER_SOURCE: u32 = 16384;
+pub(crate) const COMPACT_BLOCK: u32 = 256;
 
 pub(crate) struct SortSlots {
     pub(crate) keys_hi: GpuBuffer,
@@ -55,21 +56,29 @@ pub(crate) struct StageBuffers {
     pub(crate) aabbs: GpuBuffer,
     pub(crate) entries: SortSlots,
     pub(crate) entry_count: GpuBuffer,
+    pub(crate) entry_args: GpuBuffer,
     pub(crate) pairs: SortSlots,
     pub(crate) pair_count: GpuBuffer,
+    pub(crate) pair_args: GpuBuffer,
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) large_count: GpuBuffer,
+    pub(crate) contacts_raw: GpuBuffer,
+    pub(crate) contact_valid: GpuBuffer,
+    pub(crate) contact_a_body: GpuBuffer,
+    pub(crate) compact_ranks: GpuBuffer,
+    pub(crate) compact_block_sums: GpuBuffer,
+    pub(crate) compact_block_sums_pad: GpuBuffer,
+    pub(crate) compact_block_offsets: GpuBuffer,
     pub(crate) contacts: GpuBuffer,
     pub(crate) contact_count: GpuBuffer,
-    pub(crate) contact_keys_hi: GpuBuffer,
-    pub(crate) contact_keys_lo: GpuBuffer,
-    pub(crate) contact_indices: GpuBuffer,
+    pub(crate) contact_args: GpuBuffer,
     pub(crate) prev_contacts: GpuBuffer,
     pub(crate) prev_contact_count: GpuBuffer,
-    pub(crate) contact_gather_a: SortSlots,
-    pub(crate) contact_gather_a_out: SortSlots,
-    pub(crate) contact_gather_b: SortSlots,
-    pub(crate) contact_gather_b_out: SortSlots,
+    pub(crate) prev_args: GpuBuffer,
+    pub(crate) contact_b_keys: GpuBuffer,
+    pub(crate) contact_b_values: GpuBuffer,
+    pub(crate) contact_b_keys_out: GpuBuffer,
+    pub(crate) contact_b_values_out: GpuBuffer,
     pub(crate) contact_first_a: GpuBuffer,
     pub(crate) contact_first_b: GpuBuffer,
     pub(crate) contact_deltas: GpuBuffer,
@@ -77,18 +86,24 @@ pub(crate) struct StageBuffers {
     pub(crate) island_state: GpuBuffer,
     pub(crate) wake_flags: GpuBuffer,
     pub(crate) constraints: GpuBuffer,
-    pub(crate) constraint_gather_a: SortSlots,
-    pub(crate) constraint_gather_a_out: SortSlots,
-    pub(crate) constraint_gather_b: SortSlots,
-    pub(crate) constraint_gather_b_out: SortSlots,
+    pub(crate) constraint_gather_a_keys: GpuBuffer,
+    pub(crate) constraint_gather_a_values: GpuBuffer,
+    pub(crate) constraint_gather_a_keys_out: GpuBuffer,
+    pub(crate) constraint_gather_a_values_out: GpuBuffer,
+    pub(crate) constraint_gather_b_keys: GpuBuffer,
+    pub(crate) constraint_gather_b_values: GpuBuffer,
+    pub(crate) constraint_gather_b_keys_out: GpuBuffer,
+    pub(crate) constraint_gather_b_values_out: GpuBuffer,
     pub(crate) constraint_first_a: GpuBuffer,
     pub(crate) constraint_first_b: GpuBuffer,
     pub(crate) constraint_deltas: GpuBuffer,
     pub(crate) constraint_joint_count: GpuBuffer,
     pub(crate) constraint_count_state: GpuBuffer,
+    pub(crate) constraint_args: GpuBuffer,
     pub(crate) joint_hi: GpuBuffer,
     pub(crate) joint_lo: GpuBuffer,
     pub(crate) joint_count: GpuBuffer,
+    pub(crate) joint_args: GpuBuffer,
     pub(crate) shapes: GpuBuffer,
     pub(crate) shape_vertices: GpuBuffer,
     pub(crate) shape_triangles: GpuBuffer,
@@ -144,6 +159,10 @@ impl StageBuffers {
         let node_bytes = ((shape_sources * SHAPE_NODES_PER_SOURCE as usize
             * size_of::<BvhNodeRecord>()).max(16)) as u64;
         let events_bytes = (pair_capacity * size_of::<ContactEventRecord>()) as u64;
+        let compact_blocks = (pair_capacity as u64).div_ceil(COMPACT_BLOCK as u64);
+        let compact_bytes = (compact_blocks * size_of::<u32>() as u64) as u64;
+        let args_bytes: u64 = 32;
+        let constraint_args_bytes: u64 = 32;
         Self {
             params: GpuBuffer::new(
                 device,
@@ -179,6 +198,12 @@ impl StageBuffers {
                     | BufferUsages::COPY_DST
                     | BufferUsages::COPY_SRC,
             ),
+            entry_args: GpuBuffer::new(
+                device,
+                "grid entry args",
+                args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+            ),
             pairs: SortSlots::new(device, "pairs", pair_capacity),
             pair_count: GpuBuffer::new(
                 device,
@@ -188,6 +213,12 @@ impl StageBuffers {
                     | BufferUsages::INDIRECT
                     | BufferUsages::COPY_DST
                     | BufferUsages::COPY_SRC,
+            ),
+            pair_args: GpuBuffer::new(
+                device,
+                "pair args",
+                args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC,
             ),
             large_bodies: GpuBuffer::new(
                 device,
@@ -200,6 +231,48 @@ impl StageBuffers {
                 "large collider count",
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            ),
+            contacts_raw: GpuBuffer::new(
+                device,
+                "contacts raw",
+                contact_bytes,
+                BufferUsages::STORAGE,
+            ),
+            contact_valid: GpuBuffer::new(
+                device,
+                "contact valid",
+                contact_key_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            contact_a_body: GpuBuffer::new(
+                device,
+                "contact a body",
+                contact_key_bytes,
+                BufferUsages::STORAGE,
+            ),
+            compact_ranks: GpuBuffer::new(
+                device,
+                "compact ranks",
+                contact_key_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            compact_block_sums: GpuBuffer::new(
+                device,
+                "compact block sums",
+                compact_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            compact_block_sums_pad: GpuBuffer::new(
+                device,
+                "compact block sums pad",
+                (compact_bytes + 32).max(448),
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            compact_block_offsets: GpuBuffer::new(
+                device,
+                "compact block offsets",
+                compact_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             contacts: GpuBuffer::new(
                 device,
@@ -216,23 +289,11 @@ impl StageBuffers {
                     | BufferUsages::COPY_DST
                     | BufferUsages::COPY_SRC,
             ),
-            contact_keys_hi: GpuBuffer::new(
+            contact_args: GpuBuffer::new(
                 device,
-                "contact keys hi",
-                contact_key_bytes,
-                BufferUsages::STORAGE,
-            ),
-            contact_keys_lo: GpuBuffer::new(
-                device,
-                "contact keys lo",
-                contact_key_bytes,
-                BufferUsages::STORAGE,
-            ),
-            contact_indices: GpuBuffer::new(
-                device,
-                "contact indices",
-                contact_key_bytes,
-                BufferUsages::STORAGE,
+                "contact args",
+                args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
             ),
             prev_contacts: GpuBuffer::new(
                 device,
@@ -246,10 +307,36 @@ impl StageBuffers {
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
-            contact_gather_a: SortSlots::new(device, "contact gather a", pair_capacity),
-            contact_gather_a_out: SortSlots::new(device, "contact gather a out", pair_capacity),
-            contact_gather_b: SortSlots::new(device, "contact gather b", pair_capacity),
-            contact_gather_b_out: SortSlots::new(device, "contact gather b out", pair_capacity),
+            prev_args: GpuBuffer::new(
+                device,
+                "previous contact args",
+                args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+            ),
+            contact_b_keys: GpuBuffer::new(
+                device,
+                "contact gather b keys",
+                contact_key_bytes,
+                BufferUsages::STORAGE,
+            ),
+            contact_b_values: GpuBuffer::new(
+                device,
+                "contact gather b values",
+                contact_key_bytes,
+                BufferUsages::STORAGE,
+            ),
+            contact_b_keys_out: GpuBuffer::new(
+                device,
+                "contact gather b keys out",
+                contact_key_bytes,
+                BufferUsages::STORAGE,
+            ),
+            contact_b_values_out: GpuBuffer::new(
+                device,
+                "contact gather b values out",
+                contact_key_bytes,
+                BufferUsages::STORAGE,
+            ),
             contact_first_a: GpuBuffer::new(
                 device,
                 "contact gather first a",
@@ -290,29 +377,75 @@ impl StageBuffers {
                 device,
                 "constraints",
                 constraint_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+                BufferUsages::STORAGE
+                    | BufferUsages::COPY_DST
+                    | BufferUsages::COPY_SRC,               
             ),
-            constraint_gather_a: SortSlots::new(device, "constraint gather a", constraint_capacity),
-            constraint_gather_a_out: SortSlots::new(device, "constraint gather a out", constraint_capacity),
-            constraint_gather_b: SortSlots::new(device, "constraint gather b", constraint_capacity),
-            constraint_gather_b_out: SortSlots::new(device, "constraint gather b out", constraint_capacity),
+            constraint_gather_a_keys: GpuBuffer::new(
+                device,
+                "constraint gather a keys",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE,
+            ),
+            constraint_gather_a_values: GpuBuffer::new(
+                device,
+                "constraint gather a values",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE,
+            ),
+            constraint_gather_a_keys_out: GpuBuffer::new(
+                device,
+                "constraint gather a keys out",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            constraint_gather_a_values_out: GpuBuffer::new(
+                device,
+                "constraint gather a values out",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            constraint_gather_b_keys: GpuBuffer::new(
+                device,
+                "constraint gather b keys",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE,
+            ),
+            constraint_gather_b_values: GpuBuffer::new(
+                device,
+                "constraint gather b values",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE,
+            ),
+            constraint_gather_b_keys_out: GpuBuffer::new(
+                device,
+                "constraint gather b keys out",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
+            constraint_gather_b_values_out: GpuBuffer::new(
+                device,
+                "constraint gather b values out",
+                (constraint_capacity * size_of::<u32>()) as u64,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
             constraint_first_a: GpuBuffer::new(
                 device,
                 "constraint gather first a",
                 state_bytes,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             constraint_first_b: GpuBuffer::new(
                 device,
                 "constraint gather first b",
                 state_bytes,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             constraint_deltas: GpuBuffer::new(
                 device,
                 "constraint solver deltas",
                 (constraint_capacity * 64) as u64,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             constraint_joint_count: GpuBuffer::new(
                 device,
@@ -325,6 +458,12 @@ impl StageBuffers {
                 "constraint count state",
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            ),
+            constraint_args: GpuBuffer::new(
+                device,
+                "constraint args",
+                constraint_args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
             ),
             joint_hi: GpuBuffer::new(
                 device,
@@ -343,6 +482,12 @@ impl StageBuffers {
                 "joint filter count",
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            ),
+            joint_args: GpuBuffer::new(
+                device,
+                "joint filter args",
+                args_bytes,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
             ),
             shapes: GpuBuffer::new(
                 device,
@@ -408,7 +553,7 @@ impl StageBuffers {
                 device,
                 "constraint command count",
                 counter_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             queries: GpuBuffer::new(
                 device,

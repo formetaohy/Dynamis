@@ -6,6 +6,49 @@ use wgpu::{
     PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
+/// Records every dispatch of a physics frame into a single compute pass.
+///
+/// The runtime tracks buffer usage per dispatch and inserts the required
+/// barriers between dispatches inside the pass, so splitting a frame into
+/// dozens of one-dispatch passes buys nothing but submission overhead.
+/// A recorder owns the pass until dropped, at which point the encoder is
+/// released for copies and buffer operations.
+pub struct ComputeRecorder<'a> {
+    pass: wgpu::ComputePass<'a>,
+}
+
+impl<'a> ComputeRecorder<'a> {
+    pub fn begin(encoder: &'a mut CommandEncoder, label: &str) -> Self {
+        let pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+            label: Some(label),
+            timestamp_writes: None,
+        });
+        Self { pass }
+    }
+
+    pub fn record(&mut self, pipeline: &ComputePipeline, bind_groups: &[&BindGroup], count: u32) {
+        self.pass.set_pipeline(pipeline.pipeline());
+        for (group, bind_group) in bind_groups.iter().enumerate() {
+            self.pass.set_bind_group(group as u32, *bind_group, &[]);
+        }
+        self.pass.dispatch_workgroups(count, 1, 1);
+    }
+
+    pub fn record_indirect(
+        &mut self,
+        pipeline: &ComputePipeline,
+        bind_groups: &[&BindGroup],
+        args: &GpuBuffer,
+        offset: u64,
+    ) {
+        self.pass.set_pipeline(pipeline.pipeline());
+        for (group, bind_group) in bind_groups.iter().enumerate() {
+            self.pass.set_bind_group(group as u32, *bind_group, &[]);
+        }
+        self.pass.dispatch_workgroups_indirect(args.as_indirect_args(), offset);
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum BindingKind {
     Uniform,
@@ -122,42 +165,5 @@ impl ComputePipeline {
 
     pub fn workgroup_count(&self, elements: u32) -> u32 {
         elements.div_ceil(self.workgroup_size)
-    }
-
-    fn begin_pass<'a>(&self, encoder: &'a mut CommandEncoder, bind_groups: &[&BindGroup]) -> wgpu::ComputePass<'a> {
-        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: None,
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&self.pipeline);
-        for (group, bind_group) in bind_groups.iter().enumerate() {
-            pass.set_bind_group(group as u32, *bind_group, &[]);
-        }
-        pass
-    }
-
-    pub fn dispatch(&self, encoder: &mut CommandEncoder, bind_groups: &[&BindGroup], count: u32) {
-        let mut pass = self.begin_pass(encoder, bind_groups);
-        pass.dispatch_workgroups(count, 1, 1);
-    }
-
-    pub fn dispatch_indirect(
-        &self,
-        encoder: &mut CommandEncoder,
-        bind_groups: &[&BindGroup],
-        args: &GpuBuffer,
-    ) {
-        let mut pass = self.begin_pass(encoder, bind_groups);
-        pass.dispatch_workgroups_indirect(args.as_indirect_args(), 0);
-    }
-
-    pub fn dispatch_indirect_workgrouped(
-        &self,
-        encoder: &mut CommandEncoder,
-        bind_groups: &[&BindGroup],
-        args: &GpuBuffer,
-    ) {
-        let mut pass = self.begin_pass(encoder, bind_groups);
-        pass.dispatch_workgroups_indirect(args.as_indirect_args(), 0);
     }
 }

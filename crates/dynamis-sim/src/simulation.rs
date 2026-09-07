@@ -78,7 +78,7 @@ impl Simulation {
         buffers
             .prev_contact_count
             .write(gpu.queue(), bytemuck::cast_slice(&[DispatchArgs::none()]));
-        let stages = build_stages(gpu.device(), &buffers);
+        let stages = build_stages(gpu.device(), &buffers, capacity as u32);
         let query_header_bytes = query_capacity * std::mem::size_of::<QueryResultHeader>();
         let zeros = vec![0u8; query_header_bytes];
         buffers.query_headers.write(gpu.queue(), &zeros);
@@ -167,7 +167,7 @@ impl Simulation {
             &buffers.shape_nodes,
         );
         self.sync_state_to(&buffers, capacity);
-        let stages = build_stages(self.gpu.device(), &buffers);
+        let stages = build_stages(self.gpu.device(), &buffers, capacity as u32);
         self.buffers = buffers;
         self.stages = stages;
         self.capacity = capacity;
@@ -341,6 +341,42 @@ impl Simulation {
         self.buffers.commands.buffer()
     }
 
+    pub fn debug_constraint_keys_a(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_gather_a_keys_out.buffer()
+    }
+
+    pub fn debug_constraint_values_a(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_gather_a_values_out.buffer()
+    }
+
+    pub fn debug_constraint_first_b(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_first_b.buffer()
+    }
+
+    pub fn debug_constraint_keys_b_out(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_gather_b_keys_out.buffer()
+    }
+
+    pub fn debug_constraint_values_b(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_gather_b_values_out.buffer()
+    }
+
+    pub fn debug_constraint_first_a(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_first_a.buffer()
+    }
+
+    pub fn debug_constraint_deltas(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_deltas.buffer()
+    }
+
+    pub fn debug_constraint_command_count(&self) -> &wgpu::Buffer {
+        self.buffers.constraint_command_count.buffer()
+    }
+
+    pub fn debug_constraints(&self) -> &wgpu::Buffer {
+        self.buffers.constraints.buffer()
+    }
+
     pub fn debug_contact_count(&self) -> &wgpu::Buffer {
         self.buffers.contact_count.buffer()
     }
@@ -355,6 +391,34 @@ impl Simulation {
 
     pub fn debug_entry_lo(&self) -> &wgpu::Buffer {
         self.buffers.entries.keys_lo.buffer()
+    }
+
+    pub fn debug_contact_valid(&self) -> &wgpu::Buffer {
+        self.buffers.contact_valid.buffer()
+    }
+
+    pub fn debug_pair_args(&self) -> &wgpu::Buffer {
+        self.buffers.pair_args.buffer()
+    }
+
+    pub fn debug_compact_ranks(&self) -> &wgpu::Buffer {
+        self.buffers.compact_ranks.buffer()
+    }
+
+    pub fn debug_compact_offsets(&self) -> &wgpu::Buffer {
+        self.buffers.compact_block_offsets.buffer()
+    }
+
+    pub fn debug_a_bodies(&self) -> &wgpu::Buffer {
+        self.buffers.contact_a_body.buffer()
+    }
+
+    pub fn debug_compact_sums(&self) -> &wgpu::Buffer {
+        self.buffers.compact_block_sums.buffer()
+    }
+
+    pub fn debug_compact_sums_pad(&self) -> &wgpu::Buffer {
+        self.buffers.compact_block_sums_pad.buffer()
     }
 
     pub fn debug_contacts(&self) -> &wgpu::Buffer {
@@ -868,6 +932,7 @@ impl Simulation {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis step encoder"),
         });
+
         encode_physics(
             &self.stages,
             &self.buffers,
@@ -880,6 +945,7 @@ impl Simulation {
             self.queries.len() as u32,
             self.constraint_alive.len() as u32,
         );
+
         let stale_bodies = self.buffers.bodies_readback.enqueue(
             device,
             &mut encoder,

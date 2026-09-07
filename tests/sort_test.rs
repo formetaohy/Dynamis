@@ -1,4 +1,4 @@
-use dynamis::{GpuBuffer, GpuContext, GpuSort};
+use dynamis::{ComputeRecorder, GpuBuffer, GpuContext, GpuCountArgs, GpuSort};
 use std::sync::{Mutex, MutexGuard};
 use wgpu::BufferUsages;
 
@@ -45,6 +45,13 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
         12,
         BufferUsages::STORAGE | BufferUsages::COPY_DST,
     );
+    let args = GpuBuffer::new(
+        device,
+        "args",
+        32,
+        BufferUsages::STORAGE | BufferUsages::INDIRECT,
+    );
+    let count_args = GpuCountArgs::new(device, "test args");
     let mut count_bytes = vec![0u8; 12];
     count_bytes[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
@@ -63,20 +70,24 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
     let mut sort_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("sort"),
     });
-    sort.sort_64(
-        device,
-        &mut sort_encoder,
-        &holder,
-        data.len() as u32,
-        2,
-        0,
-        &keys_lo,
-        &keys_hi,
-        &values,
-        &out_lo,
-        &out_hi,
-        &out_val,
-    );
+    {
+        let mut recorder = ComputeRecorder::begin(&mut sort_encoder, "sort test");
+        count_args.encode(device, &mut recorder, &holder, &args);
+        sort.sort_64(
+            device,
+            &mut recorder,
+            &holder,
+            &args,
+            2,
+            0,
+            &keys_lo,
+            &keys_hi,
+            &values,
+            &out_lo,
+            &out_hi,
+            &out_val,
+        );
+    }
     sort_encoder.copy_buffer_to_buffer(keys_lo.buffer(), 0, &staging, 0, bytes);
     queue.submit([sort_encoder.finish()]);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
