@@ -1,0 +1,15 @@
+[package]
+name = "dynamis-profile"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+dynamis-sim = { workspace = true }
+wgpu = { workspace = true }

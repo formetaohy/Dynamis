@@ -23,6 +23,7 @@ wgpu = "30"
 dynamis-gpu = { version = "0.4.1", path = "crates/dynamis-gpu" }
 dynamis-layout = { version = "0.4.1", path = "crates/dynamis-layout" }
 dynamis-model = { version = "0.4.1", path = "crates/dynamis-model" }
+dynamis-profile = { version = "0.4.1", path = "crates/dynamis-profile" }
 dynamis-query = { version = "0.4.1", path = "crates/dynamis-query" }
 dynamis-sim = { version = "0.4.1", path = "crates/dynamis-sim" }
 
@@ -53,12 +54,17 @@ bevy = { workspace = true }
 dynamis-example-common = { path = "examples/common" }
 bytemuck = { workspace = true }
 dynamis-layout = { workspace = true }
+dynamis-profile = { workspace = true }
 pollster = { workspace = true }
 wgpu = { workspace = true }
 
 [[example]]
 name = "falling_shapes"
 path = "examples/falling_shapes.rs"
+
+[[example]]
+name = "benchmark"
+path = "examples/benchmark.rs"
 
 [[example]]
 name = "joints"

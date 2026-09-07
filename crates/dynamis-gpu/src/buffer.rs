@@ -1,13 +1,17 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use wgpu::{
     Buffer, BufferAddress, BufferAsyncError, BufferDescriptor, BufferUsages, Device, MapMode,
     PollType, Queue,
 };
 
+static NEXT_BUFFER_TOKEN: AtomicU64 = AtomicU64::new(1);
+
 pub struct GpuBuffer {
     buffer: Buffer,
     size: BufferAddress,
     usage: BufferUsages,
+    token: u64,
 }
 
 impl GpuBuffer {
@@ -22,7 +26,12 @@ impl GpuBuffer {
             buffer,
             size,
             usage,
+            token: NEXT_BUFFER_TOKEN.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    pub fn token(&self) -> u64 {
+        self.token
     }
 
     pub fn write(&self, queue: &Queue, bytes: &[u8]) {

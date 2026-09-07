@@ -949,7 +949,7 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     }
     let epa = epa_tetrahedron(first, second, simplex, count);
     var result: ShapeHit;
-    if (epa.valid && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5 && epa.depth < support_projection_depth(first, second, epa.normal) + 0.1 * min(shape_scale(first), shape_scale(second))) {
+    if (epa.valid && epa.depth > 0.0 && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5 && epa.depth < support_projection_depth(first, second, epa.normal) + 0.1 * min(shape_scale(first), shape_scale(second))) {
         result = ShapeHit(-epa.depth, (closest.point_a + closest.point_b) * 0.5, epa.normal);
     } else {
         let probe = convex_penetration_probe(first, second, simplex, count);

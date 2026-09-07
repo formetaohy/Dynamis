@@ -53,6 +53,40 @@ fn cylinder_rests_on_ground() {
 }
 
 #[test]
+fn cylinder_rests_on_cuboid_ground() {
+    let (_guard, gpu) = serialized_gpu();
+    let mut sim = Simulation::new(gpu, 8, PhysicsConfig::default());
+    sim.spawn(
+        BodyDesc::cuboid([20.0, 1.0, 20.0])
+            .mass(0.0)
+            .position([0.0, -1.0, 0.0]),
+    );
+    let aligned = sim.spawn(BodyDesc::cylinder(0.5, 1.0).position([0.0, 3.0, 0.0]));
+    let offset = sim.spawn(BodyDesc::cylinder(0.5, 1.0).position([3.0, 3.0, 0.0]));
+    settle(&mut sim, 240);
+    let aligned_y = sim.read_state(aligned).position[1];
+    let offset_y = sim.read_state(offset).position[1];
+    let aligned_state = sim.read_state(aligned);
+    let offset_state = sim.read_state(offset);
+    assert!(
+        aligned_state.sleeping,
+        "aligned cylinder must fall asleep, got {aligned_y}"
+    );
+    assert!(
+        offset_state.sleeping,
+        "offset cylinder must fall asleep, got {offset_y}"
+    );
+    assert!(
+        aligned_y >= 0.98,
+        "aligned cylinder must not sink below the ground, got {aligned_y}"
+    );
+    assert!(
+        offset_y >= 0.98,
+        "offset cylinder must not sink below the ground, got {offset_y}"
+    );
+}
+
+#[test]
 fn hull_falls_and_rests() {
     let (_guard, gpu) = serialized_gpu();
     let mut sim = Simulation::new(gpu, 8, PhysicsConfig::default());

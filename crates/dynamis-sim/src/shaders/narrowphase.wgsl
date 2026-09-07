@@ -213,7 +213,7 @@ fn box_face_corners(body: RigidBody, collider: Collider, face_normal: vec3f) -> 
     let n = axes[axis] * sign;
     let u = axes[(axis + 1u) % 3u];
     let v = axes[(axis + 2u) % 3u];
-    let e = collider.half_extents[axis] * sign;
+    let e = collider.half_extents[axis];
     var corners: array<vec3f, 4>;
     corners[0] = center + n * e + u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
     corners[1] = center + n * e - u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
@@ -353,27 +353,33 @@ fn box_box_sat(
     }
     let incident_normal = incident_ax[face_axis] * select(1.0, -1.0, dot(incident_ax[face_axis], ref_normal) > 0.0);
     let incident_corners = box_face_corners(incident, incident_collider, incident_normal);
-    var polygon: array<vec3f, 8>;
-    var polygon_count = 4u;
+    var polygon_a: array<vec3f, 8>;
+    var polygon_b: array<vec3f, 8>;
     for (var i = 0u; i < 4u; i = i + 1u) {
-        polygon[i] = incident_corners[i];
+        polygon_a[i] = incident_corners[i];
     }
+    var polygon_count = 4u;
     for (var side = 0u; side < 4u; side = side + 1u) {
         let current = ref_corners[side];
         let next = ref_corners[(side + 1u) % 4u];
         let plane_normal = normalize(cross(next - current, ref_normal));
-        polygon_count = clip_polygon(polygon, polygon_count, current, plane_normal, &polygon);
+        if (side % 2u == 0u) {
+            polygon_count = clip_polygon(polygon_a, polygon_count, current, plane_normal, &polygon_b);
+        } else {
+            polygon_count = clip_polygon(polygon_b, polygon_count, current, plane_normal, &polygon_a);
+        }
         if (polygon_count == 0u) {
             return contact;
         }
     }
+    let clipped = polygon_a;
     contact.normal = signed;
     var candidates: array<ManifoldPoint, 8>;
     var candidate_count = 0u;
     for (var i = 0u; i < polygon_count; i = i + 1u) {
-        let depth = dot(ref_center - polygon[i], ref_normal);
+        let depth = dot(ref_center - clipped[i], ref_normal);
         if (depth >= 0.0 && candidate_count < 8u) {
-            candidates[candidate_count] = ManifoldPoint(polygon[i] - ref_normal * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
+            candidates[candidate_count] = ManifoldPoint(clipped[i] - ref_normal * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
             candidate_count = candidate_count + 1u;
         }
     }
@@ -552,6 +558,31 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             generated = true;
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
             contact = capsule_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_BOX) {
+            let swapped = box_capsule(second, second_collider, first, first_collider);
+            contact = swapped;
+            contact.normal = -contact.normal;
+            generated = true;
+        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_SPHERE) {
+            let swapped = sphere_capsule(second, second_collider, first, first_collider);
+            contact = swapped;
+            contact.normal = -contact.normal;
+            generated = true;
+        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CAPSULE) {
+            contact = capsule_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CYLINDER) {
+            contact = capsule_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CYLINDER) {
+            contact = capsule_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_BOX && shape_b == SHAPE_CYLINDER) {
+            contact = box_capsule(first, first_collider, second, second_collider);
+            generated = true;
+        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CYLINDER) {
+            contact = sphere_capsule(first, first_collider, second, second_collider);
             generated = true;
         } else {
             let world_first = world_collider(first, first_collider);

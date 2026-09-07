@@ -2279,6 +2279,7 @@ dependencies = [
  "dynamis-gpu",
  "dynamis-layout",
  "dynamis-model",
+ "dynamis-profile",
  "dynamis-query",
  "dynamis-sim",
  "pollster",
@@ -2314,6 +2315,15 @@ dependencies = [
 [[package]]
 name = "dynamis-model"
 version = "0.4.1"
+
+[[package]]
+name = "dynamis-profile"
+version = "0.4.1"
+dependencies = [
+ "bytemuck",
+ "dynamis-sim",
+ "wgpu 30.0.1",
+]
 
 [[package]]
 name = "dynamis-query"

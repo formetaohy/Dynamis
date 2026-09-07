@@ -1,6 +1,7 @@
 use crate::buffers::StageBuffers;
 use crate::shape_pool::{PoolKind, ShapePool, height_field_triangles};
 use crate::stages::{Stages, build_stages, encode_physics};
+use crate::timings::StageTimings;
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{
@@ -50,6 +51,8 @@ pub struct Simulation {
     stages: Stages,
     states: Vec<Option<BodyState>>,
     constraint_records: Vec<ConstraintRecord>,
+    timings: Option<StageTimings>,
+    stage_samples: Option<[f64; 11]>,
 }
 
 impl Simulation {
@@ -110,6 +113,8 @@ impl Simulation {
             stages,
             states: Vec::new(),
             constraint_records: Vec::new(),
+            timings: None,
+            stage_samples: None,
         }
     }
 
@@ -819,6 +824,35 @@ impl Simulation {
         std::mem::take(&mut self.events)
     }
 
+    pub fn enable_profiling(&mut self) -> bool {
+        if !self.gpu.supports_timestamps() {
+            return false;
+        }
+        self.timings = Some(StageTimings::new(self.gpu.device(), self.gpu.queue()));
+        true
+    }
+
+    pub fn disable_profiling(&mut self) {
+        self.timings = None;
+        self.stage_samples = None;
+    }
+
+    pub fn stage_samples(&self) -> Option<&[f64; 11]> {
+        self.stage_samples.as_ref()
+    }
+
+    pub fn poll_stage_samples(&mut self) -> bool {
+        let Some(timings) = self.timings.as_mut() else {
+            return false;
+        };
+        if let Some(samples) = timings.poll(self.gpu.device()) {
+            self.stage_samples = Some(samples);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
         let step = self.step_index;
@@ -868,6 +902,8 @@ impl Simulation {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis step encoder"),
         });
+        let island_rounds = self.island_rounds();
+        let timings = self.timings.as_mut();
         encode_physics(
             &self.stages,
             &self.buffers,
@@ -876,9 +912,14 @@ impl Simulation {
             self.alive.len() as u32,
             self.config.solve_iterations,
             self.config.position_iterations,
-            self.island_rounds(),
+            island_rounds,
             self.queries.len() as u32,
+            self.constraint_alive.len() as u32,
+            timings.as_ref().map(|timings| &**timings),
         );
+        if let Some(timings) = timings {
+            timings.resolve(&mut encoder);
+        }
         let stale_bodies = self.buffers.bodies_readback.enqueue(
             device,
             &mut encoder,

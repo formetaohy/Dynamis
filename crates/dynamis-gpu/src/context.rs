@@ -1,4 +1,6 @@
-use wgpu::{Adapter, Device, Instance, InstanceDescriptor, MemoryHints, PowerPreference, Queue};
+use wgpu::{
+    Adapter, Device, Features, Instance, InstanceDescriptor, MemoryHints, PowerPreference, Queue,
+};
 
 pub struct GpuContext {
     adapter: Adapter,
@@ -28,10 +30,19 @@ impl GpuContext {
             })
             .await
             .expect("no compatible GPU adapter found");
+        let mut required_features = Features::empty();
+        for feature in [
+            Features::TIMESTAMP_QUERY,
+            Features::TIMESTAMP_QUERY_INSIDE_ENCODERS,
+        ] {
+            if adapter.features().contains(feature) {
+                required_features |= feature;
+            }
+        }
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("dynamis device"),
-                required_features: wgpu::Features::empty(),
+                required_features,
                 required_limits: adapter.limits(),
                 memory_hints: MemoryHints::default(),
                 ..Default::default()
@@ -55,5 +66,15 @@ impl GpuContext {
 
     pub fn adapter_info(&self) -> wgpu::AdapterInfo {
         self.adapter.get_info()
+    }
+
+    pub fn supports_timestamps(&self) -> bool {
+        self.device
+            .features()
+            .contains(Features::TIMESTAMP_QUERY)
+            && self
+                .device
+                .features()
+                .contains(Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
     }
 }

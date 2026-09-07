@@ -1,4 +1,5 @@
 use crate::buffers::{MAX_CELLS_PER_COLLIDER, StageBuffers};
+use crate::timings::{StageId, StageTimings};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, GpuBuffer, GpuSort};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD,
@@ -1006,179 +1007,257 @@ pub(crate) fn encode_physics(
     position_iterations: u32,
     island_rounds: u32,
     query_count: u32,
+    constraint_count: u32,
+    timings: Option<&StageTimings>,
 ) {
-    stages.apply_commands.dispatch(encoder, 1);
-    stages.apply_constraint_commands.dispatch(encoder, 1);
-    stages.joint_filter.dispatch(encoder, buffers.constraint_capacity());
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.joint_count,
-        buffers.constraint_capacity(),
-        &buffers.joint_lo,
-        &buffers.joint_hi,
-        &buffers.entries.values,
-        &stages.sort_lo,
-        &stages.sort_hi,
-        &stages.sort_values,
-    );
-    stages.integrate.dispatch(encoder, body_count);
-    stages.broadphase_aabb.dispatch(encoder, body_count);
-    stages.grid_entries.dispatch(encoder, body_count);
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.entry_count,
-        buffers.entries.capacity_u32(),
-        &buffers.entries.keys_lo,
-        &buffers.entries.keys_hi,
-        &buffers.entries.values,
-        &stages.sort_hi,
-        &stages.sort_lo,
-        &stages.sort_values,
-    );
-    stages
-        .broadphase_pairs
-        .dispatch_indirect_workgrouped(encoder, &buffers.entry_count);
-    stages.large_pairs.dispatch(encoder, body_count);
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.pair_count,
-        buffers.pairs.capacity_u32(),
-        &buffers.pairs.keys_lo,
-        &buffers.pairs.keys_hi,
-        &buffers.pairs.values,
-        &stages.sort_hi,
-        &stages.sort_lo,
-        &stages.sort_values,
-    );
-    stages
-        .ccd_sweep
-        .dispatch_indirect(encoder, &buffers.pair_count);
-    stages
-        .narrowphase
-        .dispatch_indirect(encoder, &buffers.pair_count);
-    stages
-        .contact_index
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.contact_count,
-        buffers.contact_capacity(),
-        &buffers.contact_keys_lo,
-        &buffers.contact_keys_hi,
-        &buffers.contact_indices,
-        &stages.sort_lo,
-        &stages.sort_hi,
-        &stages.sort_values,
-    );
-    stages
-        .contact_match
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages.island_init.dispatch(encoder, body_count);
-    stages
-        .island_link_contacts
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages
-        .island_link_constraints
-        .dispatch(encoder, buffers.constraint_capacity());
-    for _ in 0..island_rounds {
-        stages.island_jump.dispatch(encoder, body_count);
+    let constraint_active = constraint_count > 0;
+    timed_stage(encoder, timings, StageId::ApplyCommands, |encoder| {
+        stages.apply_commands.dispatch(encoder, 1);
+        stages.apply_constraint_commands.dispatch(encoder, 1);
+    });
+    if constraint_active {
+        timed_stage(encoder, timings, StageId::JointFilter, |encoder| {
+            stages.joint_filter.dispatch(encoder, buffers.constraint_capacity());
+            let joint_words = sort_words(buffers.constraint_capacity());
+            stages.sort.sort_64(
+                device,
+                encoder,
+                &buffers.joint_count,
+                buffers.constraint_capacity(),
+                joint_words,
+                joint_words,
+                &buffers.joint_lo,
+                &buffers.joint_hi,
+                &buffers.entries.values,
+                &stages.sort_lo,
+                &stages.sort_hi,
+                &stages.sort_values,
+            );
+        });
     }
-    stages
-        .gather_contact_keys_a
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages
-        .gather_contact_keys_b
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages
-        .gather_constraint_keys_a
-        .dispatch(encoder, buffers.constraint_capacity());
-    stages
-        .gather_constraint_keys_b
-        .dispatch(encoder, buffers.constraint_capacity());
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.contact_count,
-        buffers.contact_capacity(),
-        &buffers.contact_gather_a.keys_lo,
-        &buffers.contact_gather_a.keys_hi,
-        &buffers.contact_gather_a.values,
-        &buffers.contact_gather_a_out.keys_lo,
-        &buffers.contact_gather_a_out.keys_hi,
-        &buffers.contact_gather_a_out.values,
-    );
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.contact_count,
-        buffers.contact_capacity(),
-        &buffers.contact_gather_b.keys_lo,
-        &buffers.contact_gather_b.keys_hi,
-        &buffers.contact_gather_b.values,
-        &buffers.contact_gather_b_out.keys_lo,
-        &buffers.contact_gather_b_out.keys_hi,
-        &buffers.contact_gather_b_out.values,
-    );
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.constraint_count_state,
-        buffers.constraint_capacity(),
-        &buffers.constraint_gather_a.keys_lo,
-        &buffers.constraint_gather_a.keys_hi,
-        &buffers.constraint_gather_a.values,
-        &buffers.constraint_gather_a_out.keys_lo,
-        &buffers.constraint_gather_a_out.keys_hi,
-        &buffers.constraint_gather_a_out.values,
-    );
-    stages.sort.sort_64(
-        device,
-        encoder,
-        &buffers.constraint_count_state,
-        buffers.constraint_capacity(),
-        &buffers.constraint_gather_b.keys_lo,
-        &buffers.constraint_gather_b.keys_hi,
-        &buffers.constraint_gather_b.values,
-        &buffers.constraint_gather_b_out.keys_lo,
-        &buffers.constraint_gather_b_out.keys_hi,
-        &buffers.constraint_gather_b_out.values,
-    );
-    stages.reset_gather_boundaries.dispatch(encoder, body_count);
-    stages
-        .mark_contact_boundaries
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages
-        .mark_constraint_boundaries
-        .dispatch(encoder, buffers.constraint_capacity());
-    stages.island_aggregate.dispatch(encoder, body_count);
-    stages.island_broadcast.dispatch(encoder, body_count);
-    for _ in 0..solve_iterations {
+    timed_stage(encoder, timings, StageId::Integrate, |encoder| {
+        stages.integrate.dispatch(encoder, body_count);
+    });
+    timed_stage(encoder, timings, StageId::Broadphase, |encoder| {
+        stages.broadphase_aabb.dispatch(encoder, body_count);
+        stages.grid_entries.dispatch(encoder, body_count);
+        let slot_words = sort_words(body_count);
+        stages.sort.sort_64(
+            device,
+            encoder,
+            &buffers.entry_count,
+            buffers.entries.capacity_u32(),
+            slot_words,
+            4,
+            &buffers.entries.keys_lo,
+            &buffers.entries.keys_hi,
+            &buffers.entries.values,
+            &stages.sort_hi,
+            &stages.sort_lo,
+            &stages.sort_values,
+        );
         stages
-            .constraint_solve_extract
+            .broadphase_pairs
+            .dispatch_indirect_workgrouped(encoder, &buffers.entry_count);
+        stages.large_pairs.dispatch(encoder, body_count);
+        stages.sort.sort_64(
+            device,
+            encoder,
+            &buffers.pair_count,
+            buffers.pairs.capacity_u32(),
+            slot_words,
+            slot_words,
+            &buffers.pairs.keys_lo,
+            &buffers.pairs.keys_hi,
+            &buffers.pairs.values,
+            &stages.sort_hi,
+            &stages.sort_lo,
+            &stages.sort_values,
+        );
+    });
+    timed_stage(encoder, timings, StageId::Narrowphase, |encoder| {
+        let slot_words = sort_words(body_count);
+        stages
+            .ccd_sweep
+            .dispatch_indirect(encoder, &buffers.pair_count);
+        stages
+            .narrowphase
+            .dispatch_indirect(encoder, &buffers.pair_count);
+        stages
+            .contact_index
+            .dispatch_indirect(encoder, &buffers.contact_count);
+        stages.sort.sort_64(
+            device,
+            encoder,
+            &buffers.contact_count,
+            buffers.contact_capacity(),
+            slot_words,
+            slot_words,
+            &buffers.contact_keys_lo,
+            &buffers.contact_keys_hi,
+            &buffers.contact_indices,
+            &stages.sort_lo,
+            &stages.sort_hi,
+            &stages.sort_values,
+        );
+        stages
+            .contact_match
+            .dispatch_indirect(encoder, &buffers.contact_count);
+    });
+    timed_stage(encoder, timings, StageId::Islands, |encoder| {
+        stages.island_init.dispatch(encoder, body_count);
+        stages
+            .island_link_contacts
+            .dispatch_indirect(encoder, &buffers.contact_count);
+        stages
+            .island_link_constraints
             .dispatch(encoder, buffers.constraint_capacity());
+        for _ in 0..island_rounds {
+            stages.island_jump.dispatch(encoder, body_count);
+        }
+    });
+    timed_stage(encoder, timings, StageId::Gather, |encoder| {
         stages
-            .contact_solve_extract
+            .gather_contact_keys_a
             .dispatch_indirect(encoder, &buffers.contact_count);
-        stages.body_apply_solver.dispatch(encoder, body_count);
-    }
-    for _ in 0..position_iterations {
         stages
-            .position_solve_extract
+            .gather_contact_keys_b
             .dispatch_indirect(encoder, &buffers.contact_count);
-        stages.body_apply_positions.dispatch(encoder, body_count);
-    }
-    stages
-        .events_end
-        .dispatch_indirect(encoder, &buffers.prev_contact_count);
-    stages
-        .contact_archive
-        .dispatch_indirect(encoder, &buffers.contact_count);
-    stages.prev_count_sync.dispatch(encoder, 1);
+        if constraint_active {
+            stages
+                .gather_constraint_keys_a
+                .dispatch(encoder, buffers.constraint_capacity());
+            stages
+                .gather_constraint_keys_b
+                .dispatch(encoder, buffers.constraint_capacity());
+        }
+        let body_words = sort_words(body_count);
+        stages.sort.sort_64(
+            device,
+            encoder,
+            &buffers.contact_count,
+            buffers.contact_capacity(),
+            body_words,
+            body_words,
+            &buffers.contact_gather_a.keys_lo,
+            &buffers.contact_gather_a.keys_hi,
+            &buffers.contact_gather_a.values,
+            &buffers.contact_gather_a_out.keys_lo,
+            &buffers.contact_gather_a_out.keys_hi,
+            &buffers.contact_gather_a_out.values,
+        );
+        stages.sort.sort_64(
+            device,
+            encoder,
+            &buffers.contact_count,
+            buffers.contact_capacity(),
+            body_words,
+            body_words,
+            &buffers.contact_gather_b.keys_lo,
+            &buffers.contact_gather_b.keys_hi,
+            &buffers.contact_gather_b.values,
+            &buffers.contact_gather_b_out.keys_lo,
+            &buffers.contact_gather_b_out.keys_hi,
+            &buffers.contact_gather_b_out.values,
+        );
+        if constraint_active {
+            stages.sort.sort_64(
+                device,
+                encoder,
+                &buffers.constraint_count_state,
+                buffers.constraint_capacity(),
+                body_words,
+                body_words,
+                &buffers.constraint_gather_a.keys_lo,
+                &buffers.constraint_gather_a.keys_hi,
+                &buffers.constraint_gather_a.values,
+                &buffers.constraint_gather_a_out.keys_lo,
+                &buffers.constraint_gather_a_out.keys_hi,
+                &buffers.constraint_gather_a_out.values,
+            );
+        }
+        if constraint_active {
+            stages.sort.sort_64(
+                device,
+                encoder,
+                &buffers.constraint_count_state,
+                buffers.constraint_capacity(),
+                body_words,
+                body_words,
+                &buffers.constraint_gather_b.keys_lo,
+                &buffers.constraint_gather_b.keys_hi,
+                &buffers.constraint_gather_b.values,
+                &buffers.constraint_gather_b_out.keys_lo,
+                &buffers.constraint_gather_b_out.keys_hi,
+                &buffers.constraint_gather_b_out.values,
+            );
+        }
+        stages.reset_gather_boundaries.dispatch(encoder, body_count);
+        stages
+            .mark_contact_boundaries
+            .dispatch_indirect(encoder, &buffers.contact_count);
+        if constraint_active {
+            stages
+                .mark_constraint_boundaries
+                .dispatch(encoder, buffers.constraint_capacity());
+        }
+        stages.island_aggregate.dispatch(encoder, body_count);
+        stages.island_broadcast.dispatch(encoder, body_count);
+    });
+    timed_stage(encoder, timings, StageId::Solve, |encoder| {
+        for _ in 0..solve_iterations {
+            if constraint_active {
+                stages
+                    .constraint_solve_extract
+                    .dispatch(encoder, buffers.constraint_capacity());
+            }
+            stages
+                .contact_solve_extract
+                .dispatch_indirect(encoder, &buffers.contact_count);
+            stages.body_apply_solver.dispatch(encoder, body_count);
+        }
+    });
+    timed_stage(encoder, timings, StageId::Position, |encoder| {
+        for _ in 0..position_iterations {
+            stages
+                .position_solve_extract
+                .dispatch_indirect(encoder, &buffers.contact_count);
+            stages.body_apply_positions.dispatch(encoder, body_count);
+        }
+    });
+    timed_stage(encoder, timings, StageId::ContactEvents, |encoder| {
+        stages
+            .events_end
+            .dispatch_indirect(encoder, &buffers.prev_contact_count);
+        stages
+            .contact_archive
+            .dispatch_indirect(encoder, &buffers.contact_count);
+        stages.prev_count_sync.dispatch(encoder, 1);
+    });
     if query_count > 0 {
-        stages.query.dispatch_workgroups(encoder, query_count);
+        timed_stage(encoder, timings, StageId::Queries, |encoder| {
+            stages.query.dispatch_workgroups(encoder, query_count);
+        });
+    }
+}
+
+fn sort_words(capacity: u32) -> u32 {
+    let value = capacity.saturating_mul(4).max(2);
+    let width = (32 - value.leading_zeros()).max(1);
+    width.div_ceil(8).clamp(1, 4)
+}
+
+fn timed_stage(
+    encoder: &mut CommandEncoder,
+    timings: Option<&StageTimings>,
+    stage: StageId,
+    body: impl FnOnce(&mut CommandEncoder),
+) {
+    if let Some(timings) = timings {
+        timings.stage_begin(encoder, stage);
+    }
+    body(encoder);
+    if let Some(timings) = timings {
+        timings.stage_end(encoder, stage);
     }
 }

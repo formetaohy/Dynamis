@@ -68,6 +68,8 @@ fn run_sort(data: &[u32]) -> Vec<u32> {
         &mut sort_encoder,
         &holder,
         data.len() as u32,
+        2,
+        0,
         &keys_lo,
         &keys_hi,
         &values,
