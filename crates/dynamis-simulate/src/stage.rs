@@ -7,14 +7,15 @@ use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
     COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
-    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_BROKEN,
-    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
-    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
-    CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
-    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, EVENT_BEGIN, EVENT_END, FILTER_IGNORE_KINEMATIC,
-    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, IMPULSE_AT_POINT,
-    ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY, NO_BODY,
-    NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, PATCH_ANGULAR_VELOCITY,
+    COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_BROKEN,
+    CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
+    CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
+    CONSTRAINT_HAS_SWING, CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
+    CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START,
+    CONTACT_MAX_POINTS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END,
+    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
+    IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
+    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, PATCH_ANGULAR_VELOCITY,
     PATCH_CCD, PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC,
     PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY,
     QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID,
@@ -40,6 +41,7 @@ fn shader_constants() -> String {
          const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
          const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
          const COMMAND_CONSTRAINT_PATCH: u32 = {COMMAND_CONSTRAINT_PATCH}u;\n\
+         const COMMAND_SWAP: u32 = {COMMAND_SWAP}u;\n\
          const COMMAND_SLEEP: u32 = {COMMAND_SLEEP}u;\n\
          const COMMAND_WAKE: u32 = {COMMAND_WAKE}u;\n\
          const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
@@ -86,6 +88,8 @@ fn shader_constants() -> String {
          const CONSTRAINT_FIXED: u32 = {CONSTRAINT_FIXED}u;\n\
          const CONSTRAINT_GEAR: u32 = {CONSTRAINT_GEAR}u;\n\
          const CONSTRAINT_PULLEY: u32 = {CONSTRAINT_PULLEY}u;\n\
+         const CONSTRAINT_CONE: u32 = {CONSTRAINT_CONE}u;\n\
+         const CONSTRAINT_SIXDOF: u32 = {CONSTRAINT_SIXDOF}u;\n\
          const CONSTRAINT_INVALID: u32 = {CONSTRAINT_INVALID}u;\n\
          const CONSTRAINT_DISABLE_COLLISIONS: u32 = {CONSTRAINT_DISABLE_COLLISIONS}u;\n\
          const CONSTRAINT_HAS_LIMIT: u32 = {CONSTRAINT_HAS_LIMIT}u;\n\
@@ -94,6 +98,11 @@ fn shader_constants() -> String {
          const CONSTRAINT_HAS_SWING: u32 = {CONSTRAINT_HAS_SWING}u;\n\
          const CONSTRAINT_HAS_BREAK: u32 = {CONSTRAINT_HAS_BREAK}u;\n\
          const CONSTRAINT_BROKEN: u32 = {CONSTRAINT_BROKEN}u;\n\
+         const CONSTRAINT_WARM_START: u32 = {CONSTRAINT_WARM_START}u;\n\
+         const DOF_FREE: u32 = {DOF_FREE}u;\n\
+         const DOF_LOCKED: u32 = {DOF_LOCKED}u;\n\
+         const DOF_LIMITED: u32 = {DOF_LIMITED}u;\n\
+         const DOF_DRIVEN: u32 = {DOF_DRIVEN}u;\n\
          const QUERY_RAY: u32 = {QUERY_RAY}u;\n\
          const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n\
          const QUERY_CUBOID: u32 = {QUERY_CUBOID}u;\n\
@@ -257,6 +266,8 @@ pub(crate) struct Stages {
     position_solve_extract: Stage,
     body_apply_positions: Stage,
     query: Stage,
+    constraints_warm_end: Stage,
+    static_wake_clear: Stage,
     sort: GpuSort,
     sort_hi: GpuBuffer,
     sort_lo: GpuBuffer,
@@ -646,12 +657,14 @@ pub(crate) fn build_stages(
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.bodies_current,
             &buffers.contacts,
             &buffers.contact_count,
             &buffers.island_parents,
+            &buffers.wake_flags,
         ],
         &shape_resources,
         buffers.contact_capacity(),
@@ -667,12 +680,14 @@ pub(crate) fn build_stages(
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.params,
             &buffers.bodies_current,
             &buffers.constraints,
             &buffers.island_parents,
+            &buffers.wake_flags,
         ],
         &shape_resources,
         buffers.constraint_capacity(),
@@ -1087,6 +1102,28 @@ pub(crate) fn build_stages(
         WORKGROUP_SIZE,
     );
 
+    let constraints_warm_end = Stage::build(
+        context,
+        "constraints_warm_end",
+        &assemble_shader(include_str!("shaders/constraints_warm_end.wgsl")),
+        &[BindingKind::ReadWriteStorage],
+        &[&buffers.constraints],
+        &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
+    );
+
+    let static_wake_clear = Stage::build(
+        context,
+        "static_wake_clear",
+        &assemble_shader(include_str!("shaders/static_wake_clear.wgsl")),
+        &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
+        &[&buffers.params, &buffers.wake_flags],
+        &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
+    );
+
     let sort = GpuSort::new(context, "sim sort", buffers.sort_scratch.capacity_u32());
     let sort_hi = GpuBuffer::new(
         device,
@@ -1153,6 +1190,8 @@ pub(crate) fn build_stages(
         position_solve_extract,
         body_apply_positions,
         query,
+        constraints_warm_end,
+        static_wake_clear,
         sort,
         sort_hi,
         sort_lo,
@@ -1171,6 +1210,7 @@ pub(crate) fn encode_physics(
     buffers: &StageBuffers,
     device: &Device,
     encoder: &mut CommandEncoder,
+    dynamic_count: u32,
     body_count: u32,
     solve_iterations: u32,
     position_iterations: u32,
@@ -1199,10 +1239,10 @@ pub(crate) fn encode_physics(
             &stages.sort_values,
         );
     }
-    stages.integrate.dispatch_at(&mut recorder, body_count);
+    stages.integrate.dispatch_at(&mut recorder, dynamic_count);
     stages
         .broadphase_aabb
-        .dispatch_at(&mut recorder, body_count);
+        .dispatch_at(&mut recorder, dynamic_count);
     stages.grid_entries.dispatch_at(&mut recorder, body_count);
     let collider_words = key_bytes(buffers.collider_capacity());
     stages.sort.sort_64(
@@ -1239,13 +1279,13 @@ pub(crate) fn encode_physics(
     stages.compact_offsets.dispatch(&mut recorder);
     stages.compact_scatter.dispatch(&mut recorder);
     stages.contact_match.dispatch(&mut recorder);
-    stages.island_init.dispatch_at(&mut recorder, body_count);
+    stages.island_init.dispatch_at(&mut recorder, dynamic_count);
     stages.island_link_contacts.dispatch(&mut recorder);
     if constraint_active {
         stages.island_link_constraints.dispatch(&mut recorder);
     }
     for _ in 0..island_rounds {
-        stages.island_jump.dispatch_at(&mut recorder, body_count);
+        stages.island_jump.dispatch_at(&mut recorder, dynamic_count);
     }
     stages.gather_contact_keys_b.dispatch(&mut recorder);
     stages.contact_bucket.sort(
@@ -1280,17 +1320,17 @@ pub(crate) fn encode_physics(
     }
     stages
         .reset_gather_boundaries
-        .dispatch_at(&mut recorder, body_count);
+        .dispatch_at(&mut recorder, dynamic_count);
     stages.mark_contact_boundaries.dispatch(&mut recorder);
     if constraint_active {
         stages.mark_constraint_boundaries.dispatch(&mut recorder);
     }
     stages
         .island_aggregate
-        .dispatch_at(&mut recorder, body_count);
+        .dispatch_at(&mut recorder, dynamic_count);
     stages
         .island_broadcast
-        .dispatch_at(&mut recorder, body_count);
+        .dispatch_at(&mut recorder, dynamic_count);
     for _ in 0..solve_iterations {
         if constraint_active {
             stages.constraint_solve_extract.dispatch(&mut recorder);
@@ -1298,19 +1338,21 @@ pub(crate) fn encode_physics(
         stages.contact_solve_extract.dispatch(&mut recorder);
         stages
             .body_apply_solver
-            .dispatch_at(&mut recorder, body_count);
+            .dispatch_at(&mut recorder, dynamic_count);
     }
     for _ in 0..position_iterations {
         stages.position_solve_extract.dispatch(&mut recorder);
         stages
             .body_apply_positions
-            .dispatch_at(&mut recorder, body_count);
+            .dispatch_at(&mut recorder, dynamic_count);
     }
     drop(recorder);
     let mut tail = ComputeRecorder::begin(encoder, "physics tail");
     stages.events_end.dispatch(&mut tail);
     stages.contact_archive.dispatch(&mut tail);
     stages.prev_count_sync.dispatch(&mut tail);
+    stages.constraints_warm_end.dispatch(&mut tail);
+    stages.static_wake_clear.dispatch_at(&mut tail, body_count);
     if query_count > 0 {
         stages.query.dispatch_workgroups(&mut tail, query_count);
     }

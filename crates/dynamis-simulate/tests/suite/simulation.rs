@@ -1,5 +1,6 @@
+use super::common::distance;
 use super::common::{DT, gpu, gravity_config, sim, static_config};
-use dynamis_model::{BodyDesc, PhysicsConfig};
+use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
 use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -350,4 +351,115 @@ fn settle_frames(world: &mut Simulation, frames: usize) {
         world.step(DT);
     }
     world.wait();
+}
+
+#[test]
+fn mixed_static_and_dynamic_removal_keeps_world_consistent() {
+    let mut world = sim(8, gravity_config());
+    let ground = world.spawn(
+        BodyDesc::cuboid([50.0, 0.5, 50.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let a = world.spawn(BodyDesc::sphere(0.3).position([0.0, 2.0, 0.0]));
+    let b = world.spawn(BodyDesc::sphere(0.3).position([2.0, 2.0, 0.0]));
+    let gate = world.spawn(
+        BodyDesc::sphere(0.3)
+            .sensor(true)
+            .mass(0.0)
+            .position([4.0, 1.0, 0.0]),
+    );
+    settle_frames(&mut world, 30);
+    world.remove(b);
+    settle_frames(&mut world, 30);
+    world.remove(gate);
+    settle_frames(&mut world, 60);
+    let state = world.read_state(a);
+    assert!(
+        state.position[1].abs() < 0.4 && state.position[1] > 0.05,
+        "survivor must rest on the ground after mixed removals, got {}",
+        state.position[1]
+    );
+    assert!(world.read_state(ground).position[1] == -0.5);
+    assert_eq!(world.count(), 2);
+}
+
+#[test]
+fn grow_within_logical_capacity_spawns_without_rebuild() {
+    let mut world = sim(16, static_config());
+    world.grow(16);
+    let mut handles = Vec::new();
+    for index in 0..16 {
+        let ball = world.spawn(BodyDesc::sphere(0.2).position([
+            (index % 4) as f32 * 1.0,
+            0.0,
+            (index / 4) as f32 * 1.0,
+        ]));
+        handles.push(ball);
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.count(), 16);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.grow(12))).is_err(),
+        "grow below the live count must panic"
+    );
+    assert!(
+        handles
+            .iter()
+            .all(|handle| world.read_state(*handle).inverse_mass > 0.0)
+    );
+}
+
+#[test]
+fn dynamic_spawn_shuttles_around_static_slots() {
+    let mut world = sim(8, gravity_config());
+    let ground = world.spawn(
+        BodyDesc::cuboid([50.0, 0.5, 50.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    for index in 0..4 {
+        let ball = world.spawn(BodyDesc::sphere(0.25).position([(index as f32) * 2.0, 2.0, 0.0]));
+        settle_frames(&mut world, 20);
+        assert!(
+            world.read_state(ball).position[1] > 0.0,
+            "ball must land when spawned after other bodies"
+        );
+    }
+    assert_eq!(world.count(), 5);
+    let ground_state = world.read_state(ground);
+    assert_eq!(ground_state.position, [0.0, -0.5, 0.0]);
+}
+
+#[test]
+fn mass_migration_keeps_constraints_attached() {
+    let mut world = sim(8, static_config());
+    let pick = world.spawn(BodyDesc::sphere(0.2));
+    let load = world.spawn(BodyDesc::sphere(0.2).position([0.0, -2.0, 0.0]));
+    world.add_constraint(
+        pick,
+        load,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 2.0),
+    );
+    world.set_mass(load, 0.0);
+    for _ in 0..30 {
+        world.step(DT);
+    }
+    world.wait();
+    assert_eq!(world.read_state(load).position[1], -2.0);
+    world.set_mass(load, 1.0);
+    world.set_velocity(load, [0.0, -1.0, 0.0]);
+    for _ in 1..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let span = distance(
+        world.read_state(pick).position,
+        world.read_state(load).position,
+    );
+    assert!(
+        (span - 2.0).abs() < 0.15,
+        "constraint must stay attached after mass migration, span {span}"
+    );
 }

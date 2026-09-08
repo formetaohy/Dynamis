@@ -7,6 +7,8 @@ pub enum ConstraintKind {
     Fixed,
     Gear,
     Pulley,
+    Cone,
+    SixDof,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -19,6 +21,9 @@ pub struct ConstraintLimit {
 pub struct ConstraintMotor {
     pub target_velocity: f32,
     pub max_force: f32,
+    pub target_position: Option<f32>,
+    pub stiffness: f32,
+    pub damping: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,12 +45,55 @@ pub struct ConstraintBreak {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct DofDesc {
+    pub locked: bool,
+    pub limit: Option<ConstraintLimit>,
+    pub motor: Option<ConstraintMotor>,
+}
+
+impl DofDesc {
+    pub fn free() -> Self {
+        Self {
+            locked: false,
+            limit: None,
+            motor: None,
+        }
+    }
+
+    pub fn locked() -> Self {
+        Self {
+            locked: true,
+            limit: None,
+            motor: None,
+        }
+    }
+
+    pub fn limited(min: f32, max: f32) -> Self {
+        assert!(max >= min, "dof limit max must not be below min");
+        Self {
+            locked: false,
+            limit: Some(ConstraintLimit { min, max }),
+            motor: None,
+        }
+    }
+
+    pub fn driven(motor: ConstraintMotor) -> Self {
+        Self {
+            locked: false,
+            limit: None,
+            motor: Some(motor),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct ConstraintDesc {
     pub kind: ConstraintKind,
     pub anchor_a: [f32; 3],
     pub anchor_b: [f32; 3],
     pub axis_a: [f32; 3],
     pub axis_b: [f32; 3],
+    pub reference: [f32; 4],
     pub rest_length: f32,
     pub limit: Option<ConstraintLimit>,
     pub swing: Option<ConstraintSwing>,
@@ -55,6 +103,9 @@ pub struct ConstraintDesc {
     pub gear_ratio: f32,
     pub pulley_fixed_a: [f32; 3],
     pub pulley_fixed_b: [f32; 3],
+    pub cone_angle: f32,
+    pub dofs: Option<[DofDesc; 6]>,
+    pub warm_start: bool,
     pub disable_collisions: bool,
 }
 
@@ -66,6 +117,7 @@ impl ConstraintDesc {
             anchor_b: [0.0; 3],
             axis_a: [0.0, 1.0, 0.0],
             axis_b: [0.0, 1.0, 0.0],
+            reference: [0.0, 0.0, 0.0, 1.0],
             rest_length: 0.0,
             limit: None,
             swing: None,
@@ -75,6 +127,9 @@ impl ConstraintDesc {
             gear_ratio: 1.0,
             pulley_fixed_a: [0.0; 3],
             pulley_fixed_b: [0.0; 3],
+            cone_angle: 0.0,
+            dofs: None,
+            warm_start: true,
             disable_collisions: true,
         }
     }
@@ -139,6 +194,58 @@ impl ConstraintDesc {
         desc
     }
 
+    pub fn cone(anchor_a: [f32; 3], anchor_b: [f32; 3], axis: [f32; 3], half_angle: f32) -> Self {
+        assert!(axis != [0.0; 3], "cone axis must be non-zero");
+        assert!(
+            (0.0..=std::f32::consts::PI).contains(&half_angle),
+            "cone half angle must be within [0, pi]"
+        );
+        let mut desc = Self::base(ConstraintKind::Cone)
+            .anchors(anchor_a, anchor_b)
+            .axis(axis);
+        desc.axis_b = axis;
+        desc.cone_angle = half_angle;
+        desc
+    }
+
+    pub fn six_dof(
+        anchor_a: [f32; 3],
+        anchor_b: [f32; 3],
+        axis_a: [f32; 3],
+        axis_b: [f32; 3],
+    ) -> Self {
+        assert!(axis_a != [0.0; 3], "six dof axis a must be non-zero");
+        assert!(axis_b != [0.0; 3], "six dof axis b must be non-zero");
+        let mut desc = Self::base(ConstraintKind::SixDof)
+            .anchors(anchor_a, anchor_b)
+            .axis(axis_a);
+        desc.axis_b = axis_b;
+        desc.dofs = Some([DofDesc::free(); 6]);
+        desc
+    }
+
+    pub fn dofs(mut self, dofs: [DofDesc; 6]) -> Self {
+        assert_eq!(
+            self.kind,
+            ConstraintKind::SixDof,
+            "dofs require a six dof constraint"
+        );
+        self.dofs = Some(dofs);
+        self
+    }
+
+    pub fn dof(mut self, index: usize, desc: DofDesc) -> Self {
+        assert_eq!(
+            self.kind,
+            ConstraintKind::SixDof,
+            "dofs require a six dof constraint"
+        );
+        assert!(index < 6, "dof index must be within 0..6");
+        let dofs = self.dofs.get_or_insert([DofDesc::free(); 6]);
+        dofs[index] = desc;
+        self
+    }
+
     pub fn anchors(mut self, anchor_a: [f32; 3], anchor_b: [f32; 3]) -> Self {
         self.anchor_a = anchor_a;
         self.anchor_b = anchor_b;
@@ -154,6 +261,21 @@ impl ConstraintDesc {
     pub fn axis_b(mut self, axis_b: [f32; 3]) -> Self {
         assert!(axis_b != [0.0; 3], "constraint axis b must be non-zero");
         self.axis_b = axis_b;
+        self
+    }
+
+    pub fn reference(mut self, reference: [f32; 4]) -> Self {
+        assert!(
+            (reference[0] * reference[0]
+                + reference[1] * reference[1]
+                + reference[2] * reference[2]
+                + reference[3] * reference[3]
+                - 1.0)
+                .abs()
+                < 1e-4,
+            "reference must be a unit quaternion"
+        );
+        self.reference = reference;
         self
     }
 
@@ -180,10 +302,14 @@ impl ConstraintDesc {
     }
 
     pub fn motor(mut self, target_velocity: f32) -> Self {
-        self.motor = Some(ConstraintMotor {
+        let motor = self.motor.get_or_insert(ConstraintMotor {
             target_velocity,
             max_force: 0.0,
+            target_position: None,
+            stiffness: 0.0,
+            damping: 0.0,
         });
+        motor.target_velocity = target_velocity;
         self
     }
 
@@ -192,8 +318,33 @@ impl ConstraintDesc {
         let motor = self.motor.get_or_insert(ConstraintMotor {
             target_velocity: 0.0,
             max_force: 0.0,
+            target_position: None,
+            stiffness: 0.0,
+            damping: 0.0,
         });
         motor.max_force = max_force;
+        self
+    }
+
+    pub fn servo(mut self, target_position: f32, stiffness: f32, damping: f32) -> Self {
+        assert!(
+            (0.0..=1.0).contains(&stiffness),
+            "servo stiffness must be within [0, 1]"
+        );
+        assert!(
+            (0.0..=1.0).contains(&damping),
+            "servo damping must be within [0, 1]"
+        );
+        let motor = self.motor.get_or_insert(ConstraintMotor {
+            target_velocity: 0.0,
+            max_force: 0.0,
+            target_position: None,
+            stiffness: 0.0,
+            damping: 0.0,
+        });
+        motor.target_position = Some(target_position);
+        motor.stiffness = stiffness;
+        motor.damping = damping;
         self
     }
 
@@ -214,6 +365,11 @@ impl ConstraintDesc {
         assert!(force >= 0.0, "break force must be non-negative");
         assert!(torque >= 0.0, "break torque must be non-negative");
         self.break_threshold = Some(ConstraintBreak { force, torque });
+        self
+    }
+
+    pub fn warm_start(mut self, warm_start: bool) -> Self {
+        self.warm_start = warm_start;
         self
     }
 

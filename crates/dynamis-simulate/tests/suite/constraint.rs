@@ -1,5 +1,5 @@
 use super::common::{DT, distance, settle, sim, static_config};
-use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
+use dynamis_model::{BodyDesc, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig};
 use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -470,5 +470,181 @@ fn motor_force_cap_limits_driving_torque() {
     assert!(
         spin < 6.0,
         "a tiny motor force must cap the driven spin, got {spin}"
+    );
+}
+
+#[test]
+fn cone_constraint_caps_swing_angle() {
+    let mut world = sim(8, static_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let tip = world.spawn(BodyDesc::sphere(0.1).position([-2.0, 0.0, 0.0]));
+    world.add_constraint(
+        anchor,
+        tip,
+        ConstraintDesc::cone([0.0; 3], [2.0, 0.0, 0.0], [-1.0, 0.0, 0.0], 0.35)
+            .axis_b([1.0, 0.0, 0.0]),
+    );
+    world.set_velocity(tip, [0.0, 1.2, 0.0]);
+    for _ in 0..240 {
+        world.step(DT);
+    }
+    world.wait();
+    let state = world.read_state(tip);
+    let tilt = (state.position[1].atan2(-state.position[0])).abs();
+    assert!(tilt < 0.45, "cone must cap the swing tilt, got {tilt}");
+}
+
+#[test]
+fn six_dof_locked_acts_as_fixed_constraint() {
+    let mut world = sim(8, static_config());
+    let base = world.spawn(BodyDesc::sphere(0.5));
+    let link = world.spawn(BodyDesc::sphere(0.5).position([1.5, 0.0, 0.0]));
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.5, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+        .dofs([DofDesc::locked(); 6]);
+    world.add_constraint(base, link, desc);
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let base_state = world.read_state(base);
+    let link_state = world.read_state(link);
+    let offset = [
+        link_state.position[0] - base_state.position[0] + 1.5,
+        link_state.position[1] - base_state.position[1],
+        link_state.position[2] - base_state.position[2],
+    ];
+    assert!(
+        distance(offset, [0.0, 0.0, 0.0]) < 0.05,
+        "locked six dof must keep anchors coincident"
+    );
+    world.set_velocity(base, [0.4, 0.0, 0.0]);
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let carried = distance(
+        world.read_state(link).position,
+        [
+            world.read_state(base).position[0] - 1.5,
+            world.read_state(base).position[1],
+            world.read_state(base).position[2],
+        ],
+    );
+    assert!(
+        carried < 0.08,
+        "locked six dof must carry the link with the base"
+    );
+}
+
+#[test]
+fn six_dof_linear_limit_caps_separation() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.2));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let dofs = [
+        DofDesc::free(),
+        DofDesc::limited(-0.55, -0.45),
+        DofDesc::free(),
+        DofDesc::locked(),
+        DofDesc::locked(),
+        DofDesc::locked(),
+    ];
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+        .dofs(dofs);
+    world.add_constraint(first, second, desc);
+    for _ in 0..180 {
+        world.step(DT);
+    }
+    world.wait();
+    let separation = world.read_state(second).position[0] - world.read_state(first).position[0];
+    assert!(
+        separation.abs() > 0.38 && separation.abs() < 0.62,
+        "linear dof limit must pull the separation to its bound, got {separation}"
+    );
+}
+
+#[test]
+fn six_dof_servo_spins_to_target() {
+    let mut world = sim(8, static_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::cuboid([1.0, 0.05, 0.05]).position([1.0, 0.0, 0.0]));
+    let motor = ConstraintMotor {
+        target_velocity: 0.0,
+        max_force: 20.0,
+        target_position: Some(1.2),
+        stiffness: 0.15,
+        damping: 0.3,
+    };
+    let dofs = [
+        DofDesc::driven(motor),
+        DofDesc::free(),
+        DofDesc::free(),
+        DofDesc::locked(),
+        DofDesc::locked(),
+        DofDesc::locked(),
+    ];
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+        .dofs(dofs);
+    world.add_constraint(anchor, arm, desc);
+    for _ in 0..300 {
+        world.step(DT);
+    }
+    world.wait();
+    let state = world.read_state(arm);
+    let reach =
+        (state.position[0] * state.position[0] + state.position[2] * state.position[2]).sqrt();
+    assert!(
+        reach > 0.9,
+        "servo driven arm must stay anchored, reach {reach}"
+    );
+}
+
+#[test]
+fn servo_drives_prismatic_to_target_distance() {
+    let mut world = sim(8, static_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let slider = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.0]));
+    world.add_constraint(
+        anchor,
+        slider,
+        ConstraintDesc::prismatic([0.0; 3], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0])
+            .servo(2.0, 0.2, 0.4)
+            .motor_force(30.0),
+    );
+    for _ in 0..300 {
+        world.step(DT);
+    }
+    world.wait();
+    let x = world.read_state(slider).position[0];
+    assert!(
+        (x - 2.0).abs() < 0.15,
+        "prismatic servo must approach the target distance, got {x}"
+    );
+}
+
+#[test]
+fn warm_start_off_keeps_constraint_stable() {
+    let mut world = sim(8, static_config());
+    let pick = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let load = world.spawn(BodyDesc::sphere(0.2).position([0.0, -2.0, 0.0]));
+    world.add_constraint(
+        pick,
+        load,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 2.0),
+    );
+    for _i in 0..60 {
+        world.step(DT);
+    }
+    world.wait();
+    let hold = world.read_state(load).position[1];
+    world.set_warm_start(world.constraints()[0], true);
+    world.set_velocity(load, [0.0, -1.0, 0.0]);
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    assert!(
+        world.read_state(load).position[1] < hold + 0.01,
+        "distance constraint must keep holding the load"
     );
 }

@@ -216,11 +216,12 @@ fn sim_params_record_maps_config() {
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
-    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 11, 2);
+    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2);
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
     assert_eq!(record.damping, 0.5);
     assert_eq!(record.angular_damping, 0.25);
+    assert_eq!(record.dynamic_count, 9);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.solve_iterations, 7);

@@ -14,7 +14,7 @@ struct SimParams {
     max_angular_velocity: f32,
     grid_cell_size: f32,
     max_cells_per_collider: u32,
-    _pad0: u32,
+    dynamic_count: u32,
     sleep_velocity: f32,
     sleep_angular_velocity: f32,
     sleep_time: f32,
@@ -178,6 +178,35 @@ struct Constraint {
     _pad_pulley_a: f32,
     pulley_fixed_b: vec3f,
     _pad_pulley_b: f32,
+    motor_target: f32,
+    motor_stiffness: f32,
+    motor_damping: f32,
+    cone_angle: f32,
+    reference: vec4f,
+    linear_limit_min: vec3f,
+    _pad_lim_min: f32,
+    linear_limit_max: vec3f,
+    _pad_lim_max: f32,
+    angular_limit_min: vec3f,
+    _pad_ang_min: f32,
+    angular_limit_max: vec3f,
+    _pad_ang_max: f32,
+    linear_motor_target: vec3f,
+    _pad_lin_target: f32,
+    linear_motor_stiffness: vec3f,
+    _pad_lin_stiff: f32,
+    linear_motor_damping: vec3f,
+    _pad_lin_damp: f32,
+    angular_motor_target: vec3f,
+    _pad_ang_target: f32,
+    angular_motor_stiffness: vec3f,
+    _pad_ang_stiff: f32,
+    angular_motor_damping: vec3f,
+    _pad_ang_damp: f32,
+    linear_motor_force: vec3f,
+    _pad_lin_force: f32,
+    angular_motor_force: vec3f,
+    _pad_ang_force: f32,
     accumulated: array<f32, 8>,
 }
 
@@ -1012,7 +1041,11 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     if (!closest.penetrating) {
         let probe = convex_penetration_probe(first, second, simplex, count);
         if (probe.depth > 0.0) {
-            return ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, probe.normal);
+            var normal = probe.normal;
+            if (dot(normal, second.center - first.center) < 0.0) {
+                normal = -normal;
+            }
+            return ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, normal);
         }
         if (closest.distance > 0.0) {
             return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
@@ -1022,10 +1055,17 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     let epa = epa_tetrahedron(first, second, simplex, count);
     var result: ShapeHit;
     if (epa.valid && epa.depth > 0.0 && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5 && epa.depth < support_projection_depth(first, second, epa.normal) + 0.1 * min(shape_scale(first), shape_scale(second))) {
-        result = ShapeHit(-epa.depth, (closest.point_a + closest.point_b) * 0.5, epa.normal);
+        let point_a = support(first, epa.normal);
+        let point_b = support(second, -epa.normal);
+        result = ShapeHit(-epa.depth, (point_a + point_b) * 0.5, epa.normal);
     } else {
         let probe = convex_penetration_probe(first, second, simplex, count);
-        result = ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, probe.normal);
+        let point_a = support(first, probe.normal);
+        let point_b = support(second, -probe.normal);
+        result = ShapeHit(-probe.depth, (point_a + point_b) * 0.5, probe.normal);
+    }
+    if (dot(result.normal, second.center - first.center) < 0.0) {
+        result.normal = -result.normal;
     }
     return result;
 }

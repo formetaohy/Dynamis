@@ -12,7 +12,7 @@ pub use collider::ColliderDesc;
 pub use config::{MaterialCombine, PhysicsConfig};
 pub use constraint::{
     ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
-    ConstraintMotor, ConstraintSpring, ConstraintSwing,
+    ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
 };
 pub use event::{ContactEvent, ContactEventKind};
 pub use mass::{

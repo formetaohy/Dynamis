@@ -2,7 +2,7 @@ use super::Simulation;
 use dynamis_layout::{ConstraintCommandRecord, ConstraintRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
-    ConstraintMotor, ConstraintSpring, ConstraintSwing,
+    ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
 };
 
 impl Simulation {
@@ -18,6 +18,16 @@ impl Simulation {
             panic!("constraint bodies must be distinct");
         }
         self.validate_constraint_desc(&desc);
+        let mut desc = desc;
+        if desc.kind == ConstraintKind::SixDof
+            && desc.reference == [0.0, 0.0, 0.0, 1.0]
+            && let (Some(state_a), Some(state_b)) = (
+                self.state_snapshot(first.id as usize),
+                self.state_snapshot(second.id as usize),
+            )
+        {
+            desc.reference = relative_reference(state_a.orientation, state_b.orientation);
+        }
         let id = self
             .constraint_free_ids
             .pop()
@@ -55,10 +65,18 @@ impl Simulation {
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
         assert!(max_force >= 0.0, "motor force must be non-negative");
         self.patch_constraint(handle, |desc| {
-            desc.motor = Some(ConstraintMotor {
-                target_velocity,
-                max_force,
+            let motor = desc.motor.get_or_insert(ConstraintMotor {
+                target_velocity: 0.0,
+                max_force: 0.0,
+                target_position: None,
+                stiffness: 0.0,
+                damping: 0.0,
             });
+            motor.target_velocity = target_velocity;
+            motor.max_force = max_force;
+            motor.target_position = None;
+            motor.stiffness = 0.0;
+            motor.damping = 0.0;
         });
     }
 
@@ -84,10 +102,40 @@ impl Simulation {
         });
     }
 
-    pub fn swing_limits(&mut self, handle: ConstraintHandle, swing: Option<ConstraintSwing>) {
+    pub fn set_warm_start(&mut self, handle: ConstraintHandle, warm_start: bool) {
+        self.patch_constraint(handle, |desc| {
+            desc.warm_start = warm_start;
+        });
+    }
+
+    pub fn set_servo(
+        &mut self,
+        handle: ConstraintHandle,
+        target_position: f32,
+        stiffness: f32,
+        damping: f32,
+    ) {
+        self.patch_constraint(handle, |desc| {
+            let motor = desc.motor.get_or_insert(ConstraintMotor {
+                target_velocity: 0.0,
+                max_force: 0.0,
+                target_position: None,
+                stiffness: 0.0,
+                damping: 0.0,
+            });
+            motor.target_position = Some(target_position);
+            motor.stiffness = stiffness;
+            motor.damping = damping;
+        });
+    }
+
+    pub fn set_swing_limits(&mut self, handle: ConstraintHandle, swing: Option<ConstraintSwing>) {
         self.patch_constraint(handle, |desc| {
             desc.swing = swing;
         });
+    }
+    pub fn swing_limits(&mut self, handle: ConstraintHandle, swing: Option<ConstraintSwing>) {
+        self.set_swing_limits(handle, swing);
     }
 
     pub fn set_constraint_disable_collisions(&mut self, handle: ConstraintHandle, disable: bool) {
@@ -151,10 +199,50 @@ impl Simulation {
             | ConstraintKind::Distance
             | ConstraintKind::Pulley
             | ConstraintKind::Gear => {}
+            ConstraintKind::Cone => {
+                if desc.axis_a == [0.0; 3] || desc.axis_b == [0.0; 3] {
+                    panic!("constraint axis must be non-zero");
+                }
+            }
             _ => {
                 if desc.axis_a == [0.0; 3] {
                     panic!("constraint axis must be non-zero");
                 }
+            }
+        }
+    }
+
+    pub(super) fn remap_constraint_slots(&mut self, first: u32, second: u32) {
+        for index in 0..self.constraint_records.len() {
+            let record = &mut self.constraint_records[index];
+            let mut changed = false;
+            if record.a == first && record.b == second {
+                record.a = second;
+                record.b = first;
+                changed = true;
+            } else if record.a == second && record.b == first {
+                record.a = first;
+                record.b = second;
+                changed = true;
+            } else {
+                if record.a == first {
+                    record.a = second;
+                    changed = true;
+                } else if record.a == second {
+                    record.a = first;
+                    changed = true;
+                }
+                if record.b == first {
+                    record.b = second;
+                    changed = true;
+                } else if record.b == second {
+                    record.b = first;
+                    changed = true;
+                }
+            }
+            if changed {
+                self.constraint_commands
+                    .push(ConstraintCommandRecord::patch(index as u32, *record));
             }
         }
     }
@@ -170,6 +258,25 @@ impl Simulation {
     }
 }
 
+fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32; 4] {
+    let a = [
+        -orientation_a[0],
+        -orientation_a[1],
+        -orientation_a[2],
+        orientation_a[3],
+    ];
+    quat_mul(a, orientation_b)
+}
+
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] + a[1] * b[3] + a[2] * b[0] - a[0] * b[2],
+        a[3] * b[2] + a[2] * b[3] + a[0] * b[1] - a[1] * b[0],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ]
+}
+
 fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
     let kind = match record.kind {
         dynamis_layout::CONSTRAINT_BALL => ConstraintKind::Ball,
@@ -178,12 +285,17 @@ fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
         dynamis_layout::CONSTRAINT_PRISMATIC => ConstraintKind::Prismatic,
         dynamis_layout::CONSTRAINT_FIXED => ConstraintKind::Fixed,
         dynamis_layout::CONSTRAINT_GEAR => ConstraintKind::Gear,
+        dynamis_layout::CONSTRAINT_CONE => ConstraintKind::Cone,
+        dynamis_layout::CONSTRAINT_SIXDOF => ConstraintKind::SixDof,
         _ => ConstraintKind::Pulley,
     };
     let mut desc = ConstraintDesc::ball(record.anchor_a, record.anchor_b).rekind(kind);
     desc.axis_a = record.axis_a;
     desc.axis_b = record.axis_b;
+    desc.reference = record.reference;
     desc.rest_length = record.distance;
+    desc.cone_angle = record.cone_angle;
+    desc.warm_start = record.flags & dynamis_layout::CONSTRAINT_WARM_START != 0;
     if record.flags & dynamis_layout::CONSTRAINT_HAS_LIMIT != 0 {
         desc.limit = Some(ConstraintLimit {
             min: record.limit_min,
@@ -200,6 +312,9 @@ fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
         desc.motor = Some(ConstraintMotor {
             target_velocity: record.motor_speed,
             max_force: record.motor_max_force,
+            target_position: (record.motor_stiffness > 0.0).then_some(record.motor_target),
+            stiffness: record.motor_stiffness,
+            damping: record.motor_damping,
         });
     }
     if record.flags & dynamis_layout::CONSTRAINT_IS_SPRING != 0 {
@@ -218,5 +333,53 @@ fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
     desc.pulley_fixed_a = record.pulley_fixed_a;
     desc.pulley_fixed_b = record.pulley_fixed_b;
     desc.disable_collisions = record.flags & dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS != 0;
+    if desc.kind == ConstraintKind::SixDof || (record.kind == dynamis_layout::CONSTRAINT_SIXDOF) {
+        let mode_of = |index: u32| -> DofDesc {
+            let mode = dynamis_layout::dof_mode(record.flags, index);
+            match mode {
+                dynamis_layout::DOF_LOCKED => DofDesc::locked(),
+                dynamis_layout::DOF_LIMITED => {
+                    let (min, max) = if index < 3 {
+                        (
+                            record.linear_limit_min[index as usize],
+                            record.linear_limit_max[index as usize],
+                        )
+                    } else {
+                        (
+                            record.angular_limit_min[index as usize - 3],
+                            record.angular_limit_max[index as usize - 3],
+                        )
+                    };
+                    DofDesc::limited(min, max)
+                }
+                dynamis_layout::DOF_DRIVEN => {
+                    let (target, stiffness, damping, force) = if index < 3 {
+                        (
+                            record.linear_motor_target[index as usize],
+                            record.linear_motor_stiffness[index as usize],
+                            record.linear_motor_damping[index as usize],
+                            record.linear_motor_force[index as usize],
+                        )
+                    } else {
+                        (
+                            record.angular_motor_target[index as usize - 3],
+                            record.angular_motor_stiffness[index as usize - 3],
+                            record.angular_motor_damping[index as usize - 3],
+                            record.angular_motor_force[index as usize - 3],
+                        )
+                    };
+                    DofDesc::driven(ConstraintMotor {
+                        target_velocity: if stiffness <= 0.0 { target } else { 0.0 },
+                        max_force: force,
+                        target_position: (stiffness > 0.0).then_some(target),
+                        stiffness,
+                        damping,
+                    })
+                }
+                _ => DofDesc::free(),
+            }
+        };
+        desc.dofs = Some(std::array::from_fn(|index| mode_of(index as u32)));
+    }
     desc
 }

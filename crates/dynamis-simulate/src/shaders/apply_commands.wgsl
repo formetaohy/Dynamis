@@ -40,6 +40,22 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     colliders[command.slot * MAX_COLLIDERS_PER_BODY + c] = colliders[command.extra * MAX_COLLIDERS_PER_BODY + c];
                 }
             }
+            bodies[command.extra] = RigidBody();
+            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
+                colliders[command.extra * MAX_COLLIDERS_PER_BODY + c] = Collider();
+            }
+        } else if (command.kind == COMMAND_SWAP) {
+            var first = bodies[command.slot];
+            var second = bodies[command.extra];
+            bodies[command.slot] = second;
+            bodies[command.extra] = first;
+            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
+                let first_index = command.slot * MAX_COLLIDERS_PER_BODY + c;
+                let second_index = command.extra * MAX_COLLIDERS_PER_BODY + c;
+                let swap = colliders[first_index];
+                colliders[first_index] = colliders[second_index];
+                colliders[second_index] = swap;
+            }
         } else if (command.kind == COMMAND_PATCH) {
             var body = bodies[command.slot];
             if ((command.extra & PATCH_POSITION) != 0u) {

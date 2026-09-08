@@ -139,9 +139,9 @@ impl StageBuffers {
         let constraint_bytes = (constraint_capacity * size_of::<ConstraintRecord>()) as u64;
         let counter_bytes = size_of::<DispatchArgs>() as u64;
         let state_bytes = (capacity * size_of::<u32>()) as u64;
-        let command_bytes = (capacity * size_of::<BodyCommandRecord>()) as u64;
+        let command_bytes = (capacity * 4 * size_of::<BodyCommandRecord>()) as u64;
         let constraint_command_bytes =
-            (constraint_capacity * size_of::<ConstraintCommandRecord>()) as u64;
+            (constraint_capacity * 4 * size_of::<ConstraintCommandRecord>()) as u64;
         let params_bytes = size_of::<SimParamsRecord>() as u64;
         let query_bytes = (query_capacity * size_of::<QueryRecord>()) as u64;
         let query_header_bytes = (query_capacity * size_of::<QueryResultHeader>()) as u64;
@@ -184,7 +184,7 @@ impl StageBuffers {
                 device,
                 "broadphase aabbs",
                 aabb_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             entries: SortSlots::new(device, "grid entries", entry_capacity),
             entry_count: GpuBuffer::new(

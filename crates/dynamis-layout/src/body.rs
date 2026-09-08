@@ -2,7 +2,7 @@ use crate::collider::ColliderRecord;
 use crate::constant::{
     BODY_CCD, BODY_KINEMATIC, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_FORCE,
     COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
-    COMMAND_TORQUE, COMMAND_WAKE, IMPULSE_AT_POINT,
+    COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE, IMPULSE_AT_POINT,
 };
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
@@ -137,6 +137,17 @@ impl BodyCommandRecord {
             kind: COMMAND_REMOVE,
             slot: hole,
             extra: tail,
+            aux: 0,
+            body: RigidBodyRecord::zeroed(),
+            colliders: [ColliderRecord::zeroed(); 4],
+        }
+    }
+
+    pub fn swap(first: u32, second: u32) -> Self {
+        Self {
+            kind: COMMAND_SWAP,
+            slot: first,
+            extra: second,
             aux: 0,
             body: RigidBodyRecord::zeroed(),
             colliders: [ColliderRecord::zeroed(); 4],

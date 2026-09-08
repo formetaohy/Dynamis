@@ -117,3 +117,14 @@ pub struct AabbRecord {
     pub max: [f32; 3],
     pub _pad1: f32,
 }
+
+impl AabbRecord {
+    pub const fn empty() -> Self {
+        Self {
+            min: [f32::MAX; 3],
+            _pad0: 0.0,
+            max: [f32::MIN; 3],
+            _pad1: 0.0,
+        }
+    }
+}

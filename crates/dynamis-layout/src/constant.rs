@@ -11,6 +11,7 @@ pub const COMMAND_WAKE: u32 = 9;
 pub const COMMAND_FORCE_AT_POINT: u32 = 10;
 pub const COMMAND_ANGULAR_IMPULSE: u32 = 11;
 pub const COMMAND_CONSTRAINT_PATCH: u32 = 12;
+pub const COMMAND_SWAP: u32 = 13;
 
 pub const IMPULSE_AT_POINT: u32 = 1;
 
@@ -67,6 +68,8 @@ pub const CONSTRAINT_PRISMATIC: u32 = 3;
 pub const CONSTRAINT_FIXED: u32 = 4;
 pub const CONSTRAINT_GEAR: u32 = 5;
 pub const CONSTRAINT_PULLEY: u32 = 6;
+pub const CONSTRAINT_CONE: u32 = 7;
+pub const CONSTRAINT_SIXDOF: u32 = 8;
 pub const CONSTRAINT_INVALID: u32 = 0xFFFF_FFFF;
 
 pub const CONSTRAINT_DISABLE_COLLISIONS: u32 = 1;
@@ -76,6 +79,20 @@ pub const CONSTRAINT_IS_SPRING: u32 = 8;
 pub const CONSTRAINT_HAS_SWING: u32 = 16;
 pub const CONSTRAINT_HAS_BREAK: u32 = 32;
 pub const CONSTRAINT_BROKEN: u32 = 64;
+pub const CONSTRAINT_WARM_START: u32 = 128;
+
+pub const DOF_FREE: u32 = 0;
+pub const DOF_LOCKED: u32 = 1;
+pub const DOF_LIMITED: u32 = 2;
+pub const DOF_DRIVEN: u32 = 3;
+
+pub fn dof_mode(flags: u32, index: u32) -> u32 {
+    (flags >> (8 + index * 2)) & 3
+}
+
+pub fn set_dof_mode(flags: u32, index: u32, mode: u32) -> u32 {
+    (flags & !(3 << (8 + index * 2))) | (mode << (8 + index * 2))
+}
 
 pub const QUERY_RAY: u32 = 0;
 pub const QUERY_SPHERE: u32 = 1;

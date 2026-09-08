@@ -378,7 +378,7 @@ fn main(
             }
         }
         if (hit.distance < NO_HIT) {
-            emit_hit(query, body, collider, collider_slot, hit.distance, hit.point, hit.normal);
+            emit_hit(query, body, collider, collider_slot % MAX_COLLIDERS_PER_BODY, hit.distance, hit.point, hit.normal);
         }
         candidate_index = candidate_index + WORKGROUP_SIZE;
     }

@@ -244,12 +244,25 @@ fn box_box_sat(
 ) -> Contact {
     var contact: Contact;
     contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
-    let axes_a = box_rotated_axes(first, first_collider);
-    let axes_b = box_rotated_axes(second, second_collider);
-    let he_a = first_collider.half_extents;
-    let he_b = second_collider.half_extents;
-    let center_a = box_center(first, first_collider);
-    let center_b = box_center(second, second_collider);
+    let box_radius = max(max(first_collider.half_extents.x, first_collider.half_extents.y), first_collider.half_extents.z);
+    let other_radius = max(max(second_collider.half_extents.x, second_collider.half_extents.y), second_collider.half_extents.z);
+    let swapped = box_radius < other_radius;
+    var ref_body = first;
+    var ref_collider = first_collider;
+    var hit_body = second;
+    var hit_collider = second_collider;
+    if (swapped) {
+        ref_body = second;
+        ref_collider = second_collider;
+        hit_body = first;
+        hit_collider = first_collider;
+    }
+    let axes_a = box_rotated_axes(ref_body, ref_collider);
+    let axes_b = box_rotated_axes(hit_body, hit_collider);
+    let he_a = ref_collider.half_extents;
+    let he_b = hit_collider.half_extents;
+    let center_a = box_center(ref_body, ref_collider);
+    let center_b = box_center(hit_body, hit_collider);
     let delta = center_b - center_a;
     var best = 1e30;
     var best_axis = vec3f(0.0, 1.0, 0.0);
@@ -311,8 +324,8 @@ fn box_box_sat(
     let signed = select(best_axis, -best_axis, dot(best_axis, delta) < 0.0);
     if (best_side >= 6u) {
         let depth = best;
-        let point = box_face_point(second, second_collider, -signed);
-        contact.normal = signed;
+        let point = box_face_point(hit_body, hit_collider, -signed);
+        contact.normal = select(signed, -signed, swapped);
         manifold_push(&contact, point, depth);
         return contact;
     }
@@ -322,15 +335,15 @@ fn box_box_sat(
     var incident_collider: Collider;
     var face_normal = signed;
     if (best_side < 3u) {
-        reference = first;
-        reference_collider = first_collider;
-        incident = second;
-        incident_collider = second_collider;
+        reference = ref_body;
+        reference_collider = ref_collider;
+        incident = hit_body;
+        incident_collider = hit_collider;
     } else {
-        reference = second;
-        reference_collider = second_collider;
-        incident = first;
-        incident_collider = first_collider;
+        reference = hit_body;
+        reference_collider = hit_collider;
+        incident = ref_body;
+        incident_collider = ref_collider;
         face_normal = -signed;
     }
     let ref_normal = face_normal;
@@ -365,7 +378,7 @@ fn box_box_sat(
         }
     }
     let clipped = polygon_a;
-    contact.normal = signed;
+    contact.normal = select(signed, -signed, swapped);
     var candidates: array<ManifoldPoint, 8>;
     var candidate_count = 0u;
     for (var i = 0u; i < polygon_count; i = i + 1u) {
@@ -547,11 +560,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (hit.distance <= 0.0) {
                 contact_emit(&contact, -hit.normal);
                 generated = true;
-                var flipped: Contact;
-                if (scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &flipped)) {
-                    contact = flipped;
-                    contact.normal = -contact.normal;
-                } else {
+                if (!scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &contact)) {
                     let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
                     manifold_from_hit(&contact, reversed_hit);
                 }

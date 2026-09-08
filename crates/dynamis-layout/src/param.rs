@@ -26,7 +26,7 @@ pub struct SimParamsRecord {
     pub max_angular_velocity: f32,
     pub grid_cell_size: f32,
     pub max_cells_per_collider: u32,
-    pub _pad0: u32,
+    pub dynamic_count: u32,
     pub sleep_velocity: f32,
     pub sleep_angular_velocity: f32,
     pub sleep_time: f32,
@@ -39,7 +39,13 @@ pub struct SimParamsRecord {
 }
 
 impl SimParamsRecord {
-    pub fn new(config: &PhysicsConfig, dt: f32, body_count: u32, constraint_count: u32) -> Self {
+    pub fn new(
+        config: &PhysicsConfig,
+        dt: f32,
+        dynamic_count: u32,
+        body_count: u32,
+        constraint_count: u32,
+    ) -> Self {
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,
@@ -56,7 +62,7 @@ impl SimParamsRecord {
             max_angular_velocity: config.max_angular_velocity,
             grid_cell_size: config.broadphase_cell_size,
             max_cells_per_collider: MAX_CELLS_PER_COLLIDER,
-            _pad0: 0,
+            dynamic_count,
             sleep_velocity: config.sleep_velocity,
             sleep_angular_velocity: config.sleep_angular_velocity,
             sleep_time: config.sleep_time,

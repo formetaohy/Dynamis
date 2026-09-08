@@ -7,12 +7,12 @@ mod shape;
 use crate::buffer::StageBuffers;
 use crate::shape_pool::ShapePool;
 use crate::stage::{Stages, build_stages, encode_physics};
-use bytemuck::Zeroable;
+use crate::static_aabb;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{
-    BODY_SLEEPING, BodyCommandRecord, CONSTRAINT_INVALID, ColliderRecord, ConstraintCommandRecord,
-    ConstraintRecord, ContactRecord, DispatchArgs, QueryRecord, QueryResultHeader, RigidBodyRecord,
-    SimParamsRecord,
+    AabbRecord, BODY_SLEEPING, BodyCommandRecord, CONSTRAINT_INVALID, ColliderRecord,
+    ConstraintCommandRecord, ConstraintRecord, ContactRecord, DispatchArgs, QueryRecord,
+    QueryResultHeader, RigidBodyRecord, SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MassProperties,
@@ -114,6 +114,8 @@ pub struct Simulation {
     gpu: GpuContext,
     config: PhysicsConfig,
     capacity: usize,
+    reserved: usize,
+    dynamic_count: usize,
     constraint_capacity: usize,
     step_index: u64,
     alive: Vec<BodyHandle>,
@@ -144,6 +146,7 @@ pub struct Simulation {
     buffers: StageBuffers,
     stages: Stages,
     states: Vec<Option<BodyState>>,
+    kinematic: Vec<bool>,
     constraint_records: Vec<ConstraintRecord>,
 }
 
@@ -181,6 +184,8 @@ impl Simulation {
             gpu,
             config,
             capacity,
+            reserved: capacity,
+            dynamic_count: 0,
             constraint_capacity,
             step_index: 0,
             alive: Vec::new(),
@@ -211,6 +216,7 @@ impl Simulation {
             buffers,
             stages,
             states: Vec::new(),
+            kinematic: Vec::new(),
             constraint_records: Vec::new(),
         }
     }
@@ -270,15 +276,38 @@ impl Simulation {
             capacity >= self.alive.len(),
             "grow capacity must not drop below the live body count"
         );
-        if capacity == self.capacity {
+        if capacity <= self.capacity {
             return;
         }
-        let pair_capacity = capacity * PAIR_CAPACITY_PER_BODY;
-        let query_capacity = capacity * QUERY_RATIO;
+        self.capacity = capacity;
+        if capacity > self.reserved {
+            let target = capacity.max(self.reserved.saturating_mul(2));
+            self.rebuild(target);
+        } else {
+            self.extend_ids(capacity);
+        }
+    }
+
+    fn extend_ids(&mut self, capacity: usize) {
+        let owned = self.capacity.max(self.reserved);
+        if capacity > owned {
+            self.free_ids
+                .extend((owned..capacity).rev().map(|id| id as u32));
+        }
+    }
+
+    fn rebuild(&mut self, reserved: usize) {
+        assert!(
+            reserved >= self.alive.len(),
+            "rebuild capacity must not drop below the live body count"
+        );
+        self.extend_ids(reserved);
+        let pair_capacity = reserved * PAIR_CAPACITY_PER_BODY;
+        let query_capacity = reserved * QUERY_RATIO;
         let buffers = StageBuffers::new(
             self.gpu.device(),
             self.shape_pool.capacity(),
-            capacity,
+            reserved,
             pair_capacity,
             query_capacity,
             self.constraint_capacity,
@@ -296,15 +325,16 @@ impl Simulation {
             &buffers.shape_nodes,
         );
         self.sync_state_to(&buffers);
-        let stages = build_stages(&self.gpu, &buffers, capacity as u32);
+        let stages = build_stages(&self.gpu, &buffers, reserved as u32);
         self.buffers = buffers;
         self.stages = stages;
-        self.capacity = capacity;
+        self.reserved = reserved;
     }
 
     fn sync_state_to(&mut self, buffers: &StageBuffers) {
         let mut bodies = Vec::with_capacity(self.alive.len());
         let mut colliders = Vec::new();
+        let mut aabbs = Vec::with_capacity(self.alive.len() * 4);
         for handle in self.alive.iter() {
             let id = handle.id as usize;
             let desc = self.build_desc(id);
@@ -320,15 +350,14 @@ impl Simulation {
                 body_record.flags |= if state.sleeping { BODY_SLEEPING } else { 0 };
             }
             bodies.push(body_record);
-            for index in 0..dynamis_model::MAX_COLLIDERS_PER_BODY {
-                let collider = self
-                    .collider_descs
-                    .get(id)
-                    .and_then(|descs| descs.get(index))
-                    .map(|desc| self.collider_record(desc))
-                    .unwrap_or_else(ColliderRecord::zeroed);
-                colliders.push(collider);
-            }
+            let block = self.collider_block_of(id);
+            colliders.extend_from_slice(&block);
+            let aabb_block = if !desc.kinematic && desc.mass <= 0.0 {
+                static_aabb::static_aabbs(&body_record, &block, &self.shape_pool)
+            } else {
+                [AabbRecord::empty(); 4]
+            };
+            aabbs.extend_from_slice(&aabb_block);
         }
         buffers
             .bodies_current
@@ -336,6 +365,9 @@ impl Simulation {
         buffers
             .colliders
             .write(self.gpu.queue(), bytemuck::cast_slice(&colliders));
+        buffers
+            .aabbs
+            .write(self.gpu.queue(), bytemuck::cast_slice(&aabbs));
         let constraint_count = self.constraint_alive.len() as u32;
         let mut constraints = Vec::with_capacity(self.constraint_alive.len());
         for handle in &self.constraint_alive {
@@ -483,6 +515,7 @@ impl Simulation {
         let params = SimParamsRecord::new(
             &self.config,
             dt,
+            self.dynamic_count as u32,
             self.alive.len() as u32,
             self.constraint_alive.len() as u32,
         );
@@ -511,6 +544,7 @@ impl Simulation {
             &self.buffers,
             device,
             &mut encoder,
+            self.dynamic_count as u32,
             self.alive.len() as u32,
             self.config.solve_iterations,
             self.config.position_iterations,

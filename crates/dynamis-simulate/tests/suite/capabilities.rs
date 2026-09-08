@@ -357,7 +357,7 @@ fn query_filter_excludes_own_body() {
         world
             .query_hit(handle)
             .map(|result| (result.body, result.collider)),
-        Some((hit, 4)),
+        Some((hit, 0)),
         "inclusive query must hit the body and report its collider"
     );
 }

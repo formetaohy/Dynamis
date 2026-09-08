@@ -19,6 +19,9 @@ impl<'a> ComputeRecorder<'a> {
     }
 
     pub fn record(&mut self, pipeline: &ComputePipeline, bind_groups: &[&BindGroup], count: u32) {
+        if count == 0 {
+            return;
+        }
         self.pass.set_pipeline(pipeline.pipeline());
         for (group, bind_group) in bind_groups.iter().enumerate() {
             self.pass.set_bind_group(group as u32, *bind_group, &[]);

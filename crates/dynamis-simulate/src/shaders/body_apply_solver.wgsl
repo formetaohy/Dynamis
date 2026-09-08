@@ -18,7 +18,7 @@
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let body_index = gid.x;
-    if (body_index >= params.body_count) {
+    if (body_index >= params.dynamic_count) {
         return;
     }
     let total = contact_count[0];

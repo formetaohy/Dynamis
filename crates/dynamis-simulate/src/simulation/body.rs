@@ -1,15 +1,21 @@
 use super::Simulation;
+use crate::static_aabb;
 use bytemuck::Zeroable;
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY, PATCH_CCD,
-    PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, RigidBodyRecord,
+    AabbRecord, BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, ColliderRecord,
+    PATCH_ANGULAR_VELOCITY, PATCH_CCD, PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_GROUP,
+    PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY,
+    RigidBodyRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, MAX_COLLIDERS_PER_BODY, MassProperties, Shape,
 };
 
 impl Simulation {
+    fn is_dynamic_desc(desc: &BodyDesc) -> bool {
+        !(desc.mass <= 0.0 && !desc.kinematic)
+    }
+
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         let id = self
             .free_ids
@@ -20,23 +26,22 @@ impl Simulation {
             id,
             generation: self.generations[id as usize],
         };
-        let slot = self.alive.len() as u32;
-        self.index_of[id as usize] = slot;
-        self.alive.push(handle);
         self.validate_world_geometry(&desc);
         let effective_mass = desc.effective_mass(|shape| self.shape_bounds(shape));
         let mut spawn_desc = desc.clone();
         spawn_desc.mass = effective_mass;
-        self.masses.resize(self.alive.len(), 1.0);
+        self.masses.resize(self.alive.len() + 1, 1.0);
         self.masses[id as usize] = effective_mass;
-        self.com_overrides.resize(self.alive.len(), None);
+        self.com_overrides.resize(self.alive.len() + 1, None);
         self.com_overrides[id as usize] = desc.com;
-        self.inertia_overrides.resize(self.alive.len(), None);
+        self.inertia_overrides.resize(self.alive.len() + 1, None);
         self.inertia_overrides[id as usize] = desc.inertia;
         self.dynamics
-            .resize(self.alive.len(), super::BodyDynamics::defaults());
+            .resize(self.alive.len() + 1, super::BodyDynamics::defaults());
         self.dynamics[id as usize] = super::BodyDynamics::from_desc(&desc);
-        self.collider_descs.resize(self.alive.len(), Vec::new());
+        self.kinematic.resize(self.alive.len() + 1, false);
+        self.kinematic[id as usize] = desc.kinematic;
+        self.collider_descs.resize(self.alive.len() + 1, Vec::new());
         self.collider_descs[id as usize] = desc.colliders.clone();
         let mass = self.mass_properties_of(id as usize);
         let body = RigidBodyRecord::build(
@@ -48,8 +53,19 @@ impl Simulation {
         );
         let colliders = self.collider_block(&desc);
         self.record_state(id as usize, &desc, &body);
+        let slot = self.alive.len() as u32;
+        self.index_of[id as usize] = slot;
+        self.alive.push(handle);
         self.commands
             .push(BodyCommandRecord::add(slot, body, colliders));
+        if Self::is_dynamic_desc(&desc) {
+            if (self.dynamic_count as u32) < slot {
+                self.swap_slots(self.dynamic_count as u32, slot);
+            }
+            self.dynamic_count += 1;
+        } else {
+            self.sync_slot_aabbs(slot);
+        }
         handle
     }
 
@@ -59,6 +75,107 @@ impl Simulation {
             colliders[index] = self.collider_record(collider);
         }
         colliders
+    }
+
+    pub(crate) fn collider_block_of(&self, id: usize) -> [ColliderRecord; 4] {
+        let mut colliders = [ColliderRecord::zeroed(); 4];
+        for (index, collider) in self.collider_descs[id].iter().enumerate() {
+            colliders[index] = self.collider_record(collider);
+        }
+        colliders
+    }
+
+    fn refresh_static_aabbs(&self, handle: BodyHandle) {
+        self.sync_slot_aabbs(self.index_of[handle.id as usize])
+    }
+
+    fn sync_slot_aabbs(&self, slot: u32) {
+        let handle = self.alive[slot as usize];
+        let id = handle.id as usize;
+        let aabbs = if self.is_static_id(id) {
+            let desc = self.build_desc(id);
+            let body = RigidBodyRecord::build(
+                &desc,
+                handle.id,
+                handle.generation,
+                self.mass_properties_of(id),
+                &self.config,
+            );
+            let body = self.override_state(&body, id);
+            static_aabb::static_aabbs(&body, &self.collider_block_of(id), &self.shape_pool)
+        } else {
+            [AabbRecord::empty(); 4]
+        };
+        let offset = (slot as usize) * MAX_COLLIDERS_PER_BODY * std::mem::size_of::<AabbRecord>();
+        self.buffers.aabbs.write_at(
+            self.gpu.queue(),
+            offset as u64,
+            bytemuck::cast_slice(&aabbs),
+        );
+    }
+
+    fn override_state(&self, body: &RigidBodyRecord, id: usize) -> RigidBodyRecord {
+        let mut body = *body;
+        if let Some(state) = self.state_snapshot(id) {
+            body.position = state.position;
+            body.prev_position = state.previous_position;
+            body.orientation = state.orientation;
+        }
+        body
+    }
+
+    fn is_static_id(&self, id: usize) -> bool {
+        self.masses[id] <= 0.0 && !self.is_kinematic_id(id)
+    }
+
+    fn is_kinematic_id(&self, id: usize) -> bool {
+        self.kinematic.get(id).copied().unwrap_or(false)
+    }
+
+    fn swap_slots(&mut self, first: u32, second: u32) {
+        self.alive.swap(first as usize, second as usize);
+        self.index_of[self.alive[first as usize].id as usize] = first;
+        self.index_of[self.alive[second as usize].id as usize] = second;
+        self.remap_constraint_slots(first, second);
+        self.commands.push(BodyCommandRecord::swap(first, second));
+        self.sync_slot_aabbs(first);
+        self.sync_slot_aabbs(second);
+    }
+
+    pub fn remove(&mut self, handle: BodyHandle) {
+        self.validate(handle);
+        self.assert_no_constraints(handle);
+        let id = handle.id as usize;
+        let slot = self.index_of[id];
+        if (slot as usize) < self.dynamic_count {
+            let tail_dynamic = (self.dynamic_count - 1) as u32;
+            if slot != tail_dynamic {
+                self.swap_slots(slot, tail_dynamic);
+            }
+            self.dynamic_count -= 1;
+            let last = (self.alive.len() - 1) as u32;
+            if tail_dynamic != last {
+                self.swap_slots(tail_dynamic, last);
+            }
+        } else {
+            let last = (self.alive.len() - 1) as u32;
+            if slot != last {
+                self.swap_slots(slot, last);
+            }
+        }
+        self.discard_tail();
+    }
+
+    fn discard_tail(&mut self) {
+        let last = (self.alive.len() - 1) as u32;
+        let handle = self.alive[last as usize];
+        self.index_of[handle.id as usize] = u32::MAX;
+        self.free_ids.push(handle.id);
+        self.alive.pop();
+        self.collider_descs[handle.id as usize] = Vec::new();
+        self.states[handle.id as usize] = None;
+        self.kinematic[handle.id as usize] = false;
+        self.commands.push(BodyCommandRecord::remove(last, last));
     }
 
     fn record_state(&mut self, id: usize, desc: &BodyDesc, body: &RigidBodyRecord) {
@@ -86,23 +203,6 @@ impl Simulation {
         }
     }
 
-    pub fn remove(&mut self, handle: BodyHandle) {
-        self.validate(handle);
-        self.assert_no_constraints(handle);
-        let id = handle.id as usize;
-        let slot = self.index_of[id] as usize;
-        let tail = self.alive.len() - 1;
-        let moved = self.alive[tail];
-        self.alive.swap_remove(slot);
-        self.index_of[moved.id as usize] = slot as u32;
-        self.index_of[id] = u32::MAX;
-        self.free_ids.push(handle.id);
-        self.collider_descs[id] = Vec::new();
-        self.states[id] = None;
-        self.commands
-            .push(BodyCommandRecord::remove(slot as u32, tail as u32));
-    }
-
     pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
         self.validate(handle);
         if let Some(state) = self.states[handle.id as usize].as_mut() {
@@ -111,6 +211,7 @@ impl Simulation {
         let mut record = RigidBodyRecord::zeroed();
         record.position = position;
         self.schedule_patch(handle, PATCH_POSITION, record);
+        self.refresh_static_aabbs(handle);
     }
 
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
@@ -122,6 +223,7 @@ impl Simulation {
         let mut record = RigidBodyRecord::zeroed();
         record.orientation = orientation;
         self.schedule_patch(handle, PATCH_ORIENTATION, record);
+        self.refresh_static_aabbs(handle);
     }
 
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
@@ -159,6 +261,7 @@ impl Simulation {
             state.com = mass_properties.com;
         }
         self.schedule_patch(handle, PATCH_MASS, record);
+        self.migrate_partition(handle);
     }
 
     pub fn set_com(&mut self, handle: BodyHandle, com: [f32; 3]) {
@@ -248,6 +351,7 @@ impl Simulation {
             state.com = mass_properties.com;
         }
         self.schedule_patch(handle, PATCH_MASS, record);
+        self.migrate_partition(handle);
     }
 
     fn dynamics_record(&self, handle: BodyHandle) -> RigidBodyRecord {
@@ -283,6 +387,7 @@ impl Simulation {
             record_collider,
             index as u32,
         );
+        self.refresh_static_aabbs(handle);
     }
 
     fn collider_patch(
@@ -355,6 +460,7 @@ impl Simulation {
 
     pub fn set_kinematic(&mut self, handle: BodyHandle, kinematic: bool) {
         self.validate(handle);
+        self.kinematic[handle.id as usize] = kinematic;
         let mass = self.masses[handle.id as usize];
         let inverse_mass = if kinematic || mass <= 0.0 {
             0.0
@@ -372,6 +478,48 @@ impl Simulation {
         record.com = mass_properties.com;
         record.inverse_inertia_body = mass_properties.inverse_inertia;
         self.schedule_patch(handle, PATCH_KINEMATIC, record);
+        self.migrate_partition(handle);
+    }
+
+    fn migrate_partition(&mut self, handle: BodyHandle) {
+        let id = handle.id as usize;
+        let static_now = self.is_static_id(id);
+        let slot = self.index_of[id];
+        let in_dynamic = (slot as usize) < self.dynamic_count;
+        if static_now == !in_dynamic {
+            if static_now {
+                self.refresh_static_aabbs(handle);
+            }
+            return;
+        }
+        if static_now {
+            let tail = (self.dynamic_count - 1) as u32;
+            if slot != tail {
+                self.swap_slots(slot, tail);
+            }
+            self.dynamic_count -= 1;
+            let mut record = RigidBodyRecord::zeroed();
+            record.velocity = [0.0; 3];
+            record.angular_velocity = [0.0; 3];
+            self.commands.push(BodyCommandRecord::patch(
+                tail,
+                PATCH_VELOCITY | PATCH_ANGULAR_VELOCITY,
+                record,
+                [ColliderRecord::zeroed(); 4],
+                0,
+            ));
+            if let Some(state) = self.states[id].as_mut() {
+                state.velocity = [0.0; 3];
+                state.angular_velocity = [0.0; 3];
+            }
+            self.sync_slot_aabbs(tail);
+        } else {
+            let boundary = self.dynamic_count as u32;
+            if slot != boundary {
+                self.swap_slots(slot, boundary);
+            }
+            self.dynamic_count += 1;
+        }
     }
 
     pub fn set_ccd(&mut self, handle: BodyHandle, ccd: bool) {

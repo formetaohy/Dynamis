@@ -5,7 +5,7 @@
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.x;
-    if (index >= params.body_count) {
+    if (index >= params.dynamic_count) {
         return;
     }
     atomicStore(&island_parents[index], index);

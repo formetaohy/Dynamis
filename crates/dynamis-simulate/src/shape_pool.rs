@@ -15,7 +15,7 @@ pub(crate) struct ShapePool {
     generations: Vec<u32>,
     free_ids: Vec<u32>,
     records: Vec<ShapeSourceRecordStorage>,
-    vertices: Vec<[f32; 4]>,
+    pub(crate) vertices: Vec<[f32; 4]>,
     triangles: Vec<[u32; 4]>,
     nodes: Vec<BvhNodeRecord>,
     uploaded_vertices: usize,
@@ -68,6 +68,10 @@ impl ShapePool {
             "shape source handle is not alive"
         );
         &self.records[handle.id as usize]
+    }
+
+    pub(crate) fn record_by_index(&self, id: usize) -> &ShapeSourceRecordStorage {
+        &self.records[id]
     }
 
     pub fn remove(&mut self, handle: ShapeSourceHandle) {

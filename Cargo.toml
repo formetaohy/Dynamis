@@ -83,5 +83,9 @@ path = "examples/queries.rs"
 name = "sensors"
 path = "examples/sensors.rs"
 
+[[example]]
+name = "mechanisms"
+path = "examples/mechanisms.rs"
+
 [lints]
 workspace = true
