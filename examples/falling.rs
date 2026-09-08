@@ -7,16 +7,14 @@ const BODY_COUNT: usize = 128;
 struct Example {
     simulator: common::physics::Simulator,
     bodies: Vec<(BodyHandle, MeshId)>,
-    orbit: common::camera::Orbit,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
-        "dynamis falling shapes",
+        "dynamis falling",
         Example {
             simulator: common::physics::Simulator::with_capacity(BODY_COUNT + 4),
             bodies: Vec::new(),
-            orbit: common::camera::Orbit::new(0.7, 0.42, 42.0, Vec3::new(0.0, 3.0, 0.0)),
         },
     )
     .on_startup(setup)
@@ -26,6 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
     common::scene::setup_scene(ctx, &mut example.simulator.simulation);
+    ctx.camera.eye = Vec3::new(29.33, 20.13, 13.1);
+    ctx.camera.target = Vec3::new(0.0, 3.0, 0.0);
     spawn_collection(ctx, &mut example.simulator.simulation, &mut example.bodies);
 }
 
@@ -89,7 +89,6 @@ fn spawn_collection(
 fn update(ctx: &mut AppContext, example: &mut Example) {
     common::physics::advance_physics(ctx, &mut example.simulator);
     common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
-    common::camera::orbit_camera(ctx, &mut example.orbit);
     let sleeping = example
         .simulator
         .simulation
@@ -98,7 +97,7 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
         .filter(|handle| example.simulator.simulation.read_state(**handle).sleeping)
         .count();
     ctx.hud = format!(
-        "bodies: {}   sleeping: {}   fps: {:.0}\nright-drag: orbit   wheel: zoom",
+        "bodies: {}   sleeping: {}   fps: {:.0}",
         example.simulator.simulation.count(),
         sleeping,
         1.0 / ctx.time.delta_secs().max(1e-6),

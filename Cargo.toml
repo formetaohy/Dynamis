@@ -64,28 +64,12 @@ dynamis-profile = { workspace = true }
 pollster = { workspace = true }
 
 [[example]]
-name = "falling_shapes"
-path = "examples/falling_shapes.rs"
+name = "falling"
+path = "examples/falling.rs"
 
 [[example]]
 name = "benchmark"
 path = "examples/benchmark.rs"
-
-[[example]]
-name = "joints"
-path = "examples/joints.rs"
-
-[[example]]
-name = "queries"
-path = "examples/queries.rs"
-
-[[example]]
-name = "sensors"
-path = "examples/sensors.rs"
-
-[[example]]
-name = "mechanisms"
-path = "examples/mechanisms.rs"
 
 [lints]
 workspace = true
