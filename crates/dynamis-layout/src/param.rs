@@ -5,7 +5,7 @@ use dynamis_model::{MaterialCombine, PhysicsConfig};
 const _: () = {
     use std::mem::size_of;
     assert!(size_of::<SimParamsRecord>() == 112);
-    assert!(size_of::<DispatchArgs>() == 12);
+    assert!(size_of::<Counter>() == 12);
 };
 
 #[repr(C)]
@@ -87,22 +87,26 @@ fn combine_code(combine: MaterialCombine) -> u32 {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct DispatchArgs {
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
+pub struct Counter {
+    pub count: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
 }
 
-impl DispatchArgs {
+impl Counter {
     pub const fn none() -> Self {
-        Self { x: 0, y: 1, z: 1 }
+        Self {
+            count: 0,
+            _pad0: 0,
+            _pad1: 0,
+        }
     }
 
     pub const fn sized(elements: u32) -> Self {
         Self {
-            x: elements,
-            y: 1,
-            z: 1,
+            count: elements,
+            _pad0: 0,
+            _pad1: 0,
         }
     }
 }

@@ -8,7 +8,7 @@ mod param;
 mod query;
 mod shape;
 
-pub use body::{BodyCommandRecord, RigidBodyRecord, matching_flags};
+pub use body::{BodyCommandRecord, RigidBodyRecord};
 pub use collider::{AabbRecord, ColliderRecord};
 pub use constant::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST,
@@ -28,12 +28,11 @@ pub use constant::{
     PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY,
     QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE,
     SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE,
-    SHAPE_PLANE, SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH, SHAPE_SPHERE,
-    SHAPE_TRIANGLE, dof_mode,
+    SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE, dof_mode,
 };
 pub use constraint::{ConstraintCommandRecord, ConstraintRecord};
-pub use contact::{ContactRecord, ManifoldPointRecord, PairRecord};
+pub use contact::{ContactRecord, ManifoldPointRecord};
 pub use event::ContactEventRecord;
-pub use param::{DispatchArgs, SimParamsRecord};
+pub use param::{Counter, SimParamsRecord};
 pub use query::{QueryHitRecord, QueryRecord, QueryResultHeader};
 pub use shape::{BvhNodeRecord, ShapeSourceRecord};

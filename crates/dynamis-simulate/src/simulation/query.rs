@@ -1,7 +1,7 @@
 use super::Simulation;
+use crate::query_pool::{QueryHandle, QueryHit};
 use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord, QueryResultHeader};
 use dynamis_model::{QueryFilter, Shape};
-use dynamis_query::{QueryHandle, QueryHit};
 
 impl Simulation {
     pub fn ray_query(
@@ -110,46 +110,31 @@ impl Simulation {
         if self.queries.is_empty() {
             return;
         }
+        self.collect_readbacks();
         let step = self.step_index;
-        let queue = self.gpu.queue();
-        let device = self.gpu.device();
+        let queue = self.gpu.queue().clone();
+        let device = self.gpu.device().clone();
         self.buffers
             .queries
-            .write(queue, bytemuck::cast_slice(&self.queries));
+            .write(&queue, bytemuck::cast_slice(&self.queries));
         let header_bytes = self.query_pool.capacity() * std::mem::size_of::<QueryResultHeader>();
         self.buffers
             .query_headers
-            .write(queue, &vec![0u8; header_bytes]);
+            .write(&queue, &vec![0u8; header_bytes]);
         let slots = self.queries.iter().map(|query| query.slot).collect();
         self.query_pool.mark_batch(step, slots);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis query flush encoder"),
         });
-        crate::stage::record_queries(&self.stages, &mut encoder, self.queries.len() as u32);
-        encoder.copy_buffer_to_buffer(
-            self.buffers.query_headers.buffer(),
-            0,
-            self.buffers.query_pack.buffer(),
-            0,
-            header_bytes as u64,
-        );
-        encoder.copy_buffer_to_buffer(
-            self.buffers.query_hits.buffer(),
-            0,
-            self.buffers.query_pack.buffer(),
-            header_bytes as u64,
-            self.buffers.query_hits.size(),
-        );
-        let stale_queries = self.buffers.queries_readback.enqueue(
-            device,
-            &mut encoder,
-            self.buffers.query_pack.buffer(),
-            step,
-        );
-        let _ = stale_queries;
+        self.pipeline
+            .encode_queries(&mut encoder, self.queries.len() as u32);
+        let stale = self.submit_queries_pack(&device, &mut encoder, step);
         queue.submit([encoder.finish()]);
         self.buffers.queries_readback.arm();
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        if let Some((stale_step, bytes)) = stale {
+            self.consume_queries(stale_step, &bytes);
+        }
         self.collect_readbacks();
         self.queries.clear();
     }

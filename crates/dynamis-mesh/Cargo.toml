@@ -1,5 +1,5 @@
 [package]
-name = "dynamis-query"
+name = "dynamis-mesh"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -10,6 +10,4 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-bytemuck = { workspace = true }
-dynamis-layout = { workspace = true }
-dynamis-model = { workspace = true }
+dynamis-math = { workspace = true }

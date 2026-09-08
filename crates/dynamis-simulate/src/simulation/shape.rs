@@ -1,15 +1,16 @@
 use super::Simulation;
-use crate::hull::convex_hull_mesh;
-use crate::shape_pool::{PoolKind, height_field_triangles};
+use crate::shape_pool::height_field_triangles;
+use dynamis_layout::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
+use dynamis_mesh::convex_hull_mesh;
 use dynamis_model::{MAX_COLLIDERS_PER_BODY, Shape, ShapeSourceHandle};
 
 impl Simulation {
     pub fn add_hull(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
-        self.allocate_shape(PoolKind::Hull, vertices, triangles.to_vec())
+        self.allocate_shape(SHAPE_HULL, vertices, triangles.to_vec())
     }
 
     pub fn add_mesh(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
-        self.allocate_shape(PoolKind::Mesh, vertices, triangles.to_vec())
+        self.allocate_shape(SHAPE_MESH, vertices, triangles.to_vec())
     }
 
     pub fn add_decomposed_mesh(
@@ -22,7 +23,7 @@ impl Simulation {
             settings.max_parts as usize <= MAX_COLLIDERS_PER_BODY,
             "decomposition part limit must fit within one body"
         );
-        let parts = crate::decompose::decompose_mesh(vertices, triangles, &settings);
+        let parts = dynamis_mesh::decompose_mesh(vertices, triangles, &settings);
         parts
             .iter()
             .map(|part| self.add_hull(&part.vertices, &part.triangles))
@@ -35,7 +36,7 @@ impl Simulation {
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
         let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, triangles);
-        self.allocate_shape(PoolKind::Hull, &hull_vertices, hull_triangles)
+        self.allocate_shape(SHAPE_HULL, &hull_vertices, hull_triangles)
     }
 
     pub fn add_height_field(
@@ -46,7 +47,7 @@ impl Simulation {
         cell_size: [f32; 2],
     ) -> ShapeSourceHandle {
         let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
-        self.allocate_shape(PoolKind::HeightField, &vertices, triangles)
+        self.allocate_shape(SHAPE_HEIGHTFIELD, &vertices, triangles)
     }
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
@@ -91,7 +92,7 @@ impl Simulation {
 
     fn allocate_shape(
         &mut self,
-        kind: PoolKind,
+        kind: u32,
         vertices: &[[f32; 3]],
         triangles: Vec<[u32; 3]>,
     ) -> ShapeSourceHandle {

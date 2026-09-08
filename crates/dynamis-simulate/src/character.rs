@@ -1,6 +1,7 @@
+use crate::query_pool::QueryHit;
 use crate::simulation::Simulation;
+use dynamis_math::{add, dot, length, mul, negate, normalize, sub};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
-use dynamis_query::QueryHit;
 
 const SKIN: f32 = 0.05;
 
@@ -103,9 +104,9 @@ impl Simulation {
         let up = self.character_up();
         character.up = up;
         let gravity = self.config().gravity;
-        let gravity_magnitude = vec_len(gravity);
-        let horizontal = if vec_len(move_dir) > 0.0 {
-            scale(normalize(move_dir), character.desc.max_speed)
+        let gravity_magnitude = length(gravity);
+        let horizontal = if length(move_dir) > 0.0 {
+            mul(normalize(move_dir), character.desc.max_speed)
         } else {
             [0.0; 3]
         };
@@ -124,14 +125,14 @@ impl Simulation {
         let position = character.position;
         let probe = Shape::sphere(character.desc.radius);
         let identity = [0.0, 0.0, 0.0, 1.0];
-        let bottom = add(position, scale(up, -character.desc.half_height));
-        let top = add(position, scale(up, character.desc.half_height));
+        let bottom = add(position, mul(up, -character.desc.half_height));
+        let top = add(position, mul(up, character.desc.half_height));
         let filter = QueryFilter {
             exclude: Some(character.body),
             max_hits: 1,
             ..QueryFilter::default()
         };
-        let horizontal_speed = vec_len(horizontal);
+        let horizontal_speed = length(horizontal);
         let forward_length = horizontal_speed * dt + SKIN;
         let down_length = SKIN + (vertical.abs() + horizontal_speed) * dt;
         let up_length = SKIN + vertical.max(0.0) * dt;
@@ -153,7 +154,7 @@ impl Simulation {
         let forward_low = forward_dir.map(|direction| {
             self.sweep_query(&probe, identity, bottom, direction, forward_length, &filter)
         });
-        let lifted = add(position, scale(up, character.desc.step_height));
+        let lifted = add(position, mul(up, character.desc.step_height));
         let lifted_forward = forward_dir.map(|direction| {
             self.sweep_query(&probe, identity, lifted, direction, forward_length, &filter)
         });
@@ -187,7 +188,7 @@ impl Simulation {
         if !jumped && let Some(landing) = down_hit {
             target = add(
                 target,
-                scale(up, -(landing.distance - SKIN).clamp(0.0, down_length)),
+                mul(up, -(landing.distance - SKIN).clamp(0.0, down_length)),
             );
             let surface = negate(landing.normal);
             grounded = dot(surface, up) > slope_cos;
@@ -213,22 +214,22 @@ impl Simulation {
             vertical_after = 0.0;
         }
 
-        let velocity = add(horizontal, scale(up, vertical_after));
-        let moved = add(scale(cpu_horizontal, dt), scale(up, vertical_after * dt));
+        let velocity = add(horizontal, mul(up, vertical_after));
+        let moved = add(mul(cpu_horizontal, dt), mul(up, vertical_after * dt));
         character.position = add(target, moved);
         character.grounded = grounded;
         character.vertical = vertical_after;
-        let press = scale(press_dir, SKIN * 0.5);
-        let pre_move = sub(add(character.position, press), scale(velocity, dt));
+        let press = mul(press_dir, SKIN * 0.5);
+        let pre_move = sub(add(character.position, press), mul(velocity, dt));
         self.set_position(character.body, pre_move);
         self.set_velocity(character.body, velocity);
     }
 
     fn character_up(&self) -> [f32; 3] {
         let gravity = self.config().gravity;
-        let magnitude = vec_len(gravity);
+        let magnitude = length(gravity);
         if magnitude > 0.0 {
-            scale(gravity, -1.0 / magnitude)
+            mul(gravity, -1.0 / magnitude)
         } else {
             [0.0, 1.0, 0.0]
         }
@@ -269,32 +270,4 @@ fn pick_forward(
         }
         (None, None) => None,
     }
-}
-
-fn normalize(v: [f32; 3]) -> [f32; 3] {
-    scale(v, 1.0 / vec_len(v))
-}
-
-fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn scale(v: [f32; 3], s: f32) -> [f32; 3] {
-    [v[0] * s, v[1] * s, v[2] * s]
-}
-
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn vec_len(v: [f32; 3]) -> f32 {
-    dot(v, v).sqrt()
-}
-
-fn negate(v: [f32; 3]) -> [f32; 3] {
-    [-v[0], -v[1], -v[2]]
 }

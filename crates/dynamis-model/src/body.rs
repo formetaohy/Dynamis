@@ -10,7 +10,7 @@ pub struct BodyHandle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyState {
     pub position: [f32; 3],
-    pub previous_position: [f32; 3],
+    pub prev_position: [f32; 3],
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
@@ -73,7 +73,7 @@ impl BodyDesc {
     pub fn collider(mut self, collider: ColliderDesc) -> Self {
         assert!(
             self.colliders.len() < MAX_COLLIDERS_PER_BODY,
-            "a body supports at most four colliders"
+            "a body supports at most {MAX_COLLIDERS_PER_BODY} colliders"
         );
         self.colliders.push(collider);
         self

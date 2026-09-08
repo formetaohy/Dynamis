@@ -223,7 +223,7 @@ fn inertia_rotate(inertia: [f32; 6], q: [f32; 4]) -> [f32; 6] {
     mat_to_sym(rotated)
 }
 
-pub fn inertia_inverse(inertia: [f32; 6]) -> [f32; 6] {
+pub(crate) fn inertia_inverse(inertia: [f32; 6]) -> [f32; 6] {
     let m = sym_to_mat(inertia);
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])

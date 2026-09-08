@@ -43,8 +43,6 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         group_base = group_base + count;
         if (block == blocks - 1u) {
             contact_count[0] = group_base;
-            contact_count[1] = 1u;
-            contact_count[2] = 1u;
         }
     }
 }

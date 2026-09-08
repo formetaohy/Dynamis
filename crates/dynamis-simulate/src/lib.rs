@@ -1,12 +1,12 @@
-mod buffer;
+mod buffers;
 mod character;
-mod decompose;
-mod hull;
+mod pipeline;
+mod query_pool;
 mod shape_pool;
 mod simulation;
-mod stage;
 mod static_aabb;
 
 pub use character::{Character, CharacterDesc};
-pub use decompose::HullDecomposeSettings;
+pub use dynamis_mesh::HullDecomposeSettings;
+pub use query_pool::{QueryHandle, QueryHit};
 pub use simulation::{ContactManifold, ContactPoint, DebugBuffer, Simulation};

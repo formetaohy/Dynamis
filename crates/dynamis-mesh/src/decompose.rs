@@ -1,5 +1,5 @@
 use crate::hull::convex_hull_mesh;
-use std::collections::HashSet;
+use dynamis_math::{add, cross, dot, length, mul, normalize, sub};
 
 pub struct HullDecomposeSettings {
     pub max_parts: u32,
@@ -91,7 +91,7 @@ fn split(
     let part = part_triangles(triangles, &indices);
     let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, &part);
     let radius = hull_radius(&hull_vertices);
-    let depth_value = vertex_depth(
+    let depth_value = hull_penetration(
         vertices,
         triangles,
         &indices,
@@ -160,7 +160,7 @@ fn child_score(vertices: &[[f32; 3]], triangles: &[[u32; 3]], left: &[u32], righ
         let part = part_triangles(triangles, indices);
         let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, &part);
         let radius = hull_radius(&hull_vertices);
-        vertex_depth(
+        hull_penetration(
             vertices,
             triangles,
             indices,
@@ -178,7 +178,7 @@ fn part_triangles(triangles: &[[u32; 3]], indices: &[u32]) -> Vec<[u32; 3]> {
         .collect()
 }
 
-fn vertex_depth(
+fn hull_penetration(
     vertices: &[[f32; 3]],
     triangles: &[[u32; 3]],
     indices: &[u32],
@@ -186,22 +186,16 @@ fn vertex_depth(
     hull_triangles: &[[u32; 3]],
 ) -> f32 {
     let planes = hull_planes(hull_vertices, hull_triangles);
-    let mut visited = HashSet::new();
     let mut max_depth = 0.0f32;
     for &index in indices {
-        for &vertex in &triangles[index as usize] {
-            if !visited.insert(vertex) {
-                continue;
-            }
-            let point = vertices[vertex as usize];
-            let depth = planes
-                .iter()
-                .map(|(normal, offset)| offset - dot(*normal, point))
-                .filter(|signed| *signed > 0.0)
-                .fold(f32::MAX, f32::min);
-            if depth.is_finite() {
-                max_depth = max_depth.max(depth);
-            }
+        let triangle = triangles[index as usize];
+        let point = triangle_centroid(vertices, triangle);
+        let depth = planes
+            .iter()
+            .map(|(normal, offset)| offset - dot(*normal, point))
+            .fold(f32::MAX, f32::min);
+        if depth > 0.0 {
+            max_depth = max_depth.max(depth);
         }
     }
     max_depth
@@ -213,7 +207,7 @@ fn hull_planes(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<([f32; 3], 
         let a = vertices[triangle[0] as usize];
         let b = vertices[triangle[1] as usize];
         let c = vertices[triangle[2] as usize];
-        let normal = normalized(cross(sub(b, a), sub(c, a)));
+        let normal = normalize(cross(sub(b, a), sub(c, a)));
         let offset = dot(normal, a);
         if !planes.iter().any(|(n, _)| dot(*n, normal) > 1.0 - 1e-4) {
             planes.push((normal, offset));
@@ -335,7 +329,7 @@ fn face_normal(vertices: &[[f32; 3]], triangle: [u32; 3]) -> [f32; 3] {
     let a = vertices[triangle[0] as usize];
     let b = vertices[triangle[1] as usize];
     let c = vertices[triangle[2] as usize];
-    normalized(cross(sub(b, a), sub(c, a)))
+    normalize(cross(sub(b, a), sub(c, a)))
 }
 
 fn triangle_centroid(vertices: &[[f32; 3]], triangle: [u32; 3]) -> [f32; 3] {
@@ -343,41 +337,4 @@ fn triangle_centroid(vertices: &[[f32; 3]], triangle: [u32; 3]) -> [f32; 3] {
     let b = vertices[triangle[1] as usize];
     let c = vertices[triangle[2] as usize];
     mul(add(add(a, b), c), 1.0 / 3.0)
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn mul(a: [f32; 3], scalar: f32) -> [f32; 3] {
-    [a[0] * scalar, a[1] * scalar, a[2] * scalar]
-}
-
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn length(a: [f32; 3]) -> f32 {
-    dot(a, a).sqrt()
-}
-
-fn normalized(a: [f32; 3]) -> [f32; 3] {
-    let len = length(a);
-    if len < 1e-12 {
-        [0.0, 0.0, 0.0]
-    } else {
-        mul(a, 1.0 / len)
-    }
 }

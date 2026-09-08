@@ -380,7 +380,6 @@ dependencies = [
  "dynamis-kernel",
  "dynamis-model",
  "dynamis-profile",
- "dynamis-query",
  "dynamis-simulate",
  "pollster",
 ]
@@ -432,21 +431,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynamis-math"
+version = "0.4.2"
+
+[[package]]
+name = "dynamis-mesh"
+version = "0.4.2"
+dependencies = [
+ "dynamis-math",
+]
+
+[[package]]
 name = "dynamis-model"
 version = "0.4.2"
 
 [[package]]
 name = "dynamis-profile"
 version = "0.4.2"
-
-[[package]]
-name = "dynamis-query"
-version = "0.4.2"
-dependencies = [
- "bytemuck",
- "dynamis-layout",
- "dynamis-model",
-]
 
 [[package]]
 name = "dynamis-simulate"
@@ -456,8 +457,9 @@ dependencies = [
  "dynamis-gpu",
  "dynamis-kernel",
  "dynamis-layout",
+ "dynamis-math",
+ "dynamis-mesh",
  "dynamis-model",
- "dynamis-query",
  "pollster",
  "wgpu",
 ]

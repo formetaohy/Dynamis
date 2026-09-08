@@ -290,7 +290,7 @@ fn rolling_and_spin_friction_damp_rotation() {
 }
 
 #[test]
-fn previous_position_tracks_last_step() {
+fn prev_position_tracks_last_step() {
     let mut world = sim(4, gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 10.0, 0.0]));
     world.step(DT);
@@ -299,11 +299,11 @@ fn previous_position_tracks_last_step() {
     world.step(DT);
     world.wait();
     let second = world.read_state(ball);
-    assert_eq!(second.previous_position, first.position);
+    assert_eq!(second.prev_position, first.position);
     let delta = [
-        first.previous_position[0],
-        first.previous_position[1] - 10.0,
-        first.previous_position[2],
+        first.prev_position[0],
+        first.prev_position[1] - 10.0,
+        first.prev_position[2],
     ];
     assert!(
         super::common::distance(delta, [0.0; 3]) < 1e-4,

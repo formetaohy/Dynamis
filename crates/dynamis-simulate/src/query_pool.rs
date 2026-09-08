@@ -18,12 +18,12 @@ pub struct QueryHit {
     pub step: u64,
 }
 
-pub struct QueryBatch {
+struct QueryBatch {
     step: u64,
     slots: Vec<u32>,
 }
 
-pub struct QueryPool {
+pub(crate) struct QueryPool {
     capacity: usize,
     next_slot: usize,
     generations: Vec<u32>,
@@ -105,9 +105,12 @@ impl QueryPool {
         let records: &[QueryHitRecord] = bytemuck::cast_slice::<u8, QueryHitRecord>(
             &bytes[hits_offset..hits_offset + MAX_HITS_PER_QUERY as usize * per_hit],
         );
-        let mut hits = records[..(header.count as usize).min(MAX_HITS_PER_QUERY as usize)]
+        assert!(
+            header.count <= MAX_HITS_PER_QUERY,
+            "GPU query result exceeds the slot capacity"
+        );
+        let mut hits = records[..header.count as usize]
             .iter()
-            .filter(|record| record.body_id != u32::MAX)
             .map(|record| QueryHit {
                 body: BodyHandle {
                     id: record.body_id,
@@ -121,8 +124,10 @@ impl QueryPool {
             })
             .collect::<Vec<_>>();
         hits.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
-        let was_pending = self.pending[slot];
-        assert!(was_pending, "query readback arrived for an idle slot");
+        assert!(
+            self.pending[slot],
+            "query readback arrived for an idle slot"
+        );
         self.hits[slot] = hits;
         self.overflow[slot] = header.overflow != 0;
         self.pending[slot] = false;

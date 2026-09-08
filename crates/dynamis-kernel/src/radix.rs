@@ -1,5 +1,6 @@
-use dynamis_gpu::GpuBuffer;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
+use dynamis_gpu::{
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
+};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
@@ -10,68 +11,55 @@ fn shifted_shader(source: &str, shift: u32) -> String {
     source.replace("__SHIFT__", &shift.to_string())
 }
 
+pub struct SortChannels<'a> {
+    pub count: &'a GpuBuffer,
+    pub keys_lo: &'a GpuBuffer,
+    pub keys_hi: &'a GpuBuffer,
+    pub values: &'a GpuBuffer,
+    pub scratch_lo: &'a GpuBuffer,
+    pub scratch_hi: &'a GpuBuffer,
+    pub scratch_values: &'a GpuBuffer,
+}
+
 #[derive(PartialEq, Eq)]
-struct SortChannels {
+struct ChannelsKey {
     count: u64,
     keys_lo: u64,
     keys_hi: u64,
     values: u64,
-    keys_lo_out: u64,
-    keys_hi_out: u64,
-    values_out: u64,
+    scratch_lo: u64,
+    scratch_hi: u64,
+    scratch_values: u64,
 }
 
-impl SortChannels {
-    fn of(
-        count: &GpuBuffer,
-        keys_lo: &GpuBuffer,
-        keys_hi: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_lo_out: &GpuBuffer,
-        keys_hi_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-    ) -> Self {
+impl ChannelsKey {
+    fn of(channels: &SortChannels<'_>) -> Self {
         Self {
-            count: count.token(),
-            keys_lo: keys_lo.token(),
-            keys_hi: keys_hi.token(),
-            values: values.token(),
-            keys_lo_out: keys_lo_out.token(),
-            keys_hi_out: keys_hi_out.token(),
-            values_out: values_out.token(),
+            count: channels.count.token(),
+            keys_lo: channels.keys_lo.token(),
+            keys_hi: channels.keys_hi.token(),
+            values: channels.values.token(),
+            scratch_lo: channels.scratch_lo.token(),
+            scratch_hi: channels.scratch_hi.token(),
+            scratch_values: channels.scratch_values.token(),
         }
     }
 }
 
 struct SortBindGroups {
-    channels: SortChannels,
+    channels: ChannelsKey,
     histogram: [BindGroup; 2],
     scatter: [BindGroup; 2],
 }
 
 impl SortBindGroups {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "radix sort carries three key channels and their outputs explicitly"
-    )]
-    fn build(
-        device: &Device,
-        sort: &GpuSort,
-        channels: SortChannels,
-        keys_lo: &GpuBuffer,
-        keys_hi: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_lo_out: &GpuBuffer,
-        keys_hi_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-        count_holder: &GpuBuffer,
-    ) -> Self {
-        let in_lo = [keys_lo, keys_lo_out];
-        let in_hi = [keys_hi, keys_hi_out];
-        let in_values = [values, values_out];
-        let out_lo = [keys_lo_out, keys_lo];
-        let out_hi = [keys_hi_out, keys_hi];
-        let out_values = [values_out, values];
+    fn build(device: &Device, sort: &RadixSort, channels: &SortChannels<'_>) -> Self {
+        let in_lo = [channels.keys_lo, channels.scratch_lo];
+        let in_hi = [channels.keys_hi, channels.scratch_hi];
+        let in_values = [channels.values, channels.scratch_values];
+        let out_lo = [channels.scratch_lo, channels.keys_lo];
+        let out_hi = [channels.scratch_hi, channels.keys_hi];
+        let out_values = [channels.scratch_values, channels.values];
         let histogram = std::array::from_fn(|parity| {
             sort.histogram_pipelines[0].create_bind_group(
                 device,
@@ -95,7 +83,7 @@ impl SortBindGroups {
                     },
                     BindGroupEntry {
                         binding: 4,
-                        resource: count_holder.as_binding(),
+                        resource: channels.count.as_binding(),
                     },
                 ],
             )
@@ -139,20 +127,20 @@ impl SortBindGroups {
                     },
                     BindGroupEntry {
                         binding: 8,
-                        resource: count_holder.as_binding(),
+                        resource: channels.count.as_binding(),
                     },
                 ],
             )
         });
         Self {
-            channels,
+            channels: ChannelsKey::of(channels),
             histogram,
             scatter,
         }
     }
 }
 
-pub struct GpuSort {
+pub struct RadixSort {
     histogram_pipelines: [ComputePipeline; RADIX_PASSES],
     scatter_pipelines: [ComputePipeline; RADIX_PASSES],
     prefix_pipeline: ComputePipeline,
@@ -165,7 +153,7 @@ pub struct GpuSort {
     bindings: std::sync::Mutex<Option<SortBindGroups>>,
 }
 
-impl GpuSort {
+impl RadixSort {
     pub fn new(context: &GpuContext, label: &str, capacity: u32) -> Self {
         let device = context.device();
         let blocks = capacity.div_ceil(THREADS).max(1);
@@ -335,39 +323,15 @@ impl GpuSort {
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "radix sort carries three key channels and their outputs explicitly"
-    )]
     fn bindings(
         &self,
         device: &Device,
-        channels: SortChannels,
-        keys_lo: &GpuBuffer,
-        keys_hi: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_lo_out: &GpuBuffer,
-        keys_hi_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-        count_holder: &GpuBuffer,
+        channels: &SortChannels<'_>,
     ) -> std::sync::MutexGuard<'_, Option<SortBindGroups>> {
         let mut guard = self.bindings.lock().unwrap();
-        if guard
-            .as_ref()
-            .is_none_or(|cached| cached.channels != channels)
-        {
-            *guard = Some(SortBindGroups::build(
-                device,
-                self,
-                channels,
-                keys_lo,
-                keys_hi,
-                values,
-                keys_lo_out,
-                keys_hi_out,
-                values_out,
-                count_holder,
-            ));
+        let key = ChannelsKey::of(channels);
+        if guard.as_ref().is_none_or(|cached| cached.channels != key) {
+            *guard = Some(SortBindGroups::build(device, self, channels));
         }
         guard
     }
@@ -412,49 +376,16 @@ impl GpuSort {
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "radix sort carries three key channels and their outputs explicitly"
-    )]
-    pub fn sort_64(
+    pub fn sort(
         &self,
         device: &Device,
         recorder: &mut ComputeRecorder,
-        count_holder: &GpuBuffer,
+        channels: &SortChannels<'_>,
         lo_words: u32,
         hi_words: u32,
-        keys_lo: &GpuBuffer,
-        keys_hi: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_lo_out: &GpuBuffer,
-        keys_hi_out: &GpuBuffer,
-        values_out: &GpuBuffer,
     ) {
-        let channels = SortChannels::of(
-            count_holder,
-            keys_lo,
-            keys_hi,
-            values,
-            keys_lo_out,
-            keys_hi_out,
-            values_out,
-        );
-        let guard = self.bindings(
-            device,
-            channels,
-            keys_lo,
-            keys_hi,
-            values,
-            keys_lo_out,
-            keys_hi_out,
-            values_out,
-            count_holder,
-        );
+        let guard = self.bindings(device, channels);
         let bindings = guard.as_ref().expect("bindings ensured just above");
         self.encode_all_passes(recorder, bindings, lo_words, hi_words);
-    }
-
-    pub fn debug_histogram(&self) -> &GpuBuffer {
-        &self.histogram
     }
 }

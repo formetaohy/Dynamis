@@ -1,3 +1,4 @@
+use dynamis_math::{add, dot, length, mul, sub};
 use std::collections::{HashMap, HashSet};
 
 struct Face {
@@ -129,7 +130,6 @@ fn quickhull(points: &[[f32; 3]]) -> (Vec<usize>, Vec<[usize; 3]>) {
             }
         }
         assert!(!horizon.is_empty(), "hull horizon must not be empty");
-        // 分配点前收集旧 outside
         let mut pending = Vec::new();
         for &index in &visible {
             pending.extend(faces[index].outside.iter().copied());
@@ -268,24 +268,4 @@ fn face_normal(points: &[[f32; 3]], a: usize, b: usize, c: usize) -> [f32; 3] {
     } else {
         [cross[0] / len, cross[1] / len, cross[2] / len]
     }
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn mul(a: [f32; 3], scalar: f32) -> [f32; 3] {
-    [a[0] * scalar, a[1] * scalar, a[2] * scalar]
-}
-
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn length(a: [f32; 3]) -> f32 {
-    dot(a, a).sqrt()
 }

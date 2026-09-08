@@ -1,5 +1,5 @@
 mod bucket;
-mod sort;
+mod radix;
 
-pub use bucket::GpuBucketSort;
-pub use sort::GpuSort;
+pub use bucket::{BucketChannels, BucketSort};
+pub use radix::{RadixSort, SortChannels};

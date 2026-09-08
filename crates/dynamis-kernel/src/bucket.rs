@@ -1,5 +1,6 @@
-use dynamis_gpu::GpuBuffer;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
+use dynamis_gpu::{
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
+};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
@@ -9,8 +10,16 @@ fn bucketed_shader(source: &str, buckets: u32) -> String {
     source.replace("__BUCKETS__", &buckets.to_string())
 }
 
+pub struct BucketChannels<'a> {
+    pub count: &'a GpuBuffer,
+    pub keys: &'a GpuBuffer,
+    pub values: &'a GpuBuffer,
+    pub keys_out: &'a GpuBuffer,
+    pub values_out: &'a GpuBuffer,
+}
+
 #[derive(PartialEq, Eq)]
-struct Channels {
+struct ChannelsKey {
     keys: u64,
     values: u64,
     keys_out: u64,
@@ -18,34 +27,33 @@ struct Channels {
     count: u64,
 }
 
+impl ChannelsKey {
+    fn of(channels: &BucketChannels<'_>) -> Self {
+        Self {
+            keys: channels.keys.token(),
+            values: channels.values.token(),
+            keys_out: channels.keys_out.token(),
+            values_out: channels.values_out.token(),
+            count: channels.count.token(),
+        }
+    }
+}
+
 struct BucketBindGroups {
-    channels: Channels,
+    channels: ChannelsKey,
     histogram: BindGroup,
     scatter: BindGroup,
 }
 
 impl BucketBindGroups {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "bucket sort carries both key/value channels and their outputs explicitly"
-    )]
-    fn build(
-        device: &Device,
-        bucket: &GpuBucketSort,
-        channels: Channels,
-        keys: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-        count_holder: &GpuBuffer,
-    ) -> Self {
+    fn build(device: &Device, bucket: &BucketSort, channels: &BucketChannels<'_>) -> Self {
         let histogram = bucket.histogram_pipeline.create_bind_group(
             device,
             0,
             &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: keys.as_binding(),
+                    resource: channels.keys.as_binding(),
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -57,7 +65,7 @@ impl BucketBindGroups {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: count_holder.as_binding(),
+                    resource: channels.count.as_binding(),
                 },
             ],
         );
@@ -67,11 +75,11 @@ impl BucketBindGroups {
             &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: keys.as_binding(),
+                    resource: channels.keys.as_binding(),
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: values.as_binding(),
+                    resource: channels.values.as_binding(),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -83,27 +91,27 @@ impl BucketBindGroups {
                 },
                 BindGroupEntry {
                     binding: 4,
-                    resource: keys_out.as_binding(),
+                    resource: channels.keys_out.as_binding(),
                 },
                 BindGroupEntry {
                     binding: 5,
-                    resource: values_out.as_binding(),
+                    resource: channels.values_out.as_binding(),
                 },
                 BindGroupEntry {
                     binding: 6,
-                    resource: count_holder.as_binding(),
+                    resource: channels.count.as_binding(),
                 },
             ],
         );
         Self {
-            channels,
+            channels: ChannelsKey::of(channels),
             histogram,
             scatter,
         }
     }
 }
 
-pub struct GpuBucketSort {
+pub struct BucketSort {
     histogram_pipeline: ComputePipeline,
     prefix_pipeline: ComputePipeline,
     block_prefix_pipeline: ComputePipeline,
@@ -118,7 +126,7 @@ pub struct GpuBucketSort {
     bindings: std::sync::Mutex<Option<BucketBindGroups>>,
 }
 
-impl GpuBucketSort {
+impl BucketSort {
     pub fn new(context: &GpuContext, label: &str, buckets: u32, data_capacity: u32) -> Self {
         let device = context.device();
         let histogram_spec = [
@@ -288,69 +296,26 @@ impl GpuBucketSort {
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "bucket sort carries both key/value channels and their outputs explicitly"
-    )]
     fn bindings(
         &self,
         device: &Device,
-        channels: Channels,
-        keys: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_out: &GpuBuffer,
-        values_out: &GpuBuffer,
-        count_holder: &GpuBuffer,
+        channels: &BucketChannels<'_>,
     ) -> std::sync::MutexGuard<'_, Option<BucketBindGroups>> {
         let mut guard = self.bindings.lock().unwrap();
-        if guard
-            .as_ref()
-            .is_none_or(|cached| cached.channels != channels)
-        {
-            *guard = Some(BucketBindGroups::build(
-                device,
-                self,
-                channels,
-                keys,
-                values,
-                keys_out,
-                values_out,
-                count_holder,
-            ));
+        let key = ChannelsKey::of(channels);
+        if guard.as_ref().is_none_or(|cached| cached.channels != key) {
+            *guard = Some(BucketBindGroups::build(device, self, channels));
         }
         guard
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "bucket sort carries key/value channels and their outputs explicitly"
-    )]
     pub fn sort(
         &self,
         device: &Device,
         recorder: &mut ComputeRecorder,
-        count_holder: &GpuBuffer,
-        keys: &GpuBuffer,
-        values: &GpuBuffer,
-        keys_out: &GpuBuffer,
-        values_out: &GpuBuffer,
+        channels: &BucketChannels<'_>,
     ) {
-        let channels = Channels {
-            keys: keys.token(),
-            values: values.token(),
-            keys_out: keys_out.token(),
-            values_out: values_out.token(),
-            count: count_holder.token(),
-        };
-        let guard = self.bindings(
-            device,
-            channels,
-            keys,
-            values,
-            keys_out,
-            values_out,
-            count_holder,
-        );
+        let guard = self.bindings(device, channels);
         let bindings = guard.as_ref().expect("bindings ensured just above");
         recorder.record(
             &self.histogram_pipeline,

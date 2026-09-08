@@ -1,7 +1,7 @@
 use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{
     AabbRecord, BodyCommandRecord, BvhNodeRecord, ColliderRecord, ConstraintCommandRecord,
-    ConstraintRecord, ContactEventRecord, ContactRecord, DispatchArgs, MAX_CELLS_PER_COLLIDER,
+    ConstraintRecord, ContactEventRecord, ContactRecord, Counter, MAX_CELLS_PER_COLLIDER,
     MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord,
     ShapeSourceRecord, SimParamsRecord,
 };
@@ -14,13 +14,13 @@ pub(crate) const SHAPE_TRIANGLES_PER_SOURCE: u32 = 8192;
 pub(crate) const SHAPE_NODES_PER_SOURCE: u32 = 16384;
 pub(crate) const COMPACT_BLOCK: u32 = 256;
 
-pub(crate) struct SortSlots {
+pub(crate) struct ChannelSlots {
     pub(crate) keys_hi: GpuBuffer,
     pub(crate) keys_lo: GpuBuffer,
     pub(crate) values: GpuBuffer,
 }
 
-impl SortSlots {
+impl ChannelSlots {
     fn new(device: &Device, label: &str, capacity: usize) -> Self {
         let bytes = (capacity * size_of::<u32>()) as u64;
         Self {
@@ -50,14 +50,14 @@ impl SortSlots {
     }
 }
 
-pub(crate) struct StageBuffers {
+pub(crate) struct WorldBuffers {
     pub(crate) params: GpuBuffer,
-    pub(crate) bodies_current: GpuBuffer,
+    pub(crate) bodies: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
-    pub(crate) entries: SortSlots,
+    pub(crate) entries: ChannelSlots,
     pub(crate) entry_count: GpuBuffer,
-    pub(crate) pairs: SortSlots,
+    pub(crate) pairs: ChannelSlots,
     pub(crate) pair_count: GpuBuffer,
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) large_count: GpuBuffer,
@@ -66,7 +66,6 @@ pub(crate) struct StageBuffers {
     pub(crate) contact_a_body: GpuBuffer,
     pub(crate) compact_ranks: GpuBuffer,
     pub(crate) compact_block_sums: GpuBuffer,
-    pub(crate) compact_block_sums_pad: GpuBuffer,
     pub(crate) compact_block_offsets: GpuBuffer,
     pub(crate) contacts: GpuBuffer,
     pub(crate) contact_count: GpuBuffer,
@@ -94,7 +93,6 @@ pub(crate) struct StageBuffers {
     pub(crate) constraint_first_a: GpuBuffer,
     pub(crate) constraint_first_b: GpuBuffer,
     pub(crate) constraint_deltas: GpuBuffer,
-    pub(crate) constraint_joint_count: GpuBuffer,
     pub(crate) constraint_count_state: GpuBuffer,
     pub(crate) joint_hi: GpuBuffer,
     pub(crate) joint_lo: GpuBuffer,
@@ -119,10 +117,10 @@ pub(crate) struct StageBuffers {
     pub(crate) queries_readback: GpuReadback,
     pub(crate) events_readback: GpuReadback,
     pub(crate) constraints_readback: GpuReadback,
-    pub(crate) sort_scratch: SortSlots,
+    pub(crate) sort_scratch: ChannelSlots,
 }
 
-impl StageBuffers {
+impl WorldBuffers {
     pub(crate) fn new(
         device: &Device,
         shape_sources: usize,
@@ -138,7 +136,7 @@ impl StageBuffers {
         let contact_bytes = (pair_capacity * size_of::<ContactRecord>()) as u64;
         let contact_key_bytes = (pair_capacity * size_of::<u32>()) as u64;
         let constraint_bytes = (constraint_capacity * size_of::<ConstraintRecord>()) as u64;
-        let counter_bytes = size_of::<DispatchArgs>() as u64;
+        let counter_bytes = size_of::<Counter>() as u64;
         let state_bytes = (capacity * size_of::<u32>()) as u64;
         let command_bytes = (capacity * 4 * size_of::<BodyCommandRecord>()) as u64;
         let constraint_command_bytes =
@@ -169,7 +167,7 @@ impl StageBuffers {
                 params_bytes,
                 BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             ),
-            bodies_current: GpuBuffer::new(
+            bodies: GpuBuffer::new(
                 device,
                 "bodies",
                 body_bytes,
@@ -187,14 +185,14 @@ impl StageBuffers {
                 aabb_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
-            entries: SortSlots::new(device, "grid entries", entry_capacity),
+            entries: ChannelSlots::new(device, "grid entries", entry_capacity),
             entry_count: GpuBuffer::new(
                 device,
                 "grid entry count",
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
-            pairs: SortSlots::new(device, "pairs", pair_capacity),
+            pairs: ChannelSlots::new(device, "pairs", pair_capacity),
             pair_count: GpuBuffer::new(
                 device,
                 "pair count",
@@ -241,12 +239,6 @@ impl StageBuffers {
                 device,
                 "compact block sums",
                 compact_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            ),
-            compact_block_sums_pad: GpuBuffer::new(
-                device,
-                "compact block sums pad",
-                (compact_bytes + 32).max(448),
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             compact_block_offsets: GpuBuffer::new(
@@ -411,12 +403,6 @@ impl StageBuffers {
                 (constraint_capacity * 64) as u64,
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
-            constraint_joint_count: GpuBuffer::new(
-                device,
-                "constraint joint count",
-                counter_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            ),
             constraint_count_state: GpuBuffer::new(
                 device,
                 "constraint count state",
@@ -553,7 +539,11 @@ impl StageBuffers {
                 "constraints readback",
                 constraint_bytes,
             ),
-            sort_scratch: SortSlots::new(device, "sort scratch", entry_capacity.max(pair_capacity)),
+            sort_scratch: ChannelSlots::new(
+                device,
+                "sort scratch",
+                entry_capacity.max(pair_capacity),
+            ),
         }
     }
 
@@ -578,13 +568,12 @@ impl StageBuffers {
     }
 
     pub(crate) fn reset_counters(&self, queue: &Queue) {
-        let idle = DispatchArgs::none();
+        let idle = Counter::none();
         let idle = bytemuck::cast_slice(std::slice::from_ref(&idle));
         self.entry_count.write(queue, idle);
         self.pair_count.write(queue, idle);
         self.large_count.write(queue, idle);
         self.contact_count.write(queue, idle);
-        self.constraint_joint_count.write(queue, idle);
         self.joint_count.write(queue, idle);
         self.event_count.write(queue, idle);
         self.overflow_flags.write(queue, &[0u8; 12]);

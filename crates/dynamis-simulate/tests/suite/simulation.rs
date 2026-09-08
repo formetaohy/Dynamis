@@ -463,3 +463,45 @@ fn mass_migration_keeps_constraints_attached() {
         "constraint must stay attached after mass migration, span {span}"
     );
 }
+
+#[test]
+fn grow_within_reserved_extends_id_space_and_spawns() {
+    let mut world = sim(4, static_config());
+    world.grow(64);
+    world.grow(100);
+    world.grow(110);
+    let mut handles = Vec::new();
+    for index in 0..110u32 {
+        let z = index as f32 * 0.5;
+        let ball = world.spawn(BodyDesc::sphere(0.1).position([0.0, 0.0, z + 10.0]));
+        handles.push(ball);
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.count(), 110);
+    for (index, handle) in handles.iter().enumerate() {
+        let state = world.read_state(*handle);
+        assert_eq!(state.position[2], index as f32 * 0.5 + 10.0);
+    }
+}
+
+#[test]
+fn remove_then_spawn_reuses_slot_with_fresh_generation() {
+    let mut world = sim(4, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    let _second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
+    let _third = world.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
+    let _fourth = world.spawn(BodyDesc::sphere(0.5).position([6.0, 0.0, 0.0]));
+    world.step(DT);
+    world.remove(first);
+    world.step(DT);
+    let fresh = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.count(), 4);
+    assert_eq!(world.read_state(fresh).position, [0.0, 0.0, 0.0]);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(first))).is_err(),
+        "the removed handle must stay stale after respawn"
+    );
+}

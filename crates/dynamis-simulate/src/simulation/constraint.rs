@@ -134,9 +134,6 @@ impl Simulation {
             desc.swing = swing;
         });
     }
-    pub fn swing_limits(&mut self, handle: ConstraintHandle, swing: Option<ConstraintSwing>) {
-        self.set_swing_limits(handle, swing);
-    }
 
     pub fn set_constraint_disable_collisions(&mut self, handle: ConstraintHandle, disable: bool) {
         self.patch_constraint(handle, |desc| {
@@ -287,7 +284,7 @@ fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
         dynamis_layout::CONSTRAINT_GEAR => ConstraintKind::Gear,
         dynamis_layout::CONSTRAINT_CONE => ConstraintKind::Cone,
         dynamis_layout::CONSTRAINT_SIXDOF => ConstraintKind::SixDof,
-        _ => ConstraintKind::Pulley,
+        other => panic!("constraint record has an invalid kind {other}"),
     };
     let mut desc = ConstraintDesc::ball(record.anchor_a, record.anchor_b).rekind(kind);
     desc.axis_a = record.axis_a;

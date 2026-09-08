@@ -46,7 +46,6 @@ pub struct BindingSpec {
 pub struct ComputePipeline {
     pipeline: WgpuComputePipeline,
     bind_group_layouts: Vec<BindGroupLayout>,
-    workgroup_size: u32,
 }
 
 impl ComputePipeline {
@@ -56,7 +55,6 @@ impl ComputePipeline {
         shader: &str,
         entry: &str,
         groups: &[&[BindingSpec]],
-        workgroup_size: u32,
     ) -> Self {
         let module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some(label),
@@ -113,20 +111,11 @@ impl ComputePipeline {
         Self {
             pipeline,
             bind_group_layouts,
-            workgroup_size,
         }
-    }
-
-    pub fn bind_group_layout(&self, group: usize) -> &BindGroupLayout {
-        &self.bind_group_layouts[group]
     }
 
     pub fn pipeline(&self) -> &WgpuComputePipeline {
         &self.pipeline
-    }
-
-    pub fn workgroup_size(&self) -> u32 {
-        self.workgroup_size
     }
 
     pub fn create_bind_group(
@@ -140,9 +129,5 @@ impl ComputePipeline {
             layout: &self.bind_group_layouts[group],
             entries,
         })
-    }
-
-    pub fn workgroup_count(&self, elements: u32) -> u32 {
-        elements.div_ceil(self.workgroup_size)
     }
 }

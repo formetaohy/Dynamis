@@ -14,8 +14,9 @@ bytemuck = { workspace = true }
 dynamis-gpu = { workspace = true }
 dynamis-kernel = { workspace = true }
 dynamis-layout = { workspace = true }
+dynamis-math = { workspace = true }
+dynamis-mesh = { workspace = true }
 dynamis-model = { workspace = true }
-dynamis-query = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]

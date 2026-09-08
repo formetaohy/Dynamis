@@ -97,7 +97,7 @@ impl RigidBodyRecord {
     }
 }
 
-pub fn matching_flags(desc: &BodyDesc) -> u32 {
+fn matching_flags(desc: &BodyDesc) -> u32 {
     let mut flags = 0;
     if desc.kinematic {
         flags |= BODY_KINEMATIC;

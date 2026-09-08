@@ -5,7 +5,7 @@ use dynamis_layout::{
     CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
     CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
     CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
-    CONSTRAINT_REVOLUTE, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, DispatchArgs,
+    CONSTRAINT_REVOLUTE, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, Counter,
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
     PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
     QueryRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
@@ -376,9 +376,8 @@ fn constraint_command_and_dispatch_args_encode() {
     let remove = ConstraintCommandRecord::remove(3);
     assert_eq!(remove.kind, COMMAND_CONSTRAINT_REMOVE);
 
-    assert_eq!(DispatchArgs::none().x, 0);
-    assert_eq!(DispatchArgs::none().y, 1);
-    assert_eq!(DispatchArgs::sized(42).x, 42);
+    assert_eq!(Counter::none().count, 0);
+    assert_eq!(Counter::sized(42).count, 42);
 }
 
 #[test]

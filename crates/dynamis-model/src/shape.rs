@@ -70,27 +70,6 @@ impl Shape {
         Self::Plane
     }
 
-    pub fn bounding_radius(&self) -> f32 {
-        match *self {
-            Self::Sphere { radius } => radius,
-            Self::Cuboid { half_extents } => {
-                let x = half_extents[0];
-                let y = half_extents[1];
-                let z = half_extents[2];
-                (x * x + y * y + z * z).sqrt()
-            }
-            Self::Capsule {
-                radius,
-                half_height,
-            }
-            | Self::Cylinder {
-                radius,
-                half_height,
-            } => (half_height * half_height + radius * radius).sqrt(),
-            Self::Hull(_) | Self::Mesh(_) | Self::HeightField(_) | Self::Plane => 0.0,
-        }
-    }
-
     pub fn is_world_geometry(&self) -> bool {
         matches!(self, Self::Mesh(_) | Self::HeightField(_) | Self::Plane)
     }

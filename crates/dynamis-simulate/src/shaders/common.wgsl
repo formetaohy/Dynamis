@@ -1325,7 +1325,7 @@ fn ray_scene(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) ->
 
 fn scene_raycast(source_index: u32, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
     let source = shape_sources[source_index];
-    if (source.kind == SHAPE_SOURCE_HULL) {
+    if (source.kind == SHAPE_HULL) {
         var best = no_hit();
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
             let tri = shape_triangles[source.triangle_offset + i];
@@ -1455,7 +1455,7 @@ fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShap
     result.point_b = vec3f(0.0);
     result.normal = vec3f(0.0, 1.0, 0.0);
     result.penetrating = false;
-    if (shape_sources[source_index].kind == SHAPE_SOURCE_HULL) {
+    if (shape_sources[source_index].kind == SHAPE_HULL) {
         for (var i = 0u; i < shape_sources[source_index].triangle_count; i = i + 1u) {
             let candidate = convex_closest(triangle_world(source_index, i, source_scale), world, &simplex, &count);
             if (candidate.penetrating) {

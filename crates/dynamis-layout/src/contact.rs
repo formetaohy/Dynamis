@@ -2,17 +2,9 @@ use bytemuck::{Pod, Zeroable};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<PairRecord>() == 8);
     assert!(size_of::<ManifoldPointRecord>() == 32);
     assert!(size_of::<ContactRecord>() == 192);
 };
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct PairRecord {
-    pub a: u32,
-    pub b: u32,
-}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]

@@ -45,10 +45,6 @@ pub const SHAPE_HEIGHTFIELD: u32 = 7;
 pub const SHAPE_TRIANGLE: u32 = 8;
 pub const SHAPE_PLANE: u32 = 9;
 
-pub const SHAPE_SOURCE_HULL: u32 = 1;
-pub const SHAPE_SOURCE_MESH: u32 = 2;
-pub const SHAPE_SOURCE_HEIGHTFIELD: u32 = 3;
-
 pub const BODY_KINEMATIC: u32 = 1;
 pub const BODY_SLEEPING: u32 = 2;
 pub const BODY_CCD: u32 = 4;
@@ -92,7 +88,7 @@ pub fn dof_mode(flags: u32, index: u32) -> u32 {
     (flags >> (8 + index * 2)) & 3
 }
 
-pub fn set_dof_mode(flags: u32, index: u32, mode: u32) -> u32 {
+pub(crate) fn set_dof_mode(flags: u32, index: u32, mode: u32) -> u32 {
     (flags & !(3 << (8 + index * 2))) | (mode << (8 + index * 2))
 }
 

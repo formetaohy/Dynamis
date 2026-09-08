@@ -1,5 +1,5 @@
 use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext};
-use dynamis_kernel::{GpuBucketSort, GpuSort};
+use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 
@@ -99,24 +99,26 @@ fn run_sort(
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
     count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     holder.write(context.queue(), &count_bytes);
-    let sort = GpuSort::new(&context, "test sort", keys_lo.len() as u32);
+    let sort = RadixSort::new(&context, "test sort", keys_lo.len() as u32);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("sort"),
     });
     {
         let mut recorder = ComputeRecorder::begin(&mut encoder, "sort pass");
-        sort.sort_64(
+        sort.sort(
             device,
             &mut recorder,
-            &holder,
+            &SortChannels {
+                count: &holder,
+                keys_lo: &inputs.keys_lo,
+                keys_hi: &inputs.keys_hi,
+                values: &inputs.values,
+                scratch_lo: &inputs.out_lo,
+                scratch_hi: &inputs.out_hi,
+                scratch_values: &inputs.out_values,
+            },
             lo_words,
             hi_words,
-            &inputs.keys_lo,
-            &inputs.keys_hi,
-            &inputs.values,
-            &inputs.out_lo,
-            &inputs.out_hi,
-            &inputs.out_values,
         );
     }
     context.queue().submit([encoder.finish()]);
@@ -204,7 +206,7 @@ fn bucket_sort_groups_keys_and_values_stably() {
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
     count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     holder.write(context.queue(), &count_bytes);
-    let bucket = GpuBucketSort::new(&context, "test bucket", 4, data.len() as u32);
+    let bucket = BucketSort::new(&context, "test bucket", 4, data.len() as u32);
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
@@ -212,11 +214,13 @@ fn bucket_sort_groups_keys_and_values_stably() {
         bucket.sort(
             device,
             &mut recorder,
-            &holder,
-            &keys,
-            &values,
-            &keys_out,
-            &values_out,
+            &BucketChannels {
+                count: &holder,
+                keys: &keys,
+                values: &values,
+                keys_out: &keys_out,
+                values_out: &values_out,
+            },
         );
     }
     context.queue().submit([encoder.finish()]);

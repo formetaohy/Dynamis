@@ -1,14 +1,5 @@
-use dynamis_layout::{
-    BvhNodeRecord, SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH,
-};
+use dynamis_layout::BvhNodeRecord;
 use dynamis_model::ShapeSourceHandle;
-
-#[derive(Clone, Copy)]
-pub(crate) enum PoolKind {
-    Hull,
-    Mesh,
-    HeightField,
-}
 
 pub(crate) struct ShapePool {
     capacity: usize,
@@ -143,7 +134,7 @@ impl ShapePool {
 
     pub fn allocate(
         &mut self,
-        kind: PoolKind,
+        kind: u32,
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
@@ -163,11 +154,6 @@ impl ShapePool {
         let nodes = build_bvh(vertices, triangles);
         let node_count = nodes.len() as u32;
         self.nodes.extend(nodes);
-        let kind_code = match kind {
-            PoolKind::Hull => SHAPE_SOURCE_HULL,
-            PoolKind::Mesh => SHAPE_SOURCE_MESH,
-            PoolKind::HeightField => SHAPE_SOURCE_HEIGHTFIELD,
-        };
         while self.records.len() as u32 <= id {
             self.records.push(ShapeSourceRecordStorage {
                 kind: 0,
@@ -181,7 +167,7 @@ impl ShapePool {
             });
         }
         self.records[id as usize] = ShapeSourceRecordStorage {
-            kind: kind_code,
+            kind,
             vertex_offset,
             vertex_count: vertices.len() as u32,
             triangle_offset,

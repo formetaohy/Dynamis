@@ -69,29 +69,10 @@ fn constraint_descs_validate_inputs() {
 }
 
 #[test]
-fn bounding_radius_matches_shape_extent() {
-    assert!((Shape::sphere(0.5).bounding_radius() - 0.5).abs() < 1e-6);
-    assert!(
-        (Shape::cuboid([1.0, 2.0, 3.0]).bounding_radius() - (1.0f32 + 4.0 + 9.0).sqrt()).abs()
-            < 1e-6
-    );
-    assert!((Shape::capsule(0.3, 1.0).bounding_radius() - (1.0f32 + 0.09).sqrt()).abs() < 1e-6);
-    assert!(
-        Shape::mesh(dynamis_model::ShapeSourceHandle {
-            id: 0,
-            generation: 1
-        })
-        .bounding_radius()
-            == 0.0
-    );
-}
-
-#[test]
 fn plane_shape_and_scaled_colliders_validate() {
     let plane = Shape::plane();
     assert!(plane.is_world_geometry());
     assert!(!plane.is_convex());
-    assert_eq!(plane.bounding_radius(), 0.0);
     let scaled = ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 1.0]);
     assert_eq!(scaled.scale, [2.0, 1.0, 1.0]);
     let invalid = catch_unwind(AssertUnwindSafe(|| {

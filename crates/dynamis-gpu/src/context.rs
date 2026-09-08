@@ -98,7 +98,6 @@ impl GpuContext {
             shader,
             entry,
             groups,
-            workgroup_size,
         ));
         cache.insert(key, pipeline.clone());
         (*pipeline).clone()

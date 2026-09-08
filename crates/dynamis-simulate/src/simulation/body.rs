@@ -30,18 +30,11 @@ impl Simulation {
         let effective_mass = desc.effective_mass(|shape| self.shape_bounds(shape));
         let mut spawn_desc = desc.clone();
         spawn_desc.mass = effective_mass;
-        self.masses.resize(self.alive.len() + 1, 1.0);
         self.masses[id as usize] = effective_mass;
-        self.com_overrides.resize(self.alive.len() + 1, None);
         self.com_overrides[id as usize] = desc.com;
-        self.inertia_overrides.resize(self.alive.len() + 1, None);
         self.inertia_overrides[id as usize] = desc.inertia;
-        self.dynamics
-            .resize(self.alive.len() + 1, super::BodyDynamics::defaults());
         self.dynamics[id as usize] = super::BodyDynamics::from_desc(&desc);
-        self.kinematic.resize(self.alive.len() + 1, false);
         self.kinematic[id as usize] = desc.kinematic;
-        self.collider_descs.resize(self.alive.len() + 1, Vec::new());
         self.collider_descs[id as usize] = desc.colliders.clone();
         let mass = self.mass_properties_of(id as usize);
         let body = RigidBodyRecord::build(
@@ -154,7 +147,7 @@ impl Simulation {
         let mut body = *body;
         if let Some(state) = self.state_snapshot(id) {
             body.position = state.position;
-            body.prev_position = state.previous_position;
+            body.prev_position = state.prev_position;
             body.orientation = state.orientation;
         }
         body
@@ -165,7 +158,7 @@ impl Simulation {
     }
 
     fn is_kinematic_id(&self, id: usize) -> bool {
-        self.kinematic.get(id).copied().unwrap_or(false)
+        self.kinematic[id]
     }
 
     fn swap_slots(&mut self, first: u32, second: u32) {
@@ -223,12 +216,9 @@ impl Simulation {
     }
 
     fn record_state(&mut self, id: usize, desc: &BodyDesc, body: &RigidBodyRecord) {
-        if self.states.len() <= id {
-            self.states.resize(id + 1, None);
-        }
         self.states[id] = Some(BodyState {
             position: desc.position,
-            previous_position: desc.position,
+            prev_position: desc.position,
             orientation: desc.orientation,
             velocity: desc.velocity,
             angular_velocity: desc.angular_velocity,
