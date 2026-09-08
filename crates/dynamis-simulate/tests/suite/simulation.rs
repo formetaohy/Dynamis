@@ -505,3 +505,149 @@ fn remove_then_spawn_reuses_slot_with_fresh_generation() {
         "the removed handle must stay stale after respawn"
     );
 }
+
+#[test]
+fn grow_preserves_kinematic_and_ccd_flags() {
+    let mut world = sim(4, gravity_config());
+    let platform = world.spawn(
+        BodyDesc::cuboid([1.0, 0.2, 1.0])
+            .position([0.0, 3.0, 0.0])
+            .kinematic(true)
+            .ccd(true),
+    );
+    settle_frames(&mut world, 10);
+    world.grow(64);
+    settle_frames(&mut world, 60);
+    let state = world.read_state(platform);
+    assert!(
+        (state.position[1] - 3.0).abs() < 1e-3,
+        "a kinematic body must not fall through a reallocation, got {}",
+        state.position[1]
+    );
+}
+
+#[test]
+fn grow_preserves_body_collision_filters() {
+    let mut world = sim(4, gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0])
+            .collision_group(0x2)
+            .collision_mask(0x8),
+    );
+    let ball = world.spawn(
+        BodyDesc::sphere(0.4)
+            .position([0.0, 4.0, 0.0])
+            .collision_group(0x8)
+            .collision_mask(0x2),
+    );
+    settle_frames(&mut world, 20);
+    world.grow(64);
+    settle_frames(&mut world, 180);
+    let height = world.read_state(ball).position[1];
+    assert!(
+        height > 0.3,
+        "a filtered pair must keep colliding across a reallocation, got {height}"
+    );
+}
+
+#[test]
+fn grow_preserves_constraint_slots_and_breaks() {
+    let mut world = sim(8, gravity_config());
+    let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 6.0, 0.0]));
+    let mut handles = vec![anchor];
+    for index in 0..4 {
+        let ball = world.spawn(BodyDesc::sphere(0.2).position([
+            index as f32 * 0.6,
+            5.0 - index as f32 * 0.6,
+            0.0,
+        ]));
+        world.add_constraint(
+            *handles.last().unwrap(),
+            ball,
+            ConstraintDesc::ball([0.0; 3], [0.0; 3]),
+        );
+        handles.push(ball);
+    }
+    let middle = world.add_constraint(
+        handles[1],
+        handles[3],
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.2),
+    );
+    world.remove_constraint(middle);
+    settle_frames(&mut world, 60);
+    world.grow(64);
+    settle_frames(&mut world, 60);
+    let tip = world.read_state(handles[4]).position;
+    let anchor_pos = world.read_state(anchor).position;
+    let span = distance(tip, anchor_pos);
+    assert!(
+        span < 3.0,
+        "the chain must stay attached across a reallocation and a removal, span {span}"
+    );
+}
+
+#[test]
+fn apply_impulse_at_center_of_mass_spins_nothing() {
+    let mut world = sim(4, static_config());
+    let offset = world.spawn(
+        BodyDesc::sphere(0.5)
+            .mass(2.0)
+            .com([0.4, 0.0, 0.0])
+            .position([0.0, 0.0, 0.0]),
+    );
+    world.apply_impulse(offset, [0.0, 0.0, 3.0]);
+    world.step(DT);
+    world.wait();
+    let state = world.read_state(offset);
+    assert!(
+        state
+            .angular_velocity
+            .iter()
+            .all(|value| value.abs() < 1e-5),
+        "a centre-of-mass impulse must not induce spin, got {:?}",
+        state.angular_velocity
+    );
+    assert!(
+        state.velocity[2] > 1.4,
+        "the linear response must still apply, got {:?}",
+        state.velocity
+    );
+}
+
+#[test]
+fn apply_impulse_at_point_levers_about_the_center_of_mass() {
+    let mut world = sim(4, static_config());
+    let body = world.spawn(
+        BodyDesc::sphere(0.5)
+            .mass(2.0)
+            .com([0.4, 0.0, 0.0])
+            .position([0.0, 0.0, 0.0]),
+    );
+    world.apply_impulse_at_point(body, [0.0, 0.0, 3.0], [0.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    let state = world.read_state(body);
+    assert!(
+        state.angular_velocity[1].abs() > 0.1,
+        "an off-centre impulse must lever the body, got {:?}",
+        state.angular_velocity
+    );
+}
+
+#[test]
+fn sleep_threshold_override_accepts_zero() {
+    let mut world = sim(4, gravity_config());
+    let ball = world.spawn(
+        BodyDesc::sphere(0.5)
+            .position([0.0, 0.0, 0.0])
+            .sleep_thresholds(0.0, 0.0),
+    );
+    world.set_sleep_thresholds(ball, 0.0, 0.0);
+    settle_frames(&mut world, 5);
+    assert!(
+        !world.read_state(ball).sleeping,
+        "a zero threshold must keep the body awake rather than inherit the global one"
+    );
+}

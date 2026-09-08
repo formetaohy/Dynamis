@@ -1,20 +1,24 @@
 use crate::constant::{
     BODY_CCD, BODY_KINEMATIC, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_FORCE,
-    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
-    COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE, IMPULSE_AT_POINT,
+    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_IMPULSE_AT_POINT, COMMAND_PATCH,
+    COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE,
+    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
 };
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<RigidBodyRecord>() == 224);
-    assert!(size_of::<BodyCommandRecord>() == 240);
+    assert!(size_of::<BodyStateRecord>() == 128);
+    assert!(size_of::<BodyDescriptorRecord>() == 96);
+    assert!(size_of::<BodyCommandRecord>() == 144);
 };
 
+/// Kinematic state of one body slot. The device owns every field of this row;
+/// the host only ever reaches it through [`BodyCommandRecord`].
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct RigidBodyRecord {
+pub struct BodyStateRecord {
     pub position: [f32; 3],
     pub _pad0: f32,
     pub prev_position: [f32; 3],
@@ -24,41 +28,18 @@ pub struct RigidBodyRecord {
     pub _pad2: f32,
     pub angular_velocity: [f32; 3],
     pub _pad3: f32,
-    pub com: [f32; 3],
-    pub _pad_com: f32,
-    pub inverse_inertia_body: [f32; 6],
-    pub _pad_inertia: [f32; 2],
     pub force: [f32; 3],
-    pub _pad7: f32,
+    pub _pad4: f32,
     pub torque: [f32; 3],
-    pub _pad8: f32,
-    pub inverse_mass: f32,
-    pub restitution: f32,
-    pub friction: f32,
+    pub _pad5: f32,
     pub body_id: u32,
     pub generation: u32,
-    pub collider_count: u32,
-    pub flags: u32,
-    pub collision_group: u32,
-    pub collision_mask: u32,
     pub sleep_timer: f32,
-    pub linear_damping: f32,
-    pub angular_damping: f32,
-    pub gravity_scale: f32,
-    pub sleep_velocity_override: f32,
-    pub sleep_angular_velocity_override: f32,
-    pub _pad_dynamics: f32,
+    pub sleeping: u32,
 }
 
-impl RigidBodyRecord {
-    pub fn build(
-        desc: &BodyDesc,
-        body_id: u32,
-        generation: u32,
-        mass: MassProperties,
-        config: &PhysicsConfig,
-    ) -> Self {
-        let inverse_mass = desc.inverse_mass();
+impl BodyStateRecord {
+    pub fn initial(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
         Self {
             position: desc.position,
             _pad0: 0.0,
@@ -69,187 +50,164 @@ impl RigidBodyRecord {
             _pad2: 0.0,
             angular_velocity: desc.angular_velocity,
             _pad3: 0.0,
-            com: mass.com,
-            _pad_com: 0.0,
-            inverse_inertia_body: mass.inverse_inertia,
-            _pad_inertia: [0.0; 2],
             force: [0.0; 3],
-            _pad7: 0.0,
+            _pad4: 0.0,
             torque: [0.0; 3],
-            _pad8: 0.0,
-            inverse_mass,
-            restitution: desc.colliders[0].restitution,
-            friction: desc.colliders[0].friction,
+            _pad5: 0.0,
             body_id,
             generation,
-            collider_count: desc.colliders.len() as u32,
-            flags: matching_flags(desc),
-            collision_group: desc.collision_group,
-            collision_mask: desc.collision_mask,
             sleep_timer: 0.0,
-            linear_damping: desc.linear_damping.unwrap_or(config.damping),
-            angular_damping: desc.angular_damping.unwrap_or(config.angular_damping),
-            gravity_scale: desc.gravity_scale,
-            sleep_velocity_override: desc.sleep_velocity.unwrap_or(-1.0),
-            sleep_angular_velocity_override: desc.sleep_angular_velocity.unwrap_or(-1.0),
-            _pad_dynamics: 0.0,
+            sleeping: 0,
         }
     }
 }
 
-fn matching_flags(desc: &BodyDesc) -> u32 {
-    let mut flags = 0;
-    if desc.kinematic {
-        flags |= BODY_KINEMATIC;
-    }
-    if desc.ccd {
-        flags |= BODY_CCD;
-    }
-    flags
+/// Invariant properties of one body slot. The host owns this row and the device
+/// reads it; it never appears as a write target in a shader.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct BodyDescriptorRecord {
+    pub inverse_mass: f32,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub gravity_scale: f32,
+    pub sleep_velocity: f32,
+    pub sleep_angular_velocity: f32,
+    pub flags: u32,
+    pub _pad0: u32,
+    pub collision_group: u32,
+    pub collision_mask: u32,
+    pub _pad1: [u32; 2],
+    pub com: [f32; 3],
+    pub _pad2: f32,
+    pub inverse_inertia: [f32; 6],
+    pub _pad3: [f32; 2],
 }
 
+impl BodyDescriptorRecord {
+    pub fn build(desc: &BodyDesc, mass: MassProperties, config: &PhysicsConfig) -> Self {
+        let mut flags = 0;
+        if desc.kinematic {
+            flags |= BODY_KINEMATIC;
+        }
+        if desc.ccd {
+            flags |= BODY_CCD;
+        }
+        if desc.sleep_velocity.is_some() {
+            flags |= OVERRIDE_SLEEP_LINEAR;
+        }
+        if desc.sleep_angular_velocity.is_some() {
+            flags |= OVERRIDE_SLEEP_ANGULAR;
+        }
+        Self {
+            inverse_mass: if desc.kinematic || desc.mass <= 0.0 {
+                0.0
+            } else {
+                1.0 / desc.mass
+            },
+            linear_damping: desc.linear_damping.unwrap_or(config.damping),
+            angular_damping: desc.angular_damping.unwrap_or(config.angular_damping),
+            gravity_scale: desc.gravity_scale,
+            sleep_velocity: desc.sleep_velocity.unwrap_or(0.0),
+            sleep_angular_velocity: desc.sleep_angular_velocity.unwrap_or(0.0),
+            flags,
+            _pad0: 0,
+            collision_group: desc.collision_group,
+            collision_mask: desc.collision_mask,
+            _pad1: [0; 2],
+            com: mass.com,
+            _pad2: 0.0,
+            inverse_inertia: mass.inverse_inertia,
+            _pad3: [0.0; 2],
+        }
+    }
+}
+
+/// A pending mutation of [`BodyStateRecord`] at `slot`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BodyCommandRecord {
     pub kind: u32,
     pub slot: u32,
-    pub extra: u32,
-    pub aux: u32,
-    pub body: RigidBodyRecord,
+    pub mask: u32,
+    pub _pad0: u32,
+    pub state: BodyStateRecord,
 }
 
 impl BodyCommandRecord {
-    pub fn add(slot: u32, body: RigidBodyRecord) -> Self {
+    fn command(kind: u32, slot: u32, mask: u32, state: BodyStateRecord) -> Self {
         Self {
-            kind: COMMAND_ADD,
+            kind,
             slot,
-            extra: 0,
-            aux: 0,
-            body,
+            mask,
+            _pad0: 0,
+            state,
         }
+    }
+
+    pub fn add(slot: u32, state: BodyStateRecord) -> Self {
+        Self::command(COMMAND_ADD, slot, 0, state)
     }
 
     pub fn remove(hole: u32, tail: u32) -> Self {
-        Self {
-            kind: COMMAND_REMOVE,
-            slot: hole,
-            extra: tail,
-            aux: 0,
-            body: RigidBodyRecord::zeroed(),
-        }
+        Self::command(COMMAND_REMOVE, hole, tail, BodyStateRecord::zeroed())
     }
 
     pub fn swap(first: u32, second: u32) -> Self {
-        Self {
-            kind: COMMAND_SWAP,
-            slot: first,
-            extra: second,
-            aux: 0,
-            body: RigidBodyRecord::zeroed(),
-        }
+        Self::command(COMMAND_SWAP, first, second, BodyStateRecord::zeroed())
     }
 
-    pub fn patch(slot: u32, mask: u32, body: RigidBodyRecord) -> Self {
-        Self {
-            kind: COMMAND_PATCH,
-            slot,
-            extra: mask,
-            aux: 0,
-            body,
-        }
+    pub fn patch(slot: u32, mask: u32, state: BodyStateRecord) -> Self {
+        Self::command(COMMAND_PATCH, slot, mask, state)
+    }
+
+    fn payload(kind: u32, slot: u32, state: BodyStateRecord) -> Self {
+        Self::command(kind, slot, 0, state)
     }
 
     pub fn force(slot: u32, force: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.force = force;
-        Self {
-            kind: COMMAND_FORCE,
-            slot,
-            extra: 0,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.force = force;
+        Self::payload(COMMAND_FORCE, slot, state)
     }
 
     pub fn force_at_point(slot: u32, force: [f32; 3], point: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.force = force;
-        body.position = point;
-        Self {
-            kind: COMMAND_FORCE_AT_POINT,
-            slot,
-            extra: 0,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.force = force;
+        state.position = point;
+        Self::payload(COMMAND_FORCE_AT_POINT, slot, state)
     }
 
     pub fn torque(slot: u32, torque: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.torque = torque;
-        Self {
-            kind: COMMAND_TORQUE,
-            slot,
-            extra: 0,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.torque = torque;
+        Self::payload(COMMAND_TORQUE, slot, state)
     }
 
     pub fn impulse(slot: u32, impulse: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.velocity = impulse;
-        Self {
-            kind: COMMAND_IMPULSE,
-            slot,
-            extra: 0,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.velocity = impulse;
+        Self::payload(COMMAND_IMPULSE, slot, state)
     }
 
     pub fn impulse_at_point(slot: u32, impulse: [f32; 3], point: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.velocity = impulse;
-        body.position = point;
-        Self {
-            kind: COMMAND_IMPULSE,
-            slot,
-            extra: IMPULSE_AT_POINT,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.velocity = impulse;
+        state.position = point;
+        Self::payload(COMMAND_IMPULSE_AT_POINT, slot, state)
     }
 
     pub fn angular_impulse(slot: u32, impulse: [f32; 3]) -> Self {
-        let mut body = RigidBodyRecord::zeroed();
-        body.angular_velocity = impulse;
-        Self {
-            kind: COMMAND_ANGULAR_IMPULSE,
-            slot,
-            extra: 0,
-            aux: 0,
-            body,
-        }
+        let mut state = BodyStateRecord::zeroed();
+        state.angular_velocity = impulse;
+        Self::payload(COMMAND_ANGULAR_IMPULSE, slot, state)
     }
 
     pub fn sleep(slot: u32) -> Self {
-        Self {
-            kind: COMMAND_SLEEP,
-            slot,
-            extra: 0,
-            aux: 0,
-            body: RigidBodyRecord::zeroed(),
-        }
+        Self::command(COMMAND_SLEEP, slot, 0, BodyStateRecord::zeroed())
     }
 
     pub fn wake(slot: u32) -> Self {
-        Self {
-            kind: COMMAND_WAKE,
-            slot,
-            extra: 0,
-            aux: 0,
-            body: RigidBodyRecord::zeroed(),
-        }
+        Self::command(COMMAND_WAKE, slot, 0, BodyStateRecord::zeroed())
     }
 }

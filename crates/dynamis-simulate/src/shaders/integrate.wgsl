@@ -1,55 +1,57 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
+@group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.x;
-    if (index >= params.body_count) {
+    if (index >= params.dynamic_count) {
         return;
     }
-    var body = bodies[index];
-    let kinematic = (body.flags & BODY_KINEMATIC) != 0u;
-    if ((body.flags & BODY_SLEEPING) != 0u) {
-        body.velocity = vec3f(0.0);
-        body.angular_velocity = vec3f(0.0);
-        body.force = vec3f(0.0);
-        body.torque = vec3f(0.0);
-        bodies[index] = body;
+    var state = body_states[index];
+    let desc = body_descs[index];
+    if (state.sleeping != 0u) {
+        state.velocity = vec3f(0.0);
+        state.angular_velocity = vec3f(0.0);
+        state.force = vec3f(0.0);
+        state.torque = vec3f(0.0);
+        body_states[index] = state;
         return;
     }
-    if (body.inverse_mass == 0.0 && !kinematic) {
-        body.prev_position = body.position;
-        body.velocity = vec3f(0.0);
-        body.angular_velocity = vec3f(0.0);
-        body.force = vec3f(0.0);
-        body.torque = vec3f(0.0);
-        bodies[index] = body;
+    let kinematic = (desc.flags & BODY_KINEMATIC) != 0u;
+    if (desc.inverse_mass == 0.0 && !kinematic) {
+        state.prev_position = state.position;
+        state.velocity = vec3f(0.0);
+        state.angular_velocity = vec3f(0.0);
+        state.force = vec3f(0.0);
+        state.torque = vec3f(0.0);
+        body_states[index] = state;
         return;
     }
-    let q = body.orientation;
-    let linear_damping = 1.0 / (1.0 + body.linear_damping * params.dt);
-    let angular_damping = 1.0 / (1.0 + body.angular_damping * params.dt);
+    let q = state.orientation;
+    let linear_damping = 1.0 / (1.0 + desc.linear_damping * params.dt);
+    let angular_damping = 1.0 / (1.0 + desc.angular_damping * params.dt);
     if (!kinematic) {
-        body.velocity =
-            body.velocity + (params.gravity.xyz * body.gravity_scale + body.force * body.inverse_mass) * params.dt;
-        body.angular_velocity =
-            body.angular_velocity + apply_inverse_inertia(body, body.torque * params.dt);
+        state.velocity =
+            state.velocity + (params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass) * params.dt;
+        state.angular_velocity =
+            state.angular_velocity + apply_inverse_inertia_of(desc, q, state.torque * params.dt);
     }
-    let speed = length(body.velocity);
+    let speed = length(state.velocity);
     if (speed > params.max_velocity) {
-        body.velocity = body.velocity * (params.max_velocity / speed);
+        state.velocity = state.velocity * (params.max_velocity / speed);
     }
-    let spin = length(body.angular_velocity);
+    let spin = length(state.angular_velocity);
     if (spin > params.max_angular_velocity) {
-        body.angular_velocity = body.angular_velocity * (params.max_angular_velocity / spin);
+        state.angular_velocity = state.angular_velocity * (params.max_angular_velocity / spin);
     }
-    body.velocity = body.velocity * linear_damping;
-    body.angular_velocity = body.angular_velocity * angular_damping;
-    body.prev_position = body.position;
-    body.position = body.position + body.velocity * params.dt;
-    let spin_quat = vec4f(body.angular_velocity, 0.0);
-    body.orientation = normalize(body.orientation + 0.5 * params.dt * quat_mul(spin_quat, body.orientation));
-    body.force = vec3f(0.0);
-    body.torque = vec3f(0.0);
-    bodies[index] = body;
+    state.velocity = state.velocity * linear_damping;
+    state.angular_velocity = state.angular_velocity * angular_damping;
+    state.prev_position = state.position;
+    state.position = state.position + state.velocity * params.dt;
+    let spin_quat = vec4f(state.angular_velocity, 0.0);
+    state.orientation = normalize(state.orientation + 0.5 * params.dt * quat_mul(spin_quat, state.orientation));
+    state.force = vec3f(0.0);
+    state.torque = vec3f(0.0);
+    body_states[index] = state;
 }

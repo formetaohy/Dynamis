@@ -1,8 +1,13 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read> contacts: array<Contact>;
-@group(0) @binding(3) var<storage, read> contact_count: array<u32>;
-@group(0) @binding(4) var<storage, read_write> contact_deltas: array<vec4f>;
+@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> contacts: array<Contact>;
+@group(0) @binding(4) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(5) var<storage, read_write> contact_deltas: array<vec4f>;
+
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -16,10 +21,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         contact_deltas[index * 4u + 1u] = vec4f(0.0);
         return;
     }
-    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
-    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
-    let first = bodies[first_slot];
-    let second = bodies[second_slot];
+    let first = load_body(contact.a / MAX_COLLIDERS_PER_BODY);
+    let second = load_body(contact.b / MAX_COLLIDERS_PER_BODY);
     let normal = contact.normal;
     var delta_a = vec3f(0.0);
     var delta_b = vec3f(0.0);
@@ -35,8 +38,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             continue;
         }
         let correction = params.relaxation * error / k / f32(max(params.position_iterations, 1u));
-        delta_a = delta_a - normal * (correction * first.inverse_mass);
-        delta_b = delta_b + normal * (correction * second.inverse_mass);
+        delta_a = delta_a - normal * (correction * first.desc.inverse_mass);
+        delta_b = delta_b + normal * (correction * second.desc.inverse_mass);
     }
     contact_deltas[index * 4u] = vec4f(delta_a, 0.0);
     contact_deltas[index * 4u + 1u] = vec4f(delta_b, 0.0);

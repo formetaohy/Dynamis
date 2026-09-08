@@ -1,21 +1,35 @@
 struct BodyCommand {
     kind: u32,
     slot: u32,
-    extra: u32,
-    aux: u32,
-    body: RigidBody,
+    mask: u32,
+    _pad0: u32,
+    state: BodyState,
 }
 
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read> command_count: u32;
-@group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> command_count: u32;
+@group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
-fn body_woken(body: RigidBody) -> RigidBody {
-    var woken = body;
-    woken.flags = woken.flags & ~BODY_SLEEPING;
-    woken.sleep_timer = 0.0;
-    return woken;
+fn wake(body: ptr<function, BodyState>, slot: u32) {
+    if ((*body).sleeping != 0u) {
+        atomicOr(&wake_flags[slot], 1u);
+    }
+    (*body).sleeping = 0u;
+    (*body).sleep_timer = 0.0;
+}
+
+fn apply_impulse_at(
+    state: ptr<function, BodyState>,
+    desc: BodyDescriptor,
+    impulse: vec3f,
+    point: vec3f,
+) {
+    (*state).velocity = (*state).velocity + impulse * desc.inverse_mass;
+    let lever = point - body_com_of(*state, desc);
+    (*state).angular_velocity = (*state).angular_velocity
+        + apply_inverse_inertia_of(desc, (*state).orientation, cross(lever, impulse));
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -26,134 +40,72 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let count = command_count;
     for (var i = 0u; i < count; i = i + 1u) {
         let command = commands[i];
+        let slot = command.slot;
         if (command.kind == COMMAND_ADD) {
-            bodies[command.slot] = command.body;
-        } else if (command.kind == COMMAND_REMOVE) {
-            if (command.slot != command.extra) {
-                bodies[command.slot] = bodies[command.extra];
-            }
-            bodies[command.extra] = RigidBody();
-        } else if (command.kind == COMMAND_SWAP) {
-            var first = bodies[command.slot];
-            var second = bodies[command.extra];
-            bodies[command.slot] = second;
-            bodies[command.extra] = first;
-        } else if (command.kind == COMMAND_PATCH) {
-            var body = bodies[command.slot];
-            if ((command.extra & PATCH_POSITION) != 0u) {
-                body.position = command.body.position;
-            }
-            if ((command.extra & PATCH_VELOCITY) != 0u) {
-                body.velocity = command.body.velocity;
-            }
-            if ((command.extra & PATCH_MASS) != 0u) {
-                body.inverse_mass = command.body.inverse_mass;
-                body.com = command.body.com;
-                body.inverse_inertia_body = command.body.inverse_inertia_body;
-            }
-            if ((command.extra & PATCH_RESTITUTION) != 0u) {
-                body.restitution = command.body.restitution;
-            }
-            if ((command.extra & PATCH_ORIENTATION) != 0u) {
-                body.orientation = command.body.orientation;
-            }
-            if ((command.extra & PATCH_ANGULAR_VELOCITY) != 0u) {
-                body.angular_velocity = command.body.angular_velocity;
-            }
-            if ((command.extra & PATCH_FRICTION) != 0u) {
-                body.friction = command.body.friction;
-            }
-            if ((command.extra & PATCH_GROUP) != 0u) {
-                body.collision_group = command.body.collision_group;
-            }
-            if ((command.extra & PATCH_MASK) != 0u) {
-                body.collision_mask = command.body.collision_mask;
-            }
-            if ((command.extra & PATCH_KINEMATIC) != 0u) {
-                body.flags = (body.flags & ~BODY_KINEMATIC) | (command.body.flags & BODY_KINEMATIC);
-                body.inverse_mass = command.body.inverse_mass;
-                body.com = command.body.com;
-                body.inverse_inertia_body = command.body.inverse_inertia_body;
-            }
-            if ((command.extra & PATCH_CCD) != 0u) {
-                body.flags = (body.flags & ~BODY_CCD) | (command.body.flags & BODY_CCD);
-            }
-            if ((command.extra & PATCH_DYNAMICS) != 0u) {
-                body.linear_damping = command.body.linear_damping;
-                body.angular_damping = command.body.angular_damping;
-                body.gravity_scale = command.body.gravity_scale;
-                body.sleep_velocity_override = command.body.sleep_velocity_override;
-                body.sleep_angular_velocity_override = command.body.sleep_angular_velocity_override;
-            }
-            if ((command.extra & PATCH_COLLIDER) != 0u) {
-                body.com = command.body.com;
-                body.inverse_inertia_body = command.body.inverse_inertia_body;
-                body.collider_count = command.body.collider_count;
-            }
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_FORCE) {
-            var body = bodies[command.slot];
-            body.force = body.force + command.body.force;
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_FORCE_AT_POINT) {
-            var body = bodies[command.slot];
-            body.force = body.force + command.body.force;
-            body.torque = body.torque + cross(command.body.position - body_com(body), command.body.force);
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_TORQUE) {
-            var body = bodies[command.slot];
-            body.torque = body.torque + command.body.torque;
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_IMPULSE) {
-            var body = bodies[command.slot];
-            let impulse = command.body.velocity;
-            body.velocity = body.velocity + impulse * body.inverse_mass;
-            body.angular_velocity =
-                body.angular_velocity + apply_inverse_inertia(body, cross(command.body.position - body_com(body), impulse));
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_ANGULAR_IMPULSE) {
-            var body = bodies[command.slot];
-            body.angular_velocity =
-                body.angular_velocity + apply_inverse_inertia(body, command.body.angular_velocity);
-            if ((body.flags & BODY_SLEEPING) != 0u) {
-                atomicOr(&wake_flags[command.slot], 1u);
-            }
-            body = body_woken(body);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_SLEEP) {
-            var body = bodies[command.slot];
-            body.flags = body.flags | BODY_SLEEPING;
-            body.velocity = vec3f(0.0);
-            body.angular_velocity = vec3f(0.0);
-            body.sleep_timer = 0.0;
-            atomicStore(&wake_flags[command.slot], 0u);
-            bodies[command.slot] = body;
-        } else if (command.kind == COMMAND_WAKE) {
-            var body = bodies[command.slot];
-            body.flags = body.flags & ~BODY_SLEEPING;
-            body.sleep_timer = 0.0;
-            atomicOr(&wake_flags[command.slot], 1u);
-            bodies[command.slot] = body;
+            body_states[slot] = command.state;
+            continue;
         }
+        if (command.kind == COMMAND_REMOVE) {
+            body_states[slot] = body_states[command.mask];
+            body_states[command.mask] = BodyState();
+            continue;
+        }
+        if (command.kind == COMMAND_SWAP) {
+            let first = body_states[slot];
+            let second = body_states[command.mask];
+            body_states[slot] = second;
+            body_states[command.mask] = first;
+            continue;
+        }
+        var state = body_states[slot];
+        let desc = body_descs[slot];
+        if (command.kind == COMMAND_PATCH) {
+            if ((command.mask & PATCH_POSITION) != 0u) {
+                state.position = command.state.position;
+                state.prev_position = command.state.position;
+            }
+            if ((command.mask & PATCH_ORIENTATION) != 0u) {
+                state.orientation = command.state.orientation;
+            }
+            if ((command.mask & PATCH_VELOCITY) != 0u) {
+                state.velocity = command.state.velocity;
+            }
+            if ((command.mask & PATCH_ANGULAR_VELOCITY) != 0u) {
+                state.angular_velocity = command.state.angular_velocity;
+            }
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_FORCE) {
+            state.force = state.force + command.state.force;
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_FORCE_AT_POINT) {
+            state.force = state.force + command.state.force;
+            state.torque = state.torque
+                + cross(command.state.position - body_com_of(state, desc), command.state.force);
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_TORQUE) {
+            state.torque = state.torque + command.state.torque;
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_IMPULSE) {
+            state.velocity = state.velocity + command.state.velocity * desc.inverse_mass;
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_IMPULSE_AT_POINT) {
+            apply_impulse_at(&state, desc, command.state.velocity, command.state.position);
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_ANGULAR_IMPULSE) {
+            state.angular_velocity = state.angular_velocity
+                + apply_inverse_inertia_of(desc, state.orientation, command.state.angular_velocity);
+            wake(&state, slot);
+        } else if (command.kind == COMMAND_SLEEP) {
+            state.velocity = vec3f(0.0);
+            state.angular_velocity = vec3f(0.0);
+            state.sleep_timer = 0.0;
+            state.sleeping = 1u;
+            atomicStore(&wake_flags[slot], 0u);
+        } else if (command.kind == COMMAND_WAKE) {
+            state.sleep_timer = 0.0;
+            state.sleeping = 0u;
+            atomicOr(&wake_flags[slot], 1u);
+        }
+        body_states[slot] = state;
     }
 }

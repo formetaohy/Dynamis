@@ -26,7 +26,7 @@ struct SimParams {
     _pad7: f32,
 }
 
-struct RigidBody {
+struct BodyState {
     position: vec3f,
     _pad0: f32,
     prev_position: vec3f,
@@ -36,31 +36,39 @@ struct RigidBody {
     _pad2: f32,
     angular_velocity: vec3f,
     _pad3: f32,
-    com: vec3f,
-    _pad_com: f32,
-    inverse_inertia_body: array<f32, 6>,
-    _pad_inertia: f32,
-    _pad_inertia2: f32,
     force: vec3f,
-    _pad7: f32,
+    _pad4: f32,
     torque: vec3f,
-    _pad8: f32,
-    inverse_mass: f32,
-    restitution: f32,
-    friction: f32,
+    _pad5: f32,
     body_id: u32,
     generation: u32,
-    collider_count: u32,
-    flags: u32,
-    collision_group: u32,
-    collision_mask: u32,
     sleep_timer: f32,
+    sleeping: u32,
+}
+
+struct BodyDescriptor {
+    inverse_mass: f32,
     linear_damping: f32,
     angular_damping: f32,
     gravity_scale: f32,
-    sleep_velocity_override: f32,
-    sleep_angular_velocity_override: f32,
-    _pad_dynamics: f32,
+    sleep_velocity: f32,
+    sleep_angular_velocity: f32,
+    flags: u32,
+    _pad0: u32,
+    collision_group: u32,
+    collision_mask: u32,
+    _pad1: u32,
+    _pad4: u32,
+    com: vec3f,
+    _pad2: f32,
+    inverse_inertia: array<f32, 6>,
+    _pad3: array<f32, 2>,
+}
+
+/// A host-owned descriptor paired with a device-owned state row.
+struct Body {
+    state: BodyState,
+    desc: BodyDescriptor,
 }
 
 struct Collider {
@@ -149,7 +157,7 @@ struct Contact {
     points: array<ManifoldPoint, CONTACT_MAX_POINTS>,
 }
 
-struct Constraint {
+struct ConstraintDescriptor {
     kind: u32,
     a: u32,
     b: u32,
@@ -207,7 +215,15 @@ struct Constraint {
     _pad_lin_force: f32,
     angular_motor_force: vec3f,
     _pad_ang_force: f32,
+}
+
+/// Accumulated impulses of a constraint slot, owned by the device.
+struct ConstraintRuntime {
     accumulated: array<f32, 8>,
+    broken: u32,
+    constraint_id: u32,
+    generation: u32,
+    _pad0: u32,
 }
 
 struct Query {
@@ -297,51 +313,51 @@ fn sign_normalize(v: vec3f) -> vec3f {
     return vec3f(0.0, 1.0, 0.0);
 }
 
-fn body_is_inert(body: RigidBody) -> bool {
-    return body.inverse_mass == 0.0 || (body.flags & BODY_SLEEPING) != 0u;
+fn body_is_inert(body: Body) -> bool {
+    return body.desc.inverse_mass == 0.0 || body.state.sleeping != 0u;
 }
 
-fn body_frozen(body: RigidBody) -> RigidBody {
+fn body_frozen(body: Body) -> Body {
     var frozen = body;
-    frozen.inverse_mass = 0.0;
-    frozen.inverse_inertia_body = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    frozen.desc.inverse_mass = 0.0;
+    frozen.desc.inverse_inertia = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     return frozen;
 }
 
-fn body_is_dynamic(body: RigidBody) -> bool {
-    return body.inverse_mass > 0.0 && (body.flags & BODY_KINEMATIC) == 0u;
+fn body_is_dynamic(body: Body) -> bool {
+    return body.desc.inverse_mass > 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
 }
 
-fn body_has_ccd(body: RigidBody) -> bool {
-    return (body.flags & BODY_CCD) != 0u;
+fn body_is_kinematic(body: Body) -> bool {
+    return (body.desc.flags & BODY_KINEMATIC) != 0u;
 }
 
-fn body_is_static(body: RigidBody) -> bool {
-    return body.inverse_mass == 0.0 && (body.flags & BODY_KINEMATIC) == 0u;
+fn body_has_ccd(body: Body) -> bool {
+    return (body.desc.flags & BODY_CCD) != 0u;
+}
+
+fn body_is_static(body: Body) -> bool {
+    return body.desc.inverse_mass == 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
 }
 
 fn collider_is_sensor(collider: Collider) -> bool {
     return (collider.flags & COLLIDER_SENSOR) != 0u;
 }
 
-fn body_world_intersects(body: RigidBody, group: u32, mask: u32) -> bool {
-    return (body.collision_group & mask) != 0u && (group & body.collision_mask) != 0u;
-}
-
 fn collider_filter_intersects(
-    first_body: RigidBody, first_collider: Collider,
-    second_body: RigidBody, second_collider: Collider,
+    first_body: Body, first_collider: Collider,
+    second_body: Body, second_collider: Collider,
 ) -> bool {
-    let first_group = select(first_body.collision_group, first_collider.collision_group, first_collider.collision_group != NO_COLLISION_FILTER);
-    let first_mask = select(first_body.collision_mask, first_collider.collision_mask, first_collider.collision_mask != NO_COLLISION_FILTER);
-    let second_group = select(second_body.collision_group, second_collider.collision_group, second_collider.collision_group != NO_COLLISION_FILTER);
-    let second_mask = select(second_body.collision_mask, second_collider.collision_mask, second_collider.collision_mask != NO_COLLISION_FILTER);
+    let first_group = select(first_body.desc.collision_group, first_collider.collision_group, first_collider.collision_group != NO_COLLISION_FILTER);
+    let first_mask = select(first_body.desc.collision_mask, first_collider.collision_mask, first_collider.collision_mask != NO_COLLISION_FILTER);
+    let second_group = select(second_body.desc.collision_group, second_collider.collision_group, second_collider.collision_group != NO_COLLISION_FILTER);
+    let second_mask = select(second_body.desc.collision_mask, second_collider.collision_mask, second_collider.collision_mask != NO_COLLISION_FILTER);
     return (first_group & second_mask) != 0u && (second_group & first_mask) != 0u;
 }
 
-fn collider_filter_query(query: Query, body: RigidBody, collider: Collider) -> bool {
-    let group = select(body.collision_group, collider.collision_group, collider.collision_group != NO_COLLISION_FILTER);
-    let mask = select(body.collision_mask, collider.collision_mask, collider.collision_mask != NO_COLLISION_FILTER);
+fn collider_filter_query(query: Query, body: Body, collider: Collider) -> bool {
+    let group = select(body.desc.collision_group, collider.collision_group, collider.collision_group != NO_COLLISION_FILTER);
+    let mask = select(body.desc.collision_mask, collider.collision_mask, collider.collision_mask != NO_COLLISION_FILTER);
     return query.group == 0u || ((group & query.mask) != 0u && (query.group & mask) != 0u);
 }
 
@@ -373,12 +389,16 @@ fn material_combine(first: f32, second: f32, mode: u32) -> f32 {
     return sqrt(first * second);
 }
 
-fn body_com(body: RigidBody) -> vec3f {
-    return body.position + quat_rotate(body.orientation, body.com);
+fn body_com(body: Body) -> vec3f {
+    return body_com_of(body.state, body.desc);
 }
 
-fn inverse_inertia_apply(body: RigidBody, v: vec3f) -> vec3f {
-    let i = body.inverse_inertia_body;
+fn body_com_of(state: BodyState, desc: BodyDescriptor) -> vec3f {
+    return state.position + quat_rotate(state.orientation, desc.com);
+}
+
+fn inverse_inertia_local(desc: BodyDescriptor, v: vec3f) -> vec3f {
+    let i = desc.inverse_inertia;
     return vec3f(
         i[0] * v.x + i[1] * v.y + i[2] * v.z,
         i[1] * v.x + i[3] * v.y + i[4] * v.z,
@@ -386,41 +406,44 @@ fn inverse_inertia_apply(body: RigidBody, v: vec3f) -> vec3f {
     );
 }
 
-fn apply_inverse_inertia(body: RigidBody, v: vec3f) -> vec3f {
-    let q = body.orientation;
+fn apply_inverse_inertia_of(desc: BodyDescriptor, q: vec4f, v: vec3f) -> vec3f {
     let local = quat_rotate(quat_conjugate(q), v);
-    return quat_rotate(q, inverse_inertia_apply(body, local));
+    return quat_rotate(q, inverse_inertia_local(desc, local));
 }
 
-fn relative_velocity(body_a: RigidBody, body_b: RigidBody, point_a: vec3f, point_b: vec3f) -> vec3f {
-    let va = body_a.velocity + cross(body_a.angular_velocity, point_a - body_com(body_a));
-    let vb = body_b.velocity + cross(body_b.angular_velocity, point_b - body_com(body_b));
+fn apply_inverse_inertia(body: Body, v: vec3f) -> vec3f {
+    return apply_inverse_inertia_of(body.desc, body.state.orientation, v);
+}
+
+fn relative_velocity(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f) -> vec3f {
+    let va = body_a.state.velocity + cross(body_a.state.angular_velocity, point_a - body_com(body_a));
+    let vb = body_b.state.velocity + cross(body_b.state.angular_velocity, point_b - body_com(body_b));
     return vb - va;
 }
 
-fn point_momentum_mass(body_a: RigidBody, body_b: RigidBody, point_a: vec3f, point_b: vec3f, axis: vec3f) -> f32 {
+fn point_momentum_mass(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f, axis: vec3f) -> f32 {
     let ra = point_a - body_com(body_a);
     let rb = point_b - body_com(body_b);
     let rax = cross(ra, axis);
     let rbx = cross(rb, axis);
-    return body_a.inverse_mass
-        + body_b.inverse_mass
+    return body_a.desc.inverse_mass
+        + body_b.desc.inverse_mass
         + dot(rax, apply_inverse_inertia(body_a, rax))
         + dot(rbx, apply_inverse_inertia(body_b, rbx));
 }
 
 fn apply_pair_impulse(
-    body_a: ptr<function, RigidBody>,
-    body_b: ptr<function, RigidBody>,
+    body_a: ptr<function, Body>,
+    body_b: ptr<function, Body>,
     point_a: vec3f,
     point_b: vec3f,
     impulse: vec3f,
 ) {
-    (*body_a).velocity = (*body_a).velocity - impulse * (*body_a).inverse_mass;
-    (*body_a).angular_velocity = (*body_a).angular_velocity
+    (*body_a).state.velocity = (*body_a).state.velocity - impulse * (*body_a).desc.inverse_mass;
+    (*body_a).state.angular_velocity = (*body_a).state.angular_velocity
         - apply_inverse_inertia(*body_a, cross(point_a - body_com(*body_a), impulse));
-    (*body_b).velocity = (*body_b).velocity + impulse * (*body_b).inverse_mass;
-    (*body_b).angular_velocity = (*body_b).angular_velocity
+    (*body_b).state.velocity = (*body_b).state.velocity + impulse * (*body_b).desc.inverse_mass;
+    (*body_b).state.angular_velocity = (*body_b).state.angular_velocity
         + apply_inverse_inertia(*body_b, cross(point_b - body_com(*body_b), impulse));
 }
 
@@ -440,14 +463,14 @@ struct WorldShape {
     scale: vec3f,
 }
 
-fn world_collider(body: RigidBody, collider: Collider) -> WorldShape {
+fn world_collider(state: BodyState, collider: Collider) -> WorldShape {
     var world: WorldShape;
     world.kind = collider.kind;
     world.radius = collider.radius;
     world.half_height = collider.half_height;
-    world.center = body.position + quat_rotate(body.orientation, collider.local_offset);
+    world.center = state.position + quat_rotate(state.orientation, collider.local_offset);
     world.half_extents = collider.half_extents;
-    world.rotation = quat_mul(body.orientation, collider.local_rotation);
+    world.rotation = quat_mul(state.orientation, collider.local_rotation);
     world.source = collider.source;
     world.scale = collider.scale;
     return world;
@@ -1153,11 +1176,6 @@ fn aabb_overlap(first: Aabb, second: Aabb) -> bool {
     return all(first.min <= second.max) && all(second.min <= first.max);
 }
 
-fn collider_world_aabb(body: RigidBody, collider: Collider) -> Aabb {
-    let world = world_collider(body, collider);
-    return world_aabb_of(world);
-}
-
 fn aabb_ray_hit(box_min: vec3f, box_max: vec3f, origin: vec3f, direction: vec3f, extent: f32) -> f32 {
     let inv = 1.0 / direction;
     var tmin = 0.0;
@@ -1847,8 +1865,8 @@ fn convex_hit_at(
     return ray_scaled_shape(static_target, start, direction, NO_HIT, expand);
 }
 
-fn box_center(body: RigidBody, collider: Collider) -> vec3f {
-    return body.position + quat_rotate(body.orientation, collider.local_offset);
+fn box_center(state: BodyState, collider: Collider) -> vec3f {
+    return state.position + quat_rotate(state.orientation, collider.local_offset);
 }
 
 fn box_projected_radius(collider: Collider, q: vec4f, direction: vec3f) -> f32 {
@@ -1858,13 +1876,13 @@ fn box_projected_radius(collider: Collider, q: vec4f, direction: vec3f) -> f32 {
         + abs(local_direction.z) * collider.half_extents.z;
 }
 
-fn box_face_point(body: RigidBody, collider: Collider, direction: vec3f) -> vec3f {
-    let q = quat_mul(body.orientation, collider.local_rotation);
-    return box_center(body, collider) + direction * box_projected_radius(collider, q, direction);
+fn box_face_point(state: BodyState, collider: Collider, direction: vec3f) -> vec3f {
+    let q = quat_mul(state.orientation, collider.local_rotation);
+    return box_center(state, collider) + direction * box_projected_radius(collider, q, direction);
 }
 
-fn box_rotated_axes(body: RigidBody, collider: Collider) -> array<vec3f, 3> {
-    let q = quat_mul(body.orientation, collider.local_rotation);
+fn box_rotated_axes(state: BodyState, collider: Collider) -> array<vec3f, 3> {
+    let q = quat_mul(state.orientation, collider.local_rotation);
     let axes: array<vec3f, 3> = array(
         quat_rotate(q, vec3f(1.0, 0.0, 0.0)),
         quat_rotate(q, vec3f(0.0, 1.0, 0.0)),
@@ -1873,11 +1891,11 @@ fn box_rotated_axes(body: RigidBody, collider: Collider) -> array<vec3f, 3> {
     return axes;
 }
 
-fn closest_point_box(point: vec3f, body: RigidBody, collider: Collider) -> vec3f {
-    let q = quat_mul(body.orientation, collider.local_rotation);
-    let local = quat_rotate(quat_conjugate(q), point - box_center(body, collider));
+fn closest_point_box(point: vec3f, state: BodyState, collider: Collider) -> vec3f {
+    let q = quat_mul(state.orientation, collider.local_rotation);
+    let local = quat_rotate(quat_conjugate(q), point - box_center(state, collider));
     let clamped = clamp(local, -collider.half_extents, collider.half_extents);
-    return box_center(body, collider) + quat_rotate(q, clamped);
+    return box_center(state, collider) + quat_rotate(q, clamped);
 }
 
 fn closest_point_segment(point: vec3f, a: vec3f, b: vec3f) -> vec3f {

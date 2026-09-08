@@ -1,8 +1,6 @@
 use super::{ContactManifold, ContactPoint, Simulation};
-use dynamis_layout::{
-    BODY_SLEEPING, CONSTRAINT_INVALID, ConstraintRecord, ContactRecord, RigidBodyRecord,
-};
-use dynamis_model::{BodyHandle, BodyState};
+use dynamis_layout::{BodyStateRecord, ConstraintRuntimeRecord, ContactRecord};
+use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
 
 impl Simulation {
     pub fn poll(&mut self) {
@@ -98,7 +96,7 @@ impl Simulation {
     }
 
     pub(crate) fn collect_readbacks(&mut self) {
-        for (step, bytes) in self.buffers.bodies_readback.poll(self.gpu.device()) {
+        for (step, bytes) in self.buffers.body_states_readback.poll(self.gpu.device()) {
             self.consume_bodies(step, &bytes);
         }
         for (step, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
@@ -107,7 +105,11 @@ impl Simulation {
         for (_step, bytes) in self.buffers.events_readback.poll(self.gpu.device()) {
             self.consume_events(&bytes);
         }
-        for (step, bytes) in self.buffers.constraints_readback.poll(self.gpu.device()) {
+        for (step, bytes) in self
+            .buffers
+            .constraint_runtime_readback
+            .poll(self.gpu.device())
+        {
             self.consume_constraints(step, &bytes);
         }
         #[cfg(feature = "profile")]
@@ -117,7 +119,7 @@ impl Simulation {
     }
 
     pub(crate) fn consume_bodies(&mut self, step: u64, bytes: &[u8]) {
-        let records: &[RigidBodyRecord] = bytemuck::cast_slice(bytes);
+        let records: &[BodyStateRecord] = bytemuck::cast_slice(bytes);
         for record in records {
             let id = record.body_id as usize;
             assert!(
@@ -136,32 +138,34 @@ impl Simulation {
                 orientation: record.orientation,
                 velocity: record.velocity,
                 angular_velocity: record.angular_velocity,
-                inverse_mass: record.inverse_mass,
-                com: record.com,
-                sleeping: record.flags & BODY_SLEEPING != 0,
+                inverse_mass: self.descriptors[id].inverse_mass,
+                com: self.descriptors[id].com,
+                sleeping: record.sleeping != 0,
                 step,
             });
         }
     }
 
     pub(crate) fn consume_constraints(&mut self, _step: u64, bytes: &[u8]) {
-        let records: &[ConstraintRecord] = bytemuck::cast_slice(bytes);
-        let broken = records
-            .iter()
-            .enumerate()
-            .filter(|(_, record)| record.kind == CONSTRAINT_INVALID)
-            .map(|(slot, _)| slot)
-            .collect::<Vec<_>>();
-        for slot in broken.into_iter().rev() {
-            if slot >= self.constraint_alive.len() {
+        let records: &[ConstraintRuntimeRecord] = bytemuck::cast_slice(bytes);
+        for record in records.iter().filter(|record| record.broken != 0) {
+            let id = record.constraint_id as usize;
+            if id >= self.constraint_generations.len() {
                 continue;
             }
-            let handle = self.constraint_alive[slot];
-            let record = self.constraint_records[slot];
-            if record.kind != CONSTRAINT_INVALID {
-                self.broken_constraints.push(handle);
-                self.remove_constraint(handle);
+            if self.constraint_generations[id] != record.generation {
+                continue;
             }
+            let slot = self.constraint_index_of[id];
+            if slot == u32::MAX {
+                continue;
+            }
+            let handle = ConstraintHandle {
+                id: id as u32,
+                generation: record.generation,
+            };
+            self.broken_constraints.push(handle);
+            self.remove_constraint(handle);
         }
     }
 

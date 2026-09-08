@@ -1,5 +1,5 @@
 use super::Simulation;
-use dynamis_layout::{ConstraintCommandRecord, ConstraintRecord};
+use dynamis_layout::{ConstraintCommandRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
@@ -40,14 +40,18 @@ impl Simulation {
         let slot = self.constraint_alive.len() as u32;
         self.constraint_index_of[id as usize] = slot;
         self.constraint_alive.push(handle);
-        let record = ConstraintRecord::build(
+        let record = ConstraintDescriptorRecord::build(
             &desc,
             self.index_of[first.id as usize],
             self.index_of[second.id as usize],
         );
         self.constraint_records.push(record);
-        self.constraint_commands
-            .push(ConstraintCommandRecord::add(slot, record));
+        self.write_constraint_descriptor(slot, record);
+        self.constraint_commands.push(ConstraintCommandRecord::add(
+            slot,
+            id,
+            self.constraint_generations[id as usize],
+        ));
         handle
     }
 
@@ -56,10 +60,9 @@ impl Simulation {
         self.validate_constraint_desc(&desc);
         let slot = self.constraint_index_of[handle.id as usize] as usize;
         let existing = self.constraint_records[slot];
-        let record = ConstraintRecord::build(&desc, existing.a, existing.b);
+        let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
         self.constraint_records[slot] = record;
-        self.constraint_commands
-            .push(ConstraintCommandRecord::patch(slot as u32, record));
+        self.write_constraint_descriptor(slot as u32, record);
     }
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
@@ -152,10 +155,9 @@ impl Simulation {
         change(&mut desc);
         self.validate_constraint_desc(&desc);
         let existing = self.constraint_records[slot];
-        let record = ConstraintRecord::build(&desc, existing.a, existing.b);
+        let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
         self.constraint_records[slot] = record;
-        self.constraint_commands
-            .push(ConstraintCommandRecord::patch(slot as u32, record));
+        self.write_constraint_descriptor(slot as u32, record);
     }
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
@@ -163,14 +165,26 @@ impl Simulation {
         let id = handle.id as usize;
         let slot = self.constraint_index_of[id] as usize;
         let tail = self.constraint_alive.len() - 1;
-        let moved = self.constraint_alive[tail];
         self.constraint_alive.swap_remove(slot);
-        self.constraint_index_of[moved.id as usize] = slot as u32;
+        self.constraint_records.remove(slot);
+        if slot < tail {
+            let moved = self.constraint_alive[slot];
+            self.constraint_index_of[moved.id as usize] = slot as u32;
+            let record = self.constraint_records[slot];
+            self.write_constraint_descriptor(slot as u32, record);
+            self.constraint_commands
+                .push(ConstraintCommandRecord::swap(slot as u32, tail as u32));
+        }
         self.constraint_index_of[id] = u32::MAX;
         self.constraint_free_ids.push(handle.id);
-        self.constraint_records.remove(slot);
-        self.constraint_commands
-            .push(ConstraintCommandRecord::remove(slot as u32));
+    }
+
+    fn write_constraint_descriptor(&self, slot: u32, record: ConstraintDescriptorRecord) {
+        self.buffers.constraint_descs.write_at(
+            self.gpu.queue(),
+            (slot as usize * std::mem::size_of::<ConstraintDescriptorRecord>()) as u64,
+            bytemuck::cast_slice(&[record]),
+        );
     }
 
     pub fn constraints(&self) -> &[ConstraintHandle] {
@@ -238,8 +252,8 @@ impl Simulation {
                 }
             }
             if changed {
-                self.constraint_commands
-                    .push(ConstraintCommandRecord::patch(index as u32, *record));
+                let row = *record;
+                self.write_constraint_descriptor(index as u32, row);
             }
         }
     }
@@ -274,7 +288,7 @@ fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-fn constraint_desc_from_record(record: &ConstraintRecord) -> ConstraintDesc {
+fn constraint_desc_from_record(record: &ConstraintDescriptorRecord) -> ConstraintDesc {
     let kind = match record.kind {
         dynamis_layout::CONSTRAINT_BALL => ConstraintKind::Ball,
         dynamis_layout::CONSTRAINT_DISTANCE => ConstraintKind::Distance,

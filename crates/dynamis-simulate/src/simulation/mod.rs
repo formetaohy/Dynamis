@@ -10,17 +10,18 @@ use crate::buffers::WorldBuffers;
 use crate::pipeline::Pipeline;
 use crate::query_pool::QueryPool;
 use crate::shape_pool::ShapePool;
-use crate::static_aabb;
+use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{
-    AabbRecord, BODY_SLEEPING, BodyCommandRecord, ColliderRecord, ConstraintCommandRecord,
-    ConstraintRecord, Counter, QueryRecord, QueryResultHeader, RigidBodyRecord,
+    AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
+    ConstraintCommandRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, Counter,
+    QueryRecord, QueryResultHeader,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent,
-    MAX_COLLIDERS_PER_BODY, MassProperties, PhysicsConfig, Shape,
+    BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MAX_COLLIDERS_PER_BODY,
+    MassProperties, PhysicsConfig, Shape,
 };
 
 pub(crate) const PAIR_CAPACITY_PER_BODY: usize = 64;
@@ -42,37 +43,6 @@ pub struct ContactManifold {
     pub step: u64,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct BodyDynamics {
-    pub linear_damping: Option<f32>,
-    pub angular_damping: Option<f32>,
-    pub gravity_scale: f32,
-    pub sleep_velocity: Option<f32>,
-    pub sleep_angular_velocity: Option<f32>,
-}
-
-impl BodyDynamics {
-    pub fn from_desc(desc: &BodyDesc) -> Self {
-        Self {
-            linear_damping: desc.linear_damping,
-            angular_damping: desc.angular_damping,
-            gravity_scale: desc.gravity_scale,
-            sleep_velocity: desc.sleep_velocity,
-            sleep_angular_velocity: desc.sleep_angular_velocity,
-        }
-    }
-
-    pub fn defaults() -> Self {
-        Self {
-            linear_damping: None,
-            angular_damping: None,
-            gravity_scale: 1.0,
-            sleep_velocity: None,
-            sleep_angular_velocity: None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugBuffer {
     Aabbs,
@@ -88,6 +58,7 @@ pub enum DebugBuffer {
     ContactCount,
     Contacts,
     PrevContacts,
+    BodyDescriptors,
     CompactRanks,
     CompactSums,
     CompactOffsets,
@@ -99,8 +70,9 @@ pub enum DebugBuffer {
     ConstraintValuesB,
     ConstraintFirstB,
     ConstraintDeltas,
+    ConstraintDescriptors,
     ConstraintCommandCount,
-    Constraints,
+    ConstraintRuntime,
     Events,
     EventCount,
     Overflow,
@@ -128,7 +100,7 @@ pub struct Simulation {
     masses: Vec<f32>,
     com_overrides: Vec<Option<[f32; 3]>>,
     inertia_overrides: Vec<Option<[f32; 6]>>,
-    dynamics: Vec<BodyDynamics>,
+    descriptors: Vec<BodyDescriptorRecord>,
     constraint_alive: Vec<ConstraintHandle>,
     constraint_index_of: Vec<u32>,
     constraint_generations: Vec<u32>,
@@ -150,7 +122,7 @@ pub struct Simulation {
     pipeline: Pipeline,
     states: Vec<Option<BodyState>>,
     kinematic: Vec<bool>,
-    constraint_records: Vec<ConstraintRecord>,
+    constraint_records: Vec<ConstraintDescriptorRecord>,
 }
 
 impl Simulation {
@@ -176,9 +148,6 @@ impl Simulation {
             query_capacity,
             constraint_capacity,
         );
-        buffers
-            .prev_contact_count
-            .write(gpu.queue(), bytemuck::cast_slice(&[Counter::none()]));
         let pipeline = Pipeline::new(&gpu, &buffers, capacity as u32);
         let query_header_bytes = query_capacity * std::mem::size_of::<QueryResultHeader>();
         let zeros = vec![0u8; query_header_bytes];
@@ -200,7 +169,7 @@ impl Simulation {
             masses: vec![1.0; capacity],
             com_overrides: vec![None; capacity],
             inertia_overrides: vec![None; capacity],
-            dynamics: vec![BodyDynamics::defaults(); capacity],
+            descriptors: vec![BodyDescriptorRecord::zeroed(); capacity],
             constraint_alive: Vec::new(),
             constraint_index_of: vec![u32::MAX; capacity],
             constraint_generations: vec![1; capacity],
@@ -290,9 +259,8 @@ impl Simulation {
             query_capacity,
             self.constraint_capacity,
         );
-        buffers
-            .prev_contact_count
-            .write(self.gpu.queue(), bytemuck::cast_slice(&[Counter::none()]));
+        self.transfer_device_state(&buffers);
+        self.upload_host_state(&buffers);
         self.shape_pool.reset_upload_cursor();
         self.shape_pool.upload_pending(
             self.gpu.queue(),
@@ -301,7 +269,6 @@ impl Simulation {
             &buffers.shape_triangles,
             &buffers.shape_nodes,
         );
-        self.sync_state_to(&buffers);
         let pipeline = Pipeline::new(&self.gpu, &buffers, reserved as u32);
         self.buffers = buffers;
         self.pipeline = pipeline;
@@ -315,88 +282,68 @@ impl Simulation {
         self.masses.resize(reserved, 1.0);
         self.com_overrides.resize(reserved, None);
         self.inertia_overrides.resize(reserved, None);
-        self.dynamics.resize(reserved, BodyDynamics::defaults());
+        self.descriptors
+            .resize(reserved, BodyDescriptorRecord::zeroed());
         self.states.resize(reserved, None);
         self.kinematic.resize(reserved, false);
     }
 
-    fn sync_state_to(&mut self, buffers: &WorldBuffers) {
-        let mut bodies = Vec::with_capacity(self.alive.len());
-        let mut colliders = Vec::new();
-        let mut aabbs = Vec::with_capacity(self.alive.len() * 4);
-        for handle in self.alive.iter() {
-            let id = handle.id as usize;
-            let desc = self.build_desc(id);
-            let mass = self.mass_properties_of(id);
-            let mut body_record =
-                RigidBodyRecord::build(&desc, handle.id, handle.generation, mass, &self.config);
-            if let Some(state) = self.state_snapshot(id) {
-                body_record.position = state.position;
-                body_record.prev_position = state.prev_position;
-                body_record.orientation = state.orientation;
-                body_record.velocity = state.velocity;
-                body_record.angular_velocity = state.angular_velocity;
-                body_record.flags |= if state.sleeping { BODY_SLEEPING } else { 0 };
-            }
-            bodies.push(body_record);
-            let block = self.collider_block_of(id);
-            colliders.extend_from_slice(&block);
-            let aabb_block = if !desc.kinematic && desc.mass <= 0.0 {
-                static_aabb::static_aabbs(&body_record, &block, &self.shape_pool)
-            } else {
-                [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY]
+    /// Device-owned rows survive a reallocation untouched; only their storage moves.
+    fn transfer_device_state(&self, next: &WorldBuffers) {
+        let previous = &self.buffers;
+        let bodies = (self.alive.len() * std::mem::size_of::<BodyStateRecord>()) as u64;
+        let aabbs =
+            (self.alive.len() * MAX_COLLIDERS_PER_BODY * std::mem::size_of::<AabbRecord>()) as u64;
+        let contacts = previous.prev_contacts.size().min(next.prev_contacts.size());
+        let constraints =
+            (self.constraint_alive.len() * std::mem::size_of::<ConstraintRuntimeRecord>()) as u64;
+        let mut encoder =
+            self.gpu
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("dynamis grow transfer"),
+                });
+        let mut copy =
+            |source: &dynamis_gpu::GpuBuffer, target: &dynamis_gpu::GpuBuffer, bytes: u64| {
+                encoder.copy_buffer_to_buffer(source.buffer(), 0, target.buffer(), 0, bytes);
             };
-            aabbs.extend_from_slice(&aabb_block);
-        }
-        buffers
-            .bodies
-            .write(self.gpu.queue(), bytemuck::cast_slice(&bodies));
-        buffers
-            .colliders
-            .write(self.gpu.queue(), bytemuck::cast_slice(&colliders));
-        buffers
-            .aabbs
-            .write(self.gpu.queue(), bytemuck::cast_slice(&aabbs));
-        let constraint_count = self.constraint_alive.len() as u32;
-        let mut constraints = Vec::with_capacity(self.constraint_alive.len());
-        for handle in &self.constraint_alive {
-            let index = self.constraint_index_of[handle.id as usize] as usize;
-            constraints.push(self.constraint_records[index]);
-        }
-        if !constraints.is_empty() {
-            buffers
-                .constraints
-                .write(self.gpu.queue(), bytemuck::cast_slice(&constraints));
-        }
-        buffers.constraint_count_state.write(
-            self.gpu.queue(),
-            bytemuck::cast_slice(&[Counter::sized(constraint_count)]),
+        copy(&previous.body_states, &next.body_states, bodies);
+        copy(&previous.aabbs, &next.aabbs, aabbs);
+        copy(&previous.prev_contacts, &next.prev_contacts, contacts);
+        copy(
+            &previous.prev_contact_count,
+            &next.prev_contact_count,
+            std::mem::size_of::<Counter>() as u64,
         );
+        copy(
+            &previous.constraint_runtime,
+            &next.constraint_runtime,
+            constraints,
+        );
+        self.gpu.queue().submit([encoder.finish()]);
     }
 
-    fn build_desc(&self, id: usize) -> BodyDesc {
-        let descs = &self.collider_descs[id];
-        let dynamics = self.dynamics[id];
-        BodyDesc {
-            colliders: descs.clone(),
-            position: [0.0; 3],
-            orientation: [0.0, 0.0, 0.0, 1.0],
-            velocity: [0.0; 3],
-            angular_velocity: [0.0; 3],
-            mass: self.masses[id],
-            density: None,
-            com: self.com_overrides[id],
-            inertia: self.inertia_overrides[id],
-            collision_group: 0,
-            collision_mask: 0,
-            linear_damping: dynamics.linear_damping,
-            angular_damping: dynamics.angular_damping,
-            gravity_scale: dynamics.gravity_scale,
-            sleep_velocity: dynamics.sleep_velocity,
-            sleep_angular_velocity: dynamics.sleep_angular_velocity,
-            kinematic: false,
-            ccd: false,
+    /// Host-owned rows are re-emitted in slot order from the host authority.
+    fn upload_host_state(&self, next: &WorldBuffers) {
+        let queue = self.gpu.queue();
+        let mut descriptors = Vec::with_capacity(self.alive.len());
+        let mut colliders = Vec::with_capacity(self.alive.len() * MAX_COLLIDERS_PER_BODY);
+        for handle in &self.alive {
+            descriptors.push(self.descriptors[handle.id as usize]);
+            colliders.extend_from_slice(&self.collider_block_of(handle.id as usize));
         }
+        next.body_descs
+            .write(queue, bytemuck::cast_slice(&descriptors));
+        next.colliders
+            .write(queue, bytemuck::cast_slice(&colliders));
+        next.constraint_descs.write(
+            queue,
+            bytemuck::cast_slice(&self.constraint_records[..self.constraint_alive.len()]),
+        );
+        next.constraint_count_state.write(
+            queue,
+            bytemuck::cast_slice(&[Counter::sized(self.constraint_alive.len() as u32)]),
+        );
     }
 
     fn state_snapshot(&self, id: usize) -> Option<BodyState> {
@@ -404,8 +351,13 @@ impl Simulation {
     }
 
     fn mass_properties_of(&self, id: usize) -> MassProperties {
-        self.build_desc(id)
-            .mass_properties(|shape| self.shape_bounds(shape))
+        dynamis_model::mass_properties_of_intent(
+            &self.collider_descs[id],
+            self.masses[id],
+            self.com_overrides[id],
+            self.inertia_overrides[id],
+            |shape| self.shape_bounds(shape),
+        )
     }
 
     fn collider_record(&self, desc: &ColliderDesc) -> ColliderRecord {
@@ -416,8 +368,14 @@ impl Simulation {
         ColliderRecord::build(desc, source)
     }
 
-    pub fn bodies_buffer(&self) -> &wgpu::Buffer {
-        self.buffers.bodies.buffer()
+    /// The device-owned kinematic state of every live body slot.
+    pub fn body_states_buffer(&self) -> &wgpu::Buffer {
+        self.buffers.body_states.buffer()
+    }
+
+    /// The host-owned invariant properties of every live body slot.
+    pub fn body_descriptors_buffer(&self) -> &wgpu::Buffer {
+        self.buffers.body_descs.buffer()
     }
 
     pub fn colliders_buffer(&self) -> &wgpu::Buffer {
@@ -442,6 +400,7 @@ impl Simulation {
             DebugBuffer::ContactValid => &self.buffers.contact_valid,
             DebugBuffer::ContactCount => &self.buffers.contact_count,
             DebugBuffer::Contacts => &self.buffers.contacts,
+            DebugBuffer::BodyDescriptors => &self.buffers.body_descs,
             DebugBuffer::PrevContacts => &self.buffers.prev_contacts,
             DebugBuffer::CompactRanks => &self.buffers.compact_ranks,
             DebugBuffer::CompactSums => &self.buffers.compact_block_sums,
@@ -455,7 +414,8 @@ impl Simulation {
             DebugBuffer::ConstraintFirstB => &self.buffers.constraint_first_b,
             DebugBuffer::ConstraintDeltas => &self.buffers.constraint_deltas,
             DebugBuffer::ConstraintCommandCount => &self.buffers.constraint_command_count,
-            DebugBuffer::Constraints => &self.buffers.constraints,
+            DebugBuffer::ConstraintDescriptors => &self.buffers.constraint_descs,
+            DebugBuffer::ConstraintRuntime => &self.buffers.constraint_runtime,
             DebugBuffer::Events => &self.buffers.events,
             DebugBuffer::EventCount => &self.buffers.event_count,
             DebugBuffer::Overflow => &self.buffers.overflow_flags,

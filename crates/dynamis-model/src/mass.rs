@@ -21,6 +21,24 @@ pub enum MassSource {
     Density(f32),
 }
 
+/// Resolves the mass properties a body was asked for: an explicit inertia tensor
+/// wins, otherwise they are integrated from the solid colliders.
+pub fn mass_properties_of_intent(
+    colliders: &[ColliderDesc],
+    mass: f32,
+    com: Option<[f32; 3]>,
+    inertia: Option<[f32; 6]>,
+    bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+) -> MassProperties {
+    if let Some(inertia) = inertia {
+        return MassProperties {
+            com: com.unwrap_or([0.0; 3]),
+            inverse_inertia: inertia_inverse(inertia),
+        };
+    }
+    compute_mass_properties(colliders, MassSource::Fixed(mass), com, bounds)
+}
+
 pub fn compute_mass_properties(
     colliders: &[ColliderDesc],
     source: MassSource,

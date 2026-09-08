@@ -1,23 +1,26 @@
 use crate::constant::{
-    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, CONSTRAINT_BALL,
-    CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
-    CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
-    CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
-    CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, DOF_DRIVEN, DOF_FREE,
-    DOF_LIMITED, DOF_LOCKED, set_dof_mode,
+    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP, CONSTRAINT_BALL, CONSTRAINT_CONE,
+    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
+    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
+    CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
+    CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED,
+    set_dof_mode,
 };
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::{ConstraintDesc, ConstraintMotor, DofDesc};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<ConstraintRecord>() == 416);
-    assert!(size_of::<ConstraintCommandRecord>() == 432);
+    assert!(size_of::<ConstraintDescriptorRecord>() == 384);
+    assert!(size_of::<ConstraintRuntimeRecord>() == 48);
+    assert!(size_of::<ConstraintCommandRecord>() == 24);
 };
 
+/// Joint parameters of one constraint slot. The host owns this row and the
+/// device reads it; it never appears as a write target in a shader.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct ConstraintRecord {
+pub struct ConstraintDescriptorRecord {
     pub kind: u32,
     pub a: u32,
     pub b: u32,
@@ -75,10 +78,9 @@ pub struct ConstraintRecord {
     pub _pad_lin_force: f32,
     pub angular_motor_force: [f32; 3],
     pub _pad_ang_force: f32,
-    pub accumulated: [f32; 8],
 }
 
-impl ConstraintRecord {
+impl ConstraintDescriptorRecord {
     pub fn build(desc: &ConstraintDesc, a: u32, b: u32) -> Self {
         let kind = match desc.kind {
             dynamis_model::ConstraintKind::Ball => CONSTRAINT_BALL,
@@ -260,49 +262,66 @@ impl ConstraintRecord {
             _pad_lin_force: 0.0,
             angular_motor_force,
             _pad_ang_force: 0.0,
-            accumulated: [0.0; 8],
         }
     }
 }
 
+/// Accumulated impulses of one constraint slot. The device owns this row; the
+/// host only reads it back to report breaks.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct ConstraintRuntimeRecord {
+    pub accumulated: [f32; 8],
+    pub broken: u32,
+    pub constraint_id: u32,
+    pub generation: u32,
+    pub _pad0: u32,
+}
+
+impl ConstraintRuntimeRecord {
+    pub fn fresh(id: u32, generation: u32) -> Self {
+        Self {
+            accumulated: [0.0; 8],
+            broken: 0,
+            constraint_id: id,
+            generation,
+            _pad0: 0,
+        }
+    }
+}
+
+/// A pending mutation of [`ConstraintRuntimeRecord`] at a slot.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct ConstraintCommandRecord {
     pub kind: u32,
     pub slot: u32,
+    pub tail: u32,
+    pub constraint_id: u32,
+    pub generation: u32,
     pub _pad0: u32,
-    pub _pad1: u32,
-    pub constraint: ConstraintRecord,
 }
 
 impl ConstraintCommandRecord {
-    pub fn add(slot: u32, constraint: ConstraintRecord) -> Self {
+    pub fn add(slot: u32, id: u32, generation: u32) -> Self {
         Self {
             kind: COMMAND_CONSTRAINT_ADD,
             slot,
+            tail: 0,
+            constraint_id: id,
+            generation,
             _pad0: 0,
-            _pad1: 0,
-            constraint,
         }
     }
 
-    pub fn remove(slot: u32) -> Self {
+    pub fn swap(slot: u32, tail: u32) -> Self {
         Self {
-            kind: COMMAND_CONSTRAINT_REMOVE,
+            kind: COMMAND_CONSTRAINT_SWAP,
             slot,
+            tail,
+            constraint_id: 0,
+            generation: 0,
             _pad0: 0,
-            _pad1: 0,
-            constraint: ConstraintRecord::zeroed(),
-        }
-    }
-
-    pub fn patch(slot: u32, constraint: ConstraintRecord) -> Self {
-        Self {
-            kind: COMMAND_CONSTRAINT_PATCH,
-            slot,
-            _pad0: 0,
-            _pad1: 0,
-            constraint,
         }
     }
 }

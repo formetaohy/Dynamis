@@ -1,17 +1,22 @@
 @group(0) @binding(0) var<storage, read> queries: array<Query>;
-@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(3) var<storage, read> aabbs: array<Aabb>;
-@group(0) @binding(4) var<storage, read> entry_keys_hi: array<u32>;
-@group(0) @binding(5) var<storage, read> entry_keys_lo: array<u32>;
-@group(0) @binding(6) var<storage, read> entry_count: array<u32>;
-@group(0) @binding(7) var<storage, read_write> query_headers: array<QueryResultHeader>;
-@group(0) @binding(8) var<storage, read_write> query_hits: array<QueryHit>;
-@group(0) @binding(9) var<storage, read> large_bodies: array<u32>;
-@group(0) @binding(10) var<storage, read> large_count: array<u32>;
-@group(0) @binding(11) var<uniform> params: SimParams;
+@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(4) var<storage, read> aabbs: array<Aabb>;
+@group(0) @binding(5) var<storage, read> entry_keys_hi: array<u32>;
+@group(0) @binding(6) var<storage, read> entry_keys_lo: array<u32>;
+@group(0) @binding(7) var<storage, read> entry_count: array<u32>;
+@group(0) @binding(8) var<storage, read_write> query_headers: array<QueryResultHeader>;
+@group(0) @binding(9) var<storage, read_write> query_hits: array<QueryHit>;
+@group(0) @binding(10) var<storage, read> large_bodies: array<u32>;
+@group(0) @binding(11) var<storage, read> large_count: array<u32>;
+@group(0) @binding(12) var<uniform> params: SimParams;
 
 const CANDIDATES_PER_QUERY: u32 = 512u;
+
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
 
 var<workgroup> candidates: array<u32, CANDIDATES_PER_QUERY>;
 var<workgroup> candidate_count: atomic<u32>;
@@ -82,9 +87,9 @@ fn hash_range(hash: u32) -> vec2u {
     return vec2u(first, lo);
 }
 
-fn ray_hit(query: Query, body: RigidBody, collider: Collider) -> ShapeHit {
+fn ray_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
     let direction = normalize(query.direction);
-    let world = world_collider(body, collider);
+    let world = world_collider(body.state, collider);
     if (collider.kind == SHAPE_PLANE) {
         let n = plane_normal(world);
         let denom = dot(direction, n);
@@ -169,8 +174,8 @@ fn sweep_convex(query: Query, static_target: WorldShape, out_normal: ptr<functio
     return NO_HIT;
 }
 
-fn overlap_hit(query: Query, body: RigidBody, collider: Collider, out_normal: ptr<function, vec3f>) -> f32 {
-    let world = world_collider(body, collider);
+fn overlap_hit(query: Query, body: Body, collider: Collider, out_normal: ptr<function, vec3f>) -> f32 {
+    let world = world_collider(body.state, collider);
     var simplex: array<SimplexPoint, 4>;
     var count = 0u;
     var probe = query_shape_world(query, query.origin);
@@ -188,8 +193,8 @@ fn overlap_hit(query: Query, body: RigidBody, collider: Collider, out_normal: pt
     return NO_HIT;
 }
 
-fn overlap_world_geom(query: Query, body: RigidBody, collider: Collider, out_normal: ptr<function, vec3f>) -> f32 {
-    let world = world_collider(body, collider);
+fn overlap_world_geom(query: Query, body: Body, collider: Collider, out_normal: ptr<function, vec3f>) -> f32 {
+    let world = world_collider(body.state, collider);
     if (collider.kind == SHAPE_PLANE) {
         let n = plane_normal(world);
         let center_dist = dot(query.origin - world.center, n);
@@ -207,23 +212,23 @@ fn overlap_world_geom(query: Query, body: RigidBody, collider: Collider, out_nor
     return margin - query.extent;
 }
 
-fn body_passes(body: RigidBody, collider: Collider, query: Query) -> bool {
-    if (query.exclude_id != NO_BODY && body.body_id == query.exclude_id && body.generation == query.exclude_generation) {
+fn body_passes(body: Body, collider: Collider, query: Query) -> bool {
+    if (query.exclude_id != NO_BODY && body.state.body_id == query.exclude_id && body.state.generation == query.exclude_generation) {
         return false;
     }
-    if (query.include_id != NO_BODY && (body.body_id != query.include_id || body.generation != query.include_generation)) {
+    if (query.include_id != NO_BODY && (body.state.body_id != query.include_id || body.state.generation != query.include_generation)) {
         return false;
     }
     if ((query.filter_flags & FILTER_IGNORE_SENSORS) != 0u && (collider.flags & COLLIDER_SENSOR) != 0u) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_SLEEPING) != 0u && (body.flags & BODY_SLEEPING) != 0u) {
+    if ((query.filter_flags & FILTER_IGNORE_SLEEPING) != 0u && body.state.sleeping != 0u) {
         return false;
     }
     if ((query.filter_flags & FILTER_IGNORE_STATIC) != 0u && body_is_static(body)) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_KINEMATIC) != 0u && (body.flags & BODY_KINEMATIC) != 0u) {
+    if ((query.filter_flags & FILTER_IGNORE_KINEMATIC) != 0u && body_is_kinematic(body)) {
         return false;
     }
     if (!collider_filter_query(query, body, collider)) {
@@ -256,7 +261,7 @@ fn query_world_aabb(query: Query) -> Aabb {
     return world_aabb_of(shape);
 }
 
-fn emit_hit(query: Query, body: RigidBody, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
+fn emit_hit(query: Query, body: Body, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
     var slot = 0u;
     loop {
         let current = atomicLoad(&query_headers[query.slot].count);
@@ -272,7 +277,7 @@ fn emit_hit(query: Query, body: RigidBody, collider: Collider, collider_index: u
     }
     let base = query.slot * MAX_HITS_PER_QUERY;
     if (base + slot < arrayLength(&query_hits)) {
-        query_hits[base + slot] = QueryHit(body.body_id, body.generation, distance, collider_index, point, 0.0, normal, 0.0);
+        query_hits[base + slot] = QueryHit(body.state.body_id, body.state.generation, distance, collider_index, point, 0.0, normal, 0.0);
     }
 }
 
@@ -329,7 +334,7 @@ fn main(
             candidate_index = candidate_index + WORKGROUP_SIZE;
             continue;
         }
-        let body = bodies[collider_slot / MAX_COLLIDERS_PER_BODY];
+        let body = load_body(collider_slot / MAX_COLLIDERS_PER_BODY);
         let collider = colliders[collider_slot];
         if (!body_passes(body, collider, query)) {
             candidate_index = candidate_index + WORKGROUP_SIZE;
@@ -340,7 +345,7 @@ fn main(
         if (query.kind == QUERY_RAY) {
             hit = ray_hit(query, body, collider);
         } else if (query.kind == QUERY_SWEEP) {
-            let static_target = world_collider(body, collider);
+            let static_target = world_collider(body.state, collider);
             let moving_probe = query_shape_world(query, query.origin);
             let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
             let distance = select(
@@ -360,7 +365,7 @@ fn main(
                 is_world_geom,
             );
             if (separation < NO_HIT) {
-                let point = world_collider(body, collider).center;
+                let point = world_collider(body.state, collider).center;
                 hit = ShapeHit(separation, point, normal);
             }
         } else {
@@ -368,11 +373,11 @@ fn main(
             if (is_world_geom) {
                 let separation = overlap_world_geom(query, body, collider, &normal);
                 if (separation < NO_HIT) {
-                    let point = world_collider(body, collider).center;
+                    let point = world_collider(body.state, collider).center;
                     hit = ShapeHit(separation, point, normal);
                 }
             } else {
-                let world = world_collider(body, collider);
+                let world = world_collider(body.state, collider);
                 let probe = query_shape_world(query, query.origin);
                 var simplex: array<SimplexPoint, 4>;
                 var count = 0u;

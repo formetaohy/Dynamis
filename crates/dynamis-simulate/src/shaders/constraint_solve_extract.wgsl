@@ -1,8 +1,14 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read_write> constraints: array<Constraint>;
-@group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read_write> constraint_deltas: array<vec4f>;
+@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
+@group(0) @binding(4) var<storage, read_write> constraint_runtime: array<ConstraintRuntime>;
+@group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> constraint_deltas: array<vec4f>;
+
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
 
 struct FrameForces {
     linear: f32,
@@ -10,17 +16,17 @@ struct FrameForces {
 }
 
 struct RowOutcome {
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     accumulated: f32,
     forces: FrameForces,
 }
 
-fn constraint_anchor(body: RigidBody, local: vec3f) -> vec3f {
-    return body.position + quat_rotate(body.orientation, local);
+fn constraint_anchor(body: Body, local: vec3f) -> vec3f {
+    return body.state.position + quat_rotate(body.state.orientation, local);
 }
 
-fn constraint_breach(anchor_a: vec3f, anchor_b: vec3f, constraint: Constraint) -> bool {
+fn constraint_breach(anchor_a: vec3f, anchor_b: vec3f, constraint: ConstraintDescriptor) -> bool {
     if (constraint.kind == CONSTRAINT_GEAR) {
         return false;
     }
@@ -38,8 +44,8 @@ fn solve_point_row(
     point_b: vec3f,
     goal: f32,
     max_bias: f32,
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
@@ -69,8 +75,8 @@ fn solve_point_row(
 
 fn solve_angular_row(
     axis: vec3f,
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     accumulated: f32,
     bias_speed: f32,
     forces: FrameForces,
@@ -85,14 +91,14 @@ fn solve_angular_row(
     var accumulated_out = accumulated;
     var forces_out = forces;
     if (k > 0.0) {
-        let velocity = second.angular_velocity - first.angular_velocity;
+        let velocity = second.state.angular_velocity - first.state.angular_velocity;
         let jacobian_speed = dot(velocity, axis_normalized);
         let next = accumulated - (jacobian_speed + bias_speed) / k;
         let applied = next - accumulated;
-        first_out.angular_velocity =
-            first.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
-        second_out.angular_velocity =
-            second.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
+        first_out.state.angular_velocity =
+            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
+        second_out.state.angular_velocity =
+            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
         accumulated_out = next;
         forces_out.angular = forces_out.angular + abs(applied);
     }
@@ -114,8 +120,8 @@ fn solve_driven_point_row(
     damping: f32,
     target_speed: f32,
     max_force: f32,
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
@@ -154,8 +160,8 @@ fn solve_driven_angular_row(
     damping: f32,
     target_speed: f32,
     max_force: f32,
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
@@ -169,7 +175,7 @@ fn solve_driven_angular_row(
     var accumulated_out = accumulated;
     var forces_out = forces;
     if (k > 0.0) {
-        let velocity = second.angular_velocity - first.angular_velocity;
+        let velocity = second.state.angular_velocity - first.state.angular_velocity;
         let jacobian_speed = dot(velocity, axis_normalized);
         let servo_speed =
             stiffness * (target_value - current) / max(params.dt, 1e-4) - damping * jacobian_speed;
@@ -178,10 +184,10 @@ fn solve_driven_angular_row(
         let cap = max_force * params.dt;
         let applied_raw = next - accumulated;
         let applied = select(applied_raw, clamp(applied_raw, -cap, cap), cap > 0.0);
-        first_out.angular_velocity =
-            first.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
-        second_out.angular_velocity =
-            second.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
+        first_out.state.angular_velocity =
+            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
+        second_out.state.angular_velocity =
+            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
         accumulated_out = accumulated + applied;
         forces_out.angular = forces_out.angular + abs(applied);
     }
@@ -193,12 +199,12 @@ fn solve_driven_angular_row(
     return outcome;
 }
 
-fn hinge_axis(constraint: Constraint, first: RigidBody) -> vec3f {
-    return normalize(quat_rotate(first.orientation, constraint.axis_a));
+fn hinge_axis(constraint: ConstraintDescriptor, first: Body) -> vec3f {
+    return normalize(quat_rotate(first.state.orientation, constraint.axis_a));
 }
 
-fn relative_angle(first: RigidBody, second: RigidBody, hinge: vec3f) -> f32 {
-    let q_rel = quat_mul(quat_conjugate(first.orientation), second.orientation);
+fn relative_angle(first: Body, second: Body, hinge: vec3f) -> f32 {
+    let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
     let signed = atan2(dot(q_rel.xyz, hinge), q_rel.w) * 2.0;
     return signed;
 }
@@ -207,8 +213,8 @@ fn limit_row(
     error: f32,
     accumulated: f32,
     axis: vec3f,
-    first: RigidBody,
-    second: RigidBody,
+    first: Body,
+    second: Body,
     forces: FrameForces,
 ) -> RowOutcome {
     let bias_speed = clamp(error * 0.05 / max(params.dt, 1e-4), -4.0, 4.0);
@@ -235,18 +241,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let constraint_index = index;
-    var constraint = constraints[constraint_index];
-    if (constraint.kind == CONSTRAINT_INVALID) {
+    var runtime = constraint_runtime[constraint_index];
+    let constraint = constraint_descs[constraint_index];
+    if (runtime.broken != 0u) {
         constraint_deltas[constraint_index * 4u] = vec4f(0.0);
         constraint_deltas[constraint_index * 4u + 1u] = vec4f(0.0);
         constraint_deltas[constraint_index * 4u + 2u] = vec4f(0.0);
         constraint_deltas[constraint_index * 4u + 3u] = vec4f(0.0);
         return;
     }
-    var first = bodies[constraint.a];
-    var second = bodies[constraint.b];
-    let first_sleeping = (first.flags & BODY_SLEEPING) != 0u;
-    let second_sleeping = (second.flags & BODY_SLEEPING) != 0u;
+    var first = load_body(constraint.a);
+    var second = load_body(constraint.b);
+    let first_sleeping = first.state.sleeping != 0u;
+    let second_sleeping = second.state.sleeping != 0u;
     if (body_is_inert(first)) {
         first = body_frozen(first);
     }
@@ -255,7 +262,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
-    var accumulated = constraint.accumulated;
+    var accumulated = runtime.accumulated;
     var forces: FrameForces;
     forces.linear = 0.0;
     forces.angular = 0.0;
@@ -343,7 +350,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else if (constraint.kind == CONSTRAINT_PRISMATIC) {
-        let axis = normalize(quat_rotate(first.orientation, constraint.axis_a));
+        let axis = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
         let tangents = make_tangents(axis);
         for (var i = 0u; i < 2u; i = i + 1u) {
             let tangent = select(tangents.first, tangents.second, i == 1u);
@@ -436,7 +443,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
         if ((constraint.flags & CONSTRAINT_HAS_SWING) != 0u) {
-            let q_rel = quat_mul(quat_conjugate(first.orientation), second.orientation);
+            let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
             let perp = q_rel.xyz - hinge * dot(q_rel.xyz, hinge);
             let swing_magnitude = length(perp);
             for (var i = 0u; i < 2u; i = i + 1u) {
@@ -456,17 +463,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else if (constraint.kind == CONSTRAINT_GEAR) {
-        let axis_a = normalize(quat_rotate(first.orientation, constraint.axis_a));
-        let axis_b = normalize(quat_rotate(second.orientation, constraint.axis_b));
+        let axis_a = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
+        let axis_b = normalize(quat_rotate(second.state.orientation, constraint.axis_b));
         let ratio = constraint.gear_ratio;
         let k = dot(axis_a, apply_inverse_inertia(first, axis_a)) * ratio * ratio
             + dot(axis_b, apply_inverse_inertia(second, axis_b));
         if (k > 0.0) {
-            let jacobian_speed = ratio * dot(first.angular_velocity, axis_a) - dot(second.angular_velocity, axis_b);
+            let jacobian_speed = ratio * dot(first.state.angular_velocity, axis_a) - dot(second.state.angular_velocity, axis_b);
             let next = accumulated[0] + jacobian_speed / k;
             let applied = next - accumulated[0];
-            first.angular_velocity = first.angular_velocity - apply_inverse_inertia(first, axis_a * ratio * applied);
-            second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, axis_b * applied);
+            first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, axis_a * ratio * applied);
+            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, axis_b * applied);
             accumulated[0] = next;
             forces.angular = forces.angular + abs(applied);
         }
@@ -479,7 +486,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let rax = cross(ra, dir_a);
         let rb = anchor_b - body_com(second);
         let rbx = cross(rb, dir_b);
-        let k = first.inverse_mass + second.inverse_mass
+        let k = first.desc.inverse_mass + second.desc.inverse_mass
             + dot(rax, apply_inverse_inertia(first, rax))
             + dot(rbx, apply_inverse_inertia(second, rbx));
         if (k > 0.0) {
@@ -489,10 +496,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let bias_speed = clamp(error * 0.05 / max(params.dt, 1e-4), -max_bias, max_bias);
             let next = accumulated[0] + (bias_speed - jacobian_speed) / k;
             let applied = next - accumulated[0];
-            first.velocity = first.velocity + dir_a * applied * first.inverse_mass;
-            first.angular_velocity = first.angular_velocity + apply_inverse_inertia(first, cross(anchor_a - body_com(first), dir_a * applied));
-            second.velocity = second.velocity + dir_b * applied * second.inverse_mass;
-            second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, cross(anchor_b - body_com(second), dir_b * applied));
+            first.state.velocity = first.state.velocity + dir_a * applied * first.desc.inverse_mass;
+            first.state.angular_velocity = first.state.angular_velocity + apply_inverse_inertia(first, cross(anchor_a - body_com(first), dir_a * applied));
+            second.state.velocity = second.state.velocity + dir_b * applied * second.desc.inverse_mass;
+            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, cross(anchor_b - body_com(second), dir_b * applied));
             accumulated[0] = next;
             forces.linear = forces.linear + abs(applied);
         }
@@ -508,8 +515,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             accumulated[i] = outcome.accumulated;
             forces = outcome.forces;
         }
-        let cone_axis = normalize(quat_rotate(first.orientation, constraint.axis_a));
-        let limb = normalize(quat_rotate(second.orientation, constraint.axis_b));
+        let cone_axis = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
+        let limb = normalize(quat_rotate(second.state.orientation, constraint.axis_b));
         let direction = -limb;
         let cosine = clamp(dot(cone_axis, direction), -1.0, 1.0);
         let angle = acos(cosine);
@@ -527,7 +534,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let tangents = make_tangents(hinge);
         for (var i = 0u; i < 3u; i = i + 1u) {
             let local_axis = dof_frame(tangents, normalize(constraint.axis_a), i);
-            let world_axis = sign_normalize(quat_rotate(first.orientation, local_axis));
+            let world_axis = sign_normalize(quat_rotate(first.state.orientation, local_axis));
             let mode = dof_mode(constraint.flags, i);
             if (mode == DOF_FREE) {
                 continue;
@@ -568,12 +575,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 forces = outcome.forces;
             }
         }
-        let q_rel = quat_mul(quat_conjugate(first.orientation), second.orientation);
+        let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
         let deviation = quat_mul(q_rel, quat_conjugate(constraint.reference));
-        let error_vector = quat_rotate(quat_conjugate(first.orientation), vec3f(2.0 * deviation.x, 2.0 * deviation.y, 2.0 * deviation.z));
+        let error_vector = quat_rotate(quat_conjugate(first.state.orientation), vec3f(2.0 * deviation.x, 2.0 * deviation.y, 2.0 * deviation.z));
         for (var i = 0u; i < 3u; i = i + 1u) {
             let local_axis = dof_frame(tangents, normalize(constraint.axis_a), i);
-            let world_axis = sign_normalize(quat_rotate(first.orientation, local_axis));
+            let world_axis = sign_normalize(quat_rotate(first.state.orientation, local_axis));
             let mode = dof_mode(constraint.flags, 3u + i);
             if (mode == DOF_FREE) {
                 continue;
@@ -643,12 +650,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let linear_limit = constraint.break_force * params.dt;
         let angular_limit = constraint.break_torque * params.dt;
         if ((linear_limit > 0.0 && forces.linear > linear_limit) || (angular_limit > 0.0 && forces.angular > angular_limit)) {
-            constraint.flags = constraint.flags | CONSTRAINT_BROKEN;
-            constraint.kind = CONSTRAINT_INVALID;
+            runtime.broken = 1u;
         }
     }
-    constraint.accumulated = accumulated;
-    constraints[constraint_index] = constraint;
+    runtime.accumulated = accumulated;
+    constraint_runtime[constraint_index] = runtime;
     let breach_now = constraint_breach(anchor_a, anchor_b, constraint);
     if (first_sleeping && !second_sleeping && breach_now) {
         atomicOr(&wake_flags[constraint.a], 1u);
@@ -656,12 +662,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (second_sleeping && !first_sleeping && breach_now) {
         atomicOr(&wake_flags[constraint.b], 1u);
     }
-    let snap_first = bodies[constraint.a];
-    let snap_second = bodies[constraint.b];
-    let delta_a = first.velocity - snap_first.velocity;
-    let delta_spin_a = first.angular_velocity - snap_first.angular_velocity;
-    let delta_b = second.velocity - snap_second.velocity;
-    let delta_spin_b = second.angular_velocity - snap_second.angular_velocity;
+    let snap_first = load_body(constraint.a);
+    let snap_second = load_body(constraint.b);
+    let delta_a = first.state.velocity - snap_first.state.velocity;
+    let delta_spin_a = first.state.angular_velocity - snap_first.state.angular_velocity;
+    let delta_b = second.state.velocity - snap_second.state.velocity;
+    let delta_spin_b = second.state.angular_velocity - snap_second.state.angular_velocity;
     constraint_deltas[constraint_index * 4u] = vec4f(delta_a, 0.0);
     constraint_deltas[constraint_index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
     constraint_deltas[constraint_index * 4u + 2u] = vec4f(delta_b, 0.0);

@@ -1,5 +1,5 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
+@group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> contact_first_a: array<u32>;
 @group(0) @binding(3) var<storage, read> contact_first_b: array<u32>;
 @group(0) @binding(4) var<storage, read> contact_a_body: array<u32>;
@@ -23,7 +23,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let total = contact_count[0];
     let constraint_total = params.constraint_count;
-    let body = bodies[body_index];
+    let body = body_states[body_index];
     var velocity = vec3f(0.0);
     var spin = vec3f(0.0);
     var links = 0u;
@@ -82,5 +82,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var updated = body;
     updated.velocity = body.velocity + velocity * damping;
     updated.angular_velocity = body.angular_velocity + spin * damping;
-    bodies[body_index] = updated;
+    body_states[body_index] = updated;
 }

@@ -1,9 +1,9 @@
 use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{
-    AabbRecord, BodyCommandRecord, BvhNodeRecord, ColliderRecord, ConstraintCommandRecord,
-    ConstraintRecord, ContactEventRecord, ContactRecord, Counter, MAX_CELLS_PER_COLLIDER,
-    MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord,
-    ShapeSourceRecord, SimParamsRecord,
+    AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, BvhNodeRecord,
+    ColliderRecord, ConstraintCommandRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord,
+    ContactEventRecord, ContactRecord, Counter, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
+    QueryHitRecord, QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use std::mem::size_of;
@@ -52,7 +52,8 @@ impl ChannelSlots {
 
 pub(crate) struct WorldBuffers {
     pub(crate) params: GpuBuffer,
-    pub(crate) bodies: GpuBuffer,
+    pub(crate) body_states: GpuBuffer,
+    pub(crate) body_descs: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
     pub(crate) entries: ChannelSlots,
@@ -81,7 +82,8 @@ pub(crate) struct WorldBuffers {
     pub(crate) island_parents: GpuBuffer,
     pub(crate) island_state: GpuBuffer,
     pub(crate) wake_flags: GpuBuffer,
-    pub(crate) constraints: GpuBuffer,
+    pub(crate) constraint_descs: GpuBuffer,
+    pub(crate) constraint_runtime: GpuBuffer,
     pub(crate) constraint_gather_a_keys: GpuBuffer,
     pub(crate) constraint_gather_a_values: GpuBuffer,
     pub(crate) constraint_gather_a_keys_out: GpuBuffer,
@@ -113,10 +115,10 @@ pub(crate) struct WorldBuffers {
     pub(crate) query_headers: GpuBuffer,
     pub(crate) query_hits: GpuBuffer,
     pub(crate) query_pack: GpuBuffer,
-    pub(crate) bodies_readback: GpuReadback,
+    pub(crate) body_states_readback: GpuReadback,
     pub(crate) queries_readback: GpuReadback,
     pub(crate) events_readback: GpuReadback,
-    pub(crate) constraints_readback: GpuReadback,
+    pub(crate) constraint_runtime_readback: GpuReadback,
     pub(crate) sort_scratch: ChannelSlots,
 }
 
@@ -130,12 +132,16 @@ impl WorldBuffers {
         constraint_capacity: usize,
     ) -> Self {
         let collider_capacity = capacity * MAX_COLLIDERS_PER_BODY;
-        let body_bytes = (capacity * size_of::<RigidBodyRecord>()) as u64;
+        let body_bytes = (capacity * size_of::<BodyStateRecord>()) as u64;
+        let body_desc_bytes = (capacity * size_of::<BodyDescriptorRecord>()) as u64;
         let collider_bytes = (collider_capacity * size_of::<ColliderRecord>()) as u64;
         let aabb_bytes = (collider_capacity * size_of::<AabbRecord>()) as u64;
         let contact_bytes = (pair_capacity * size_of::<ContactRecord>()) as u64;
         let contact_key_bytes = (pair_capacity * size_of::<u32>()) as u64;
-        let constraint_bytes = (constraint_capacity * size_of::<ConstraintRecord>()) as u64;
+        let constraint_bytes =
+            (constraint_capacity * size_of::<ConstraintDescriptorRecord>()) as u64;
+        let constraint_runtime_bytes =
+            (constraint_capacity * size_of::<ConstraintRuntimeRecord>()) as u64;
         let counter_bytes = size_of::<Counter>() as u64;
         let state_bytes = (capacity * size_of::<u32>()) as u64;
         let command_bytes = (capacity * 4 * size_of::<BodyCommandRecord>()) as u64;
@@ -167,11 +173,17 @@ impl WorldBuffers {
                 params_bytes,
                 BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             ),
-            bodies: GpuBuffer::new(
+            body_states: GpuBuffer::new(
                 device,
-                "bodies",
+                "body states",
                 body_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            ),
+            body_descs: GpuBuffer::new(
+                device,
+                "body descriptors",
+                body_desc_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ),
             colliders: GpuBuffer::new(
                 device,
@@ -263,7 +275,7 @@ impl WorldBuffers {
                 device,
                 "previous contacts",
                 contact_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             prev_contact_count: GpuBuffer::new(
                 device,
@@ -331,10 +343,16 @@ impl WorldBuffers {
                 state_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
-            constraints: GpuBuffer::new(
+            constraint_descs: GpuBuffer::new(
                 device,
-                "constraints",
+                "constraint descriptors",
                 constraint_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ),
+            constraint_runtime: GpuBuffer::new(
+                device,
+                "constraint runtime",
+                constraint_runtime_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             constraint_gather_a_keys: GpuBuffer::new(
@@ -523,7 +541,7 @@ impl WorldBuffers {
                 query_header_bytes + query_hit_bytes,
                 BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
-            bodies_readback: GpuReadback::new(device, "bodies readback", body_bytes),
+            body_states_readback: GpuReadback::new(device, "body states readback", body_bytes),
             queries_readback: GpuReadback::new(
                 device,
                 "query results readback",
@@ -534,10 +552,10 @@ impl WorldBuffers {
                 "events readback",
                 events_bytes + counter_bytes,
             ),
-            constraints_readback: GpuReadback::new(
+            constraint_runtime_readback: GpuReadback::new(
                 device,
-                "constraints readback",
-                constraint_bytes,
+                "constraint runtime readback",
+                constraint_runtime_bytes,
             ),
             sort_scratch: ChannelSlots::new(
                 device,
@@ -548,7 +566,7 @@ impl WorldBuffers {
     }
 
     pub(crate) fn constraint_capacity(&self) -> u32 {
-        (self.constraints.size() / size_of::<ConstraintRecord>() as u64) as u32
+        (self.constraint_runtime.size() / size_of::<ConstraintRuntimeRecord>() as u64) as u32
     }
 
     pub(crate) fn contact_capacity(&self) -> u32 {

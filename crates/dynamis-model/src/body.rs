@@ -237,16 +237,29 @@ impl BodyDesc {
         bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
     ) -> crate::mass::MassProperties {
         if let Some(inertia) = self.inertia {
-            return crate::mass::MassProperties {
-                com: self.com.unwrap_or([0.0; 3]),
-                inverse_inertia: crate::mass::inertia_inverse(inertia),
-            };
+            return crate::mass::mass_properties_of_intent(
+                &self.colliders,
+                self.mass,
+                self.com,
+                Some(inertia),
+                bounds,
+            );
         }
-        let source = match self.density {
-            Some(density) => crate::mass::MassSource::Density(density),
-            None => crate::mass::MassSource::Fixed(self.mass),
-        };
-        crate::mass::compute_mass_properties(&self.colliders, source, self.com, bounds)
+        match self.density {
+            Some(density) => crate::mass::compute_mass_properties(
+                &self.colliders,
+                crate::mass::MassSource::Density(density),
+                self.com,
+                bounds,
+            ),
+            None => crate::mass::mass_properties_of_intent(
+                &self.colliders,
+                self.mass,
+                self.com,
+                None,
+                bounds,
+            ),
+        }
     }
 
     pub fn effective_mass(&self, bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>) -> f32 {

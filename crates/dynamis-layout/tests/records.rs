@@ -1,14 +1,16 @@
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, COLLIDER_SENSOR, COMMAND_ANGULAR_IMPULSE,
-    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
-    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
-    CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED,
-    CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
-    CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
-    CONSTRAINT_REVOLUTE, ColliderRecord, ConstraintCommandRecord, ConstraintRecord, Counter,
-    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
-    QueryRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
+    BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord,
+    COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD,
+    COMMAND_CONSTRAINT_SWAP, COMMAND_FORCE, COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE,
+    COMMAND_IMPULSE_AT_POINT, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP,
+    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
+    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
+    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
+    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
+    ConstraintCommandRecord, ConstraintDescriptorRecord, Counter, FILTER_IGNORE_KINEMATIC,
+    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR,
+    OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
+    QUERY_SWEEP, QueryRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
     SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SimParamsRecord,
 };
 use dynamis_model::{
@@ -17,19 +19,16 @@ use dynamis_model::{
 use std::panic::catch_unwind;
 
 #[test]
-fn rigid_body_record_encodes_desc_fields() {
+fn body_descriptor_encodes_the_host_owned_half() {
     let desc = BodyDesc::sphere(0.5)
         .mass(2.0)
         .collision_group(7)
         .collision_mask(3)
         .kinematic(true)
         .ccd(true)
-        .restitution(0.4)
-        .friction(0.6);
-    let record = RigidBodyRecord::build(
+        .sleep_thresholds(0.1, 0.2);
+    let record = BodyDescriptorRecord::build(
         &desc,
-        5,
-        9,
         MassProperties {
             com: [0.5, 0.0, 0.0],
             inverse_inertia: [1.0, 0.0, 0.0, 2.0, 0.0, 3.0],
@@ -37,26 +36,44 @@ fn rigid_body_record_encodes_desc_fields() {
         &PhysicsConfig::default(),
     );
     assert_eq!(record.inverse_mass, 0.0, "kinematic mass is infinite");
-    assert_eq!(record.body_id, 5);
-    assert_eq!(record.generation, 9);
-    assert_eq!(record.collider_count, 1);
     assert_eq!(record.collision_group, 7);
     assert_eq!(record.collision_mask, 3);
-    assert_eq!(record.restitution, 0.4);
-    assert_eq!(record.friction, 0.6);
     assert_eq!(record.flags & BODY_KINEMATIC, BODY_KINEMATIC);
     assert_eq!(record.flags & BODY_CCD, BODY_CCD);
+    assert_eq!(
+        record.flags & (OVERRIDE_SLEEP_LINEAR | OVERRIDE_SLEEP_ANGULAR),
+        OVERRIDE_SLEEP_LINEAR | OVERRIDE_SLEEP_ANGULAR
+    );
+    assert_eq!(record.sleep_velocity, 0.1);
+    assert_eq!(record.sleep_angular_velocity, 0.2);
     assert_eq!(record.com, [0.5, 0.0, 0.0]);
-    assert_eq!(record.inverse_inertia_body, [1.0, 0.0, 0.0, 2.0, 0.0, 3.0]);
+    assert_eq!(record.inverse_inertia, [1.0, 0.0, 0.0, 2.0, 0.0, 3.0]);
 
-    let dynamic = RigidBodyRecord::build(
+    let dynamic = BodyDescriptorRecord::build(
         &BodyDesc::sphere(0.5).mass(2.0),
-        0,
-        1,
         MassProperties::zeroed(),
         &PhysicsConfig::default(),
     );
     assert_eq!(dynamic.inverse_mass, 0.5);
+    assert_eq!(dynamic.flags & OVERRIDE_SLEEP_LINEAR, 0);
+}
+
+#[test]
+fn body_state_starts_from_the_desc() {
+    let desc = BodyDesc::sphere(0.5)
+        .position([1.0, 2.0, 3.0])
+        .velocity([0.0, 1.0, 0.0])
+        .angular_velocity([1.0, 0.0, 0.0]);
+    let state = BodyStateRecord::initial(&desc, 5, 9);
+    assert_eq!(state.position, [1.0, 2.0, 3.0]);
+    assert_eq!(state.prev_position, [1.0, 2.0, 3.0]);
+    assert_eq!(state.velocity, [0.0, 1.0, 0.0]);
+    assert_eq!(state.angular_velocity, [1.0, 0.0, 0.0]);
+    assert_eq!(state.body_id, 5);
+    assert_eq!(state.generation, 9);
+    assert_eq!(state.sleeping, 0);
+    assert_eq!(state.force, [0.0; 3]);
+    assert_eq!(state.torque, [0.0; 3]);
 }
 
 #[test]
@@ -134,7 +151,7 @@ fn collider_record_encodes_every_shape_kind() {
 
 #[test]
 fn constraint_record_encodes_kinds_and_options() {
-    let ball = ConstraintRecord::build(
+    let ball = ConstraintDescriptorRecord::build(
         &ConstraintDesc::ball([1.0, 0.0, 0.0], [0.0, 2.0, 0.0]),
         3,
         4,
@@ -149,7 +166,7 @@ fn constraint_record_encodes_kinds_and_options() {
         CONSTRAINT_DISABLE_COLLISIONS
     );
 
-    let distance = ConstraintRecord::build(
+    let distance = ConstraintDescriptorRecord::build(
         &ConstraintDesc::distance([0.0; 3], [0.0; 3], 2.5).disable_collisions(false),
         0,
         1,
@@ -158,7 +175,7 @@ fn constraint_record_encodes_kinds_and_options() {
     assert_eq!(distance.distance, 2.5);
     assert_eq!(distance.flags & CONSTRAINT_DISABLE_COLLISIONS, 0);
 
-    let revolute = ConstraintRecord::build(
+    let revolute = ConstraintDescriptorRecord::build(
         &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).limit(-0.5, 0.5),
         0,
         1,
@@ -169,7 +186,7 @@ fn constraint_record_encodes_kinds_and_options() {
     assert_eq!(revolute.limit_min, -0.5);
     assert_eq!(revolute.limit_max, 0.5);
 
-    let prismatic = ConstraintRecord::build(
+    let prismatic = ConstraintDescriptorRecord::build(
         &ConstraintDesc::prismatic([0.0; 3], [0.0; 3], [1.0, 0.0, 0.0])
             .limit(0.0, 3.0)
             .motor(2.0),
@@ -181,10 +198,10 @@ fn constraint_record_encodes_kinds_and_options() {
     assert_ne!(prismatic.flags & CONSTRAINT_HAS_MOTOR, 0);
     assert_eq!(prismatic.motor_speed, 2.0);
 
-    let fixed = ConstraintRecord::build(&ConstraintDesc::fixed([0.0; 3], [0.0; 3]), 0, 1);
+    let fixed = ConstraintDescriptorRecord::build(&ConstraintDesc::fixed([0.0; 3], [0.0; 3]), 0, 1);
     assert_eq!(fixed.kind, CONSTRAINT_FIXED);
 
-    let spring = ConstraintRecord::build(
+    let spring = ConstraintDescriptorRecord::build(
         &ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).spring(3.0, 0.7),
         0,
         1,
@@ -318,63 +335,64 @@ fn query_record_encodes_kinds_and_filters() {
 
 #[test]
 fn body_commands_encode_their_payloads() {
-    let body = RigidBodyRecord::build(
-        &BodyDesc::sphere(0.5),
-        1,
-        1,
-        MassProperties::zeroed(),
-        &PhysicsConfig::default(),
-    );
-    let add = BodyCommandRecord::add(2, body);
-    assert_eq!(add.kind, 0);
+    let state = BodyStateRecord::initial(&BodyDesc::sphere(0.5), 1, 1);
+    let add = BodyCommandRecord::add(2, state);
+    assert_eq!(add.kind, COMMAND_ADD);
     assert_eq!(add.slot, 2);
-    assert_eq!(add.aux, 0);
+    assert_eq!(add.state.position, state.position);
 
     let remove = BodyCommandRecord::remove(3, 7);
     assert_eq!(remove.kind, COMMAND_REMOVE);
     assert_eq!(remove.slot, 3);
-    assert_eq!(remove.extra, 7);
+    assert_eq!(remove.mask, 7);
 
-    let patch = BodyCommandRecord::patch(1, PATCH_POSITION | PATCH_VELOCITY, body);
+    let patch = BodyCommandRecord::patch(1, PATCH_POSITION | PATCH_VELOCITY, state);
     assert_eq!(patch.kind, COMMAND_PATCH);
-    assert_eq!(patch.extra, PATCH_POSITION | PATCH_VELOCITY);
-    assert_eq!(patch.aux, 0);
+    assert_eq!(patch.mask, PATCH_POSITION | PATCH_VELOCITY);
 
     let force = BodyCommandRecord::force(4, [1.0, 2.0, 3.0]);
     assert_eq!(force.kind, COMMAND_FORCE);
-    assert_eq!(force.body.force, [1.0, 2.0, 3.0]);
+    assert_eq!(force.state.force, [1.0, 2.0, 3.0]);
 
     let force_at = BodyCommandRecord::force_at_point(4, [0.0, 0.0, 1.0], [5.0, 0.0, 0.0]);
     assert_eq!(force_at.kind, COMMAND_FORCE_AT_POINT);
-    assert_eq!(force_at.body.position, [5.0, 0.0, 0.0]);
+    assert_eq!(force_at.state.position, [5.0, 0.0, 0.0]);
 
     let torque = BodyCommandRecord::torque(4, [0.0, 0.0, 1.0]);
     assert_eq!(torque.kind, COMMAND_TORQUE);
+    assert_eq!(torque.state.torque, [0.0, 0.0, 1.0]);
 
     let impulse = BodyCommandRecord::impulse(4, [1.0, 0.0, 0.0]);
     assert_eq!(impulse.kind, COMMAND_IMPULSE);
-    assert_eq!(impulse.body.velocity, [1.0, 0.0, 0.0]);
+    assert_eq!(impulse.state.velocity, [1.0, 0.0, 0.0]);
 
     let impulse_at = BodyCommandRecord::impulse_at_point(4, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
-    assert_eq!(impulse_at.extra, 1);
-    assert_eq!(impulse_at.body.position, [1.0, 0.0, 0.0]);
+    assert_eq!(impulse_at.kind, COMMAND_IMPULSE_AT_POINT);
+    assert_eq!(impulse_at.state.position, [1.0, 0.0, 0.0]);
 
     let angular = BodyCommandRecord::angular_impulse(4, [0.0, 0.0, 1.0]);
     assert_eq!(angular.kind, COMMAND_ANGULAR_IMPULSE);
-    assert_eq!(angular.body.angular_velocity, [0.0, 0.0, 1.0]);
+    assert_eq!(angular.state.angular_velocity, [0.0, 0.0, 1.0]);
 
     assert_eq!(BodyCommandRecord::sleep(4).kind, COMMAND_SLEEP);
     assert_eq!(BodyCommandRecord::wake(4).kind, COMMAND_WAKE);
+    assert_eq!(BodyCommandRecord::swap(4, 9).kind, COMMAND_SWAP);
 }
 
 #[test]
 fn constraint_command_and_dispatch_args_encode() {
-    let record = ConstraintRecord::build(&ConstraintDesc::ball([0.0; 3], [0.0; 3]), 1, 2);
-    let add = ConstraintCommandRecord::add(3, record);
+    let record = ConstraintDescriptorRecord::build(&ConstraintDesc::ball([0.0; 3], [0.0; 3]), 1, 2);
+    assert_eq!(record.kind, CONSTRAINT_BALL);
+    assert_eq!(record.a, 1);
+    assert_eq!(record.b, 2);
+    let add = ConstraintCommandRecord::add(3, 7, 2);
     assert_eq!(add.kind, COMMAND_CONSTRAINT_ADD);
     assert_eq!(add.slot, 3);
-    let remove = ConstraintCommandRecord::remove(3);
-    assert_eq!(remove.kind, COMMAND_CONSTRAINT_REMOVE);
+    assert_eq!(add.constraint_id, 7);
+    assert_eq!(add.generation, 2);
+    let swap = ConstraintCommandRecord::swap(3, 9);
+    assert_eq!(swap.kind, COMMAND_CONSTRAINT_SWAP);
+    assert_eq!(swap.tail, 9);
 
     assert_eq!(Counter::none().count, 0);
     assert_eq!(Counter::sized(42).count, 42);
@@ -406,7 +424,7 @@ fn collider_record_applies_scale_and_plane_kind() {
 
 #[test]
 fn constraint_record_encodes_swing_break_gear_pulley() {
-    let swinging = ConstraintRecord::build(
+    let swinging = ConstraintDescriptorRecord::build(
         &ConstraintDesc::ball([0.0; 3], [0.0; 3])
             .limit(-0.5, 0.5)
             .swing(0.7, 0.9),
@@ -418,7 +436,7 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
     assert_eq!(swinging.swing_a, 0.7);
     assert_eq!(swinging.swing_b, 0.9);
 
-    let motor = ConstraintRecord::build(
+    let motor = ConstraintDescriptorRecord::build(
         &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0])
             .motor(3.0)
             .motor_force(40.0)
@@ -432,7 +450,7 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
     assert_eq!(motor.break_force, 100.0);
     assert_eq!(motor.break_torque, 5.0);
 
-    let gear = ConstraintRecord::build(
+    let gear = ConstraintDescriptorRecord::build(
         &ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.5),
         0,
         1,
@@ -442,7 +460,7 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
     assert_eq!(gear.axis_b, [0.0, 0.0, 1.0]);
     assert_eq!(gear.gear_ratio, 2.5);
 
-    let pulley = ConstraintRecord::build(
+    let pulley = ConstraintDescriptorRecord::build(
         &ConstraintDesc::pulley(
             [0.0; 3],
             [1.0, 0.0, 0.0],
@@ -457,7 +475,7 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
     assert_eq!(pulley.distance, 4.0);
     assert_eq!(pulley.pulley_fixed_a, [0.0, 2.0, 0.0]);
     assert_eq!(pulley.pulley_fixed_b, [3.0, 2.0, 0.0]);
-    let dual_axis = ConstraintRecord::build(
+    let dual_axis = ConstraintDescriptorRecord::build(
         &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).axis_b([0.0, 0.0, 1.0]),
         0,
         1,

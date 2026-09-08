@@ -1,14 +1,19 @@
-@group(0) @binding(0) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(1) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(2) var<storage, read> pair_keys_hi: array<u32>;
-@group(0) @binding(3) var<storage, read> pair_keys_lo: array<u32>;
-@group(0) @binding(4) var<storage, read_write> contacts_raw: array<Contact>;
-@group(0) @binding(5) var<storage, read_write> contact_valid: array<u32>;
-@group(0) @binding(6) var<storage, read_write> pair_count: atomic<u32>;
-@group(0) @binding(7) var<storage, read> joint_hi: array<u32>;
-@group(0) @binding(8) var<storage, read> joint_lo: array<u32>;
-@group(0) @binding(9) var<storage, read> joint_count: array<u32>;
-@group(0) @binding(10) var<uniform> params: SimParams;
+@group(0) @binding(0) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(1) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(2) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(3) var<storage, read> pair_keys_hi: array<u32>;
+@group(0) @binding(4) var<storage, read> pair_keys_lo: array<u32>;
+@group(0) @binding(5) var<storage, read_write> contacts_raw: array<Contact>;
+@group(0) @binding(6) var<storage, read_write> contact_valid: array<u32>;
+@group(0) @binding(7) var<storage, read_write> pair_count: atomic<u32>;
+@group(0) @binding(8) var<storage, read> joint_hi: array<u32>;
+@group(0) @binding(9) var<storage, read> joint_lo: array<u32>;
+@group(0) @binding(10) var<storage, read> joint_count: array<u32>;
+@group(0) @binding(11) var<uniform> params: SimParams;
+
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
 
 fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).point_count = 0u;
@@ -36,12 +41,12 @@ fn pair_joined(first_body: u32, second_body: u32) -> bool {
 }
 
 fn sphere_sphere(
-    first: RigidBody, first_collider: Collider,
-    second: RigidBody, second_collider: Collider,
+    first: Body, first_collider: Collider,
+    second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    let first_center = box_center(first, first_collider);
-    let second_center = box_center(second, second_collider);
+    let first_center = box_center(first.state, first_collider);
+    let second_center = box_center(second.state, second_collider);
     let delta = second_center - first_center;
     let distance = length(delta);
     let radius_sum = first_collider.radius + second_collider.radius;
@@ -60,9 +65,9 @@ fn sphere_sphere(
     return contact;
 }
 
-fn box_deep_normal(point: vec3f, box_body: RigidBody, box_collider: Collider) -> vec3f {
-    let q = quat_mul(box_body.orientation, box_collider.local_rotation);
-    let local = quat_rotate(quat_conjugate(q), point - box_center(box_body, box_collider));
+fn box_deep_normal(point: vec3f, box_body: Body, box_collider: Collider) -> vec3f {
+    let q = quat_mul(box_body.state.orientation, box_collider.local_rotation);
+    let local = quat_rotate(quat_conjugate(q), point - box_center(box_body.state, box_collider));
     let penetration = box_collider.half_extents - abs(local);
     let axis = largest_axis(penetration);
     var facing = vec3f(0.0);
@@ -77,12 +82,12 @@ fn box_deep_normal(point: vec3f, box_body: RigidBody, box_collider: Collider) ->
 }
 
 fn sphere_box(
-    sphere: RigidBody, sphere_collider: Collider,
-    box_body: RigidBody, box_collider: Collider,
+    sphere: Body, sphere_collider: Collider,
+    box_body: Body, box_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    let center = sphere.position + quat_rotate(sphere.orientation, sphere_collider.local_offset);
-    let closest = closest_point_box(center, box_body, box_collider);
+    let center = sphere.state.position + quat_rotate(sphere.state.orientation, sphere_collider.local_offset);
+    let closest = closest_point_box(center, box_body.state, box_collider);
     let delta = closest - center;
     let distance = length(delta);
     let radius = sphere_collider.radius;
@@ -100,20 +105,20 @@ fn sphere_box(
     return contact;
 }
 
-fn capsule_segment(body: RigidBody, collider: Collider) -> Segment {
-    let q = quat_mul(body.orientation, collider.local_rotation);
+fn capsule_segment(body: Body, collider: Collider) -> Segment {
+    let q = quat_mul(body.state.orientation, collider.local_rotation);
     let axis = quat_rotate(q, vec3f(0.0, 1.0, 0.0));
-    let center = box_center(body, collider);
+    let center = box_center(body.state, collider);
     return Segment(center - axis * collider.half_height, center + axis * collider.half_height);
 }
 
 fn sphere_capsule(
-    sphere: RigidBody, sphere_collider: Collider,
-    capsule: RigidBody, capsule_collider: Collider,
+    sphere: Body, sphere_collider: Collider,
+    capsule: Body, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let seg = capsule_segment(capsule, capsule_collider);
-    let center = sphere.position + quat_rotate(sphere.orientation, sphere_collider.local_offset);
+    let center = sphere.state.position + quat_rotate(sphere.state.orientation, sphere_collider.local_offset);
     let closest = closest_point_segment(center, seg.start, seg.end);
     let delta = closest - center;
     let distance = length(delta);
@@ -171,8 +176,8 @@ fn closest_points_segments(a0: vec3f, a1: vec3f, b0: vec3f, b1: vec3f) -> Segmen
 }
 
 fn capsule_capsule(
-    first: RigidBody, first_collider: Collider,
-    second: RigidBody, second_collider: Collider,
+    first: Body, first_collider: Collider,
+    second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let seg_a = capsule_segment(first, first_collider);
@@ -192,9 +197,9 @@ fn capsule_capsule(
     return contact;
 }
 
-fn box_face_corners(body: RigidBody, collider: Collider, face_normal: vec3f) -> array<vec3f, 4> {
-    let axes = box_rotated_axes(body, collider);
-    let center = box_center(body, collider);
+fn box_face_corners(body: Body, collider: Collider, face_normal: vec3f) -> array<vec3f, 4> {
+    let axes = box_rotated_axes(body.state, collider);
+    let center = box_center(body.state, collider);
     var axis = 0u;
     for (var i = 1u; i < 3u; i = i + 1u) {
         if (abs(dot(face_normal, axes[i])) > abs(dot(face_normal, axes[axis]))) {
@@ -239,8 +244,8 @@ fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_n
 }
 
 fn box_box_sat(
-    first: RigidBody, first_collider: Collider,
-    second: RigidBody, second_collider: Collider,
+    first: Body, first_collider: Collider,
+    second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
@@ -257,12 +262,12 @@ fn box_box_sat(
         hit_body = first;
         hit_collider = first_collider;
     }
-    let axes_a = box_rotated_axes(ref_body, ref_collider);
-    let axes_b = box_rotated_axes(hit_body, hit_collider);
+    let axes_a = box_rotated_axes(ref_body.state, ref_collider);
+    let axes_b = box_rotated_axes(hit_body.state, hit_collider);
     let he_a = ref_collider.half_extents;
     let he_b = hit_collider.half_extents;
-    let center_a = box_center(ref_body, ref_collider);
-    let center_b = box_center(hit_body, hit_collider);
+    let center_a = box_center(ref_body.state, ref_collider);
+    let center_b = box_center(hit_body.state, hit_collider);
     let delta = center_b - center_a;
     var best = 1e30;
     var best_axis = vec3f(0.0, 1.0, 0.0);
@@ -324,14 +329,14 @@ fn box_box_sat(
     let signed = select(best_axis, -best_axis, dot(best_axis, delta) < 0.0);
     if (best_side >= 6u) {
         let depth = best;
-        let point = box_face_point(hit_body, hit_collider, -signed);
+        let point = box_face_point(hit_body.state, hit_collider, -signed);
         contact.normal = select(signed, -signed, swapped);
         manifold_push(&contact, point, depth);
         return contact;
     }
-    var reference: RigidBody;
+    var reference: Body;
     var reference_collider: Collider;
-    var incident: RigidBody;
+    var incident: Body;
     var incident_collider: Collider;
     var face_normal = signed;
     if (best_side < 3u) {
@@ -347,9 +352,9 @@ fn box_box_sat(
         face_normal = -signed;
     }
     let ref_normal = face_normal;
-    let ref_center = box_face_point(reference, reference_collider, ref_normal);
+    let ref_center = box_face_point(reference.state, reference_collider, ref_normal);
     let ref_corners = box_face_corners(reference, reference_collider, ref_normal);
-    let incident_ax = box_rotated_axes(incident, incident_collider);
+    let incident_ax = box_rotated_axes(incident.state, incident_collider);
     var face_axis = 0u;
     for (var i = 1u; i < 3u; i = i + 1u) {
         if (abs(dot(incident_ax[i], ref_normal)) > abs(dot(incident_ax[face_axis], ref_normal))) {
@@ -408,8 +413,8 @@ fn box_box_sat(
 }
 
 fn box_capsule(
-    box_body: RigidBody, box_collider: Collider,
-    capsule: RigidBody, capsule_collider: Collider,
+    box_body: Body, box_collider: Collider,
+    capsule: Body, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
@@ -420,7 +425,7 @@ fn box_capsule(
     for (var i = 0u; i < 3u; i = i + 1u) {
         let t = f32(i) * (1.0 / 2.0);
         let point = seg.start + (seg.end - seg.start) * t;
-        let closest = closest_point_box(point, box_body, box_collider);
+        let closest = closest_point_box(point, box_body.state, box_collider);
         let delta = point - closest;
         let distance = length(delta);
         let depth = capsule_collider.radius - distance;
@@ -504,8 +509,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let second_slot = pair_keys_lo[index];
     let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
     let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
-    let first = bodies[first_body_slot];
-    let second = bodies[second_body_slot];
+    let first = load_body(first_body_slot);
+    let second = load_body(second_body_slot);
     if (first_body_slot == second_body_slot) {
         return;
     }
@@ -532,9 +537,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     if (first_world_geom) {
-        let world_second = world_collider(second, second_collider);
+        let world_second = world_collider(second.state, second_collider);
         if (first_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(first, first_collider);
+            let world_plane = world_collider(first.state, first_collider);
             contact = plane_convex(world_plane, world_second);
             generated = contact.point_count > 0u;
         } else {
@@ -548,9 +553,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else if (second_world_geom) {
-        let world_first = world_collider(first, first_collider);
+        let world_first = world_collider(first.state, first_collider);
         if (second_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(second, second_collider);
+            let world_plane = world_collider(second.state, second_collider);
             let swapped = plane_convex(world_plane, world_first);
             contact = swapped;
             contact.normal = -contact.normal;
@@ -567,8 +572,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else if (scaled_shape(first_collider) || scaled_shape(second_collider)) {
-        let world_first = world_collider(first, first_collider);
-        let world_second = world_collider(second, second_collider);
+        let world_first = world_collider(first.state, first_collider);
+        let world_second = world_collider(second.state, second_collider);
         let hit = convex_hit(world_first, world_second);
         if (hit.distance <= 0.0) {
             contact_emit(&contact, hit.normal);
@@ -578,8 +583,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     } else if (first_collider.kind == SHAPE_CYLINDER || first_collider.kind == SHAPE_HULL || second_collider.kind == SHAPE_CYLINDER || second_collider.kind == SHAPE_HULL) {
-        let world_first = world_collider(first, first_collider);
-        let world_second = world_collider(second, second_collider);
+        let world_first = world_collider(first.state, first_collider);
+        let world_second = world_collider(second.state, second_collider);
         let hit = convex_hit(world_first, world_second);
         if (hit.distance <= 0.0) {
             contact_emit(&contact, hit.normal);
@@ -625,8 +630,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             contact = capsule_capsule(first, first_collider, second, second_collider);
             generated = true;
         } else {
-            let world_first = world_collider(first, first_collider);
-            let world_second = world_collider(second, second_collider);
+            let world_first = world_collider(first.state, first_collider);
+            let world_second = world_collider(second.state, second_collider);
             let hit = convex_hit(world_first, world_second);
             if (hit.distance <= 0.0) {
                 contact_emit(&contact, hit.normal);
@@ -643,10 +648,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     contact.a = first_slot;
     contact.b = second_slot;
     contact.sensor = select(0u, 1u, sensor);
-    contact.first_body_id = first.body_id;
-    contact.second_body_id = second.body_id;
-    contact.first_generation = first.generation;
-    contact.second_generation = second.generation;
+    contact.first_body_id = first.state.body_id;
+    contact.second_body_id = second.state.body_id;
+    contact.first_generation = first.state.generation;
+    contact.second_generation = second.state.generation;
     contact.friction = material_combine(first_collider.friction, second_collider.friction, params.friction_combine);
     contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
     contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);

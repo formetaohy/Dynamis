@@ -1,7 +1,7 @@
 use crate::shape_pool::ShapePool;
 use dynamis_layout::{
-    AabbRecord, ColliderRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
-    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
+    AabbRecord, ColliderRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
+    SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
 use dynamis_math::{quat_mul, quat_rotate};
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
@@ -11,7 +11,8 @@ fn abs3(v: [f32; 3]) -> [f32; 3] {
 }
 
 pub fn static_aabbs(
-    body: &RigidBodyRecord,
+    position: [f32; 3],
+    orientation: [f32; 4],
     colliders: &[ColliderRecord; MAX_COLLIDERS_PER_BODY],
     shapes: &ShapePool,
 ) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
@@ -25,22 +26,24 @@ pub fn static_aabbs(
         if collider.kind == SHAPE_NONE {
             continue;
         }
-        aabbs[index] = collider_aabb(body, collider, shapes);
+        aabbs[index] = collider_aabb(position, orientation, collider, shapes);
     }
     aabbs
 }
 
 fn collider_aabb(
-    body: &RigidBodyRecord,
+    position: [f32; 3],
+    orientation: [f32; 4],
     collider: &ColliderRecord,
     shapes: &ShapePool,
 ) -> AabbRecord {
+    let offset = quat_rotate(orientation, collider.local_offset);
     let center = [
-        body.position[0] + quat_rotate(body.orientation, collider.local_offset)[0],
-        body.position[1] + quat_rotate(body.orientation, collider.local_offset)[1],
-        body.position[2] + quat_rotate(body.orientation, collider.local_offset)[2],
+        position[0] + offset[0],
+        position[1] + offset[1],
+        position[2] + offset[2],
     ];
-    let rotation = quat_mul(body.orientation, collider.local_rotation);
+    let rotation = quat_mul(orientation, collider.local_rotation);
     let extent = match collider.kind {
         SHAPE_PLANE => [1e6f32; 3],
         SHAPE_SPHERE => [collider.radius; 3],

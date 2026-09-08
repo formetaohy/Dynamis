@@ -95,25 +95,25 @@ impl Simulation {
         #[cfg(feature = "profile")]
         let stale_timings = self.pipeline.capture_timings(&mut encoder, step);
 
-        let stale_bodies = self.buffers.bodies_readback.enqueue(
+        let stale_bodies = self.buffers.body_states_readback.enqueue(
             &device,
             &mut encoder,
-            self.buffers.bodies.buffer(),
+            self.buffers.body_states.buffer(),
             step,
         );
-        let stale_constraints = self.buffers.constraints_readback.enqueue(
+        let stale_constraints = self.buffers.constraint_runtime_readback.enqueue(
             &device,
             &mut encoder,
-            self.buffers.constraints.buffer(),
+            self.buffers.constraint_runtime.buffer(),
             step,
         );
         let stale_queries = self.submit_queries_pack(&device, &mut encoder, step);
         let stale_events = self.submit_events_pack(&device, &mut encoder, step);
         queue.submit([encoder.finish()]);
-        self.buffers.bodies_readback.arm();
+        self.buffers.body_states_readback.arm();
         self.buffers.queries_readback.arm();
         self.buffers.events_readback.arm();
-        self.buffers.constraints_readback.arm();
+        self.buffers.constraint_runtime_readback.arm();
         #[cfg(feature = "profile")]
         self.pipeline.arm_timings();
         #[cfg(feature = "profile")]

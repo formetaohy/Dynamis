@@ -1,20 +1,21 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(3) var<storage, read> contact_count: array<u32>;
-@group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read_write> contact_deltas: array<vec4f>;
+@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
+@group(0) @binding(4) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> contact_deltas: array<vec4f>;
 
-fn wake_on_impact(
-    slot: u32,
-    sleeping: RigidBody,
-    moving: RigidBody,
-) {
-    if ((sleeping.flags & BODY_SLEEPING) == 0u || (moving.flags & BODY_SLEEPING) != 0u) {
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
+
+fn wake_on_impact(slot: u32, sleeping: Body, moving: Body) {
+    if (sleeping.state.sleeping == 0u || moving.state.sleeping != 0u) {
         return;
     }
-    let velocity = moving.velocity - sleeping.velocity;
-    let spin = moving.angular_velocity - sleeping.angular_velocity;
+    let velocity = moving.state.velocity - sleeping.state.velocity;
+    let spin = moving.state.angular_velocity - sleeping.state.angular_velocity;
     if (length(velocity) > params.wake_velocity || length(spin) > params.wake_velocity) {
         atomicOr(&wake_flags[slot], 1u);
     }
@@ -26,7 +27,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= contact_count[0]) {
         return;
     }
-    let contact = contacts[index];    if (contact.point_count == 0u || contact.sensor == 1u) {
+    let contact = contacts[index];
+    if (contact.point_count == 0u || contact.sensor == 1u) {
         contact_deltas[index * 4u] = vec4f(0.0);
         contact_deltas[index * 4u + 1u] = vec4f(0.0);
         contact_deltas[index * 4u + 2u] = vec4f(0.0);
@@ -35,8 +37,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
     let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
-    let first_original = bodies[first_slot];
-    let second_original = bodies[second_slot];
+    let first_original = load_body(first_slot);
+    let second_original = load_body(second_slot);
     var first = first_original;
     var second = second_original;
     if (body_is_inert(first_original)) {
@@ -95,7 +97,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
     if (contact_updated) {
-        let rel_spin = second.angular_velocity - first.angular_velocity;
+        let rel_spin = second.state.angular_velocity - first.state.angular_velocity;
         let planar_spin = rel_spin - normal * dot(rel_spin, normal);
         let planar_len = length(planar_spin);
         if (planar_len > 1e-6) {
@@ -104,8 +106,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (k > 0.0) {
                 let limit = contact.rolling_friction * normal_accum;
                 let applied = clamp(-planar_len / k, -limit, limit);
-                first.angular_velocity = first.angular_velocity - apply_inverse_inertia(first, axis * applied);
-                second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, axis * applied);
+                first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, axis * applied);
+                second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, axis * applied);
             }
         }
         let twist = dot(rel_spin, normal);
@@ -114,27 +116,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (k > 0.0) {
                 let limit = contact.spin_friction * normal_accum;
                 let applied = clamp(-twist / k, -limit, limit);
-                first.angular_velocity = first.angular_velocity - apply_inverse_inertia(first, normal * applied);
-                second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, normal * applied);
+                first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, normal * applied);
+                second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, normal * applied);
             }
         }
     }
-    let delta_a = first.velocity - first_original.velocity;
-    let delta_spin_a = first.angular_velocity - first_original.angular_velocity;
-    let delta_b = second.velocity - second_original.velocity;
-    let delta_spin_b = second.angular_velocity - second_original.angular_velocity;
+    let delta_a = first.state.velocity - first_original.state.velocity;
+    let delta_spin_a = first.state.angular_velocity - first_original.state.angular_velocity;
+    let delta_b = second.state.velocity - second_original.state.velocity;
+    let delta_spin_b = second.state.angular_velocity - second_original.state.angular_velocity;
     contact_deltas[index * 4u] = vec4f(delta_a, 0.0);
     contact_deltas[index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
     contact_deltas[index * 4u + 2u] = vec4f(delta_b, 0.0);
     contact_deltas[index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
-    wake_on_impact(
-        first_slot,
-        first_original,
-        second_original,
-    );
-    wake_on_impact(
-        second_slot,
-        second_original,
-        first_original,
-    );
+    wake_on_impact(first_slot, first_original, second_original);
+    wake_on_impact(second_slot, second_original, first_original);
 }

@@ -6,24 +6,22 @@ use dynamis_gpu::{
 };
 use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST,
-    COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD,
-    COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
-    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP, COMMAND_TORQUE,
-    COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_BROKEN, CONSTRAINT_CONE,
-    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
-    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
-    CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
-    CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, CONTACT_MAX_POINTS, DOF_DRIVEN,
-    DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END, EVENT_PERSIST,
-    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
-    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, PATCH_ANGULAR_VELOCITY,
-    PATCH_CCD, PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC,
-    PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY,
-    QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE,
-    SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE,
+    BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
+    COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP,
+    COMMAND_FORCE, COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_IMPULSE_AT_POINT,
+    COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE,
+    CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
+    CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
+    CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
+    CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START,
+    CONTACT_MAX_POINTS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END,
+    EVENT_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
+    FILTER_IGNORE_STATIC, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
+    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, OVERRIDE_SLEEP_ANGULAR,
+    OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION,
+    PATCH_VELOCITY, QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
+    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
+    SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
@@ -53,99 +51,94 @@ const PASS_POSITION_SOLVE: usize = 7;
 const PASS_TAIL: usize = 8;
 
 fn shader_constants() -> String {
-    format!(
-        "const WORKGROUP_SIZE: u32 = {WORKGROUP_SIZE}u;\n\
-         const COMMAND_ADD: u32 = {COMMAND_ADD}u;\n\
-         const COMMAND_REMOVE: u32 = {COMMAND_REMOVE}u;\n\
-         const COMMAND_PATCH: u32 = {COMMAND_PATCH}u;\n\
-         const COMMAND_FORCE: u32 = {COMMAND_FORCE}u;\n\
-         const COMMAND_FORCE_AT_POINT: u32 = {COMMAND_FORCE_AT_POINT}u;\n\
-         const COMMAND_TORQUE: u32 = {COMMAND_TORQUE}u;\n\
-         const COMMAND_IMPULSE: u32 = {COMMAND_IMPULSE}u;\n\
-         const COMMAND_ANGULAR_IMPULSE: u32 = {COMMAND_ANGULAR_IMPULSE}u;\n\
-         const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
-         const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
-         const COMMAND_CONSTRAINT_PATCH: u32 = {COMMAND_CONSTRAINT_PATCH}u;\n\
-         const COMMAND_SWAP: u32 = {COMMAND_SWAP}u;\n\
-         const COMMAND_SLEEP: u32 = {COMMAND_SLEEP}u;\n\
-         const COMMAND_WAKE: u32 = {COMMAND_WAKE}u;\n\
-         const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
-         const PATCH_POSITION: u32 = {PATCH_POSITION}u;\n\
-         const PATCH_VELOCITY: u32 = {PATCH_VELOCITY}u;\n\
-         const PATCH_MASS: u32 = {PATCH_MASS}u;\n\
-         const PATCH_COLLIDER: u32 = {PATCH_COLLIDER}u;\n\
-         const PATCH_RESTITUTION: u32 = {PATCH_RESTITUTION}u;\n\
-         const PATCH_ORIENTATION: u32 = {PATCH_ORIENTATION}u;\n\
-         const PATCH_ANGULAR_VELOCITY: u32 = {PATCH_ANGULAR_VELOCITY}u;\n\
-         const PATCH_FRICTION: u32 = {PATCH_FRICTION}u;\n\
-         const PATCH_GROUP: u32 = {PATCH_GROUP}u;\n\
-         const PATCH_MASK: u32 = {PATCH_MASK}u;\n\
-         const PATCH_KINEMATIC: u32 = {PATCH_KINEMATIC}u;\n\
-         const PATCH_CCD: u32 = {PATCH_CCD}u;\n\
-         const PATCH_DYNAMICS: u32 = {PATCH_DYNAMICS}u;\n\
-         const NO_COLLISION_FILTER: u32 = {NO_COLLISION_FILTER}u;\n\
-         const OVERFLOW_PAIRS: u32 = {OVERFLOW_PAIRS}u;\n\
-         const OVERFLOW_EVENTS: u32 = {OVERFLOW_EVENTS}u;\n\
-         const SHAPE_NONE: u32 = {SHAPE_NONE}u;\n\
-         const SHAPE_SPHERE: u32 = {SHAPE_SPHERE}u;\n\
-         const SHAPE_CUBOID: u32 = {SHAPE_CUBOID}u;\n\
-         const SHAPE_CAPSULE: u32 = {SHAPE_CAPSULE}u;\n\
-         const SHAPE_CYLINDER: u32 = {SHAPE_CYLINDER}u;\n\
-         const SHAPE_HULL: u32 = {SHAPE_HULL}u;\n\
-         const SHAPE_MESH: u32 = {SHAPE_MESH}u;\n\
-         const SHAPE_HEIGHTFIELD: u32 = {SHAPE_HEIGHTFIELD}u;\n\
-         const SHAPE_PLANE: u32 = {SHAPE_PLANE}u;\n\
-         const SHAPE_TRIANGLE: u32 = {SHAPE_TRIANGLE}u;\n\
-         const BODY_KINEMATIC: u32 = {BODY_KINEMATIC}u;\n\
-         const BODY_SLEEPING: u32 = {BODY_SLEEPING}u;\n\
-         const BODY_CCD: u32 = {BODY_CCD}u;\n\
-         const COLLIDER_SENSOR: u32 = {COLLIDER_SENSOR}u;\n\
-         const COLLIDER_EVENT_BEGIN_END: u32 = {COLLIDER_EVENT_BEGIN_END}u;\n\
-         const COLLIDER_EVENT_PERSIST: u32 = {COLLIDER_EVENT_PERSIST}u;\n\
-         const ISLAND_WAKE: u32 = {ISLAND_WAKE}u;\n\
-         const ISLAND_ACTIVE: u32 = {ISLAND_ACTIVE}u;\n\
-         const CONTACT_MAX_POINTS: u32 = {CONTACT_MAX_POINTS}u;\n\
-         const CONSTRAINT_BALL: u32 = {CONSTRAINT_BALL}u;\n\
-         const CONSTRAINT_DISTANCE: u32 = {CONSTRAINT_DISTANCE}u;\n\
-         const CONSTRAINT_REVOLUTE: u32 = {CONSTRAINT_REVOLUTE}u;\n\
-         const CONSTRAINT_PRISMATIC: u32 = {CONSTRAINT_PRISMATIC}u;\n\
-         const CONSTRAINT_FIXED: u32 = {CONSTRAINT_FIXED}u;\n\
-         const CONSTRAINT_GEAR: u32 = {CONSTRAINT_GEAR}u;\n\
-         const CONSTRAINT_PULLEY: u32 = {CONSTRAINT_PULLEY}u;\n\
-         const CONSTRAINT_CONE: u32 = {CONSTRAINT_CONE}u;\n\
-         const CONSTRAINT_SIXDOF: u32 = {CONSTRAINT_SIXDOF}u;\n\
-         const CONSTRAINT_INVALID: u32 = {CONSTRAINT_INVALID}u;\n\
-         const CONSTRAINT_DISABLE_COLLISIONS: u32 = {CONSTRAINT_DISABLE_COLLISIONS}u;\n\
-         const CONSTRAINT_HAS_LIMIT: u32 = {CONSTRAINT_HAS_LIMIT}u;\n\
-         const CONSTRAINT_HAS_MOTOR: u32 = {CONSTRAINT_HAS_MOTOR}u;\n\
-         const CONSTRAINT_IS_SPRING: u32 = {CONSTRAINT_IS_SPRING}u;\n\
-         const CONSTRAINT_HAS_SWING: u32 = {CONSTRAINT_HAS_SWING}u;\n\
-         const CONSTRAINT_HAS_BREAK: u32 = {CONSTRAINT_HAS_BREAK}u;\n\
-         const CONSTRAINT_BROKEN: u32 = {CONSTRAINT_BROKEN}u;\n\
-         const CONSTRAINT_WARM_START: u32 = {CONSTRAINT_WARM_START}u;\n\
-         const DOF_FREE: u32 = {DOF_FREE}u;\n\
-         const DOF_LOCKED: u32 = {DOF_LOCKED}u;\n\
-         const DOF_LIMITED: u32 = {DOF_LIMITED}u;\n\
-         const DOF_DRIVEN: u32 = {DOF_DRIVEN}u;\n\
-         const QUERY_RAY: u32 = {QUERY_RAY}u;\n\
-         const QUERY_SPHERE: u32 = {QUERY_SPHERE}u;\n\
-         const QUERY_CUBOID: u32 = {QUERY_CUBOID}u;\n\
-         const QUERY_SWEEP: u32 = {QUERY_SWEEP}u;\n\
-         const QUERY_POINT: u32 = {QUERY_POINT}u;\n\
-         const QUERY_CONVEX: u32 = {QUERY_CONVEX}u;\n\
-         const FILTER_IGNORE_SENSORS: u32 = {FILTER_IGNORE_SENSORS}u;\n\
-         const FILTER_IGNORE_SLEEPING: u32 = {FILTER_IGNORE_SLEEPING}u;\n\
-         const FILTER_IGNORE_STATIC: u32 = {FILTER_IGNORE_STATIC}u;\n\
-         const FILTER_IGNORE_KINEMATIC: u32 = {FILTER_IGNORE_KINEMATIC}u;\n\
-         const EVENT_BEGIN: u32 = {EVENT_BEGIN}u;\n\
-         const EVENT_END: u32 = {EVENT_END}u;\n\
-         const EVENT_PERSIST: u32 = {EVENT_PERSIST}u;\n\
-         const NO_BODY: u32 = {NO_BODY}u;\n\
-         const NO_HIT: f32 = {NO_HIT:e};\n\
-         const MAX_CELLS_PER_COLLIDER: u32 = {MAX_CELLS_PER_COLLIDER}u;\n\
-         const MAX_COLLIDERS_PER_BODY: u32 = {MAX_COLLIDERS_PER_BODY}u;\n\
-         const MAX_HITS_PER_QUERY: u32 = {MAX_HITS_PER_QUERY}u;\n"
-    )
+    let mut source = String::new();
+    let mut emit = |name: &str, value: u32| {
+        source.push_str(&format!("const {name}: u32 = {value}u;\n"));
+    };
+    emit("WORKGROUP_SIZE", WORKGROUP_SIZE);
+    emit("COMMAND_ADD", COMMAND_ADD);
+    emit("COMMAND_REMOVE", COMMAND_REMOVE);
+    emit("COMMAND_PATCH", COMMAND_PATCH);
+    emit("COMMAND_FORCE", COMMAND_FORCE);
+    emit("COMMAND_FORCE_AT_POINT", COMMAND_FORCE_AT_POINT);
+    emit("COMMAND_TORQUE", COMMAND_TORQUE);
+    emit("COMMAND_IMPULSE", COMMAND_IMPULSE);
+    emit("COMMAND_IMPULSE_AT_POINT", COMMAND_IMPULSE_AT_POINT);
+    emit("COMMAND_ANGULAR_IMPULSE", COMMAND_ANGULAR_IMPULSE);
+    emit("COMMAND_CONSTRAINT_ADD", COMMAND_CONSTRAINT_ADD);
+    emit("COMMAND_CONSTRAINT_SWAP", COMMAND_CONSTRAINT_SWAP);
+    emit("COMMAND_SWAP", COMMAND_SWAP);
+    emit("COMMAND_SLEEP", COMMAND_SLEEP);
+    emit("COMMAND_WAKE", COMMAND_WAKE);
+    emit("PATCH_POSITION", PATCH_POSITION);
+    emit("PATCH_VELOCITY", PATCH_VELOCITY);
+    emit("PATCH_ORIENTATION", PATCH_ORIENTATION);
+    emit("PATCH_ANGULAR_VELOCITY", PATCH_ANGULAR_VELOCITY);
+    emit("NO_COLLISION_FILTER", NO_COLLISION_FILTER);
+    emit("OVERFLOW_PAIRS", OVERFLOW_PAIRS);
+    emit("OVERFLOW_EVENTS", OVERFLOW_EVENTS);
+    emit("SHAPE_NONE", SHAPE_NONE);
+    emit("SHAPE_SPHERE", SHAPE_SPHERE);
+    emit("SHAPE_CUBOID", SHAPE_CUBOID);
+    emit("SHAPE_CAPSULE", SHAPE_CAPSULE);
+    emit("SHAPE_CYLINDER", SHAPE_CYLINDER);
+    emit("SHAPE_HULL", SHAPE_HULL);
+    emit("SHAPE_MESH", SHAPE_MESH);
+    emit("SHAPE_HEIGHTFIELD", SHAPE_HEIGHTFIELD);
+    emit("SHAPE_PLANE", SHAPE_PLANE);
+    emit("SHAPE_TRIANGLE", SHAPE_TRIANGLE);
+    emit("BODY_KINEMATIC", BODY_KINEMATIC);
+    emit("BODY_CCD", BODY_CCD);
+    emit("OVERRIDE_SLEEP_LINEAR", OVERRIDE_SLEEP_LINEAR);
+    emit("OVERRIDE_SLEEP_ANGULAR", OVERRIDE_SLEEP_ANGULAR);
+    emit("COLLIDER_SENSOR", COLLIDER_SENSOR);
+    emit("COLLIDER_EVENT_BEGIN_END", COLLIDER_EVENT_BEGIN_END);
+    emit("COLLIDER_EVENT_PERSIST", COLLIDER_EVENT_PERSIST);
+    emit("ISLAND_WAKE", ISLAND_WAKE);
+    emit("ISLAND_ACTIVE", ISLAND_ACTIVE);
+    emit("CONTACT_MAX_POINTS", CONTACT_MAX_POINTS);
+    emit("CONSTRAINT_BALL", CONSTRAINT_BALL);
+    emit("CONSTRAINT_DISTANCE", CONSTRAINT_DISTANCE);
+    emit("CONSTRAINT_REVOLUTE", CONSTRAINT_REVOLUTE);
+    emit("CONSTRAINT_PRISMATIC", CONSTRAINT_PRISMATIC);
+    emit("CONSTRAINT_FIXED", CONSTRAINT_FIXED);
+    emit("CONSTRAINT_GEAR", CONSTRAINT_GEAR);
+    emit("CONSTRAINT_PULLEY", CONSTRAINT_PULLEY);
+    emit("CONSTRAINT_CONE", CONSTRAINT_CONE);
+    emit("CONSTRAINT_SIXDOF", CONSTRAINT_SIXDOF);
+    emit(
+        "CONSTRAINT_DISABLE_COLLISIONS",
+        CONSTRAINT_DISABLE_COLLISIONS,
+    );
+    emit("CONSTRAINT_HAS_LIMIT", CONSTRAINT_HAS_LIMIT);
+    emit("CONSTRAINT_HAS_MOTOR", CONSTRAINT_HAS_MOTOR);
+    emit("CONSTRAINT_IS_SPRING", CONSTRAINT_IS_SPRING);
+    emit("CONSTRAINT_HAS_SWING", CONSTRAINT_HAS_SWING);
+    emit("CONSTRAINT_HAS_BREAK", CONSTRAINT_HAS_BREAK);
+    emit("CONSTRAINT_WARM_START", CONSTRAINT_WARM_START);
+    emit("DOF_FREE", DOF_FREE);
+    emit("DOF_LOCKED", DOF_LOCKED);
+    emit("DOF_LIMITED", DOF_LIMITED);
+    emit("DOF_DRIVEN", DOF_DRIVEN);
+    emit("QUERY_RAY", QUERY_RAY);
+    emit("QUERY_SPHERE", QUERY_SPHERE);
+    emit("QUERY_CUBOID", QUERY_CUBOID);
+    emit("QUERY_SWEEP", QUERY_SWEEP);
+    emit("QUERY_POINT", QUERY_POINT);
+    emit("QUERY_CONVEX", QUERY_CONVEX);
+    emit("FILTER_IGNORE_SENSORS", FILTER_IGNORE_SENSORS);
+    emit("FILTER_IGNORE_SLEEPING", FILTER_IGNORE_SLEEPING);
+    emit("FILTER_IGNORE_STATIC", FILTER_IGNORE_STATIC);
+    emit("FILTER_IGNORE_KINEMATIC", FILTER_IGNORE_KINEMATIC);
+    emit("EVENT_BEGIN", EVENT_BEGIN);
+    emit("EVENT_END", EVENT_END);
+    emit("EVENT_PERSIST", EVENT_PERSIST);
+    emit("NO_BODY", NO_BODY);
+    emit("MAX_CELLS_PER_COLLIDER", MAX_CELLS_PER_COLLIDER);
+    emit("MAX_COLLIDERS_PER_BODY", MAX_COLLIDERS_PER_BODY as u32);
+    emit("MAX_HITS_PER_QUERY", MAX_HITS_PER_QUERY);
+    source.push_str(&format!("const NO_HIT: f32 = {NO_HIT:e};\n"));
+    source
 }
 
 pub(crate) const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
@@ -322,7 +315,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/apply_commands.wgsl")),
             &[
                 (BindingKind::ReadOnlyStorage, &buffers.commands),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.command_count),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
             ],
@@ -337,7 +331,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/apply_constraint_commands.wgsl")),
             &[
                 (BindingKind::ReadOnlyStorage, &buffers.constraint_commands),
-                (BindingKind::ReadWriteStorage, &buffers.constraints),
+                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
                 (
                     BindingKind::ReadOnlyStorage,
                     &buffers.constraint_command_count,
@@ -354,7 +348,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/joint_filter.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.constraints),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
                 (BindingKind::ReadWriteStorage, &buffers.joint_hi),
                 (BindingKind::ReadWriteStorage, &buffers.joint_lo),
                 (BindingKind::ReadWriteStorage, &buffers.joint_count),
@@ -370,7 +365,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/integrate.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
             ],
             &shape_resources,
             body_capacity,
@@ -383,7 +379,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
                 (BindingKind::ReadOnlyStorage, &buffers.colliders),
                 (BindingKind::ReadWriteStorage, &buffers.aabbs),
             ],
@@ -453,7 +449,8 @@ impl Pipeline {
             "narrowphase",
             &assemble_shader(include_str!("shaders/narrowphase.wgsl")),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.colliders),
                 (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_hi),
                 (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_lo),
@@ -584,7 +581,8 @@ impl Pipeline {
             "island_link_contacts",
             &assemble_shader(include_str!("shaders/island_link_contacts.wgsl")),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.contacts),
                 (BindingKind::ReadWriteStorage, &buffers.contact_count),
                 (BindingKind::ReadWriteStorage, &buffers.island_parents),
@@ -601,8 +599,10 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_link_constraints.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
-                (BindingKind::ReadOnlyStorage, &buffers.constraints),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
                 (BindingKind::ReadWriteStorage, &buffers.island_parents),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
             ],
@@ -630,7 +630,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_aggregate.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadWriteStorage, &buffers.island_parents),
                 (BindingKind::ReadWriteStorage, &buffers.island_state),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
@@ -646,7 +647,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_broadcast.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadWriteStorage, &buffers.island_parents),
                 (BindingKind::ReadWriteStorage, &buffers.island_state),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
@@ -677,7 +679,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/gather_constraint_keys.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.constraints),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
                 (
                     BindingKind::ReadWriteStorage,
                     &buffers.constraint_gather_a_keys,
@@ -694,6 +696,7 @@ impl Pipeline {
                     BindingKind::ReadWriteStorage,
                     &buffers.constraint_gather_b_values,
                 ),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
             ],
             &shape_resources,
             buffers.constraint_capacity(),
@@ -760,7 +763,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/ccd_sweep.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.colliders),
                 (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_hi),
                 (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_lo),
@@ -795,7 +799,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadWriteStorage, &buffers.contacts),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_count),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
@@ -812,8 +817,10 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/constraint_solve_extract.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
-                (BindingKind::ReadWriteStorage, &buffers.constraints),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
+                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
                 (BindingKind::ReadWriteStorage, &buffers.wake_flags),
                 (BindingKind::ReadWriteStorage, &buffers.constraint_deltas),
             ],
@@ -828,7 +835,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/body_apply_solver.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_first_a),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_first_b),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_a_body),
@@ -867,7 +874,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/position_solve_extract.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.contacts),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_count),
                 (BindingKind::ReadWriteStorage, &buffers.contact_deltas),
@@ -883,7 +891,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/body_apply_positions.wgsl")),
             &[
                 (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.bodies),
+                (BindingKind::ReadWriteStorage, &buffers.body_states),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_first_a),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_first_b),
                 (BindingKind::ReadOnlyStorage, &buffers.contact_a_body),
@@ -903,7 +911,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/queries.wgsl")),
             &[
                 (BindingKind::ReadOnlyStorage, &buffers.queries),
-                (BindingKind::ReadOnlyStorage, &buffers.bodies),
+                (BindingKind::ReadOnlyStorage, &buffers.body_states),
+                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
                 (BindingKind::ReadOnlyStorage, &buffers.colliders),
                 (BindingKind::ReadOnlyStorage, &buffers.aabbs),
                 (BindingKind::ReadOnlyStorage, &buffers.entries.keys_hi),
@@ -924,7 +933,11 @@ impl Pipeline {
             context,
             "constraints_warm_end",
             &assemble_shader(include_str!("shaders/constraints_warm_end.wgsl")),
-            &[(BindingKind::ReadWriteStorage, &buffers.constraints)],
+            &[
+                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
+                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
+                (BindingKind::Uniform, &buffers.params),
+            ],
             &shape_resources,
             buffers.constraint_capacity(),
             WORKGROUP_SIZE,

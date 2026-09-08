@@ -1,5 +1,5 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
+@group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> contact_first_a: array<u32>;
 @group(0) @binding(3) var<storage, read> contact_first_b: array<u32>;
 @group(0) @binding(4) var<storage, read> contact_a_body: array<u32>;
@@ -15,7 +15,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let total = contact_count[0];
-    let body = bodies[body_index];
+    let body = body_states[body_index];
     var position = vec3f(0.0);
     var links = 0u;
     var start = i32(contact_first_a[body_index]) - 1;
@@ -43,5 +43,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let damping = select(1.0, 1.0 / f32(links), links > 1u);
     var updated = body;
     updated.position = body.position + position * damping;
-    bodies[body_index] = updated;
+    body_states[body_index] = updated;
 }

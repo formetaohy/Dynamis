@@ -19,7 +19,8 @@ pub use constraint::{
 };
 pub use event::{ContactEvent, ContactEventKind};
 pub use mass::{
-    MassProperties, MassSource, compute_mass_properties, shape_volume, solid_volume_of,
+    MassProperties, MassSource, compute_mass_properties, mass_properties_of_intent, shape_volume,
+    solid_volume_of,
 };
 pub use query::QueryFilter;
 pub use shape::{Shape, ShapeSourceHandle};
