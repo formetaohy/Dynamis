@@ -1,6 +1,8 @@
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
+#[cfg(feature = "profile")]
+use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext, GpuTimer,
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
 };
 use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
 use dynamis_layout::{
@@ -301,6 +303,7 @@ pub(crate) struct Pipeline {
     sort_values: GpuBuffer,
     contact_bucket: BucketSort,
     constraint_bucket: BucketSort,
+    #[cfg(feature = "profile")]
     timer: Option<GpuTimer>,
 }
 
@@ -971,6 +974,7 @@ impl Pipeline {
             body_capacity,
             buffers.constraint_capacity(),
         );
+        #[cfg(feature = "profile")]
         let timer = context.supports_pass_timing().then(|| {
             GpuTimer::new(
                 context.device(),
@@ -1023,16 +1027,18 @@ impl Pipeline {
             sort_values,
             contact_bucket,
             constraint_bucket,
+            #[cfg(feature = "profile")]
             timer,
         }
     }
 
     fn open<'a>(&'a self, encoder: &'a mut CommandEncoder, slot: usize) -> ComputeRecorder<'a> {
         let label = SIM_PASSES[slot];
-        match &self.timer {
-            Some(timer) => ComputeRecorder::begin_timed(encoder, label, Some(timer.writes(slot))),
-            None => ComputeRecorder::begin(encoder, label),
+        #[cfg(feature = "profile")]
+        if let Some(timer) = &self.timer {
+            return ComputeRecorder::begin_timed(encoder, label, Some(timer.writes(slot)));
         }
+        ComputeRecorder::begin(encoder, label)
     }
 
     pub(crate) fn encode(
@@ -1216,6 +1222,7 @@ impl Pipeline {
         drop(tail);
     }
 
+    #[cfg(feature = "profile")]
     pub(crate) fn capture_timings(
         &mut self,
         encoder: &mut CommandEncoder,
@@ -1226,6 +1233,7 @@ impl Pipeline {
             .and_then(|timer| timer.capture(&self.device, encoder, sequence))
     }
 
+    #[cfg(feature = "profile")]
     pub(crate) fn poll_timings(
         &mut self,
         device: &Device,
@@ -1236,6 +1244,7 @@ impl Pipeline {
         }
     }
 
+    #[cfg(feature = "profile")]
     pub(crate) fn arm_timings(&mut self) {
         if let Some(timer) = &mut self.timer {
             timer.arm();

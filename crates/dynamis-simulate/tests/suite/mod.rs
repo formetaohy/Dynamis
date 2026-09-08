@@ -13,3 +13,5 @@ pub mod material;
 pub mod query;
 pub mod shape;
 pub mod simulation;
+#[cfg(feature = "profile")]
+pub mod timing;

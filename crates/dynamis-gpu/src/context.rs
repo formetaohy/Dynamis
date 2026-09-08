@@ -36,16 +36,20 @@ impl Default for GpuRequest {
             power_preference: PowerPreference::HighPerformance,
             device_name: None,
             required_features: Features::empty(),
-            optional_features: GpuRequest::TIMING_FEATURES,
+            optional_features: GpuRequest::PROFILING_FEATURES,
             limits: LimitsPolicy::Adapter,
         }
     }
 }
 
 impl GpuRequest {
-    /// Hardware timestamp queries.
-    pub const TIMING_FEATURES: Features =
+    /// Timestamp queries, requested from the device only when the `profile`
+    /// feature is built in.
+    #[cfg(feature = "profile")]
+    pub const PROFILING_FEATURES: Features =
         Features::TIMESTAMP_QUERY.union(Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
+    #[cfg(not(feature = "profile"))]
+    pub const PROFILING_FEATURES: Features = Features::empty();
 
     /// The native APIs this engine runs on.
     pub const NATIVE_BACKENDS: Backends = Backends::DX12
@@ -293,8 +297,9 @@ impl GpuContext {
     }
 
     /// Whether per-pass GPU timing is available.
+    #[cfg(feature = "profile")]
     pub fn supports_pass_timing(&self) -> bool {
-        self.supports(GpuRequest::TIMING_FEATURES)
+        self.supports(GpuRequest::PROFILING_FEATURES)
     }
 
     pub fn device_lost(&self) -> Option<DeviceLost> {

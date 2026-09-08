@@ -110,6 +110,7 @@ impl Simulation {
         for (step, bytes) in self.buffers.constraints_readback.poll(self.gpu.device()) {
             self.consume_constraints(step, &bytes);
         }
+        #[cfg(feature = "profile")]
         for (_step, timings) in self.pipeline.poll_timings(self.gpu.device()) {
             self.pass_timings = timings;
         }

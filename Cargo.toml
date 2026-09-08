@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*", "examples/*"]
 
 [workspace.package]
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -24,14 +24,14 @@ winit = "0.30"
 glam = "0.32"
 font8x8 = "0.3"
 dynamis = { path = "." }
-dynamis-gpu = { version = "0.4.2", path = "crates/dynamis-gpu" }
-dynamis-kernel = { version = "0.4.2", path = "crates/dynamis-kernel" }
-dynamis-layout = { version = "0.4.2", path = "crates/dynamis-layout" }
-dynamis-math = { version = "0.4.2", path = "crates/dynamis-math" }
-dynamis-mesh = { version = "0.4.2", path = "crates/dynamis-mesh" }
-dynamis-model = { version = "0.4.2", path = "crates/dynamis-model" }
-dynamis-profile = { version = "0.4.2", path = "crates/dynamis-profile" }
-dynamis-simulate = { version = "0.4.2", path = "crates/dynamis-simulate" }
+dynamis-gpu = { version = "0.5.0", path = "crates/dynamis-gpu" }
+dynamis-kernel = { version = "0.5.0", path = "crates/dynamis-kernel" }
+dynamis-layout = { version = "0.5.0", path = "crates/dynamis-layout" }
+dynamis-math = { version = "0.5.0", path = "crates/dynamis-math" }
+dynamis-mesh = { version = "0.5.0", path = "crates/dynamis-mesh" }
+dynamis-model = { version = "0.5.0", path = "crates/dynamis-model" }
+dynamis-profile = { version = "0.5.0", path = "crates/dynamis-profile" }
+dynamis-simulate = { version = "0.5.0", path = "crates/dynamis-simulate" }
 dynamis-example-common = { path = "examples/common" }
 dynamis-example-render = { path = "examples/render" }
 
@@ -56,6 +56,9 @@ dynamis-kernel = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-simulate = { workspace = true }
 
+[features]
+profile = ["dynamis-gpu/profile", "dynamis-simulate/profile"]
+
 [dev-dependencies]
 dynamis-example-common = { workspace = true }
 dynamis-example-render = { workspace = true }
@@ -70,6 +73,7 @@ path = "examples/falling.rs"
 [[example]]
 name = "benchmark"
 path = "examples/benchmark.rs"
+required-features = ["profile"]
 
 [lints]
 workspace = true

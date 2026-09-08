@@ -3,11 +3,13 @@
 mod buffer;
 mod compute;
 mod context;
+#[cfg(feature = "profile")]
 mod timing;
 
 pub use buffer::{GpuBuffer, GpuReadback};
 pub use compute::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
+#[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};
 pub use wgpu::{
     AdapterInfo, Backend, Backends, DeviceLostReason, DeviceType, Features, Limits, PowerPreference,

@@ -1,5 +1,6 @@
 use super::Simulation;
 use crate::pipeline::FrameParams;
+#[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{Counter, QueryResultHeader, SimParamsRecord};
 
@@ -91,6 +92,7 @@ impl Simulation {
             label: Some("dynamis step encoder"),
         });
         self.pipeline.encode(&mut encoder, &self.buffers, &frame);
+        #[cfg(feature = "profile")]
         let stale_timings = self.pipeline.capture_timings(&mut encoder, step);
 
         let stale_bodies = self.buffers.bodies_readback.enqueue(
@@ -112,7 +114,9 @@ impl Simulation {
         self.buffers.queries_readback.arm();
         self.buffers.events_readback.arm();
         self.buffers.constraints_readback.arm();
+        #[cfg(feature = "profile")]
         self.pipeline.arm_timings();
+        #[cfg(feature = "profile")]
         if let Some((_stale_step, timings)) = stale_timings {
             self.pass_timings = timings;
         }
@@ -199,11 +203,13 @@ impl Simulation {
     }
 
     /// Per-pass GPU durations of the most recently drained step.
+    #[cfg(feature = "profile")]
     pub fn gpu_pass_timings(&self) -> &[GpuPassTiming] {
         &self.pass_timings
     }
 
     /// Whether this device can report pass timings.
+    #[cfg(feature = "profile")]
     pub fn gpu_timing_supported(&self) -> bool {
         self.gpu.supports_pass_timing()
     }

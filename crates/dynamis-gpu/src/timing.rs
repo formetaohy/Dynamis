@@ -1,3 +1,5 @@
+//! Per-pass GPU durations, built in by the `profile` feature.
+
 use crate::GpuReadback;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoder, ComputePassTimestampWrites, Device,

@@ -32,12 +32,18 @@ jobs:
         run: cargo fmt --check
 
       - name: Lint
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Lint with profiling built in
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Document
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Test with profiling built in
+        run: cargo test --workspace --all-features
