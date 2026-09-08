@@ -37,7 +37,7 @@ pub struct ContactRecord {
     pub first_generation: u32,
     pub second_generation: u32,
     pub normal: [f32; 3],
-    pub _pad0: f32,
+    pub events: u32,
     pub friction: f32,
     pub restitution: f32,
     pub rolling_friction: f32,

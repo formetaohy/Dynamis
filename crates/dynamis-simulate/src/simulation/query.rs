@@ -39,6 +39,22 @@ impl Simulation {
         self.submit_query(QueryRecord::cuboid(center, half_extents, filter))
     }
 
+    pub fn point_query(&mut self, origin: [f32; 3], filter: &QueryFilter) -> QueryHandle {
+        self.submit_query(QueryRecord::point(origin, filter))
+    }
+
+    pub fn overlap_query(
+        &mut self,
+        shape: &Shape,
+        orientation: [f32; 4],
+        position: [f32; 3],
+        filter: &QueryFilter,
+    ) -> QueryHandle {
+        self.assert_unit(orientation);
+        assert!(shape.is_convex(), "overlap queries require a convex shape");
+        self.submit_query(QueryRecord::convex(shape, orientation, position, filter))
+    }
+
     pub fn sweep_query(
         &mut self,
         shape: &Shape,

@@ -47,13 +47,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let prev_slot = prev_find(contacts[index].a, contacts[index].b);
     var contact = contacts[index];
     if (prev_slot == NO_BODY) {
-        let point = contact.points[0].position;
-        emit_event(EVENT_BEGIN, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
+        if ((contact.events & COLLIDER_EVENT_BEGIN_END) != 0u) {
+            let point = contact.points[0].position;
+            emit_event(EVENT_BEGIN, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
+        }
         return;
     }
     let prev = prev_contacts[prev_slot];
     if (dot(contact.normal, prev.normal) < NORMAL_MATCH) {
         return;
+    }
+    if ((contact.events & COLLIDER_EVENT_PERSIST) != 0u) {
+        let point = contact.points[0].position;
+        emit_event(EVENT_PERSIST, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
     }
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         contact.points[point_index].accumulated_normal = prev.points[point_index].accumulated_normal;

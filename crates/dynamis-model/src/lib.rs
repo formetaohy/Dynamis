@@ -8,7 +8,7 @@ mod query;
 mod shape;
 
 pub use body::{BodyDesc, BodyHandle, BodyState, MAX_COLLIDERS_PER_BODY};
-pub use collider::ColliderDesc;
+pub use collider::{ColliderDesc, ContactEventMode};
 pub use config::{MaterialCombine, PhysicsConfig};
 pub use constraint::{
     ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,

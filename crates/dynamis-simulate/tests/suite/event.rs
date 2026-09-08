@@ -27,6 +27,7 @@ fn sensor_transit_emits_begin_then_end_and_never_blocks() {
             match event.kind {
                 ContactEventKind::Begin => begin_found = true,
                 ContactEventKind::End => end_found = true,
+                ContactEventKind::Persist => {}
             }
         }
     }

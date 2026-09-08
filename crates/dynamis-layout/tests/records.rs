@@ -1,4 +1,3 @@
-use bytemuck::Zeroable;
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, COLLIDER_SENSOR, COMMAND_ANGULAR_IMPULSE,
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
@@ -248,6 +247,7 @@ fn query_record_encodes_kinds_and_filters() {
         ignore_static: true,
         ignore_kinematic: true,
         exclude: None,
+        include: None,
         max_hits: 3,
     };
     let ray = QueryRecord::ray([0.0, 1.0, 2.0], [0.0, 0.0, 1.0], 8.0, &filter);
@@ -325,7 +325,7 @@ fn body_commands_encode_their_payloads() {
         MassProperties::zeroed(),
         &PhysicsConfig::default(),
     );
-    let add = BodyCommandRecord::add(2, body, [ColliderRecord::zeroed(); 4]);
+    let add = BodyCommandRecord::add(2, body);
     assert_eq!(add.kind, 0);
     assert_eq!(add.slot, 2);
     assert_eq!(add.aux, 0);
@@ -335,16 +335,10 @@ fn body_commands_encode_their_payloads() {
     assert_eq!(remove.slot, 3);
     assert_eq!(remove.extra, 7);
 
-    let patch = BodyCommandRecord::patch(
-        1,
-        PATCH_POSITION | PATCH_VELOCITY,
-        body,
-        [ColliderRecord::zeroed(); 4],
-        2,
-    );
+    let patch = BodyCommandRecord::patch(1, PATCH_POSITION | PATCH_VELOCITY, body);
     assert_eq!(patch.kind, COMMAND_PATCH);
     assert_eq!(patch.extra, PATCH_POSITION | PATCH_VELOCITY);
-    assert_eq!(patch.aux, 2);
+    assert_eq!(patch.aux, 0);
 
     let force = BodyCommandRecord::force(4, [1.0, 2.0, 3.0]);
     assert_eq!(force.kind, COMMAND_FORCE);

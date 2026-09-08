@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 struct Face {
     a: usize,
@@ -46,40 +46,26 @@ pub fn convex_hull_mesh(
         .iter()
         .map(|index| vertices[*index as usize])
         .collect::<Vec<_>>();
-    let hull = quickhull(&points);
-    let (hull_indices, hull_triangles) = hull;
-    let hull_vertices = hull_indices
-        .iter()
-        .map(|index| points[*index])
-        .collect::<Vec<_>>();
-    let (hull_vertices, map) = deduplicate(&hull_vertices);
+    let (hull_indices, hull_triangles) = quickhull(&points);
+    let mut unique_points = Vec::new();
+    let mut remap = HashMap::new();
+    for &index in &hull_indices {
+        remap.entry(index).or_insert_with(|| {
+            unique_points.push(points[index]);
+            unique_points.len() - 1
+        });
+    }
     let hull_triangles = hull_triangles
         .into_iter()
         .map(|triangle| {
             [
-                map[&triangle[0]] as u32,
-                map[&triangle[1]] as u32,
-                map[&triangle[2]] as u32,
+                remap[&triangle[0]] as u32,
+                remap[&triangle[1]] as u32,
+                remap[&triangle[2]] as u32,
             ]
         })
         .collect();
-    (hull_vertices, hull_triangles)
-}
-
-fn deduplicate(vertices: &[[f32; 3]]) -> (Vec<[f32; 3]>, std::collections::HashMap<usize, usize>) {
-    let mut unique = Vec::new();
-    let mut map = std::collections::HashMap::new();
-    for (index, vertex) in vertices.iter().enumerate() {
-        if !unique.contains(vertex) {
-            unique.push(*vertex);
-        }
-        let mapped = unique
-            .iter()
-            .position(|candidate| candidate == vertex)
-            .unwrap();
-        map.insert(index, mapped);
-    }
-    (unique, map)
+    (unique_points, hull_triangles)
 }
 
 fn quickhull(points: &[[f32; 3]]) -> (Vec<usize>, Vec<[usize; 3]>) {

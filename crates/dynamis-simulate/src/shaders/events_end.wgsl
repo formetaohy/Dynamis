@@ -29,7 +29,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let prev = prev_contacts[index];
-    if (current_find(prev.a, prev.b)) {
+    if (current_find(prev.a, prev.b) || (prev.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
         return;
     }
     let slot = atomicAdd(&event_count, 1u);

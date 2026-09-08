@@ -1,4 +1,3 @@
-use crate::collider::ColliderRecord;
 use crate::constant::{
     BODY_CCD, BODY_KINEMATIC, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_FORCE,
     COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
@@ -10,7 +9,7 @@ use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
 const _: () = {
     use std::mem::size_of;
     assert!(size_of::<RigidBodyRecord>() == 224);
-    assert!(size_of::<BodyCommandRecord>() == 624);
+    assert!(size_of::<BodyCommandRecord>() == 240);
 };
 
 #[repr(C)]
@@ -117,18 +116,16 @@ pub struct BodyCommandRecord {
     pub extra: u32,
     pub aux: u32,
     pub body: RigidBodyRecord,
-    pub colliders: [ColliderRecord; 4],
 }
 
 impl BodyCommandRecord {
-    pub fn add(slot: u32, body: RigidBodyRecord, colliders: [ColliderRecord; 4]) -> Self {
+    pub fn add(slot: u32, body: RigidBodyRecord) -> Self {
         Self {
             kind: COMMAND_ADD,
             slot,
             extra: 0,
             aux: 0,
             body,
-            colliders,
         }
     }
 
@@ -139,7 +136,6 @@ impl BodyCommandRecord {
             extra: tail,
             aux: 0,
             body: RigidBodyRecord::zeroed(),
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -150,24 +146,16 @@ impl BodyCommandRecord {
             extra: second,
             aux: 0,
             body: RigidBodyRecord::zeroed(),
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
-    pub fn patch(
-        slot: u32,
-        mask: u32,
-        body: RigidBodyRecord,
-        colliders: [ColliderRecord; 4],
-        collider_index: u32,
-    ) -> Self {
+    pub fn patch(slot: u32, mask: u32, body: RigidBodyRecord) -> Self {
         Self {
             kind: COMMAND_PATCH,
             slot,
             extra: mask,
-            aux: collider_index,
+            aux: 0,
             body,
-            colliders,
         }
     }
 
@@ -180,7 +168,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -194,7 +181,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -207,7 +193,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -220,7 +205,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -234,7 +218,6 @@ impl BodyCommandRecord {
             extra: IMPULSE_AT_POINT,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -247,7 +230,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body,
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -258,7 +240,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body: RigidBodyRecord::zeroed(),
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 
@@ -269,7 +250,6 @@ impl BodyCommandRecord {
             extra: 0,
             aux: 0,
             body: RigidBodyRecord::zeroed(),
-            colliders: [ColliderRecord::zeroed(); 4],
         }
     }
 }

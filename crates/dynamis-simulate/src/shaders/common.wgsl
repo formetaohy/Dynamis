@@ -141,7 +141,7 @@ struct Contact {
     first_generation: u32,
     second_generation: u32,
     normal: vec3f,
-    _pad0: f32,
+    events: u32,
     friction: f32,
     restitution: f32,
     rolling_friction: f32,
@@ -221,8 +221,8 @@ struct Query {
     max_hits: u32,
     exclude_id: u32,
     exclude_generation: u32,
-    _pad_a: f32,
-    _pad_b: f32,
+    include_id: u32,
+    include_generation: u32,
     origin: vec3f,
     _pad0: f32,
     direction: vec3f,
@@ -907,6 +907,28 @@ fn simplex_expand_dir(simplex: array<SimplexPoint, 4>, count: u32) -> vec3f {
         return normalize(normal);
     }
     return vec3f(0.0, 1.0, 0.0);
+}
+
+fn simplex_reduce(simplex: array<SimplexPoint, 4>, count: u32, result: SimplexResult, best_type: u32, best_i: u32, best_j: u32, best_k: u32, out_simplex: ptr<function, array<SimplexPoint, 4>>) -> u32 {
+    if (best_type == 1u) {
+        *out_simplex = simplex;
+        (*out_simplex)[0u] = simplex[best_i];
+        return 1u;
+    }
+    if (best_type == 2u) {
+        *out_simplex = simplex;
+        (*out_simplex)[0u] = simplex[best_i];
+        (*out_simplex)[1u] = simplex[best_j];
+        return 2u;
+    }
+    if (best_type == 3u) {
+        *out_simplex = simplex;
+        (*out_simplex)[0u] = simplex[best_i];
+        (*out_simplex)[1u] = simplex[best_j];
+        (*out_simplex)[2u] = simplex[best_k];
+        return 3u;
+    }
+    return count;
 }
 
 fn convex_closest(first: WorldShape, second: WorldShape, out_simplex: ptr<function, array<SimplexPoint, 4>>, out_count: ptr<function, u32>) -> ConvexClosest {

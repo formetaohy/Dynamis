@@ -1,5 +1,12 @@
 use crate::shape::Shape;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContactEventMode {
+    None,
+    BeginEnd,
+    Persist,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ColliderDesc {
     pub shape: Shape,
@@ -13,6 +20,7 @@ pub struct ColliderDesc {
     pub collision_mask: Option<u32>,
     pub rolling_friction: f32,
     pub spin_friction: f32,
+    pub events: ContactEventMode,
 }
 
 impl ColliderDesc {
@@ -29,7 +37,13 @@ impl ColliderDesc {
             collision_mask: None,
             rolling_friction: 0.0,
             spin_friction: 0.0,
+            events: ContactEventMode::BeginEnd,
         }
+    }
+
+    pub fn events(mut self, events: ContactEventMode) -> Self {
+        self.events = events;
+        self
     }
 
     pub fn offset(mut self, offset: [f32; 3]) -> Self {

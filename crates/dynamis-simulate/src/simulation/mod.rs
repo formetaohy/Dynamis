@@ -15,8 +15,8 @@ use dynamis_layout::{
     QueryResultHeader, RigidBodyRecord, SimParamsRecord,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MassProperties,
-    PhysicsConfig, Shape,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent,
+    MAX_COLLIDERS_PER_BODY, MassProperties, PhysicsConfig, Shape,
 };
 use dynamis_query::QueryPool;
 use std::collections::VecDeque;
@@ -137,6 +137,7 @@ pub struct Simulation {
     query_pool: QueryPool,
     shape_pool: ShapePool,
     events: Vec<ContactEvent>,
+    event_sink: Option<Box<dyn FnMut(ContactEvent)>>,
     pending_events: VecDeque<(u64, Vec<u8>)>,
     event_capacity: usize,
     broken_constraints: Vec<ConstraintHandle>,
@@ -207,6 +208,7 @@ impl Simulation {
             query_pool: QueryPool::new(query_capacity),
             shape_pool: ShapePool::new(shape_sources),
             events: Vec::new(),
+            event_sink: None,
             pending_events: VecDeque::new(),
             event_capacity: pair_capacity,
             broken_constraints: Vec::new(),
@@ -355,7 +357,7 @@ impl Simulation {
             let aabb_block = if !desc.kinematic && desc.mass <= 0.0 {
                 static_aabb::static_aabbs(&body_record, &block, &self.shape_pool)
             } else {
-                [AabbRecord::empty(); 4]
+                [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY]
             };
             aabbs.extend_from_slice(&aabb_block);
         }

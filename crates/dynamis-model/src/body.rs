@@ -1,5 +1,5 @@
 use crate::collider::ColliderDesc;
-use crate::shape::Shape;
+use crate::shape::{Shape, ShapeSourceHandle};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyHandle {
@@ -22,7 +22,7 @@ pub struct BodyState {
 
 pub const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
 pub const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
-pub const MAX_COLLIDERS_PER_BODY: usize = 4;
+pub const MAX_COLLIDERS_PER_BODY: usize = 16;
 
 #[derive(Clone, Debug)]
 pub struct BodyDesc {
@@ -100,6 +100,20 @@ impl BodyDesc {
             mass: 0.0,
             ..Self::sphere(radius)
         }
+    }
+
+    pub fn compound(handles: &[ShapeSourceHandle]) -> Self {
+        assert!(
+            !handles.is_empty() && handles.len() <= MAX_COLLIDERS_PER_BODY,
+            "a compound body requires between 1 and {MAX_COLLIDERS_PER_BODY} hulls"
+        );
+        let mut members = handles.iter().copied();
+        let first = members.next().expect("compound body hulls are non-empty");
+        let mut body = Self::new(ColliderDesc::new(Shape::hull(first)));
+        for handle in members {
+            body = body.collider(ColliderDesc::new(Shape::hull(handle)));
+        }
+        body
     }
 
     pub fn inverse_mass(&self) -> f32 {

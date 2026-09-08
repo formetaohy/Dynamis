@@ -23,7 +23,7 @@ fn body_descs_validate_inputs() {
     assert!(
         catch_unwind(|| {
             let mut desc = BodyDesc::sphere(0.5);
-            for _ in 0..4 {
+            for _ in 0..16 {
                 desc = desc.collider(ColliderDesc::new(Shape::sphere(0.1)));
             }
             desc

@@ -5,6 +5,7 @@ use dynamis_layout::{
     MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeader, RigidBodyRecord,
     ShapeSourceRecord, SimParamsRecord,
 };
+use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device, Queue};
 
@@ -130,7 +131,7 @@ impl StageBuffers {
         query_capacity: usize,
         constraint_capacity: usize,
     ) -> Self {
-        let collider_capacity = capacity * 4;
+        let collider_capacity = capacity * MAX_COLLIDERS_PER_BODY;
         let body_bytes = (capacity * size_of::<RigidBodyRecord>()) as u64;
         let collider_bytes = (collider_capacity * size_of::<ColliderRecord>()) as u64;
         let aabb_bytes = (collider_capacity * size_of::<AabbRecord>()) as u64;

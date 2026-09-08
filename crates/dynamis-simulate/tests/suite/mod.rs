@@ -1,6 +1,10 @@
 pub mod capabilities;
+pub mod character;
 pub mod common;
+pub mod compound;
 pub mod constraint;
+pub mod contact_events;
+pub mod decompose;
 pub mod determinism;
 pub mod dynamics;
 pub mod event;

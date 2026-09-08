@@ -148,17 +148,19 @@ fn sweep_convex(query: Query, static_target: WorldShape, out_normal: ptr<functio
     var t = 0.0;
     var simplex: array<SimplexPoint, 4>;
     var count = 0u;
+    var normal = sign_normalize(static_target.center - query.origin);
     for (var iter = 0u; iter < 8u; iter = iter + 1u) {
         let moved = query_shape_world(query, query.origin + direction * t);
         let closest = convex_closest(moved, static_target, &simplex, &count);
         if (closest.penetrating) {
-            *out_normal = closest.normal;
+            *out_normal = normal;
             return t;
         }
         if (closest.distance < 1e-4) {
-            *out_normal = closest.normal;
+            *out_normal = normal;
             return t;
         }
+        normal = closest.normal;
         t = t + closest.distance;
         if (t > query.extent) {
             return NO_HIT;
@@ -207,6 +209,9 @@ fn overlap_world_geom(query: Query, body: RigidBody, collider: Collider, out_nor
 
 fn body_passes(body: RigidBody, collider: Collider, query: Query) -> bool {
     if (query.exclude_id != NO_BODY && body.body_id == query.exclude_id && body.generation == query.exclude_generation) {
+        return false;
+    }
+    if (query.include_id != NO_BODY && (body.body_id != query.include_id || body.generation != query.include_generation)) {
         return false;
     }
     if ((query.filter_flags & FILTER_IGNORE_SENSORS) != 0u && (collider.flags & COLLIDER_SENSOR) != 0u) {
@@ -324,7 +329,7 @@ fn main(
             candidate_index = candidate_index + WORKGROUP_SIZE;
             continue;
         }
-        let body = bodies[collider_slot / 4u];
+        let body = bodies[collider_slot / MAX_COLLIDERS_PER_BODY];
         let collider = colliders[collider_slot];
         if (!body_passes(body, collider, query)) {
             candidate_index = candidate_index + WORKGROUP_SIZE;
@@ -347,7 +352,7 @@ fn main(
                 let point = query.origin + normalize(query.direction) * distance;
                 hit = ShapeHit(distance, point, normal);
             }
-        } else if (query.kind == QUERY_SPHERE) {
+        } else if (query.kind == QUERY_SPHERE || query.kind == QUERY_POINT) {
             let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
             let separation = select(
                 overlap_hit(query, body, collider, &normal),

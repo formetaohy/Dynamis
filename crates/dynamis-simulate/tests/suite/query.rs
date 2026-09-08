@@ -513,3 +513,144 @@ fn query_validation_panics() {
         .is_err()
     );
 }
+
+#[test]
+fn point_query_detects_inside_and_outside() {
+    let mut world = sim(6, static_config());
+    let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    let inside = world.point_query([0.1, 0.0, 0.0], &QueryFilter::default());
+    world.flush_queries();
+    let inside_hit = world.query_hit(inside);
+    assert_eq!(inside_hit.map(|hit| hit.body), Some(body));
+    let outside = world.point_query([5.0, 0.0, 0.0], &QueryFilter::default());
+    world.flush_queries();
+    assert!(
+        world.query_hit(outside).is_none(),
+        "point outside must miss"
+    );
+    let edge = world.point_query([0.5, 0.0, 0.0], &QueryFilter::default());
+    world.flush_queries();
+    assert!(
+        world.query_hit(edge).is_some(),
+        "point on the surface must hit"
+    );
+}
+
+#[test]
+fn overlap_query_accepts_any_convex_shape() {
+    let mut world = sim(6, static_config());
+    let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
+    world.add_collider(
+        body,
+        dynamis_model::ColliderDesc::new(Shape::cylinder(0.4, 0.3)).offset([2.0, 0.0, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    let probe = Shape::cylinder(0.2, 0.2);
+    let handle = world.overlap_query(
+        &probe,
+        [0.0, 0.0, 0.0, 1.0],
+        [2.2, 0.0, 0.0],
+        &QueryFilter::default(),
+    );
+    world.flush_queries();
+    let hit = world.query_hit(handle);
+    assert_eq!(hit.map(|hit| (hit.body, hit.collider)), Some((body, 1)));
+    let miss = world.overlap_query(
+        &probe,
+        [0.0, 0.0, 0.0, 1.0],
+        [8.0, 0.0, 0.0],
+        &QueryFilter::default(),
+    );
+    world.flush_queries();
+    assert!(world.query_hit(miss).is_none());
+}
+
+#[test]
+fn include_filter_limits_results_to_one_body() {
+    let mut world = sim(6, static_config());
+    let first = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
+    let second = query_static(&mut world, 0.5, [3.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    let filter = QueryFilter {
+        include: Some(second),
+        exclude: None,
+        max_hits: 4,
+        ..Default::default()
+    };
+    let handle = world.ray_query([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 100.0, &filter);
+    world.flush_queries();
+    let hits = world.query_hits(handle);
+    assert!(!hits.is_empty(), "include query must not be empty");
+    assert!(
+        hits.iter().all(|hit| hit.body == second),
+        "include filter must only return the target body"
+    );
+    assert!(!hits.iter().any(|hit| hit.body == first));
+}
+
+#[test]
+fn capsule_down_sweep_normal_is_vertical() {
+    let mut world = sim(6, static_config());
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    let probe = Shape::capsule(0.4, 0.5);
+    for x in [0.0f32, 0.2, 0.4, 0.6, 0.8, 1.0, 1.4, 2.0, 3.0] {
+        let handle = world.sweep_query(
+            &probe,
+            [0.0, 0.0, 0.0, 1.0],
+            [x, 0.95, 0.0],
+            [0.0, -1.0, 0.0],
+            0.5,
+            &QueryFilter::default(),
+        );
+        world.flush_queries();
+        let hit = world
+            .query_hit(handle)
+            .expect("down sweep must hit the floor");
+        eprintln!("x={x} d={} n={:?}", hit.distance, hit.normal);
+    }
+}
+
+#[test]
+fn capsule_sweep_stops_before_wall_face() {
+    let mut world = sim(6, static_config());
+    world.spawn(
+        BodyDesc::cuboid([0.25, 3.0, 4.0])
+            .mass(0.0)
+            .position([2.0, 1.5, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    let probe = Shape::sphere(0.4);
+    let handle = world.sweep_query(
+        &probe,
+        [0.0, 0.0, 0.0, 1.0],
+        [1.3, 0.95, 0.0],
+        [1.0, 0.0, 0.0],
+        0.5,
+        &QueryFilter::default(),
+    );
+    world.flush_queries();
+    let hit = world
+        .query_hit(handle)
+        .expect("sweep must stop at the wall");
+    assert!(
+        hit.distance > 0.0 && hit.distance < 0.25,
+        "sweep must stop short of the wall face, got {}",
+        hit.distance
+    );
+    assert!(
+        hit.normal[0] > 0.99,
+        "wall normal must face the capsule, got {:?}",
+        hit.normal
+    );
+}

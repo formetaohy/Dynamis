@@ -48,11 +48,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = pair_keys_hi[index];
     let second_slot = pair_keys_lo[index];
-    if (first_slot / 4u == second_slot / 4u) {
+    if (first_slot / MAX_COLLIDERS_PER_BODY == second_slot / MAX_COLLIDERS_PER_BODY) {
         return;
     }
-    var first = bodies[first_slot / 4u];
-    var second = bodies[second_slot / 4u];
+    var first = bodies[first_slot / MAX_COLLIDERS_PER_BODY];
+    var second = bodies[second_slot / MAX_COLLIDERS_PER_BODY];
     if (first.inverse_mass == 0.0 && (first.flags & BODY_KINEMATIC) == 0u &&
         second.inverse_mass == 0.0 && (second.flags & BODY_KINEMATIC) == 0u) {
         return;
@@ -77,7 +77,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
             first.velocity = first.velocity - axis * normal_speed * (1.0 + restitution);
         }
-        bodies[first_slot / 4u] = first;
+        bodies[first_slot / MAX_COLLIDERS_PER_BODY] = first;
     }
     let second_time = sweep_retreat(second, second_collider, first, first_collider);
     if (second_time < 1.0) {
@@ -91,6 +91,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
             second.velocity = second.velocity - axis * normal_speed * (1.0 + restitution);
         }
-        bodies[second_slot / 4u] = second;
+        bodies[second_slot / MAX_COLLIDERS_PER_BODY] = second;
     }
 }

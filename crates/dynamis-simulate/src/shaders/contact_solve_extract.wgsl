@@ -33,8 +33,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         contact_deltas[index * 4u + 3u] = vec4f(0.0);
         return;
     }
-    let first_slot = contact.a / 4u;
-    let second_slot = contact.b / 4u;
+    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
+    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
     let first_original = bodies[first_slot];
     let second_original = bodies[second_slot];
     var first = first_original;

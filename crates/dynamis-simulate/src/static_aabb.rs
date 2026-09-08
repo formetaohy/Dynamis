@@ -3,6 +3,7 @@ use dynamis_layout::{
     AabbRecord, ColliderRecord, RigidBodyRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
     SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
+use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     [
@@ -35,15 +36,15 @@ fn abs3(v: [f32; 3]) -> [f32; 3] {
 
 pub fn static_aabbs(
     body: &RigidBodyRecord,
-    colliders: &[ColliderRecord; 4],
+    colliders: &[ColliderRecord; MAX_COLLIDERS_PER_BODY],
     shapes: &ShapePool,
-) -> [AabbRecord; 4] {
+) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
     let mut aabbs = [AabbRecord {
         min: [f32::MAX; 3],
         _pad0: 0.0,
         max: [f32::MIN; 3],
         _pad1: 0.0,
-    }; 4];
+    }; MAX_COLLIDERS_PER_BODY];
     for (index, collider) in colliders.iter().enumerate() {
         if collider.kind == SHAPE_NONE {
             continue;

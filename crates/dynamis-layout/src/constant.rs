@@ -54,6 +54,8 @@ pub const BODY_SLEEPING: u32 = 2;
 pub const BODY_CCD: u32 = 4;
 
 pub const COLLIDER_SENSOR: u32 = 1;
+pub const COLLIDER_EVENT_BEGIN_END: u32 = 2;
+pub const COLLIDER_EVENT_PERSIST: u32 = 4;
 
 pub const ISLAND_WAKE: u32 = 1;
 pub const ISLAND_ACTIVE: u32 = 2;
@@ -98,6 +100,8 @@ pub const QUERY_RAY: u32 = 0;
 pub const QUERY_SPHERE: u32 = 1;
 pub const QUERY_CUBOID: u32 = 2;
 pub const QUERY_SWEEP: u32 = 3;
+pub const QUERY_POINT: u32 = 4;
+pub const QUERY_CONVEX: u32 = 5;
 
 pub const FILTER_IGNORE_SENSORS: u32 = 1;
 pub const FILTER_IGNORE_SLEEPING: u32 = 2;
@@ -106,6 +110,7 @@ pub const FILTER_IGNORE_KINEMATIC: u32 = 8;
 
 pub const EVENT_BEGIN: u32 = 0;
 pub const EVENT_END: u32 = 1;
+pub const EVENT_PERSIST: u32 = 2;
 
 pub const NO_BODY: u32 = 0xFFFF_FFFF;
 pub const NO_HIT: f32 = f32::MAX;

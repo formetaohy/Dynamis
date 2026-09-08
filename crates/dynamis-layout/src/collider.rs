@@ -1,9 +1,10 @@
 use crate::constant::{
-    COLLIDER_SENSOR, NO_COLLISION_FILTER, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
-    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
+    COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR, NO_COLLISION_FILTER,
+    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
+    SHAPE_PLANE, SHAPE_SPHERE,
 };
 use bytemuck::{Pod, Zeroable};
-use dynamis_model::{ColliderDesc, Shape};
+use dynamis_model::{ColliderDesc, ContactEventMode, Shape};
 
 const _: () = {
     use std::mem::size_of;
@@ -36,9 +37,17 @@ impl ColliderRecord {
         let kind = shape_kind(&collider.shape);
         let uniform =
             collider.scale[0] == collider.scale[1] && collider.scale[1] == collider.scale[2];
+        let mut flags = if collider.sensor { COLLIDER_SENSOR } else { 0 };
+        match collider.events {
+            ContactEventMode::None => {}
+            ContactEventMode::BeginEnd => flags |= COLLIDER_EVENT_BEGIN_END,
+            ContactEventMode::Persist => {
+                flags |= COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST;
+            }
+        }
         Self {
             kind,
-            flags: if collider.sensor { COLLIDER_SENSOR } else { 0 },
+            flags,
             radius: match collider.shape {
                 Shape::Sphere { radius } => {
                     if uniform {

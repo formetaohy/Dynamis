@@ -11,7 +11,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= params_count) {
         return;
     }
-    let root = islands[source_keys_hi[index] / 4u];
+    let root = islands[source_keys_hi[index] / MAX_COLLIDERS_PER_BODY];
     bucket_keys_hi[index] = root;
     bucket_keys_lo[index] = source_keys_lo[index];
     bucket_values[index] = index;

@@ -14,6 +14,7 @@ pub(crate) struct ShapePool {
     capacity: usize,
     generations: Vec<u32>,
     free_ids: Vec<u32>,
+    refs: Vec<u32>,
     records: Vec<ShapeSourceRecordStorage>,
     pub(crate) vertices: Vec<[f32; 4]>,
     triangles: Vec<[u32; 4]>,
@@ -40,6 +41,7 @@ impl ShapePool {
             capacity,
             generations: vec![1; capacity],
             free_ids: (0..capacity as u32).rev().collect(),
+            refs: vec![0; capacity],
             records: Vec::new(),
             vertices: Vec::new(),
             triangles: Vec::new(),
@@ -74,8 +76,26 @@ impl ShapePool {
         &self.records[id]
     }
 
+    pub fn retain(&mut self, handle: ShapeSourceHandle) {
+        let _ = self.record(handle);
+        self.refs[handle.id as usize] += 1;
+    }
+
+    pub fn release(&mut self, handle: ShapeSourceHandle) {
+        let _ = self.record(handle);
+        assert!(
+            self.refs[handle.id as usize] > 0,
+            "shape source refcount underflow"
+        );
+        self.refs[handle.id as usize] -= 1;
+    }
+
     pub fn remove(&mut self, handle: ShapeSourceHandle) {
         let _ = self.record(handle);
+        assert!(
+            self.refs[handle.id as usize] == 0,
+            "shape source is still referenced by a live body"
+        );
         let id = handle.id as usize;
         self.generations[id] += 1;
         self.records[id].kind = 0;

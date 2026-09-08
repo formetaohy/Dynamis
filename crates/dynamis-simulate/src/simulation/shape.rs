@@ -1,7 +1,7 @@
 use super::Simulation;
 use crate::hull::convex_hull_mesh;
 use crate::shape_pool::{PoolKind, height_field_triangles};
-use dynamis_model::{Shape, ShapeSourceHandle};
+use dynamis_model::{MAX_COLLIDERS_PER_BODY, Shape, ShapeSourceHandle};
 
 impl Simulation {
     pub fn add_hull(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
@@ -10,6 +10,23 @@ impl Simulation {
 
     pub fn add_mesh(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
         self.allocate_shape(PoolKind::Mesh, vertices, triangles.to_vec())
+    }
+
+    pub fn add_decomposed_mesh(
+        &mut self,
+        vertices: &[[f32; 3]],
+        triangles: &[[u32; 3]],
+        settings: crate::HullDecomposeSettings,
+    ) -> Vec<ShapeSourceHandle> {
+        assert!(
+            settings.max_parts as usize <= MAX_COLLIDERS_PER_BODY,
+            "decomposition part limit must fit within one body"
+        );
+        let parts = crate::decompose::decompose_mesh(vertices, triangles, &settings);
+        parts
+            .iter()
+            .map(|part| self.add_hull(&part.vertices, &part.triangles))
+            .collect()
     }
 
     pub fn add_hull_from_mesh(

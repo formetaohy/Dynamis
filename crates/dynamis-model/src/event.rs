@@ -2,6 +2,7 @@
 pub enum ContactEventKind {
     Begin,
     End,
+    Persist,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

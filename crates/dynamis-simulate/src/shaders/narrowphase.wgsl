@@ -502,8 +502,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let first_slot = pair_keys_hi[index];
     let second_slot = pair_keys_lo[index];
-    let first_body_slot = first_slot / 4u;
-    let second_body_slot = second_slot / 4u;
+    let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
+    let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
     let first = bodies[first_body_slot];
     let second = bodies[second_body_slot];
     if (first_body_slot == second_body_slot) {
@@ -651,6 +651,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
     contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);
     contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
+    contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
     if (contact.point_count > 0u) {
         contacts_raw[index] = contact;
         contact_valid[index] = 1u;

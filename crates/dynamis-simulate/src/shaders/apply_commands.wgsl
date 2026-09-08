@@ -4,14 +4,12 @@ struct BodyCommand {
     extra: u32,
     aux: u32,
     body: RigidBody,
-    colliders: array<Collider, MAX_COLLIDERS_PER_BODY>,
 }
 
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
 @group(0) @binding(1) var<storage, read_write> bodies: array<RigidBody>;
-@group(0) @binding(2) var<storage, read_write> colliders: array<Collider>;
-@group(0) @binding(3) var<storage, read> command_count: u32;
-@group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read> command_count: u32;
+@group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
 fn body_woken(body: RigidBody) -> RigidBody {
     var woken = body;
@@ -30,32 +28,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let command = commands[i];
         if (command.kind == COMMAND_ADD) {
             bodies[command.slot] = command.body;
-            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
-                colliders[command.slot * MAX_COLLIDERS_PER_BODY + c] = command.colliders[c];
-            }
         } else if (command.kind == COMMAND_REMOVE) {
             if (command.slot != command.extra) {
                 bodies[command.slot] = bodies[command.extra];
-                for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
-                    colliders[command.slot * MAX_COLLIDERS_PER_BODY + c] = colliders[command.extra * MAX_COLLIDERS_PER_BODY + c];
-                }
             }
             bodies[command.extra] = RigidBody();
-            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
-                colliders[command.extra * MAX_COLLIDERS_PER_BODY + c] = Collider();
-            }
         } else if (command.kind == COMMAND_SWAP) {
             var first = bodies[command.slot];
             var second = bodies[command.extra];
             bodies[command.slot] = second;
             bodies[command.extra] = first;
-            for (var c = 0u; c < MAX_COLLIDERS_PER_BODY; c = c + 1u) {
-                let first_index = command.slot * MAX_COLLIDERS_PER_BODY + c;
-                let second_index = command.extra * MAX_COLLIDERS_PER_BODY + c;
-                let swap = colliders[first_index];
-                colliders[first_index] = colliders[second_index];
-                colliders[second_index] = swap;
-            }
         } else if (command.kind == COMMAND_PATCH) {
             var body = bodies[command.slot];
             if ((command.extra & PATCH_POSITION) != 0u) {
@@ -106,7 +88,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if ((command.extra & PATCH_COLLIDER) != 0u) {
                 body.com = command.body.com;
                 body.inverse_inertia_body = command.body.inverse_inertia_body;
-                colliders[command.slot * MAX_COLLIDERS_PER_BODY + command.aux] = command.colliders[0];
+                body.collider_count = command.body.collider_count;
             }
             if ((body.flags & BODY_SLEEPING) != 0u) {
                 atomicOr(&wake_flags[command.slot], 1u);

@@ -441,3 +441,37 @@ fn settled_stack_drifts_nothing_across_frames() {
 fn read_u32(world: &Simulation, buffer: &wgpu::Buffer) -> u32 {
     read_records::<u32>(world, buffer, 3)[0]
 }
+
+#[test]
+fn kinematic_capsule_overlap_pushes_dynamic_box() {
+    let mut world = super::common::sim(8, super::common::gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let box_body = world.spawn(
+        BodyDesc::cuboid([0.3, 0.3, 0.3])
+            .position([1.6, 0.8, 0.0])
+            .friction(0.6),
+    );
+    let pusher = world.spawn(
+        BodyDesc::new(dynamis_model::ColliderDesc::new(
+            dynamis_model::Shape::capsule(0.4, 0.5),
+        ))
+        .position([1.25, 0.8, 0.0])
+        .kinematic(true)
+        .velocity([1.0, 0.0, 0.0]),
+    );
+    let _ = pusher;
+    for _ in 0..60 {
+        world.step(DT);
+    }
+    world.wait();
+    let state = world.read_state(box_body);
+    assert!(
+        state.position[0] > 1.75,
+        "overlapping kinematic capsule must push the box, got x={}",
+        state.position[0]
+    );
+}

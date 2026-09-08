@@ -19,23 +19,23 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (contact.point_count == 0u || contact.sensor == 1u) {
         return;
     }
-    let first = bodies[contact.a / 4u];
-    let second = bodies[contact.b / 4u];
+    let first = bodies[contact.a / MAX_COLLIDERS_PER_BODY];
+    let second = bodies[contact.b / MAX_COLLIDERS_PER_BODY];
     let first_static = body_is_static(first);
     let second_static = body_is_static(second);
     if (first_static) {
-        if (atomicLoad(&wake_flags[contact.a / 4u]) != 0u) {
-            atomicOr(&wake_flags[contact.b / 4u], 1u);
+        if (atomicLoad(&wake_flags[contact.a / MAX_COLLIDERS_PER_BODY]) != 0u) {
+            atomicOr(&wake_flags[contact.b / MAX_COLLIDERS_PER_BODY], 1u);
         }
     }
     if (second_static) {
-        if (atomicLoad(&wake_flags[contact.b / 4u]) != 0u) {
-            atomicOr(&wake_flags[contact.a / 4u], 1u);
+        if (atomicLoad(&wake_flags[contact.b / MAX_COLLIDERS_PER_BODY]) != 0u) {
+            atomicOr(&wake_flags[contact.a / MAX_COLLIDERS_PER_BODY], 1u);
         }
     }
     if (!first_static && !second_static &&
         body_is_dynamic(first) && (first.flags & BODY_SLEEPING) == 0u &&
         body_is_dynamic(second) && (second.flags & BODY_SLEEPING) == 0u) {
-        island_link(contact.a / 4u, contact.b / 4u);
+        island_link(contact.a / MAX_COLLIDERS_PER_BODY, contact.b / MAX_COLLIDERS_PER_BODY);
     }
 }

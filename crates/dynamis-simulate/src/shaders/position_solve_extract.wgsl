@@ -16,8 +16,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         contact_deltas[index * 4u + 1u] = vec4f(0.0);
         return;
     }
-    let first_slot = contact.a / 4u;
-    let second_slot = contact.b / 4u;
+    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
+    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
     let first = bodies[first_slot];
     let second = bodies[second_slot];
     let normal = contact.normal;

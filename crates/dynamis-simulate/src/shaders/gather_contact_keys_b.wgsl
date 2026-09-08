@@ -9,6 +9,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= contact_count[0]) {
         return;
     }
-    keys[index] = contacts[index].b / 4u;
+    keys[index] = contacts[index].b / MAX_COLLIDERS_PER_BODY;
     values[index] = index;
 }

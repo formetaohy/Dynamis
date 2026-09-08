@@ -20,5 +20,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let dest = block_offsets[index / BLOCK_SIZE] + ranks[index];
     let contact = contacts_raw[index];
     contacts[dest] = contact;
-    a_body[dest] = contact.a / 4u;
+    a_body[dest] = contact.a / MAX_COLLIDERS_PER_BODY;
 }

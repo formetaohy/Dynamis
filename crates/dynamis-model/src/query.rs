@@ -9,6 +9,7 @@ pub struct QueryFilter {
     pub ignore_static: bool,
     pub ignore_kinematic: bool,
     pub exclude: Option<BodyHandle>,
+    pub include: Option<BodyHandle>,
     pub max_hits: u32,
 }
 
@@ -22,6 +23,7 @@ impl Default for QueryFilter {
             ignore_static: false,
             ignore_kinematic: false,
             exclude: None,
+            include: None,
             max_hits: 4,
         }
     }
