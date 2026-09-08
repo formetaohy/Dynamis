@@ -1,4 +1,5 @@
 use super::Simulation;
+use crate::hull::convex_hull_mesh;
 use crate::shape_pool::{PoolKind, height_field_triangles};
 use dynamis_model::{Shape, ShapeSourceHandle};
 
@@ -11,6 +12,15 @@ impl Simulation {
         self.allocate_shape(PoolKind::Mesh, vertices, triangles.to_vec())
     }
 
+    pub fn add_hull_from_mesh(
+        &mut self,
+        vertices: &[[f32; 3]],
+        triangles: &[[u32; 3]],
+    ) -> ShapeSourceHandle {
+        let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, triangles);
+        self.allocate_shape(PoolKind::Hull, &hull_vertices, hull_triangles)
+    }
+
     pub fn add_height_field(
         &mut self,
         rows: u32,
@@ -20,6 +30,46 @@ impl Simulation {
     ) -> ShapeSourceHandle {
         let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
         self.allocate_shape(PoolKind::HeightField, &vertices, triangles)
+    }
+
+    pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
+        self.shape_pool.remove(handle);
+        self.shape_pool.upload_pending(
+            self.gpu.queue(),
+            &self.buffers.shapes,
+            &self.buffers.shape_vertices,
+            &self.buffers.shape_triangles,
+            &self.buffers.shape_nodes,
+        );
+    }
+
+    pub fn update_mesh(
+        &mut self,
+        handle: ShapeSourceHandle,
+        vertices: &[[f32; 3]],
+        triangles: &[[u32; 3]],
+    ) {
+        self.shape_pool.update_mesh(handle, vertices, triangles);
+        self.shape_pool.upload_update(
+            self.gpu.queue(),
+            &self.buffers.shapes,
+            &self.buffers.shape_vertices,
+            &self.buffers.shape_triangles,
+            &self.buffers.shape_nodes,
+            handle,
+        );
+    }
+
+    pub fn update_height_field(
+        &mut self,
+        handle: ShapeSourceHandle,
+        rows: u32,
+        cols: u32,
+        heights: &[f32],
+        cell_size: [f32; 2],
+    ) {
+        let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
+        self.update_mesh(handle, &vertices, &triangles);
     }
 
     fn allocate_shape(

@@ -1,6 +1,6 @@
 use crate::constant::{
-    COLLIDER_SENSOR, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
+    COLLIDER_SENSOR, NO_COLLISION_FILTER, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
+    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
 };
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::{ColliderDesc, Shape};
@@ -19,16 +19,16 @@ pub struct ColliderRecord {
     pub radius: f32,
     pub half_height: f32,
     pub half_extents: [f32; 3],
-    pub _pad0: f32,
+    pub collision_group: u32,
     pub local_offset: [f32; 3],
-    pub _pad1: f32,
+    pub collision_mask: u32,
     pub local_rotation: [f32; 4],
     pub friction: f32,
     pub restitution: f32,
     pub source: u32,
-    pub _pad2: u32,
+    pub rolling_friction: f32,
     pub scale: [f32; 3],
-    pub _pad_scale: f32,
+    pub spin_friction: f32,
 }
 
 impl ColliderRecord {
@@ -74,16 +74,16 @@ impl ColliderRecord {
                 ],
                 _ => [0.0; 3],
             },
-            _pad0: 0.0,
+            collision_group: collider.collision_group.unwrap_or(NO_COLLISION_FILTER),
             local_offset: collider.offset,
-            _pad1: 0.0,
+            collision_mask: collider.collision_mask.unwrap_or(NO_COLLISION_FILTER),
             local_rotation: collider.rotation,
             friction: collider.friction,
             restitution: collider.restitution,
             source,
-            _pad2: 0,
+            rolling_friction: collider.rolling_friction,
             scale: baked_scale(collider, uniform),
-            _pad_scale: 0.0,
+            spin_friction: collider.spin_friction,
         }
     }
 }

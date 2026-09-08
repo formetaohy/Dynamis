@@ -1,5 +1,5 @@
 use crate::constant::{
-    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, CONSTRAINT_BALL,
+    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, CONSTRAINT_BALL,
     CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
     CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
     CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
@@ -147,6 +147,16 @@ impl ConstraintCommandRecord {
             _pad0: 0,
             _pad1: 0,
             constraint: ConstraintRecord::zeroed(),
+        }
+    }
+
+    pub fn patch(slot: u32, constraint: ConstraintRecord) -> Self {
+        Self {
+            kind: COMMAND_CONSTRAINT_PATCH,
+            slot,
+            _pad0: 0,
+            _pad1: 0,
+            constraint,
         }
     }
 }

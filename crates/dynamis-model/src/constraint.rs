@@ -83,6 +83,11 @@ impl ConstraintDesc {
         Self::base(ConstraintKind::Ball).anchors(anchor_a, anchor_b)
     }
 
+    pub fn rekind(mut self, kind: ConstraintKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
     pub fn distance(anchor_a: [f32; 3], anchor_b: [f32; 3], distance: f32) -> Self {
         assert!(distance >= 0.0, "constraint distance must be non-negative");
         Self::base(ConstraintKind::Distance)

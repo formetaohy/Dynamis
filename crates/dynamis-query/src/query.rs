@@ -11,6 +11,7 @@ pub struct QueryHandle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QueryHit {
     pub body: BodyHandle,
+    pub collider: u32,
     pub distance: f32,
     pub point: [f32; 3],
     pub normal: [f32; 3],
@@ -112,6 +113,7 @@ impl QueryPool {
                     id: record.body_id,
                     generation: record.body_generation,
                 },
+                collider: record.collider_index,
                 distance: record.distance,
                 point: record.point,
                 normal: record.normal,

@@ -15,6 +15,8 @@ pub use constraint::{
     ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
 pub use event::{ContactEvent, ContactEventKind};
-pub use mass::{MassProperties, compute_mass_properties};
+pub use mass::{
+    MassProperties, MassSource, compute_mass_properties, shape_volume, solid_volume_of,
+};
 pub use query::QueryFilter;
 pub use shape::{Shape, ShapeSourceHandle};

@@ -10,6 +10,7 @@ pub struct BodyHandle {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyState {
     pub position: [f32; 3],
+    pub previous_position: [f32; 3],
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
@@ -31,10 +32,16 @@ pub struct BodyDesc {
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],
     pub mass: f32,
+    pub density: Option<f32>,
     pub com: Option<[f32; 3]>,
     pub inertia: Option<[f32; 6]>,
     pub collision_group: u32,
     pub collision_mask: u32,
+    pub linear_damping: Option<f32>,
+    pub angular_damping: Option<f32>,
+    pub gravity_scale: f32,
+    pub sleep_velocity: Option<f32>,
+    pub sleep_angular_velocity: Option<f32>,
     pub kinematic: bool,
     pub ccd: bool,
 }
@@ -48,10 +55,16 @@ impl BodyDesc {
             velocity: [0.0; 3],
             angular_velocity: [0.0; 3],
             mass: 1.0,
+            density: None,
             com: None,
             inertia: None,
             collision_group: DEFAULT_COLLISION_GROUP,
             collision_mask: DEFAULT_COLLISION_MASK,
+            linear_damping: None,
+            angular_damping: None,
+            gravity_scale: 1.0,
+            sleep_velocity: None,
+            sleep_angular_velocity: None,
             kinematic: false,
             ccd: false,
         }
@@ -150,6 +163,44 @@ impl BodyDesc {
     pub fn mass(mut self, mass: f32) -> Self {
         assert!(mass >= 0.0, "mass must be non-negative");
         self.mass = mass;
+        self.density = None;
+        self
+    }
+
+    pub fn density(mut self, density: f32) -> Self {
+        assert!(density >= 0.0, "density must be non-negative");
+        self.density = Some(density);
+        self
+    }
+
+    pub fn damping(mut self, damping: f32) -> Self {
+        assert!(damping >= 0.0, "damping must be non-negative");
+        self.linear_damping = Some(damping);
+        self
+    }
+
+    pub fn angular_damping(mut self, angular_damping: f32) -> Self {
+        assert!(
+            angular_damping >= 0.0,
+            "angular damping must be non-negative"
+        );
+        self.angular_damping = Some(angular_damping);
+        self
+    }
+
+    pub fn gravity_scale(mut self, gravity_scale: f32) -> Self {
+        self.gravity_scale = gravity_scale;
+        self
+    }
+
+    pub fn sleep_thresholds(mut self, velocity: f32, angular_velocity: f32) -> Self {
+        assert!(velocity >= 0.0, "sleep velocity must be non-negative");
+        assert!(
+            angular_velocity >= 0.0,
+            "sleep angular velocity must be non-negative"
+        );
+        self.sleep_velocity = Some(velocity);
+        self.sleep_angular_velocity = Some(angular_velocity);
         self
     }
 
@@ -177,7 +228,18 @@ impl BodyDesc {
                 inverse_inertia: crate::mass::inertia_inverse(inertia),
             };
         }
-        crate::mass::compute_mass_properties(&self.colliders, self.mass, self.com, bounds)
+        let source = match self.density {
+            Some(density) => crate::mass::MassSource::Density(density),
+            None => crate::mass::MassSource::Fixed(self.mass),
+        };
+        crate::mass::compute_mass_properties(&self.colliders, source, self.com, bounds)
+    }
+
+    pub fn effective_mass(&self, bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>) -> f32 {
+        match self.density {
+            Some(density) => density * crate::mass::solid_volume_of(&self.colliders, &bounds),
+            None => self.mass,
+        }
     }
 
     pub fn collision_group(mut self, group: u32) -> Self {

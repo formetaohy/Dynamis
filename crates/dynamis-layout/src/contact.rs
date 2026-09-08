@@ -40,7 +40,7 @@ pub struct ContactRecord {
     pub _pad0: f32,
     pub friction: f32,
     pub restitution: f32,
-    pub _pad_material: f32,
-    pub _pad_material2: f32,
+    pub rolling_friction: f32,
+    pub spin_friction: f32,
     pub points: [ManifoldPointRecord; 4],
 }

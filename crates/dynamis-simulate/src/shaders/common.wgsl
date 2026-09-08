@@ -36,6 +36,15 @@ struct RigidBody {
     _pad2: f32,
     angular_velocity: vec3f,
     _pad3: f32,
+    com: vec3f,
+    _pad_com: f32,
+    inverse_inertia_body: array<f32, 6>,
+    _pad_inertia: f32,
+    _pad_inertia2: f32,
+    force: vec3f,
+    _pad7: f32,
+    torque: vec3f,
+    _pad8: f32,
     inverse_mass: f32,
     restitution: f32,
     friction: f32,
@@ -46,17 +55,12 @@ struct RigidBody {
     collision_group: u32,
     collision_mask: u32,
     sleep_timer: f32,
-    _pad4: u32,
-    _pad5: u32,
-    com: vec3f,
-    _pad_com: f32,
-    inverse_inertia_body: array<f32, 6>,
-    _pad_inertia: f32,
-    _pad_inertia2: f32,
-    force: vec3f,
-    _pad7: f32,
-    torque: vec3f,
-    _pad8: f32,
+    linear_damping: f32,
+    angular_damping: f32,
+    gravity_scale: f32,
+    sleep_velocity_override: f32,
+    sleep_angular_velocity_override: f32,
+    _pad_dynamics: f32,
 }
 
 struct Collider {
@@ -65,16 +69,16 @@ struct Collider {
     radius: f32,
     half_height: f32,
     half_extents: vec3f,
-    _pad0: f32,
+    collision_group: u32,
     local_offset: vec3f,
-    _pad1: f32,
+    collision_mask: u32,
     local_rotation: vec4f,
     friction: f32,
     restitution: f32,
     source: u32,
-    _pad2: u32,
+    rolling_friction: f32,
     scale: vec3f,
-    _pad_scale: f32,
+    spin_friction: f32,
 }
 
 struct ShapeSource {
@@ -140,8 +144,8 @@ struct Contact {
     _pad0: f32,
     friction: f32,
     restitution: f32,
-    _pad_material: f32,
-    _pad_material2: f32,
+    rolling_friction: f32,
+    spin_friction: f32,
     points: array<ManifoldPoint, CONTACT_MAX_POINTS>,
 }
 
@@ -186,6 +190,10 @@ struct Query {
     mask: u32,
     source: u32,
     max_hits: u32,
+    exclude_id: u32,
+    exclude_generation: u32,
+    _pad_a: f32,
+    _pad_b: f32,
     origin: vec3f,
     _pad0: f32,
     direction: vec3f,
@@ -197,10 +205,6 @@ struct Query {
     half_extents: vec3f,
     _pad3: f32,
     orientation: vec4f,
-    _pad4: f32,
-    _pad5: f32,
-    _pad6: f32,
-    _pad7: f32,
 }
 
 struct QueryResultHeader {
@@ -214,7 +218,7 @@ struct QueryHit {
     body_id: u32,
     body_generation: u32,
     distance: f32,
-    _pad0: u32,
+    collider_index: u32,
     point: vec3f,
     _pad1: f32,
     normal: vec3f,
@@ -293,6 +297,23 @@ fn collider_is_sensor(collider: Collider) -> bool {
 
 fn body_world_intersects(body: RigidBody, group: u32, mask: u32) -> bool {
     return (body.collision_group & mask) != 0u && (group & body.collision_mask) != 0u;
+}
+
+fn collider_filter_intersects(
+    first_body: RigidBody, first_collider: Collider,
+    second_body: RigidBody, second_collider: Collider,
+) -> bool {
+    let first_group = select(first_body.collision_group, first_collider.collision_group, first_collider.collision_group != NO_COLLISION_FILTER);
+    let first_mask = select(first_body.collision_mask, first_collider.collision_mask, first_collider.collision_mask != NO_COLLISION_FILTER);
+    let second_group = select(second_body.collision_group, second_collider.collision_group, second_collider.collision_group != NO_COLLISION_FILTER);
+    let second_mask = select(second_body.collision_mask, second_collider.collision_mask, second_collider.collision_mask != NO_COLLISION_FILTER);
+    return (first_group & second_mask) != 0u && (second_group & first_mask) != 0u;
+}
+
+fn collider_filter_query(query: Query, body: RigidBody, collider: Collider) -> bool {
+    let group = select(body.collision_group, collider.collision_group, collider.collision_group != NO_COLLISION_FILTER);
+    let mask = select(body.collision_mask, collider.collision_mask, collider.collision_mask != NO_COLLISION_FILTER);
+    return query.group == 0u || ((group & query.mask) != 0u && (query.group & mask) != 0u);
 }
 
 struct TangentBasis {
@@ -1816,4 +1837,302 @@ fn largest_axis(v: vec3f) -> u32 {
         return 1u;
     }
     return 2u;
+}
+
+const FEATURE_MAX: u32 = 8u;
+
+fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
+    let count = (*contact).point_count;
+    if (count >= CONTACT_MAX_POINTS) {
+        return;
+    }
+    (*contact).points[count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, 0.0);
+    (*contact).point_count = count + 1u;
+}
+
+fn box_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+    let axes = world_rotated_axes(world);
+    var best_axis = 0u;
+    for (var i = 1u; i < 3u; i = i + 1u) {
+        if (abs(dot(axes[i], direction)) > abs(dot(axes[best_axis], direction))) {
+            best_axis = i;
+        }
+    }
+    let sign = select(1.0, -1.0, dot(axes[best_axis], direction) < 0.0);
+    let face = axes[best_axis] * sign;
+    let center = world.center + face * world.half_extents[best_axis];
+    let u1 = axes[(best_axis + 1u) % 3u];
+    let u2 = axes[(best_axis + 2u) % 3u];
+    let e1 = world.half_extents[(best_axis + 1u) % 3u];
+    let e2 = world.half_extents[(best_axis + 2u) % 3u];
+    (*out)[0] = center + u1 * e1 + u2 * e2;
+    (*out)[1] = center - u1 * e1 + u2 * e2;
+    (*out)[2] = center - u1 * e1 - u2 * e2;
+    (*out)[3] = center + u1 * e1 - u2 * e2;
+    return 4u;
+}
+
+fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+    let source = shape_sources[world.source];
+    var best_dot = -3.402823466e38;
+    for (var i = 0u; i < source.vertex_count; i = i + 1u) {
+        let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
+        let p = world.center + quat_rotate(world.rotation, local);
+        let d = dot(p, direction);
+        if (d > best_dot) {
+            best_dot = d;
+        }
+    }
+    var points: array<vec3f, 16>;
+    var count = 0u;
+    let eps = 1e-3 * shape_scale(world);
+    for (var i = 0u; i < source.vertex_count && count < 16u; i = i + 1u) {
+        let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
+        let p = world.center + quat_rotate(world.rotation, local);
+        if (dot(p, direction) >= best_dot - eps) {
+            points[count] = p;
+            count = count + 1u;
+        }
+    }
+    if (count <= 1u) {
+        (*out)[0] = support(world, direction);
+        return 1u;
+    }
+    let n = sign_normalize(direction);
+    var center = vec3f(0.0);
+    for (var i = 0u; i < count; i = i + 1u) {
+        center = center + points[i];
+    }
+    center = center / f32(count);
+    var u = vec3f(0.0);
+    if (abs(n.x) > 0.9) {
+        u = normalize(cross(n, vec3f(0.0, 1.0, 0.0)));
+    } else {
+        u = normalize(cross(n, vec3f(1.0, 0.0, 0.0)));
+    }
+    let v = cross(n, u);
+    for (var i = 0u; i < count; i = i + 1u) {
+        for (var j = i + 1u; j < count; j = j + 1u) {
+            let pa = points[i] - center;
+            let pb = points[j] - center;
+            let angle_a = atan2(dot(pa, v), dot(pa, u));
+            let angle_b = atan2(dot(pb, v), dot(pb, u));
+            if (angle_b < angle_a) {
+                let tmp = points[i];
+                points[i] = points[j];
+                points[j] = tmp;
+            }
+        }
+    }
+    var keep = min(count, FEATURE_MAX);
+    for (var i = 0u; i < keep; i = i + 1u) {
+        (*out)[i] = points[i];
+    }
+    return keep;
+}
+
+fn cylinder_feature(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+    let axis = shape_axis(world);
+    let alignment = dot(axis, normalize(direction));
+    if (abs(alignment) > 0.93) {
+        let sign = select(1.0, -1.0, alignment < 0.0);
+        let cap_center = world.center + axis * world.half_height * sign;
+        var u = normalize(cross(axis, vec3f(1.0, 0.0, 0.0)));
+        if (length(cross(axis, vec3f(1.0, 0.0, 0.0))) < 1e-6) {
+            u = normalize(cross(axis, vec3f(0.0, 0.0, 1.0)));
+        }
+        let v = cross(axis, u);
+        for (var i = 0u; i < 8u; i = i + 1u) {
+            let angle = f32(i) * 0.78539816;
+            (*out)[i] = cap_center + (u * cos(angle) + v * sin(angle)) * world.radius;
+        }
+        return 8u;
+    }
+    let side = sign_normalize(direction - axis * dot(direction, axis));
+    (*out)[0] = world.center + axis * world.half_height + side * world.radius;
+    (*out)[1] = world.center - axis * world.half_height + side * world.radius;
+    return 2u;
+}
+
+fn shape_feature(
+    world: WorldShape,
+    direction: vec3f,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    flat: ptr<function, bool>,
+) -> u32 {
+    if (world.kind == SHAPE_CUBOID) {
+        *flat = true;
+        return box_feature_ring(world, direction, out);
+    }
+    if (world.kind == SHAPE_HULL) {
+        let count = hull_feature_ring(world, direction, out);
+        *flat = count > 1u;
+        return count;
+    }
+    if (world.kind == SHAPE_CYLINDER) {
+        let count = cylinder_feature(world, direction, out);
+        *flat = count > 2u;
+        return count;
+    }
+    *flat = false;
+    (*out)[0] = support(world, direction);
+    return 1u;
+}
+
+fn convex_pair_manifold(
+    first: WorldShape,
+    second: WorldShape,
+    direction: vec3f,
+    contact: ptr<function, Contact>,
+) -> bool {
+    var first_points: array<vec3f, FEATURE_MAX>;
+    var second_points: array<vec3f, FEATURE_MAX>;
+    var first_flat = false;
+    var second_flat = false;
+    let first_count = shape_feature(first, direction, &first_points, &first_flat);
+    let second_count = shape_feature(second, -direction, &second_points, &second_flat);
+    if (!first_flat && !second_flat) {
+        return false;
+    }
+    var reference: array<vec3f, FEATURE_MAX>;
+    var reference_count = 0u;
+    var incident: array<vec3f, FEATURE_MAX>;
+    var incident_count = 0u;
+    var ref_dir: vec3f;
+    if (first_flat) {
+        reference = first_points;
+        reference_count = first_count;
+        incident = second_points;
+        incident_count = second_count;
+        ref_dir = direction;
+    } else {
+        reference = second_points;
+        reference_count = second_count;
+        incident = first_points;
+        incident_count = first_count;
+        ref_dir = -direction;
+    }
+    var center = vec3f(0.0);
+    for (var i = 0u; i < reference_count; i = i + 1u) {
+        center = center + reference[i];
+    }
+    center = center / f32(reference_count);
+    var candidates: array<ManifoldPoint, 4>;
+    var candidate_count = 0u;
+    for (var i = 0u; i < incident_count && candidate_count < 4u; i = i + 1u) {
+        let point = incident[i];
+        let depth = dot(center - point, ref_dir);
+        if (depth > 0.0) {
+            var kept = true;
+            for (var s = 0u; s < reference_count && kept; s = s + 1u) {
+                let edge = reference[(s + 1u) % reference_count] - reference[s];
+                let plane_normal = normalize(cross(edge, ref_dir));
+                if (dot(point - reference[s], plane_normal) < 0.0) {
+                    kept = false;
+                }
+            }
+            if (kept) {
+                candidates[candidate_count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, 0.0);
+                candidate_count = candidate_count + 1u;
+            }
+        }
+    }
+    if (candidate_count == 0u) {
+        return false;
+    }
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
+        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
+            if (candidates[j].depth > candidates[i].depth) {
+                let tmp = candidates[i];
+                candidates[i] = candidates[j];
+                candidates[j] = tmp;
+            }
+        }
+    }
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
+        manifold_push(contact, candidates[i].position, candidates[i].depth);
+    }
+    return true;
+}
+
+fn scene_convex_manifold(
+    source_index: u32,
+    source_scale: vec3f,
+    world: WorldShape,
+    contact: ptr<function, Contact>,
+) -> bool {
+    let source = shape_sources[source_index];
+    var candidates: array<ManifoldPoint, 8>;
+    var candidate_count = 0u;
+    if (source.node_count == 0u) {
+        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
+            let probe = plane_penetration(i, source_index, source_scale, world);
+            if (probe.penetrating) {
+                candidates[candidate_count] = ManifoldPoint(probe.point_a, probe.distance, 0.0, 0.0, 0.0, 0.0);
+                candidate_count = candidate_count + 1u;
+                if (candidate_count >= 8u) {
+                    break;
+                }
+            }
+        }
+    } else {
+        var stack: array<u32, 64>;
+        var stack_count = 1u;
+        stack[0] = source.node_offset;
+        let world_aabb = world_aabb_of(world);
+        let pad = (world_aabb.max - world_aabb.min) * 0.5;
+        while (stack_count > 0u && candidate_count < 8u) {
+            stack_count = stack_count - 1u;
+            let node_index = stack[stack_count];
+            let node = shape_nodes[node_index];
+            if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
+                node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
+                node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
+                continue;
+            }
+            if (node.leaf == 1u) {
+                for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
+                    let probe = plane_penetration(node.left + i, source_index, source_scale, world);
+                    if (probe.penetrating) {
+                        candidates[candidate_count] = ManifoldPoint(probe.point_a, probe.distance, 0.0, 0.0, 0.0, 0.0);
+                        candidate_count = candidate_count + 1u;
+                    }
+                }
+            } else {
+                if (stack_count + 2u > 64u) {
+                    continue;
+                }
+                stack[stack_count] = node.left;
+                stack_count = stack_count + 1u;
+                stack[stack_count] = node.right;
+                stack_count = stack_count + 1u;
+            }
+        }
+    }
+    if (candidate_count == 0u) {
+        return false;
+    }
+    var keep = min(candidate_count, CONTACT_MAX_POINTS);
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
+        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
+            if (candidates[j].depth > candidates[i].depth) {
+                let tmp = candidates[i];
+                candidates[i] = candidates[j];
+                candidates[j] = tmp;
+            }
+        }
+    }
+    for (var i = 0u; i < keep; i = i + 1u) {
+        let point = candidates[i].position;
+        var merged = false;
+        for (var j = 0u; j < i; j = j + 1u) {
+            if (length(point - candidates[j].position) < 0.05 * shape_scale(world)) {
+                merged = true;
+            }
+        }
+        if (!merged) {
+            manifold_push(contact, point, candidates[i].depth);
+        }
+    }
+    return contact.point_count > 0u;
 }

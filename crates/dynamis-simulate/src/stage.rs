@@ -5,20 +5,21 @@ use dynamis_gpu::{
 use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
-    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT,
-    COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
-    CONSTRAINT_BALL, CONSTRAINT_BROKEN, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
-    CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
-    CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING,
-    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, EVENT_BEGIN,
-    EVENT_END, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
-    FILTER_IGNORE_STATIC, IMPULSE_AT_POINT, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER,
-    MAX_HITS_PER_QUERY, NO_BODY, NO_HIT, PATCH_ANGULAR_VELOCITY, PATCH_CCD, PATCH_COLLIDER,
-    PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
-    QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL,
-    SHAPE_SOURCE_MESH, SHAPE_SPHERE, SHAPE_TRIANGLE,
+    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
+    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP,
+    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_BROKEN,
+    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
+    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
+    CONSTRAINT_INVALID, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
+    CONSTRAINT_REVOLUTE, CONTACT_MAX_POINTS, EVENT_BEGIN, EVENT_END, FILTER_IGNORE_KINEMATIC,
+    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, IMPULSE_AT_POINT,
+    ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY, NO_BODY,
+    NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, PATCH_ANGULAR_VELOCITY,
+    PATCH_CCD, PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_FRICTION, PATCH_GROUP, PATCH_KINEMATIC,
+    PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION, PATCH_POSITION, PATCH_RESTITUTION, PATCH_VELOCITY,
+    QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID,
+    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE,
+    SHAPE_SOURCE_HEIGHTFIELD, SHAPE_SOURCE_HULL, SHAPE_SOURCE_MESH, SHAPE_SPHERE, SHAPE_TRIANGLE,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
@@ -38,6 +39,7 @@ fn shader_constants() -> String {
          const COMMAND_ANGULAR_IMPULSE: u32 = {COMMAND_ANGULAR_IMPULSE}u;\n\
          const COMMAND_CONSTRAINT_ADD: u32 = {COMMAND_CONSTRAINT_ADD}u;\n\
          const COMMAND_CONSTRAINT_REMOVE: u32 = {COMMAND_CONSTRAINT_REMOVE}u;\n\
+         const COMMAND_CONSTRAINT_PATCH: u32 = {COMMAND_CONSTRAINT_PATCH}u;\n\
          const COMMAND_SLEEP: u32 = {COMMAND_SLEEP}u;\n\
          const COMMAND_WAKE: u32 = {COMMAND_WAKE}u;\n\
          const IMPULSE_AT_POINT: u32 = {IMPULSE_AT_POINT}u;\n\
@@ -53,6 +55,10 @@ fn shader_constants() -> String {
          const PATCH_MASK: u32 = {PATCH_MASK}u;\n\
          const PATCH_KINEMATIC: u32 = {PATCH_KINEMATIC}u;\n\
          const PATCH_CCD: u32 = {PATCH_CCD}u;\n\
+         const PATCH_DYNAMICS: u32 = {PATCH_DYNAMICS}u;\n\
+         const NO_COLLISION_FILTER: u32 = {NO_COLLISION_FILTER}u;\n\
+         const OVERFLOW_PAIRS: u32 = {OVERFLOW_PAIRS}u;\n\
+         const OVERFLOW_EVENTS: u32 = {OVERFLOW_EVENTS}u;\n\
          const SHAPE_NONE: u32 = {SHAPE_NONE}u;\n\
          const SHAPE_SPHERE: u32 = {SHAPE_SPHERE}u;\n\
          const SHAPE_CUBOID: u32 = {SHAPE_CUBOID}u;\n\
@@ -384,6 +390,7 @@ pub(crate) fn build_stages(
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.params,
@@ -393,6 +400,7 @@ pub(crate) fn build_stages(
             &buffers.pairs.keys_hi,
             &buffers.pairs.keys_lo,
             &buffers.pair_count,
+            &buffers.overflow_flags,
         ],
         &shape_resources,
     );
@@ -408,6 +416,7 @@ pub(crate) fn build_stages(
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadOnlyStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.params,
@@ -417,6 +426,7 @@ pub(crate) fn build_stages(
             &buffers.pairs.keys_lo,
             &buffers.pair_count,
             &buffers.colliders,
+            &buffers.overflow_flags,
         ],
         &shape_resources,
     );
@@ -521,6 +531,7 @@ pub(crate) fn build_stages(
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.prev_contacts,
@@ -529,6 +540,7 @@ pub(crate) fn build_stages(
             &buffers.contact_count,
             &buffers.events,
             &buffers.event_count,
+            &buffers.overflow_flags,
         ],
         &shape_resources,
     );
@@ -789,6 +801,7 @@ pub(crate) fn build_stages(
             BindingKind::ReadOnlyStorage,
             BindingKind::ReadWriteStorage,
             BindingKind::ReadWriteStorage,
+            BindingKind::ReadWriteStorage,
         ],
         &[
             &buffers.contacts,
@@ -797,6 +810,7 @@ pub(crate) fn build_stages(
             &buffers.contact_count,
             &buffers.events,
             &buffers.event_count,
+            &buffers.overflow_flags,
         ],
         &shape_resources,
     );
@@ -1272,4 +1286,9 @@ fn sort_words(capacity: u32) -> u32 {
     let value = capacity.saturating_mul(4).max(2);
     let width = (32 - value.leading_zeros()).max(1);
     width.div_ceil(8).clamp(1, 4)
+}
+
+pub(crate) fn record_queries(stages: &Stages, encoder: &mut CommandEncoder, query_count: u32) {
+    let mut recorder = ComputeRecorder::begin(encoder, "query flush");
+    stages.query.dispatch_workgroups(&mut recorder, query_count);
 }

@@ -1,3 +1,4 @@
+use crate::constant::NO_BODY;
 use crate::constant::{
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
     QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID,
@@ -24,6 +25,10 @@ pub struct QueryRecord {
     pub mask: u32,
     pub source: u32,
     pub max_hits: u32,
+    pub exclude_id: u32,
+    pub exclude_generation: u32,
+    pub _pad_a: f32,
+    pub _pad_b: f32,
     pub origin: [f32; 3],
     pub _pad0: f32,
     pub direction: [f32; 3],
@@ -35,20 +40,21 @@ pub struct QueryRecord {
     pub half_extents: [f32; 3],
     pub _pad3: f32,
     pub orientation: [f32; 4],
-    pub _pad4: f32,
-    pub _pad5: f32,
-    pub _pad6: f32,
-    pub _pad7: f32,
 }
 
 impl QueryRecord {
     pub fn ray(origin: [f32; 3], direction: [f32; 3], max_t: f32, filter: &QueryFilter) -> Self {
+        let exclude = filter
+            .exclude
+            .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
         Self {
             kind: QUERY_RAY,
             filter_flags: filter_flags(filter),
             group: filter.group,
             mask: filter.mask,
             max_hits: filter.max_hits,
+            exclude_id: exclude.0,
+            exclude_generation: exclude.1,
             origin,
             direction,
             extent: max_t,
@@ -57,6 +63,9 @@ impl QueryRecord {
     }
 
     pub fn sphere(center: [f32; 3], radius: f32, filter: &QueryFilter) -> Self {
+        let exclude = filter
+            .exclude
+            .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
         Self {
             kind: QUERY_SPHERE,
             shape_kind: SHAPE_SPHERE,
@@ -64,6 +73,8 @@ impl QueryRecord {
             group: filter.group,
             mask: filter.mask,
             max_hits: filter.max_hits,
+            exclude_id: exclude.0,
+            exclude_generation: exclude.1,
             origin: center,
             extent: radius,
             radius,
@@ -72,6 +83,9 @@ impl QueryRecord {
     }
 
     pub fn cuboid(center: [f32; 3], half_extents: [f32; 3], filter: &QueryFilter) -> Self {
+        let exclude = filter
+            .exclude
+            .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
         Self {
             kind: QUERY_CUBOID,
             shape_kind: SHAPE_CUBOID,
@@ -79,6 +93,8 @@ impl QueryRecord {
             group: filter.group,
             mask: filter.mask,
             max_hits: filter.max_hits,
+            exclude_id: exclude.0,
+            exclude_generation: exclude.1,
             origin: center,
             half_extents,
             ..Self::zeroed()
@@ -109,6 +125,10 @@ impl QueryRecord {
         record.mask = filter.mask;
         record.source = source;
         record.max_hits = filter.max_hits;
+        if let Some(exclude) = filter.exclude {
+            record.exclude_id = exclude.id;
+            record.exclude_generation = exclude.generation;
+        }
         record.origin = start;
         record.direction = direction;
         record.extent = length;
@@ -166,7 +186,7 @@ pub struct QueryHitRecord {
     pub body_id: u32,
     pub body_generation: u32,
     pub distance: f32,
-    pub _pad0: u32,
+    pub collider_index: u32,
     pub point: [f32; 3],
     pub _pad1: f32,
     pub normal: [f32; 3],

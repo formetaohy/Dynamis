@@ -57,12 +57,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         second.inverse_mass == 0.0 && (second.flags & BODY_KINEMATIC) == 0u) {
         return;
     }
-    if (!body_world_intersects(first, second.collision_group, second.collision_mask)) {
-        return;
-    }
     let first_collider = colliders[first_slot];
     let second_collider = colliders[second_slot];
     if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+        return;
+    }
+    if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
         return;
     }
     let first_time = sweep_retreat(first, first_collider, second, second_collider);

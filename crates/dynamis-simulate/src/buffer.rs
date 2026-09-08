@@ -111,6 +111,7 @@ pub(crate) struct StageBuffers {
     pub(crate) events: GpuBuffer,
     pub(crate) event_count: GpuBuffer,
     pub(crate) events_pack: GpuBuffer,
+    pub(crate) overflow_flags: GpuBuffer,
     pub(crate) commands: GpuBuffer,
     pub(crate) command_count: GpuBuffer,
     pub(crate) constraint_commands: GpuBuffer,
@@ -367,15 +368,20 @@ impl StageBuffers {
                 device,
                 "island parents",
                 state_bytes,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
             island_state: GpuBuffer::new(
                 device,
                 "island state",
                 state_bytes,
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             ),
-            wake_flags: GpuBuffer::new(device, "wake flags", state_bytes, BufferUsages::STORAGE),
+            wake_flags: GpuBuffer::new(
+                device,
+                "wake flags",
+                state_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            ),
             constraints: GpuBuffer::new(
                 device,
                 "constraints",
@@ -532,6 +538,12 @@ impl StageBuffers {
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
+            overflow_flags: GpuBuffer::new(
+                device,
+                "overflow flags",
+                counter_bytes,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            ),
             commands: GpuBuffer::new(
                 device,
                 "body commands",
@@ -618,5 +630,6 @@ impl StageBuffers {
         self.constraint_joint_count.write(queue, idle);
         self.joint_count.write(queue, idle);
         self.event_count.write(queue, idle);
+        self.overflow_flags.write(queue, &[0u8; 12]);
     }
 }

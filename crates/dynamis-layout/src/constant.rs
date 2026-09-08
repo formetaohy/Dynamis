@@ -10,6 +10,7 @@ pub const COMMAND_SLEEP: u32 = 8;
 pub const COMMAND_WAKE: u32 = 9;
 pub const COMMAND_FORCE_AT_POINT: u32 = 10;
 pub const COMMAND_ANGULAR_IMPULSE: u32 = 11;
+pub const COMMAND_CONSTRAINT_PATCH: u32 = 12;
 
 pub const IMPULSE_AT_POINT: u32 = 1;
 
@@ -25,6 +26,12 @@ pub const PATCH_GROUP: u32 = 256;
 pub const PATCH_MASK: u32 = 512;
 pub const PATCH_KINEMATIC: u32 = 1024;
 pub const PATCH_CCD: u32 = 2048;
+pub const PATCH_DYNAMICS: u32 = 4096;
+
+pub const NO_COLLISION_FILTER: u32 = u32::MAX;
+
+pub const OVERFLOW_PAIRS: u32 = 0;
+pub const OVERFLOW_EVENTS: u32 = 1;
 
 pub const SHAPE_NONE: u32 = 0;
 pub const SHAPE_SPHERE: u32 = 1;

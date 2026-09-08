@@ -15,15 +15,18 @@ impl MassProperties {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum MassSource {
+    Fixed(f32),
+    Density(f32),
+}
+
 pub fn compute_mass_properties(
     colliders: &[ColliderDesc],
-    mass: f32,
+    source: MassSource,
     com: Option<[f32; 3]>,
     bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
 ) -> MassProperties {
-    if mass <= 0.0 {
-        return MassProperties::zeroed();
-    }
     let solid = colliders
         .iter()
         .filter(|collider| !collider.sensor && !matches!(collider.shape, Shape::Plane))
@@ -31,19 +34,38 @@ pub fn compute_mass_properties(
     if solid.is_empty() {
         return MassProperties::zeroed();
     }
-    let count = solid.len() as f32;
+    let volumes = solid
+        .iter()
+        .map(|collider| shape_volume(&collider.shape, collider.scale, bounds(&collider.shape)))
+        .collect::<Vec<_>>();
+    let total_volume = volumes.iter().sum::<f32>();
+    if total_volume <= 0.0 {
+        return MassProperties::zeroed();
+    }
+    let mass = match source {
+        MassSource::Fixed(mass) => mass,
+        MassSource::Density(density) => density * total_volume,
+    };
+    if mass <= 0.0 {
+        return MassProperties::zeroed();
+    }
     let com = com.unwrap_or_else(|| {
         let mut sum = [0.0f32; 3];
-        for collider in &solid {
-            sum[0] += collider.offset[0];
-            sum[1] += collider.offset[1];
-            sum[2] += collider.offset[2];
+        for (index, collider) in solid.iter().enumerate() {
+            let weight = volumes[index];
+            sum[0] += collider.offset[0] * weight;
+            sum[1] += collider.offset[1] * weight;
+            sum[2] += collider.offset[2] * weight;
         }
-        [sum[0] / count, sum[1] / count, sum[2] / count]
+        [
+            sum[0] / total_volume,
+            sum[1] / total_volume,
+            sum[2] / total_volume,
+        ]
     });
     let mut inertia = [0.0f32; 6];
-    for collider in &solid {
-        let shape_mass = mass / count;
+    for (index, collider) in solid.iter().enumerate() {
+        let shape_mass = mass * volumes[index] / total_volume;
         let local = analytic_inertia(&collider.shape, shape_mass, bounds(&collider.shape));
         let scaled = inertia_scale(local, collider.scale);
         let rotated = inertia_rotate(scaled, collider.rotation);
@@ -64,6 +86,43 @@ pub fn compute_mass_properties(
         com,
         inverse_inertia: inertia_inverse(inertia),
     }
+}
+
+pub fn solid_volume_of(
+    colliders: &[ColliderDesc],
+    bounds: &impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+) -> f32 {
+    colliders
+        .iter()
+        .filter(|collider| !collider.sensor && !matches!(collider.shape, Shape::Plane))
+        .map(|collider| shape_volume(&collider.shape, collider.scale, bounds(&collider.shape)))
+        .sum()
+}
+
+pub fn shape_volume(shape: &Shape, scale: [f32; 3], bounds: Option<([f32; 3], [f32; 3])>) -> f32 {
+    let base = match *shape {
+        Shape::Sphere { radius } => 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius,
+        Shape::Cuboid { half_extents } => 8.0 * half_extents[0] * half_extents[1] * half_extents[2],
+        Shape::Capsule {
+            radius,
+            half_height,
+        } => std::f32::consts::PI * radius * radius * (4.0 / 3.0 * radius + 2.0 * half_height),
+        Shape::Cylinder {
+            radius,
+            half_height,
+        } => std::f32::consts::PI * radius * radius * 2.0 * half_height,
+        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => {
+            let (min, max) = bounds.expect("world geometry volume requires bounds");
+            let extent = [
+                (max[0] - min[0]).max(0.0),
+                (max[1] - min[1]).max(0.0),
+                (max[2] - min[2]).max(0.0),
+            ];
+            extent[0] * extent[1] * extent[2]
+        }
+        Shape::Plane => 0.0,
+    };
+    base * scale[0] * scale[1] * scale[2]
 }
 
 fn analytic_inertia(shape: &Shape, mass: f32, bounds: Option<([f32; 3], [f32; 3])>) -> [f32; 6] {

@@ -18,7 +18,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (body_is_dynamic(body) && (body.flags & BODY_SLEEPING) == 0u) {
         let speed = length(body.velocity);
         let spin = length(body.angular_velocity);
-        if (speed > params.sleep_velocity || spin > params.sleep_angular_velocity) {
+        let sleep_velocity = select(params.sleep_velocity, body.sleep_velocity_override, body.sleep_velocity_override > 0.0);
+        let sleep_angular_velocity = select(params.sleep_angular_velocity, body.sleep_angular_velocity_override, body.sleep_angular_velocity_override > 0.0);
+        if (speed > sleep_velocity || spin > sleep_angular_velocity) {
             atomicMax(&island_state[root], ISLAND_ACTIVE);
         }
     }

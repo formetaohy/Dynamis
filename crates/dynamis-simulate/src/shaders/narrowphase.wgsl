@@ -15,15 +15,6 @@ fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).normal = normal;
 }
 
-fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
-    let count = (*contact).point_count;
-    if (count >= CONTACT_MAX_POINTS) {
-        return;
-    }
-    (*contact).points[count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, 0.0);
-    (*contact).point_count = count + 1u;
-}
-
 fn pair_joined(first_body: u32, second_body: u32) -> bool {
     let count = joint_count[0];
     if (count == 0u) {
@@ -508,16 +499,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (body_is_static(first) && body_is_static(second)) {
         return;
     }
-    if (!body_world_intersects(first, second.collision_group, second.collision_mask)) {
+    let first_collider = colliders[first_slot];
+    let second_collider = colliders[second_slot];
+    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+        return;
+    }
+    if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
         return;
     }
     if (pair_joined(first_body_slot, second_body_slot)) {
-        return;
-    }
-    let first_collider = colliders[first_slot];
-    let second_collider = colliders[second_slot];
-
-    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
         return;
     }
     var contact: Contact;
@@ -539,7 +529,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (hit.distance <= 0.0) {
                 contact_emit(&contact, hit.normal);
                 generated = true;
-                manifold_from_hit(&contact, hit);
+                if (!scene_convex_manifold(first_collider.source, first_collider.scale, world_second, &contact)) {
+                    manifold_from_hit(&contact, hit);
+                }
             }
         }
     } else if (second_world_geom) {
@@ -555,8 +547,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (hit.distance <= 0.0) {
                 contact_emit(&contact, -hit.normal);
                 generated = true;
-                let flipped = ShapeHit(hit.distance, hit.point, -hit.normal);
-                manifold_from_hit(&contact, flipped);
+                var flipped: Contact;
+                if (scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &flipped)) {
+                    contact = flipped;
+                    contact.normal = -contact.normal;
+                } else {
+                    let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
+                    manifold_from_hit(&contact, reversed_hit);
+                }
             }
         }
     } else if (scaled_shape(first_collider) || scaled_shape(second_collider)) {
@@ -566,7 +564,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (hit.distance <= 0.0) {
             contact_emit(&contact, hit.normal);
             generated = true;
-            manifold_from_hit(&contact, hit);
+            if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
+                manifold_from_hit(&contact, hit);
+            }
+        }
+    } else if (first_collider.kind == SHAPE_CYLINDER || first_collider.kind == SHAPE_HULL || second_collider.kind == SHAPE_CYLINDER || second_collider.kind == SHAPE_HULL) {
+        let world_first = world_collider(first, first_collider);
+        let world_second = world_collider(second, second_collider);
+        let hit = convex_hit(world_first, world_second);
+        if (hit.distance <= 0.0) {
+            contact_emit(&contact, hit.normal);
+            generated = true;
+            if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
+                manifold_from_hit(&contact, hit);
+            }
         }
     } else {
         let shape_a = first_collider.kind;
@@ -604,31 +615,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
             contact = capsule_capsule(first, first_collider, second, second_collider);
             generated = true;
-        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CUBOID) {
-            let swapped = box_capsule(second, second_collider, first, first_collider);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_SPHERE) {
-            let swapped = sphere_capsule(second, second_collider, first, first_collider);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CAPSULE) {
-            contact = capsule_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CYLINDER && shape_b == SHAPE_CYLINDER) {
-            contact = capsule_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CYLINDER) {
-            contact = capsule_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CYLINDER) {
-            contact = box_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CYLINDER) {
-            contact = sphere_capsule(first, first_collider, second, second_collider);
-            generated = true;
         } else {
             let world_first = world_collider(first, first_collider);
             let world_second = world_collider(second, second_collider);
@@ -636,7 +622,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (hit.distance <= 0.0) {
                 contact_emit(&contact, hit.normal);
                 generated = true;
-                manifold_from_hit(&contact, hit);
+                if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
+                    manifold_from_hit(&contact, hit);
+                }
             }
         }
     }
@@ -652,6 +640,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     contact.second_generation = second.generation;
     contact.friction = material_combine(first_collider.friction, second_collider.friction, params.friction_combine);
     contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
+    contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);
+    contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
     if (contact.point_count > 0u) {
         contacts_raw[index] = contact;
         contact_valid[index] = 1u;

@@ -22,7 +22,7 @@ pub(crate) struct ShapePool {
     uploaded_triangles: usize,
     uploaded_nodes: usize,
 }
-
+#[derive(Clone, Copy)]
 pub(crate) struct ShapeSourceRecordStorage {
     pub kind: u32,
     pub vertex_offset: u32,
@@ -55,7 +55,66 @@ impl ShapePool {
     }
 
     pub fn record(&self, handle: ShapeSourceHandle) -> &ShapeSourceRecordStorage {
+        assert!(
+            (handle.id as usize) < self.records.len(),
+            "shape source handle is out of range"
+        );
+        assert!(
+            self.generations[handle.id as usize] == handle.generation,
+            "shape source handle is stale"
+        );
+        assert!(
+            self.records[handle.id as usize].kind != 0,
+            "shape source handle is not alive"
+        );
         &self.records[handle.id as usize]
+    }
+
+    pub fn remove(&mut self, handle: ShapeSourceHandle) {
+        let _ = self.record(handle);
+        let id = handle.id as usize;
+        self.generations[id] += 1;
+        self.records[id].kind = 0;
+        self.free_ids.push(handle.id);
+    }
+
+    pub fn update_mesh(
+        &mut self,
+        handle: ShapeSourceHandle,
+        vertices: &[[f32; 3]],
+        triangles: &[[u32; 3]],
+    ) {
+        let record_index = handle.id as usize;
+        {
+            let record = self.record(handle);
+            assert!(
+                vertices.len() as u32 == record.vertex_count
+                    && triangles.len() as u32 == record.triangle_count,
+                "shape update must keep the exact vertex and triangle counts"
+            );
+        }
+        let node_offset = self.records[record_index].node_offset as usize;
+        let node_capacity = self.records[record_index].node_count as usize;
+        let nodes = build_bvh(vertices, triangles);
+        assert!(
+            nodes.len() <= node_capacity,
+            "shape update BVH exceeds the original node capacity"
+        );
+        for (index, vertex) in vertices.iter().enumerate() {
+            self.vertices[self.records[record_index].vertex_offset as usize + index] =
+                [vertex[0], vertex[1], vertex[2], 0.0];
+        }
+        for (index, triangle) in triangles.iter().enumerate() {
+            self.triangles[self.records[record_index].triangle_offset as usize + index] =
+                [triangle[0], triangle[1], triangle[2], 0];
+        }
+        for (index, node) in nodes.iter().enumerate() {
+            self.nodes[node_offset + index] = *node;
+        }
+        let (bounds_min, bounds_max) = bounds_of(vertices);
+        let record = &mut self.records[record_index];
+        record.node_count = nodes.len() as u32;
+        record.bounds = (bounds_min, bounds_max);
     }
 
     pub fn allocate(
@@ -69,14 +128,7 @@ impl ShapePool {
             .pop()
             .expect("shape source capacity exhausted");
         self.generations[id as usize] += 1;
-        let mut bounds_min = [f32::MAX; 3];
-        let mut bounds_max = [f32::MIN; 3];
-        for vertex in vertices {
-            for axis in 0..3 {
-                bounds_min[axis] = bounds_min[axis].min(vertex[axis]);
-                bounds_max[axis] = bounds_max[axis].max(vertex[axis]);
-            }
-        }
+        let (bounds_min, bounds_max) = bounds_of(vertices);
         let vertex_offset = self.vertices.len() as u32;
         let triangle_offset = self.triangles.len() as u32;
         self.vertices
@@ -179,6 +231,64 @@ impl ShapePool {
         self.uploaded_triangles = 0;
         self.uploaded_nodes = 0;
     }
+
+    pub fn upload_update(
+        &mut self,
+        queue: &wgpu::Queue,
+        records_buffer: &dynamis_gpu::GpuBuffer,
+        vertices_buffer: &dynamis_gpu::GpuBuffer,
+        triangles_buffer: &dynamis_gpu::GpuBuffer,
+        nodes_buffer: &dynamis_gpu::GpuBuffer,
+        handle: dynamis_model::ShapeSourceHandle,
+    ) {
+        self.upload_pending(
+            queue,
+            records_buffer,
+            vertices_buffer,
+            triangles_buffer,
+            nodes_buffer,
+        );
+        let record = self.records[handle.id as usize];
+        if record.vertex_count > 0 {
+            let start = record.vertex_offset as usize;
+            let end = start + record.vertex_count as usize;
+            vertices_buffer.write_at(
+                queue,
+                (record.vertex_offset as u64) * 16,
+                bytemuck::cast_slice(&self.vertices[start..end]),
+            );
+        }
+        if record.triangle_count > 0 {
+            let start = record.triangle_offset as usize;
+            let end = start + record.triangle_count as usize;
+            triangles_buffer.write_at(
+                queue,
+                (record.triangle_offset as u64) * 16,
+                bytemuck::cast_slice(&self.triangles[start..end]),
+            );
+        }
+        if record.node_count > 0 {
+            let start = record.node_offset as usize;
+            let end = start + record.node_count as usize;
+            nodes_buffer.write_at(
+                queue,
+                (record.node_offset as u64) * std::mem::size_of::<BvhNodeRecord>() as u64,
+                bytemuck::cast_slice(&self.nodes[start..end]),
+            );
+        }
+    }
+}
+
+fn bounds_of(vertices: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
+    let mut bounds_min = [f32::MAX; 3];
+    let mut bounds_max = [f32::MIN; 3];
+    for vertex in vertices {
+        for axis in 0..3 {
+            bounds_min[axis] = bounds_min[axis].min(vertex[axis]);
+            bounds_max[axis] = bounds_max[axis].max(vertex[axis]);
+        }
+    }
+    (bounds_min, bounds_max)
 }
 
 fn build_bvh(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<BvhNodeRecord> {

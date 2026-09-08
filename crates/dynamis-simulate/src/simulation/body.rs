@@ -2,8 +2,8 @@ use super::Simulation;
 use bytemuck::Zeroable;
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY, PATCH_CCD,
-    PATCH_COLLIDER, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_VELOCITY, RigidBodyRecord,
+    PATCH_COLLIDER, PATCH_DYNAMICS, PATCH_GROUP, PATCH_KINEMATIC, PATCH_MASK, PATCH_MASS,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, RigidBodyRecord,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, MAX_COLLIDERS_PER_BODY, MassProperties, Shape,
@@ -24,16 +24,28 @@ impl Simulation {
         self.index_of[id as usize] = slot;
         self.alive.push(handle);
         self.validate_world_geometry(&desc);
+        let effective_mass = desc.effective_mass(|shape| self.shape_bounds(shape));
+        let mut spawn_desc = desc.clone();
+        spawn_desc.mass = effective_mass;
         self.masses.resize(self.alive.len(), 1.0);
-        self.masses[id as usize] = desc.mass;
+        self.masses[id as usize] = effective_mass;
         self.com_overrides.resize(self.alive.len(), None);
         self.com_overrides[id as usize] = desc.com;
         self.inertia_overrides.resize(self.alive.len(), None);
         self.inertia_overrides[id as usize] = desc.inertia;
+        self.dynamics
+            .resize(self.alive.len(), super::BodyDynamics::defaults());
+        self.dynamics[id as usize] = super::BodyDynamics::from_desc(&desc);
         self.collider_descs.resize(self.alive.len(), Vec::new());
         self.collider_descs[id as usize] = desc.colliders.clone();
         let mass = self.mass_properties_of(id as usize);
-        let body = RigidBodyRecord::build(&desc, handle.id, handle.generation, mass);
+        let body = RigidBodyRecord::build(
+            &spawn_desc,
+            handle.id,
+            handle.generation,
+            mass,
+            &self.config,
+        );
         let colliders = self.collider_block(&desc);
         self.record_state(id as usize, &desc, &body);
         self.commands
@@ -55,6 +67,7 @@ impl Simulation {
         }
         self.states[id] = Some(BodyState {
             position: desc.position,
+            previous_position: desc.position,
             orientation: desc.orientation,
             velocity: desc.velocity,
             angular_velocity: desc.angular_velocity,
@@ -176,6 +189,80 @@ impl Simulation {
         self.schedule_patch(handle, PATCH_MASS, record);
     }
 
+    pub fn set_linear_damping(&mut self, handle: BodyHandle, damping: f32) {
+        assert!(damping >= 0.0, "damping must be non-negative");
+        self.validate(handle);
+        self.dynamics[handle.id as usize].linear_damping = Some(damping);
+        let record = self.dynamics_record(handle);
+        self.schedule_patch(handle, PATCH_DYNAMICS, record);
+    }
+
+    pub fn set_angular_damping(&mut self, handle: BodyHandle, damping: f32) {
+        assert!(damping >= 0.0, "angular damping must be non-negative");
+        self.validate(handle);
+        self.dynamics[handle.id as usize].angular_damping = Some(damping);
+        let record = self.dynamics_record(handle);
+        self.schedule_patch(handle, PATCH_DYNAMICS, record);
+    }
+
+    pub fn set_gravity_scale(&mut self, handle: BodyHandle, gravity_scale: f32) {
+        self.validate(handle);
+        self.dynamics[handle.id as usize].gravity_scale = gravity_scale;
+        let record = self.dynamics_record(handle);
+        self.schedule_patch(handle, PATCH_DYNAMICS, record);
+    }
+
+    pub fn set_sleep_thresholds(
+        &mut self,
+        handle: BodyHandle,
+        velocity: f32,
+        angular_velocity: f32,
+    ) {
+        assert!(velocity >= 0.0, "sleep velocity must be non-negative");
+        assert!(
+            angular_velocity >= 0.0,
+            "sleep angular velocity must be non-negative"
+        );
+        self.validate(handle);
+        let dynamics = &mut self.dynamics[handle.id as usize];
+        dynamics.sleep_velocity = Some(velocity);
+        dynamics.sleep_angular_velocity = Some(angular_velocity);
+        let record = self.dynamics_record(handle);
+        self.schedule_patch(handle, PATCH_DYNAMICS, record);
+    }
+
+    pub fn set_density(&mut self, handle: BodyHandle, density: f32) {
+        assert!(density >= 0.0, "density must be non-negative");
+        self.validate(handle);
+        let desc = &self.build_desc(handle.id as usize);
+        let mass = density
+            * dynamis_model::solid_volume_of(&desc.colliders, &|shape| self.shape_bounds(shape));
+        self.masses[handle.id as usize] = mass;
+        let mass_properties = self.mass_properties_of(handle.id as usize);
+        let mut record = RigidBodyRecord::zeroed();
+        record.inverse_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
+        record.com = mass_properties.com;
+        record.inverse_inertia_body = mass_properties.inverse_inertia;
+        if let Some(state) = self.states[handle.id as usize].as_mut() {
+            state.inverse_mass = record.inverse_mass;
+            state.com = mass_properties.com;
+        }
+        self.schedule_patch(handle, PATCH_MASS, record);
+    }
+
+    fn dynamics_record(&self, handle: BodyHandle) -> RigidBodyRecord {
+        let dynamics = self.dynamics[handle.id as usize];
+        let mut record = RigidBodyRecord::zeroed();
+        record.linear_damping = dynamics.linear_damping.unwrap_or(self.config.damping);
+        record.angular_damping = dynamics
+            .angular_damping
+            .unwrap_or(self.config.angular_damping);
+        record.gravity_scale = dynamics.gravity_scale;
+        record.sleep_velocity_override = dynamics.sleep_velocity.unwrap_or(-1.0);
+        record.sleep_angular_velocity_override = dynamics.sleep_angular_velocity.unwrap_or(-1.0);
+        record
+    }
+
     fn inverse_mass_of(&self, handle: BodyHandle) -> f32 {
         let mass = self.masses[handle.id as usize];
         if mass > 0.0 { 1.0 / mass } else { 0.0 }
@@ -229,6 +316,10 @@ impl Simulation {
                 restitution: existing.restitution,
                 scale: existing.scale,
                 sensor: existing.sensor,
+                collision_group: existing.collision_group,
+                collision_mask: existing.collision_mask,
+                rolling_friction: existing.rolling_friction,
+                spin_friction: existing.spin_friction,
             },
         );
     }

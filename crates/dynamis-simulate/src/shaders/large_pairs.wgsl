@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> pair_keys_lo: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pair_count: atomic<u32>;
 @group(0) @binding(6) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(7) var<storage, read_write> overflow: array<atomic<u32>>;
 
 fn emit_pair(first: u32, second: u32) {
     if (first == second) {
@@ -16,6 +17,8 @@ fn emit_pair(first: u32, second: u32) {
     if (slot < arrayLength(&pair_keys_lo)) {
         pair_keys_lo[slot] = b;
         pair_keys_hi[slot] = a;
+    } else {
+        atomicAdd(&overflow[0u], 1u);
     }
 }
 

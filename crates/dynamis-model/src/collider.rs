@@ -9,6 +9,10 @@ pub struct ColliderDesc {
     pub restitution: f32,
     pub scale: [f32; 3],
     pub sensor: bool,
+    pub collision_group: Option<u32>,
+    pub collision_mask: Option<u32>,
+    pub rolling_friction: f32,
+    pub spin_friction: f32,
 }
 
 impl ColliderDesc {
@@ -21,6 +25,10 @@ impl ColliderDesc {
             restitution: 0.0,
             scale: [1.0; 3],
             sensor: false,
+            collision_group: None,
+            collision_mask: None,
+            rolling_friction: 0.0,
+            spin_friction: 0.0,
         }
     }
 
@@ -66,6 +74,31 @@ impl ColliderDesc {
 
     pub fn sensor(mut self, sensor: bool) -> Self {
         self.sensor = sensor;
+        self
+    }
+
+    pub fn collision_group(mut self, group: u32) -> Self {
+        self.collision_group = Some(group);
+        self
+    }
+
+    pub fn collision_mask(mut self, mask: u32) -> Self {
+        self.collision_mask = Some(mask);
+        self
+    }
+
+    pub fn rolling_friction(mut self, rolling_friction: f32) -> Self {
+        assert!(
+            rolling_friction >= 0.0,
+            "rolling friction must be non-negative"
+        );
+        self.rolling_friction = rolling_friction;
+        self
+    }
+
+    pub fn spin_friction(mut self, spin_friction: f32) -> Self {
+        assert!(spin_friction >= 0.0, "spin friction must be non-negative");
+        self.spin_friction = spin_friction;
         self
     }
 }

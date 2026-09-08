@@ -1,5 +1,5 @@
 use super::Simulation;
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord};
+use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord, QueryResultHeader};
 use dynamis_model::{QueryFilter, Shape};
 use dynamis_query::{QueryHandle, QueryHit};
 
@@ -88,6 +88,54 @@ impl Simulation {
     pub fn query_overflow(&self, handle: QueryHandle) -> bool {
         self.validate_query(handle);
         self.query_pool.overflow(handle.slot as usize)
+    }
+
+    pub fn flush_queries(&mut self) {
+        if self.queries.is_empty() {
+            return;
+        }
+        let step = self.step_index;
+        let queue = self.gpu.queue();
+        let device = self.gpu.device();
+        self.buffers
+            .queries
+            .write(queue, bytemuck::cast_slice(&self.queries));
+        let header_bytes = self.query_pool.capacity() * std::mem::size_of::<QueryResultHeader>();
+        self.buffers
+            .query_headers
+            .write(queue, &vec![0u8; header_bytes]);
+        let slots = self.queries.iter().map(|query| query.slot).collect();
+        self.query_pool.mark_batch(step, slots);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dynamis query flush encoder"),
+        });
+        crate::stage::record_queries(&self.stages, &mut encoder, self.queries.len() as u32);
+        encoder.copy_buffer_to_buffer(
+            self.buffers.query_headers.buffer(),
+            0,
+            self.buffers.query_pack.buffer(),
+            0,
+            header_bytes as u64,
+        );
+        encoder.copy_buffer_to_buffer(
+            self.buffers.query_hits.buffer(),
+            0,
+            self.buffers.query_pack.buffer(),
+            header_bytes as u64,
+            self.buffers.query_hits.size(),
+        );
+        let stale_queries = self.buffers.queries_readback.enqueue(
+            device,
+            &mut encoder,
+            self.buffers.query_pack.buffer(),
+            step,
+        );
+        let _ = stale_queries;
+        queue.submit([encoder.finish()]);
+        self.buffers.queries_readback.arm();
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        self.collect_readbacks();
+        self.queries.clear();
     }
 
     fn validate_query(&self, handle: QueryHandle) {

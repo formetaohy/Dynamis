@@ -1,6 +1,6 @@
 # Examples
 
-Each example is a runnable Bevy app. Run any of them with:
+Run any of them with:
 
 ```bash
 cargo run --example <name> --release

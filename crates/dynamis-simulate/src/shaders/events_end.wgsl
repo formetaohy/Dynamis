@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read> contact_count: array<u32>;
 @group(0) @binding(4) var<storage, read_write> events: array<ContactEvent>;
 @group(0) @binding(5) var<storage, read_write> event_count: atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> overflow: array<atomic<u32>>;
 
 fn current_find(key_hi: u32, key_lo: u32) -> bool {
     var lo = 0u;
@@ -35,5 +36,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (slot < arrayLength(&events)) {
         let point = prev.points[0].position;
         events[slot] = ContactEvent(EVENT_END, prev.sensor, prev.first_body_id, prev.first_generation, prev.second_body_id, prev.second_generation, point, 0.0, prev.normal, 0.0);
+    } else {
+        atomicAdd(&overflow[1u], 1u);
     }
 }

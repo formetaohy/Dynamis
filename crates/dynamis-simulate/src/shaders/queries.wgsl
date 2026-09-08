@@ -206,6 +206,9 @@ fn overlap_world_geom(query: Query, body: RigidBody, collider: Collider, out_nor
 }
 
 fn body_passes(body: RigidBody, collider: Collider, query: Query) -> bool {
+    if (query.exclude_id != NO_BODY && body.body_id == query.exclude_id && body.generation == query.exclude_generation) {
+        return false;
+    }
     if ((query.filter_flags & FILTER_IGNORE_SENSORS) != 0u && (collider.flags & COLLIDER_SENSOR) != 0u) {
         return false;
     }
@@ -218,7 +221,7 @@ fn body_passes(body: RigidBody, collider: Collider, query: Query) -> bool {
     if ((query.filter_flags & FILTER_IGNORE_KINEMATIC) != 0u && (body.flags & BODY_KINEMATIC) != 0u) {
         return false;
     }
-    if (query.group != 0u && !body_world_intersects(body, query.group, query.mask)) {
+    if (!collider_filter_query(query, body, collider)) {
         return false;
     }
     if (collider.kind == SHAPE_NONE) {
@@ -248,7 +251,7 @@ fn query_world_aabb(query: Query) -> Aabb {
     return world_aabb_of(shape);
 }
 
-fn emit_hit(query: Query, body: RigidBody, collider: Collider, distance: f32, point: vec3f, normal: vec3f) {
+fn emit_hit(query: Query, body: RigidBody, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
     var slot = 0u;
     loop {
         let current = atomicLoad(&query_headers[query.slot].count);
@@ -264,7 +267,7 @@ fn emit_hit(query: Query, body: RigidBody, collider: Collider, distance: f32, po
     }
     let base = query.slot * MAX_HITS_PER_QUERY;
     if (base + slot < arrayLength(&query_hits)) {
-        query_hits[base + slot] = QueryHit(body.body_id, body.generation, distance, 0u, point, 0.0, normal, 0.0);
+        query_hits[base + slot] = QueryHit(body.body_id, body.generation, distance, collider_index, point, 0.0, normal, 0.0);
     }
 }
 
@@ -375,7 +378,7 @@ fn main(
             }
         }
         if (hit.distance < NO_HIT) {
-            emit_hit(query, body, collider, hit.distance, hit.point, hit.normal);
+            emit_hit(query, body, collider, collider_slot, hit.distance, hit.point, hit.normal);
         }
         candidate_index = candidate_index + WORKGROUP_SIZE;
     }

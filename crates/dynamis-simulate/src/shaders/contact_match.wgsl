@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read> contact_count: array<u32>;
 @group(0) @binding(4) var<storage, read_write> events: array<ContactEvent>;
 @group(0) @binding(5) var<storage, read_write> event_count: atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> overflow: array<atomic<u32>>;
 
 const NORMAL_MATCH: f32 = 0.7;
 
@@ -32,6 +33,8 @@ fn emit_event(kind: u32, sensor: u32, first_id: u32, first_generation: u32, seco
     let slot = atomicAdd(&event_count, 1u);
     if (slot < arrayLength(&events)) {
         events[slot] = ContactEvent(kind, sensor, first_id, first_generation, second_id, second_generation, point, 0.0, normal, 0.0);
+    } else {
+        atomicAdd(&overflow[1u], 1u);
     }
 }
 

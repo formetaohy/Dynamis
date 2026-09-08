@@ -80,6 +80,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if ((command.extra & PATCH_CCD) != 0u) {
                 body.flags = (body.flags & ~BODY_CCD) | (command.body.flags & BODY_CCD);
             }
+            if ((command.extra & PATCH_DYNAMICS) != 0u) {
+                body.linear_damping = command.body.linear_damping;
+                body.angular_damping = command.body.angular_damping;
+                body.gravity_scale = command.body.gravity_scale;
+                body.sleep_velocity_override = command.body.sleep_velocity_override;
+                body.sleep_angular_velocity_override = command.body.sleep_angular_velocity_override;
+            }
             if ((command.extra & PATCH_COLLIDER) != 0u) {
                 body.com = command.body.com;
                 body.inverse_inertia_body = command.body.inverse_inertia_body;

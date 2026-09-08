@@ -27,11 +27,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let q = body.orientation;
-    let linear_damping = 1.0 / (1.0 + params.damping * params.dt);
-    let angular_damping = 1.0 / (1.0 + params.angular_damping * params.dt);
+    let linear_damping = 1.0 / (1.0 + body.linear_damping * params.dt);
+    let angular_damping = 1.0 / (1.0 + body.angular_damping * params.dt);
     if (!kinematic) {
         body.velocity =
-            body.velocity + (params.gravity.xyz + body.force * body.inverse_mass) * params.dt;
+            body.velocity + (params.gravity.xyz * body.gravity_scale + body.force * body.inverse_mass) * params.dt;
         body.angular_velocity =
             body.angular_velocity + apply_inverse_inertia(body, body.torque * params.dt);
     }

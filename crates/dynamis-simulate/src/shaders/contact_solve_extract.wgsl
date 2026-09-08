@@ -26,8 +26,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= contact_count[0]) {
         return;
     }
-    let contact = contacts[index];
-    if (contact.point_count == 0u || contact.sensor == 1u) {
+    let contact = contacts[index];    if (contact.point_count == 0u || contact.sensor == 1u) {
         contact_deltas[index * 4u] = vec4f(0.0);
         contact_deltas[index * 4u + 1u] = vec4f(0.0);
         contact_deltas[index * 4u + 2u] = vec4f(0.0);
@@ -48,7 +47,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let normal = contact.normal;
     let tangents = make_tangents(normal);
+    var normal_accum = 0.0;
+    var contact_updated = false;
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
+        contact_updated = true;
+        normal_accum = normal_accum + contact.points[point_index].accumulated_normal;
         let position = contact.points[point_index].position;
         let velocity = relative_velocity(first, second, position, position);
         let normal_speed = dot(velocity, normal);
@@ -89,6 +92,31 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             updated_contact.points[point_index].accumulated_tangent_1 = accumulated_tangent_1;
             updated_contact.points[point_index].accumulated_tangent_2 = accumulated_tangent_2;
             contacts[index] = updated_contact;
+        }
+    }
+    if (contact_updated) {
+        let rel_spin = second.angular_velocity - first.angular_velocity;
+        let planar_spin = rel_spin - normal * dot(rel_spin, normal);
+        let planar_len = length(planar_spin);
+        if (planar_len > 1e-6) {
+            let axis = planar_spin / planar_len;
+            let k = dot(axis, apply_inverse_inertia(first, axis)) + dot(axis, apply_inverse_inertia(second, axis));
+            if (k > 0.0) {
+                let limit = contact.rolling_friction * normal_accum;
+                let applied = clamp(-planar_len / k, -limit, limit);
+                first.angular_velocity = first.angular_velocity - apply_inverse_inertia(first, axis * applied);
+                second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, axis * applied);
+            }
+        }
+        let twist = dot(rel_spin, normal);
+        if (abs(twist) > 1e-6) {
+            let k = dot(normal, apply_inverse_inertia(first, normal)) + dot(normal, apply_inverse_inertia(second, normal));
+            if (k > 0.0) {
+                let limit = contact.spin_friction * normal_accum;
+                let applied = clamp(-twist / k, -limit, limit);
+                first.angular_velocity = first.angular_velocity - apply_inverse_inertia(first, normal * applied);
+                second.angular_velocity = second.angular_velocity + apply_inverse_inertia(second, normal * applied);
+            }
         }
     }
     let delta_a = first.velocity - first_original.velocity;

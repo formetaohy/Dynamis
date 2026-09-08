@@ -1,4 +1,4 @@
-use dynamis_model::{BodyDesc, ColliderDesc, Shape, compute_mass_properties};
+use dynamis_model::{BodyDesc, ColliderDesc, MassSource, Shape, compute_mass_properties};
 
 fn inverse_mass(inv: [f32; 6], axis: usize) -> f32 {
     let xx = inv[0];
@@ -126,7 +126,7 @@ fn compute_mass_properties_distributes_mass_over_solids() {
         ColliderDesc::new(Shape::sphere(1.0)),
         ColliderDesc::new(Shape::sphere(1.0)).offset([0.0, 2.0, 1.0]),
     ];
-    let properties = compute_mass_properties(&colliders, 4.0, None, |_| None);
+    let properties = compute_mass_properties(&colliders, MassSource::Fixed(4.0), None, |_| None);
     assert_eq!(properties.com, [0.0, 1.0, 0.5]);
     assert!(properties.inverse_inertia.iter().all(|value| *value >= 0.0));
     assert!(properties.inverse_inertia[0] > 0.0);
@@ -135,7 +135,7 @@ fn compute_mass_properties_distributes_mass_over_solids() {
 #[test]
 fn scaled_sphere_inertia_uses_axial_transform() {
     let colliders = vec![ColliderDesc::new(Shape::sphere(1.0)).scale([2.0, 1.0, 1.0])];
-    let mass = compute_mass_properties(&colliders, 5.0, None, |_| None);
+    let mass = compute_mass_properties(&colliders, MassSource::Fixed(5.0), None, |_| None);
     let m = mass.inverse_inertia;
     let i = [
         1.0 / m[0],
@@ -161,4 +161,23 @@ fn scaled_sphere_inertia_uses_axial_transform() {
         m[1].abs() < 1e-6 && m[2].abs() < 1e-6,
         "scale keeps axes diagonal"
     );
+}
+
+#[test]
+fn density_source_scales_mass_and_inertia_by_volume() {
+    let colliders = vec![
+        ColliderDesc::new(Shape::sphere(0.5)),
+        ColliderDesc::new(Shape::sphere(1.0)).offset([0.0, 4.0, 0.0]),
+    ];
+    let properties = compute_mass_properties(&colliders, MassSource::Density(1.0), None, |_| None);
+    let small = 4.0 / 3.0 * std::f32::consts::PI * 0.125;
+    let large = 4.0 / 3.0 * std::f32::consts::PI * 1.0;
+    let total = small + large;
+    let expected_com_y = 4.0 * large / total;
+    assert!(
+        (properties.com[1] - expected_com_y).abs() < 1e-4,
+        "density must center at the volume centroid, got {}",
+        properties.com[1]
+    );
+    assert!((properties.com[0]).abs() < 1e-6);
 }

@@ -5,12 +5,12 @@ use crate::constant::{
     COMMAND_TORQUE, COMMAND_WAKE, IMPULSE_AT_POINT,
 };
 use bytemuck::{Pod, Zeroable};
-use dynamis_model::{BodyDesc, MassProperties};
+use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<RigidBodyRecord>() == 208);
-    assert!(size_of::<BodyCommandRecord>() == 608);
+    assert!(size_of::<RigidBodyRecord>() == 224);
+    assert!(size_of::<BodyCommandRecord>() == 624);
 };
 
 #[repr(C)]
@@ -25,6 +25,14 @@ pub struct RigidBodyRecord {
     pub _pad2: f32,
     pub angular_velocity: [f32; 3],
     pub _pad3: f32,
+    pub com: [f32; 3],
+    pub _pad_com: f32,
+    pub inverse_inertia_body: [f32; 6],
+    pub _pad_inertia: [f32; 2],
+    pub force: [f32; 3],
+    pub _pad7: f32,
+    pub torque: [f32; 3],
+    pub _pad8: f32,
     pub inverse_mass: f32,
     pub restitution: f32,
     pub friction: f32,
@@ -35,20 +43,22 @@ pub struct RigidBodyRecord {
     pub collision_group: u32,
     pub collision_mask: u32,
     pub sleep_timer: f32,
-    pub _pad4: u32,
-    pub _pad5: u32,
-    pub com: [f32; 3],
-    pub _pad_com: f32,
-    pub inverse_inertia_body: [f32; 6],
-    pub _pad_inertia: [f32; 2],
-    pub force: [f32; 3],
-    pub _pad7: f32,
-    pub torque: [f32; 3],
-    pub _pad8: f32,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub gravity_scale: f32,
+    pub sleep_velocity_override: f32,
+    pub sleep_angular_velocity_override: f32,
+    pub _pad_dynamics: f32,
 }
 
 impl RigidBodyRecord {
-    pub fn build(desc: &BodyDesc, body_id: u32, generation: u32, mass: MassProperties) -> Self {
+    pub fn build(
+        desc: &BodyDesc,
+        body_id: u32,
+        generation: u32,
+        mass: MassProperties,
+        config: &PhysicsConfig,
+    ) -> Self {
         let inverse_mass = desc.inverse_mass();
         Self {
             position: desc.position,
@@ -60,6 +70,14 @@ impl RigidBodyRecord {
             _pad2: 0.0,
             angular_velocity: desc.angular_velocity,
             _pad3: 0.0,
+            com: mass.com,
+            _pad_com: 0.0,
+            inverse_inertia_body: mass.inverse_inertia,
+            _pad_inertia: [0.0; 2],
+            force: [0.0; 3],
+            _pad7: 0.0,
+            torque: [0.0; 3],
+            _pad8: 0.0,
             inverse_mass,
             restitution: desc.colliders[0].restitution,
             friction: desc.colliders[0].friction,
@@ -70,16 +88,12 @@ impl RigidBodyRecord {
             collision_group: desc.collision_group,
             collision_mask: desc.collision_mask,
             sleep_timer: 0.0,
-            _pad4: 0,
-            _pad5: 0,
-            com: mass.com,
-            _pad_com: 0.0,
-            inverse_inertia_body: mass.inverse_inertia,
-            _pad_inertia: [0.0; 2],
-            force: [0.0; 3],
-            _pad7: 0.0,
-            torque: [0.0; 3],
-            _pad8: 0.0,
+            linear_damping: desc.linear_damping.unwrap_or(config.damping),
+            angular_damping: desc.angular_damping.unwrap_or(config.angular_damping),
+            gravity_scale: desc.gravity_scale,
+            sleep_velocity_override: desc.sleep_velocity.unwrap_or(-1.0),
+            sleep_angular_velocity_override: desc.sleep_angular_velocity.unwrap_or(-1.0),
+            _pad_dynamics: 0.0,
         }
     }
 }
