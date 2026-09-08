@@ -243,8 +243,14 @@ fn bucket_sort_groups_keys_and_values_stably() {
 }
 
 #[test]
-fn backend_never_gl() {
-    assert_ne!(shared().adapter_info().backend, Backend::Gl);
+fn adapter_uses_a_native_backend() {
+    assert!(
+        matches!(
+            shared().adapter_info().backend,
+            Backend::Dx12 | Backend::Metal | Backend::Vulkan
+        ),
+        "dynamis must never fall back to a legacy backend"
+    );
 }
 
 #[cfg(target_os = "windows")]

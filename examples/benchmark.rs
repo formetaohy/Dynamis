@@ -45,31 +45,62 @@ fn main() {
     }
     profiler.measure("wait", || sim.wait());
 
+    let mut gpu_frames = 0u64;
     for _ in 0..steps {
         profiler.measure("step", || sim.step(1.0 / 60.0));
+        gpu_frames += record_passes(&mut profiler, &sim);
     }
     profiler.measure("wait", || sim.wait());
+    gpu_frames += record_passes(&mut profiler, &sim);
     let total_wall = begin.elapsed();
 
     let step_phase = profiler.phase("step").expect("step samples exist");
     let wait_phase = profiler.phase("wait").expect("wait samples exist");
     let step_summary = step_phase.summary();
     let wait_summary = wait_phase.summary();
-    let wait_total = wait_phase.total();
 
     println!("{}", profiler.render());
-    let gpu_per_step = wait_total / 2.0;
-    println!("gpu  per step mean : {}", format_elapsed(gpu_per_step));
     println!("cpu  submit mean   : {}", format_elapsed(step_summary.mean));
     println!("cpu  submit p95    : {}", format_elapsed(step_summary.p95));
     println!("gpu  drain min     : {}", format_elapsed(wait_summary.min));
     println!("gpu  drain max     : {}", format_elapsed(wait_summary.max));
+    if gpu_frames == 0 {
+        println!("gpu  per pass      : unavailable, this device has no timestamp queries");
+    } else {
+        println!(
+            "gpu  per step mean : {}",
+            format_elapsed(
+                profiler
+                    .phase("gpu total")
+                    .expect("gpu totals exist")
+                    .summary()
+                    .mean
+            )
+        );
+        println!("                   (resolved from hardware timestamps over {gpu_frames} frames)");
+    }
     println!(
         "throughput  : {:.0} body-steps/s  simulated {:.1}s in {:.3}s",
         sim.count() as f64 * steps as f64 / total_wall.as_secs_f64(),
         steps as f64 / 60.0,
         total_wall.as_secs_f64(),
     );
+}
+
+/// Fold one step's resolved GPU pass durations into the profiler, returning how
+/// many pass reports were consumed.
+fn record_passes(profiler: &mut Profiler, sim: &Simulation) -> u64 {
+    let timings = sim.gpu_pass_timings();
+    if timings.is_empty() {
+        return 0;
+    }
+    let mut total = 0.0;
+    for timing in timings {
+        profiler.record(timing.label, timing.nanoseconds);
+        total += timing.nanoseconds;
+    }
+    profiler.record("gpu total", total);
+    1
 }
 
 fn format_elapsed(ns: f64) -> String {

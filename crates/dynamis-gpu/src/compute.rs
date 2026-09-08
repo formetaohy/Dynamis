@@ -1,8 +1,8 @@
 use wgpu::{
     BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BindingType, BufferBindingType, CommandEncoder, ComputePassDescriptor,
-    ComputePipeline as WgpuComputePipeline, ComputePipelineDescriptor, Device,
-    PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    ComputePassTimestampWrites, ComputePipeline as WgpuComputePipeline, ComputePipelineDescriptor,
+    Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 pub struct ComputeRecorder<'a> {
@@ -10,10 +10,18 @@ pub struct ComputeRecorder<'a> {
 }
 
 impl<'a> ComputeRecorder<'a> {
-    pub fn begin(encoder: &'a mut CommandEncoder, label: &str) -> Self {
+    pub fn begin(encoder: &'a mut CommandEncoder, label: &'a str) -> Self {
+        Self::begin_timed(encoder, label, None)
+    }
+
+    pub fn begin_timed(
+        encoder: &'a mut CommandEncoder,
+        label: &'a str,
+        timing: Option<ComputePassTimestampWrites<'a>>,
+    ) -> Self {
         let pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: Some(label),
-            timestamp_writes: None,
+            timestamp_writes: timing,
         });
         Self { pass }
     }

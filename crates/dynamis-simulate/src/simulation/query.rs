@@ -110,6 +110,7 @@ impl Simulation {
         if self.queries.is_empty() {
             return;
         }
+        self.gpu.assert_alive();
         self.collect_readbacks();
         let step = self.step_index;
         let queue = self.gpu.queue().clone();

@@ -6,14 +6,17 @@ use dynamis_model::{BodyHandle, BodyState};
 
 impl Simulation {
     pub fn poll(&mut self) {
+        self.gpu.assert_alive();
         self.collect_readbacks();
     }
 
     pub fn wait(&mut self) {
+        self.gpu.assert_alive();
         self.gpu
             .device()
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("device lost while awaiting readback");
+        self.gpu.assert_alive();
         self.collect_readbacks();
     }
 
@@ -106,6 +109,9 @@ impl Simulation {
         }
         for (step, bytes) in self.buffers.constraints_readback.poll(self.gpu.device()) {
             self.consume_constraints(step, &bytes);
+        }
+        for (_step, timings) in self.pipeline.poll_timings(self.gpu.device()) {
+            self.pass_timings = timings;
         }
     }
 

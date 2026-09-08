@@ -1,3 +1,5 @@
+//! Aggregation of CPU and GPU timing samples.
+
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +93,15 @@ impl Profiler {
         let elapsed = begin.elapsed().as_nanos() as f64;
         self.phases[index].samples.push(elapsed);
         result
+    }
+
+    pub fn record(&mut self, name: &'static str, nanoseconds: f64) {
+        assert!(
+            nanoseconds >= 0.0,
+            "a recorded duration cannot be negative: {name} = {nanoseconds}ns"
+        );
+        let index = self.index_or_push(name);
+        self.phases[index].samples.push(nanoseconds);
     }
 
     pub fn measure_with<R>(

@@ -1,3 +1,5 @@
+//! Reusable GPU sorts over `u32` keys.
+
 mod bucket;
 mod radix;
 

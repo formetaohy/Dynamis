@@ -1,3 +1,5 @@
+//! `f32` vector and quaternion kernels shared with the WGSL shaders.
+
 pub fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }

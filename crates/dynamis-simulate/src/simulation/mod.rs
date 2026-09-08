@@ -11,7 +11,7 @@ use crate::pipeline::Pipeline;
 use crate::query_pool::QueryPool;
 use crate::shape_pool::ShapePool;
 use crate::static_aabb;
-use dynamis_gpu::GpuContext;
+use dynamis_gpu::{GpuContext, GpuPassTiming};
 use dynamis_layout::{
     AabbRecord, BODY_SLEEPING, BodyCommandRecord, ColliderRecord, ConstraintCommandRecord,
     ConstraintRecord, Counter, QueryRecord, QueryResultHeader, RigidBodyRecord,
@@ -142,6 +142,7 @@ pub struct Simulation {
     accumulator: f32,
     time_scale: f32,
     sub_dt: f32,
+    pass_timings: Vec<GpuPassTiming>,
     buffers: WorldBuffers,
     pipeline: Pipeline,
     states: Vec<Option<BodyState>>,
@@ -212,6 +213,7 @@ impl Simulation {
             accumulator: 0.0,
             time_scale: 1.0,
             sub_dt: 1.0 / 60.0,
+            pass_timings: Vec::new(),
             buffers,
             pipeline,
             states: vec![None; capacity],

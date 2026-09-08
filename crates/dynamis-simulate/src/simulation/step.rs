@@ -1,5 +1,6 @@
 use super::Simulation;
 use crate::pipeline::FrameParams;
+use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{Counter, QueryResultHeader, SimParamsRecord};
 
 impl Simulation {
@@ -31,6 +32,7 @@ impl Simulation {
 
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
+        self.gpu.assert_alive();
         let step = self.step_index;
         self.collect_readbacks();
         let queue = self.gpu.queue().clone();
@@ -89,6 +91,7 @@ impl Simulation {
             label: Some("dynamis step encoder"),
         });
         self.pipeline.encode(&mut encoder, &self.buffers, &frame);
+        let stale_timings = self.pipeline.capture_timings(&mut encoder, step);
 
         let stale_bodies = self.buffers.bodies_readback.enqueue(
             &device,
@@ -109,6 +112,10 @@ impl Simulation {
         self.buffers.queries_readback.arm();
         self.buffers.events_readback.arm();
         self.buffers.constraints_readback.arm();
+        self.pipeline.arm_timings();
+        if let Some((_stale_step, timings)) = stale_timings {
+            self.pass_timings = timings;
+        }
         if let Some((stale_step, bytes)) = stale_bodies {
             self.consume_bodies(stale_step, &bytes);
         }
@@ -189,5 +196,15 @@ impl Simulation {
 
     fn island_rounds(&self) -> u32 {
         (self.capacity as u32).ilog2() + 1
+    }
+
+    /// Per-pass GPU durations of the most recently drained step.
+    pub fn gpu_pass_timings(&self) -> &[GpuPassTiming] {
+        &self.pass_timings
+    }
+
+    /// Whether this device can report pass timings.
+    pub fn gpu_timing_supported(&self) -> bool {
+        self.gpu.supports_pass_timing()
     }
 }

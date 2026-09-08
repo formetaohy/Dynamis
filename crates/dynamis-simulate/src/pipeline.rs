@@ -1,6 +1,6 @@
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext, GpuTimer,
 };
 use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
 use dynamis_layout::{
@@ -27,6 +27,28 @@ use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
 
 const WORKGROUP_SIZE: u32 = 64;
+
+pub(crate) const SIM_PASSES: &[&str] = &[
+    "commands",
+    "integrate",
+    "broadphase",
+    "narrowphase",
+    "islands",
+    "sleep",
+    "velocity_solve",
+    "position_solve",
+    "tail",
+];
+
+const PASS_COMMANDS: usize = 0;
+const PASS_INTEGRATE: usize = 1;
+const PASS_BROADPHASE: usize = 2;
+const PASS_NARROWPHASE: usize = 3;
+const PASS_ISLANDS: usize = 4;
+const PASS_SLEEP: usize = 5;
+const PASS_VELOCITY_SOLVE: usize = 6;
+const PASS_POSITION_SOLVE: usize = 7;
+const PASS_TAIL: usize = 8;
 
 fn shader_constants() -> String {
     format!(
@@ -279,6 +301,7 @@ pub(crate) struct Pipeline {
     sort_values: GpuBuffer,
     contact_bucket: BucketSort,
     constraint_bucket: BucketSort,
+    timer: Option<GpuTimer>,
 }
 
 impl Pipeline {
@@ -948,6 +971,14 @@ impl Pipeline {
             body_capacity,
             buffers.constraint_capacity(),
         );
+        let timer = context.supports_pass_timing().then(|| {
+            GpuTimer::new(
+                context.device(),
+                SIM_PASSES,
+                context.timestamp_period_ns(),
+                "dynamis step",
+            )
+        });
         Self {
             device,
             apply_commands,
@@ -992,6 +1023,15 @@ impl Pipeline {
             sort_values,
             contact_bucket,
             constraint_bucket,
+            timer,
+        }
+    }
+
+    fn open<'a>(&'a self, encoder: &'a mut CommandEncoder, slot: usize) -> ComputeRecorder<'a> {
+        let label = SIM_PASSES[slot];
+        match &self.timer {
+            Some(timer) => ComputeRecorder::begin_timed(encoder, label, Some(timer.writes(slot))),
+            None => ComputeRecorder::begin(encoder, label),
         }
     }
 
@@ -1002,11 +1042,14 @@ impl Pipeline {
         params: &FrameParams,
     ) {
         let constraint_active = params.constraint_count > 0;
-        let mut recorder = ComputeRecorder::begin(encoder, "physics frame");
-        self.apply_commands.dispatch(&mut recorder);
-        self.apply_constraint_commands.dispatch(&mut recorder);
+        let collider_words = key_bytes(buffers.collider_capacity());
+        let joint_words = key_bytes(buffers.constraint_capacity());
+
+        let mut commands = self.open(encoder, PASS_COMMANDS);
+        self.apply_commands.dispatch(&mut commands);
+        self.apply_constraint_commands.dispatch(&mut commands);
         if constraint_active {
-            self.joint_filter.dispatch(&mut recorder);
+            self.joint_filter.dispatch(&mut commands);
             let channels = SortChannels {
                 count: &buffers.joint_count,
                 keys_lo: &buffers.joint_lo,
@@ -1016,22 +1059,26 @@ impl Pipeline {
                 scratch_hi: &self.sort_hi,
                 scratch_values: &self.sort_values,
             };
-            let joint_words = key_bytes(buffers.constraint_capacity());
             self.sort.sort(
                 &self.device,
-                &mut recorder,
+                &mut commands,
                 &channels,
                 joint_words,
                 joint_words,
             );
         }
+        drop(commands);
+
+        let mut integrate = self.open(encoder, PASS_INTEGRATE);
         self.integrate
-            .dispatch_at(&mut recorder, params.dynamic_count);
+            .dispatch_at(&mut integrate, params.dynamic_count);
         self.broadphase_aabb
-            .dispatch_at(&mut recorder, params.dynamic_count);
+            .dispatch_at(&mut integrate, params.dynamic_count);
+        drop(integrate);
+
+        let mut broadphase = self.open(encoder, PASS_BROADPHASE);
         self.grid_entries
-            .dispatch_at(&mut recorder, params.body_count);
-        let collider_words = key_bytes(buffers.collider_capacity());
+            .dispatch_at(&mut broadphase, params.body_count);
         let channels = SortChannels {
             count: &buffers.entry_count,
             keys_lo: &buffers.entries.keys_lo,
@@ -1042,10 +1089,10 @@ impl Pipeline {
             scratch_values: &self.sort_values,
         };
         self.sort
-            .sort(&self.device, &mut recorder, &channels, collider_words, 4);
-        self.broadphase_pairs.dispatch(&mut recorder);
+            .sort(&self.device, &mut broadphase, &channels, collider_words, 4);
+        self.broadphase_pairs.dispatch(&mut broadphase);
         self.large_pairs
-            .dispatch_at(&mut recorder, params.body_count);
+            .dispatch_at(&mut broadphase, params.body_count);
         let channels = SortChannels {
             count: &buffers.pair_count,
             keys_lo: &buffers.pairs.keys_lo,
@@ -1057,31 +1104,37 @@ impl Pipeline {
         };
         self.sort.sort(
             &self.device,
-            &mut recorder,
+            &mut broadphase,
             &channels,
             collider_words,
             collider_words,
         );
-        self.ccd_sweep.dispatch(&mut recorder);
-        self.narrowphase.dispatch(&mut recorder);
-        self.compact_scan.dispatch(&mut recorder);
-        self.compact_offsets.dispatch(&mut recorder);
-        self.compact_scatter.dispatch(&mut recorder);
-        self.contact_match.dispatch(&mut recorder);
+        self.ccd_sweep.dispatch(&mut broadphase);
+        drop(broadphase);
+
+        let mut narrowphase = self.open(encoder, PASS_NARROWPHASE);
+        self.narrowphase.dispatch(&mut narrowphase);
+        self.compact_scan.dispatch(&mut narrowphase);
+        self.compact_offsets.dispatch(&mut narrowphase);
+        self.compact_scatter.dispatch(&mut narrowphase);
+        self.contact_match.dispatch(&mut narrowphase);
+        drop(narrowphase);
+
+        let mut islands = self.open(encoder, PASS_ISLANDS);
         self.island_init
-            .dispatch_at(&mut recorder, params.dynamic_count);
-        self.island_link_contacts.dispatch(&mut recorder);
+            .dispatch_at(&mut islands, params.dynamic_count);
+        self.island_link_contacts.dispatch(&mut islands);
         if constraint_active {
-            self.island_link_constraints.dispatch(&mut recorder);
+            self.island_link_constraints.dispatch(&mut islands);
         }
         for _ in 0..params.island_rounds {
             self.island_jump
-                .dispatch_at(&mut recorder, params.dynamic_count);
+                .dispatch_at(&mut islands, params.dynamic_count);
         }
-        self.gather_contact_keys_b.dispatch(&mut recorder);
+        self.gather_contact_keys_b.dispatch(&mut islands);
         self.contact_bucket.sort(
             &self.device,
-            &mut recorder,
+            &mut islands,
             &BucketChannels {
                 count: &buffers.contact_count,
                 keys: &buffers.contact_b_keys,
@@ -1091,10 +1144,10 @@ impl Pipeline {
             },
         );
         if constraint_active {
-            self.gather_constraint_keys.dispatch(&mut recorder);
+            self.gather_constraint_keys.dispatch(&mut islands);
             self.constraint_bucket.sort(
                 &self.device,
-                &mut recorder,
+                &mut islands,
                 &BucketChannels {
                     count: &buffers.constraint_count_state,
                     keys: &buffers.constraint_gather_a_keys,
@@ -1105,7 +1158,7 @@ impl Pipeline {
             );
             self.constraint_bucket.sort(
                 &self.device,
-                &mut recorder,
+                &mut islands,
                 &BucketChannels {
                     count: &buffers.constraint_count_state,
                     keys: &buffers.constraint_gather_b_keys,
@@ -1116,30 +1169,40 @@ impl Pipeline {
             );
         }
         self.reset_gather_boundaries
-            .dispatch_at(&mut recorder, params.dynamic_count);
-        self.mark_contact_boundaries.dispatch(&mut recorder);
+            .dispatch_at(&mut islands, params.dynamic_count);
+        self.mark_contact_boundaries.dispatch(&mut islands);
         if constraint_active {
-            self.mark_constraint_boundaries.dispatch(&mut recorder);
+            self.mark_constraint_boundaries.dispatch(&mut islands);
         }
+        drop(islands);
+
+        let mut sleep = self.open(encoder, PASS_SLEEP);
         self.island_aggregate
-            .dispatch_at(&mut recorder, params.dynamic_count);
+            .dispatch_at(&mut sleep, params.dynamic_count);
         self.island_broadcast
-            .dispatch_at(&mut recorder, params.dynamic_count);
+            .dispatch_at(&mut sleep, params.dynamic_count);
+        drop(sleep);
+
+        let mut velocity_solve = self.open(encoder, PASS_VELOCITY_SOLVE);
         for _ in 0..params.solve_iterations {
             if constraint_active {
-                self.constraint_solve_extract.dispatch(&mut recorder);
+                self.constraint_solve_extract.dispatch(&mut velocity_solve);
             }
-            self.contact_solve_extract.dispatch(&mut recorder);
+            self.contact_solve_extract.dispatch(&mut velocity_solve);
             self.body_apply_solver
-                .dispatch_at(&mut recorder, params.dynamic_count);
+                .dispatch_at(&mut velocity_solve, params.dynamic_count);
         }
+        drop(velocity_solve);
+
+        let mut position_solve = self.open(encoder, PASS_POSITION_SOLVE);
         for _ in 0..params.position_iterations {
-            self.position_solve_extract.dispatch(&mut recorder);
+            self.position_solve_extract.dispatch(&mut position_solve);
             self.body_apply_positions
-                .dispatch_at(&mut recorder, params.dynamic_count);
+                .dispatch_at(&mut position_solve, params.dynamic_count);
         }
-        drop(recorder);
-        let mut tail = ComputeRecorder::begin(encoder, "physics tail");
+        drop(position_solve);
+
+        let mut tail = self.open(encoder, PASS_TAIL);
         self.events_end.dispatch(&mut tail);
         self.contact_archive.dispatch(&mut tail);
         self.prev_count_sync.dispatch(&mut tail);
@@ -1149,6 +1212,33 @@ impl Pipeline {
         if params.query_count > 0 {
             self.query
                 .dispatch_workgroups(&mut tail, params.query_count);
+        }
+        drop(tail);
+    }
+
+    pub(crate) fn capture_timings(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        sequence: u64,
+    ) -> Option<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+        self.timer
+            .as_mut()
+            .and_then(|timer| timer.capture(&self.device, encoder, sequence))
+    }
+
+    pub(crate) fn poll_timings(
+        &mut self,
+        device: &Device,
+    ) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+        match &mut self.timer {
+            Some(timer) => timer.poll(device),
+            None => Vec::new(),
+        }
+    }
+
+    pub(crate) fn arm_timings(&mut self) {
+        if let Some(timer) = &mut self.timer {
+            timer.arm();
         }
     }
 
