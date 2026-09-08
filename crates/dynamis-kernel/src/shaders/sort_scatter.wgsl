@@ -22,7 +22,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id)
     let lane = lid.x;
     bin_count[lane] = 0u;
     workgroupBarrier();
-    let valid = index < count_holder[0];
+    let valid = index < min(count_holder[0], arrayLength(&keys_lo));
     var digit = 0u;
     if (valid) {
         let key = select(keys_hi[index], keys_lo[index], SHIFT < 32u);

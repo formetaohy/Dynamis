@@ -64,10 +64,12 @@ fn com_override_relocates_inertia_axis() {
 
 #[test]
 fn collider_rotation_swaps_box_inertia_axes() {
-    let desc = BodyDesc::new(
-        ColliderDesc::new(Shape::cuboid([1.0, 0.1, 0.1]))
-            .rotation([0.0, 0.0, 0.7071068, 0.7071068]),
-    )
+    let desc = BodyDesc::new(ColliderDesc::new(Shape::cuboid([1.0, 0.1, 0.1])).rotation([
+        0.0,
+        0.0,
+        0.5_f32.sqrt(),
+        0.5_f32.sqrt(),
+    ]))
     .mass(1.0);
     let properties = desc.mass_properties(|_| None);
     let ix = 1.0 / inverse_mass(properties.inverse_inertia, 0);

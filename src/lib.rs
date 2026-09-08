@@ -1,7 +1,7 @@
 pub use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext, GpuReadback,
 };
-pub use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
+pub use dynamis_kernel::{GpuBucketSort, GpuSort};
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintDesc, ConstraintHandle,
     ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring, ContactEvent,

@@ -84,10 +84,6 @@ impl GpuBuffer {
         })
     }
 
-    pub fn as_indirect_args(&self) -> &Buffer {
-        &self.buffer
-    }
-
     pub fn buffer(&self) -> &Buffer {
         &self.buffer
     }

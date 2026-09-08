@@ -2,7 +2,7 @@ use crate::buffer::{COMPACT_BLOCK, StageBuffers};
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
 };
-use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
+use dynamis_kernel::{GpuBucketSort, GpuSort};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, BODY_SLEEPING, COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE,
     COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_PATCH, COMMAND_CONSTRAINT_REMOVE, COMMAND_FORCE,
@@ -126,9 +126,14 @@ struct Stage {
     pipeline: ComputePipeline,
     bind_group: BindGroup,
     shapes_group: BindGroup,
+    workgroups: u32,
 }
 
 impl Stage {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a stage carries its bindings, resources, shapes and element count together"
+    )]
     fn build(
         context: &GpuContext,
         label: &str,
@@ -136,6 +141,8 @@ impl Stage {
         bindings: &[BindingKind],
         resources: &[&GpuBuffer],
         shape_resources: &[&GpuBuffer],
+        elements: u32,
+        threads: u32,
     ) -> Self {
         assert_eq!(bindings.len(), resources.len(), "stage binding mismatch");
         let shape_specs = shape_resources
@@ -186,24 +193,23 @@ impl Stage {
             pipeline,
             bind_group,
             shapes_group,
+            workgroups: elements.div_ceil(threads),
         }
     }
 
-    fn dispatch(&self, recorder: &mut ComputeRecorder, elements: u32) {
-        let workgroups = self.pipeline.workgroup_count(elements);
+    fn dispatch(&self, recorder: &mut ComputeRecorder) {
         recorder.record(
             &self.pipeline,
             &[&self.bind_group, &self.shapes_group],
-            workgroups,
+            self.workgroups,
         );
     }
 
-    fn dispatch_indirect(&self, recorder: &mut ComputeRecorder, args: &GpuBuffer) {
-        recorder.record_indirect(
+    fn dispatch_at(&self, recorder: &mut ComputeRecorder, elements: u32) {
+        recorder.record(
             &self.pipeline,
             &[&self.bind_group, &self.shapes_group],
-            args,
-            0,
+            elements.div_ceil(WORKGROUP_SIZE),
         );
     }
 
@@ -255,7 +261,6 @@ pub(crate) struct Stages {
     sort_hi: GpuBuffer,
     sort_lo: GpuBuffer,
     sort_values: GpuBuffer,
-    sort_args: GpuCountArgs,
     contact_bucket: GpuBucketSort,
     constraint_bucket: GpuBucketSort,
 }
@@ -291,7 +296,10 @@ pub(crate) fn build_stages(
             &buffers.wake_flags,
         ],
         &shape_resources,
+        1,
+        WORKGROUP_SIZE,
     );
+
     let apply_constraint_commands = Stage::build(
         context,
         "apply_constraint_commands",
@@ -307,7 +315,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_command_count,
         ],
         &shape_resources,
+        1,
+        WORKGROUP_SIZE,
     );
+
     let joint_filter = Stage::build(
         context,
         "joint_filter",
@@ -327,7 +338,10 @@ pub(crate) fn build_stages(
             &buffers.joint_count,
         ],
         &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let integrate = Stage::build(
         context,
         "integrate",
@@ -335,7 +349,10 @@ pub(crate) fn build_stages(
         &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
         &[&buffers.params, &buffers.bodies_current],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let broadphase_aabb = Stage::build(
         context,
         "broadphase_aabb",
@@ -353,7 +370,10 @@ pub(crate) fn build_stages(
             &buffers.aabbs,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let grid_entries = Stage::build(
         context,
         "grid_entries",
@@ -377,7 +397,10 @@ pub(crate) fn build_stages(
             &buffers.large_count,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let broadphase_pairs = Stage::build(
         context,
         "broadphase_pairs",
@@ -403,7 +426,10 @@ pub(crate) fn build_stages(
             &buffers.overflow_flags,
         ],
         &shape_resources,
+        buffers.entry_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let large_pairs = Stage::build(
         context,
         "large_pairs",
@@ -429,7 +455,10 @@ pub(crate) fn build_stages(
             &buffers.overflow_flags,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let narrowphase = Stage::build(
         context,
         "narrowphase",
@@ -461,7 +490,10 @@ pub(crate) fn build_stages(
             &buffers.params,
         ],
         &shape_resources,
+        buffers.pair_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let compact_scan = Stage::build(
         context,
         "compact_scan",
@@ -479,7 +511,10 @@ pub(crate) fn build_stages(
             &buffers.pair_count,
         ],
         &shape_resources,
+        buffers.pair_capacity(),
+        COMPACT_BLOCK,
     );
+
     let compact_offsets = Stage::build(
         context,
         "compact_offsets",
@@ -495,7 +530,10 @@ pub(crate) fn build_stages(
             &buffers.contact_count,
         ],
         &shape_resources,
+        1,
+        COMPACT_BLOCK,
     );
+
     let compact_scatter = Stage::build(
         context,
         "compact_scatter",
@@ -519,7 +557,10 @@ pub(crate) fn build_stages(
             &buffers.pair_count,
         ],
         &shape_resources,
+        buffers.pair_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let events_end = Stage::build(
         context,
         "events_end",
@@ -543,7 +584,10 @@ pub(crate) fn build_stages(
             &buffers.overflow_flags,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let contact_archive = Stage::build(
         context,
         "contact_archive",
@@ -559,7 +603,10 @@ pub(crate) fn build_stages(
             &buffers.contact_count,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let prev_count_sync = Stage::build(
         context,
         "prev_count_sync",
@@ -567,7 +614,10 @@ pub(crate) fn build_stages(
         &[BindingKind::ReadOnlyStorage, BindingKind::ReadWriteStorage],
         &[&buffers.contact_count, &buffers.prev_contact_count],
         &shape_resources,
+        1,
+        WORKGROUP_SIZE,
     );
+
     let island_init = Stage::build(
         context,
         "island_init",
@@ -583,7 +633,10 @@ pub(crate) fn build_stages(
             &buffers.island_state,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let island_link_contacts = Stage::build(
         context,
         "island_link_contacts",
@@ -601,7 +654,10 @@ pub(crate) fn build_stages(
             &buffers.island_parents,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let island_link_constraints = Stage::build(
         context,
         "island_link_constraints",
@@ -619,7 +675,10 @@ pub(crate) fn build_stages(
             &buffers.island_parents,
         ],
         &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let island_jump = Stage::build(
         context,
         "island_jump",
@@ -627,7 +686,10 @@ pub(crate) fn build_stages(
         &[BindingKind::Uniform, BindingKind::ReadWriteStorage],
         &[&buffers.params, &buffers.island_parents],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let island_aggregate = Stage::build(
         context,
         "island_aggregate",
@@ -647,7 +709,10 @@ pub(crate) fn build_stages(
             &buffers.wake_flags,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let island_broadcast = Stage::build(
         context,
         "island_broadcast",
@@ -667,7 +732,10 @@ pub(crate) fn build_stages(
             &buffers.wake_flags,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let gather_contact_keys_b = Stage::build(
         context,
         "gather_contact_keys_b",
@@ -685,7 +753,10 @@ pub(crate) fn build_stages(
             &buffers.contact_b_values,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let gather_constraint_keys = Stage::build(
         context,
         "gather_constraint_keys",
@@ -707,7 +778,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_gather_b_values,
         ],
         &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let reset_gather_boundaries = Stage::build(
         context,
         "reset_gather_boundaries",
@@ -727,7 +801,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_first_b,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let mark_contact_boundaries = Stage::build(
         context,
         "mark_contact_boundaries",
@@ -747,7 +824,10 @@ pub(crate) fn build_stages(
             &buffers.contact_first_b,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let mark_constraint_boundaries = Stage::build(
         context,
         "mark_constraint_boundaries",
@@ -767,7 +847,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_first_b,
         ],
         &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let ccd_sweep = Stage::build(
         context,
         "ccd_sweep",
@@ -789,7 +872,10 @@ pub(crate) fn build_stages(
             &buffers.pair_count,
         ],
         &shape_resources,
+        buffers.pair_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let contact_match = Stage::build(
         context,
         "contact_match",
@@ -813,7 +899,10 @@ pub(crate) fn build_stages(
             &buffers.overflow_flags,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let contact_solve_extract = Stage::build(
         context,
         "contact_solve_extract",
@@ -835,7 +924,10 @@ pub(crate) fn build_stages(
             &buffers.contact_deltas,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let constraint_solve_extract = Stage::build(
         context,
         "constraint_solve_extract",
@@ -855,7 +947,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_deltas,
         ],
         &shape_resources,
+        buffers.constraint_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let body_apply_solver = Stage::build(
         context,
         "body_apply_solver",
@@ -897,7 +992,10 @@ pub(crate) fn build_stages(
             &buffers.constraint_deltas,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let position_solve_extract = Stage::build(
         context,
         "position_solve_extract",
@@ -917,7 +1015,10 @@ pub(crate) fn build_stages(
             &buffers.contact_deltas,
         ],
         &shape_resources,
+        buffers.contact_capacity(),
+        WORKGROUP_SIZE,
     );
+
     let body_apply_positions = Stage::build(
         context,
         "body_apply_positions",
@@ -945,7 +1046,10 @@ pub(crate) fn build_stages(
             &buffers.contact_deltas,
         ],
         &shape_resources,
+        body_capacity,
+        WORKGROUP_SIZE,
     );
+
     let query = Stage::build(
         context,
         "query",
@@ -979,7 +1083,10 @@ pub(crate) fn build_stages(
             &buffers.params,
         ],
         &shape_resources,
+        1,
+        WORKGROUP_SIZE,
     );
+
     let sort = GpuSort::new(context, "sim sort", buffers.sort_scratch.capacity_u32());
     let sort_hi = GpuBuffer::new(
         device,
@@ -999,7 +1106,6 @@ pub(crate) fn build_stages(
         buffers.sort_scratch.values.size(),
         wgpu::BufferUsages::STORAGE,
     );
-    let sort_args = GpuCountArgs::new(context, "sim sort args");
     let contact_bucket = GpuBucketSort::new(
         context,
         "contact bucket",
@@ -1051,7 +1157,6 @@ pub(crate) fn build_stages(
         sort_hi,
         sort_lo,
         sort_values,
-        sort_args,
         contact_bucket,
         constraint_bucket,
     }
@@ -1075,24 +1180,15 @@ pub(crate) fn encode_physics(
 ) {
     let constraint_active = constraint_count > 0;
     let mut recorder = ComputeRecorder::begin(encoder, "physics frame");
-    stages.apply_commands.dispatch(&mut recorder, 1);
-    stages.apply_constraint_commands.dispatch(&mut recorder, 1);
+    stages.apply_commands.dispatch(&mut recorder);
+    stages.apply_constraint_commands.dispatch(&mut recorder);
     if constraint_active {
-        stages
-            .joint_filter
-            .dispatch(&mut recorder, buffers.constraint_capacity());
-        stages.sort_args.encode(
-            device,
-            &mut recorder,
-            &buffers.joint_count,
-            &buffers.joint_args,
-        );
-        let joint_words = sort_words(buffers.constraint_capacity());
+        stages.joint_filter.dispatch(&mut recorder);
+        let joint_words = key_bytes(buffers.constraint_capacity());
         stages.sort.sort_64(
             device,
             &mut recorder,
             &buffers.joint_count,
-            &buffers.joint_args,
             joint_words,
             joint_words,
             &buffers.joint_lo,
@@ -1103,22 +1199,17 @@ pub(crate) fn encode_physics(
             &stages.sort_values,
         );
     }
-    stages.integrate.dispatch(&mut recorder, body_count);
-    let slot_words = sort_words(body_count);
-    stages.broadphase_aabb.dispatch(&mut recorder, body_count);
-    stages.grid_entries.dispatch(&mut recorder, body_count);
-    stages.sort_args.encode(
-        device,
-        &mut recorder,
-        &buffers.entry_count,
-        &buffers.entry_args,
-    );
+    stages.integrate.dispatch_at(&mut recorder, body_count);
+    stages
+        .broadphase_aabb
+        .dispatch_at(&mut recorder, body_count);
+    stages.grid_entries.dispatch_at(&mut recorder, body_count);
+    let collider_words = key_bytes(buffers.collider_capacity());
     stages.sort.sort_64(
         device,
         &mut recorder,
         &buffers.entry_count,
-        &buffers.entry_args,
-        slot_words,
+        collider_words,
         4,
         &buffers.entries.keys_lo,
         &buffers.entries.keys_hi,
@@ -1127,23 +1218,14 @@ pub(crate) fn encode_physics(
         &stages.sort_hi,
         &stages.sort_values,
     );
-    stages
-        .broadphase_pairs
-        .dispatch_indirect(&mut recorder, &buffers.entry_args);
-    stages.large_pairs.dispatch(&mut recorder, body_count);
-    stages.sort_args.encode(
-        device,
-        &mut recorder,
-        &buffers.pair_count,
-        &buffers.pair_args,
-    );
+    stages.broadphase_pairs.dispatch(&mut recorder);
+    stages.large_pairs.dispatch_at(&mut recorder, body_count);
     stages.sort.sort_64(
         device,
         &mut recorder,
         &buffers.pair_count,
-        &buffers.pair_args,
-        slot_words,
-        slot_words,
+        collider_words,
+        collider_words,
         &buffers.pairs.keys_lo,
         &buffers.pairs.keys_hi,
         &buffers.pairs.values,
@@ -1151,69 +1233,36 @@ pub(crate) fn encode_physics(
         &stages.sort_hi,
         &stages.sort_values,
     );
-    stages
-        .ccd_sweep
-        .dispatch_indirect(&mut recorder, &buffers.pair_args);
-    stages
-        .narrowphase
-        .dispatch_indirect(&mut recorder, &buffers.pair_args);
-    let compact_blocks = buffers.pairs.capacity_u32().div_ceil(COMPACT_BLOCK);
-    stages
-        .compact_scan
-        .dispatch_workgroups(&mut recorder, compact_blocks);
-    stages.compact_offsets.dispatch_workgroups(&mut recorder, 1);
-    stages
-        .compact_scatter
-        .dispatch_indirect(&mut recorder, &buffers.pair_args);
-    stages.sort_args.encode(
-        device,
-        &mut recorder,
-        &buffers.contact_count,
-        &buffers.contact_args,
-    );
-    stages
-        .contact_match
-        .dispatch_indirect(&mut recorder, &buffers.contact_args);
-    stages.island_init.dispatch(&mut recorder, body_count);
-    stages
-        .island_link_contacts
-        .dispatch_indirect(&mut recorder, &buffers.contact_args);
+    stages.ccd_sweep.dispatch(&mut recorder);
+    stages.narrowphase.dispatch(&mut recorder);
+    stages.compact_scan.dispatch(&mut recorder);
+    stages.compact_offsets.dispatch(&mut recorder);
+    stages.compact_scatter.dispatch(&mut recorder);
+    stages.contact_match.dispatch(&mut recorder);
+    stages.island_init.dispatch_at(&mut recorder, body_count);
+    stages.island_link_contacts.dispatch(&mut recorder);
     if constraint_active {
-        stages
-            .island_link_constraints
-            .dispatch(&mut recorder, buffers.constraint_capacity());
+        stages.island_link_constraints.dispatch(&mut recorder);
     }
     for _ in 0..island_rounds {
-        stages.island_jump.dispatch(&mut recorder, body_count);
+        stages.island_jump.dispatch_at(&mut recorder, body_count);
     }
-    stages
-        .gather_contact_keys_b
-        .dispatch_indirect(&mut recorder, &buffers.contact_args);
+    stages.gather_contact_keys_b.dispatch(&mut recorder);
     stages.contact_bucket.sort(
         device,
         &mut recorder,
         &buffers.contact_count,
-        &buffers.contact_args,
         &buffers.contact_b_keys,
         &buffers.contact_b_values,
         &buffers.contact_b_keys_out,
         &buffers.contact_b_values_out,
     );
     if constraint_active {
-        stages
-            .gather_constraint_keys
-            .dispatch(&mut recorder, buffers.constraint_capacity());
-        stages.sort_args.encode(
-            device,
-            &mut recorder,
-            &buffers.constraint_count_state,
-            &buffers.constraint_args,
-        );
+        stages.gather_constraint_keys.dispatch(&mut recorder);
         stages.constraint_bucket.sort(
             device,
             &mut recorder,
             &buffers.constraint_count_state,
-            &buffers.constraint_args,
             &buffers.constraint_gather_a_keys,
             &buffers.constraint_gather_a_values,
             &buffers.constraint_gather_a_keys_out,
@@ -1223,7 +1272,6 @@ pub(crate) fn encode_physics(
             device,
             &mut recorder,
             &buffers.constraint_count_state,
-            &buffers.constraint_args,
             &buffers.constraint_gather_b_keys,
             &buffers.constraint_gather_b_values,
             &buffers.constraint_gather_b_keys_out,
@@ -1232,60 +1280,45 @@ pub(crate) fn encode_physics(
     }
     stages
         .reset_gather_boundaries
-        .dispatch(&mut recorder, body_count);
-    stages
-        .mark_contact_boundaries
-        .dispatch_indirect(&mut recorder, &buffers.contact_args);
+        .dispatch_at(&mut recorder, body_count);
+    stages.mark_contact_boundaries.dispatch(&mut recorder);
     if constraint_active {
-        stages
-            .mark_constraint_boundaries
-            .dispatch(&mut recorder, buffers.constraint_capacity());
+        stages.mark_constraint_boundaries.dispatch(&mut recorder);
     }
-    stages.island_aggregate.dispatch(&mut recorder, body_count);
-    stages.island_broadcast.dispatch(&mut recorder, body_count);
+    stages
+        .island_aggregate
+        .dispatch_at(&mut recorder, body_count);
+    stages
+        .island_broadcast
+        .dispatch_at(&mut recorder, body_count);
     for _ in 0..solve_iterations {
         if constraint_active {
-            stages
-                .constraint_solve_extract
-                .dispatch(&mut recorder, buffers.constraint_capacity());
+            stages.constraint_solve_extract.dispatch(&mut recorder);
         }
+        stages.contact_solve_extract.dispatch(&mut recorder);
         stages
-            .contact_solve_extract
-            .dispatch_indirect(&mut recorder, &buffers.contact_args);
-        stages.body_apply_solver.dispatch(&mut recorder, body_count);
+            .body_apply_solver
+            .dispatch_at(&mut recorder, body_count);
     }
     for _ in 0..position_iterations {
-        stages
-            .position_solve_extract
-            .dispatch_indirect(&mut recorder, &buffers.contact_args);
+        stages.position_solve_extract.dispatch(&mut recorder);
         stages
             .body_apply_positions
-            .dispatch(&mut recorder, body_count);
+            .dispatch_at(&mut recorder, body_count);
     }
     drop(recorder);
     let mut tail = ComputeRecorder::begin(encoder, "physics tail");
-    stages
-        .events_end
-        .dispatch_indirect(&mut tail, &buffers.prev_args);
-    stages
-        .contact_archive
-        .dispatch_indirect(&mut tail, &buffers.contact_args);
-    stages.prev_count_sync.dispatch(&mut tail, 1);
-    stages.sort_args.encode(
-        device,
-        &mut tail,
-        &buffers.prev_contact_count,
-        &buffers.prev_args,
-    );
+    stages.events_end.dispatch(&mut tail);
+    stages.contact_archive.dispatch(&mut tail);
+    stages.prev_count_sync.dispatch(&mut tail);
     if query_count > 0 {
         stages.query.dispatch_workgroups(&mut tail, query_count);
     }
 }
 
-fn sort_words(capacity: u32) -> u32 {
-    let value = capacity.saturating_mul(4).max(2);
-    let width = (32 - value.leading_zeros()).max(1);
-    width.div_ceil(8).clamp(1, 4)
+fn key_bytes(values: u32) -> u32 {
+    let bits = 32 - values.saturating_sub(1).leading_zeros();
+    bits.div_ceil(8).clamp(1, 4)
 }
 
 pub(crate) fn record_queries(stages: &Stages, encoder: &mut CommandEncoder, query_count: u32) {

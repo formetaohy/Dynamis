@@ -43,14 +43,8 @@ impl SortChannels {
     }
 }
 
-#[derive(PartialEq, Eq)]
-struct SortArgs {
-    args: u64,
-}
-
 struct SortBindGroups {
     channels: SortChannels,
-    args: SortArgs,
     histogram: [BindGroup; 2],
     scatter: [BindGroup; 2],
 }
@@ -64,7 +58,6 @@ impl SortBindGroups {
         device: &Device,
         sort: &GpuSort,
         channels: SortChannels,
-        args: SortArgs,
         keys_lo: &GpuBuffer,
         keys_hi: &GpuBuffer,
         values: &GpuBuffer,
@@ -153,7 +146,6 @@ impl SortBindGroups {
         });
         Self {
             channels,
-            args,
             histogram,
             scatter,
         }
@@ -169,6 +161,7 @@ pub struct GpuSort {
     cursor: GpuBuffer,
     block_histogram: GpuBuffer,
     block_prefix: GpuBuffer,
+    blocks: u32,
     bindings: std::sync::Mutex<Option<SortBindGroups>>,
 }
 
@@ -337,6 +330,7 @@ impl GpuSort {
             cursor,
             block_histogram,
             block_prefix,
+            blocks,
             bindings: std::sync::Mutex::new(None),
         }
     }
@@ -349,7 +343,6 @@ impl GpuSort {
         &self,
         device: &Device,
         channels: SortChannels,
-        args: SortArgs,
         keys_lo: &GpuBuffer,
         keys_hi: &GpuBuffer,
         values: &GpuBuffer,
@@ -361,13 +354,12 @@ impl GpuSort {
         let mut guard = self.bindings.lock().unwrap();
         if guard
             .as_ref()
-            .is_none_or(|cached| cached.channels != channels || cached.args != args)
+            .is_none_or(|cached| cached.channels != channels)
         {
             *guard = Some(SortBindGroups::build(
                 device,
                 self,
                 channels,
-                args,
                 keys_lo,
                 keys_hi,
                 values,
@@ -384,7 +376,6 @@ impl GpuSort {
         &self,
         recorder: &mut ComputeRecorder,
         bindings: &SortBindGroups,
-        args: &GpuBuffer,
         lo_words: u32,
         hi_words: u32,
     ) {
@@ -393,34 +384,30 @@ impl GpuSort {
         for (executed, pass_index) in passes.iter().enumerate() {
             let parity = executed % 2;
             let pass_index = *pass_index as usize;
-            recorder.record_indirect(
+            recorder.record(
                 &self.histogram_pipelines[pass_index],
                 &[&bindings.histogram[parity]],
-                args,
-                16,
+                self.blocks,
             );
             recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
-            recorder.record_indirect(
+            recorder.record(
                 &self.scatter_pipelines[pass_index],
                 &[&bindings.scatter[parity]],
-                args,
-                16,
+                self.blocks,
             );
         }
         if passes.len() % 2 == 1 {
             let parity = passes.len() % 2;
-            recorder.record_indirect(
+            recorder.record(
                 &self.histogram_pipelines[7],
                 &[&bindings.histogram[parity]],
-                args,
-                16,
+                self.blocks,
             );
             recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
-            recorder.record_indirect(
+            recorder.record(
                 &self.scatter_pipelines[7],
                 &[&bindings.scatter[parity]],
-                args,
-                16,
+                self.blocks,
             );
         }
     }
@@ -434,7 +421,6 @@ impl GpuSort {
         device: &Device,
         recorder: &mut ComputeRecorder,
         count_holder: &GpuBuffer,
-        args: &GpuBuffer,
         lo_words: u32,
         hi_words: u32,
         keys_lo: &GpuBuffer,
@@ -456,7 +442,6 @@ impl GpuSort {
         let guard = self.bindings(
             device,
             channels,
-            SortArgs { args: args.token() },
             keys_lo,
             keys_hi,
             values,
@@ -466,7 +451,7 @@ impl GpuSort {
             count_holder,
         );
         let bindings = guard.as_ref().expect("bindings ensured just above");
-        self.encode_all_passes(recorder, bindings, args, lo_words, hi_words);
+        self.encode_all_passes(recorder, bindings, lo_words, hi_words);
     }
 
     pub fn debug_histogram(&self) -> &GpuBuffer {

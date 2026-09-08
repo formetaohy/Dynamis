@@ -1,5 +1,5 @@
 use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext};
-use dynamis_kernel::{GpuBucketSort, GpuCountArgs, GpuSort};
+use dynamis_kernel::{GpuBucketSort, GpuSort};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 
@@ -94,30 +94,21 @@ fn run_sort(
         12,
         BufferUsages::STORAGE | BufferUsages::COPY_DST,
     );
-    let args = GpuBuffer::new(
-        device,
-        "args",
-        32,
-        BufferUsages::STORAGE | BufferUsages::INDIRECT,
-    );
     let mut count_bytes = vec![0u8; 12];
     count_bytes[..4].copy_from_slice(&(keys_lo.len() as u32).to_le_bytes());
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
     count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     holder.write(context.queue(), &count_bytes);
     let sort = GpuSort::new(&context, "test sort", keys_lo.len() as u32);
-    let count_args = GpuCountArgs::new(&context, "test count args");
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("sort"),
     });
     {
         let mut recorder = ComputeRecorder::begin(&mut encoder, "sort pass");
-        count_args.encode(device, &mut recorder, &holder, &args);
         sort.sort_64(
             device,
             &mut recorder,
             &holder,
-            &args,
             lo_words,
             hi_words,
             &inputs.keys_lo,
@@ -133,48 +124,6 @@ fn run_sort(
     let keys_out = read_u32s(&context, &inputs.out_lo, keys_lo.len());
     let values_out = read_u32s(&context, &inputs.out_values, keys_lo.len());
     (keys_out, values_out)
-}
-
-#[test]
-fn count_args_convert_element_counts_to_dispatch_sizes() {
-    let context = shared().clone();
-    let holder = GpuBuffer::new(
-        context.device(),
-        "holder",
-        12,
-        BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    );
-    let args = GpuBuffer::new(
-        context.device(),
-        "args",
-        32,
-        BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC,
-    );
-    let mut count_bytes = vec![0u8; 12];
-    count_bytes[..4].copy_from_slice(&1000u32.to_le_bytes());
-    count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
-    count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
-    holder.write(context.queue(), &count_bytes);
-    let count_args = GpuCountArgs::new(&context, "count args");
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut recorder = ComputeRecorder::begin(&mut encoder, "count");
-        count_args.encode(context.device(), &mut recorder, &holder, &args);
-    }
-    context.queue().submit([encoder.finish()]);
-    let _ = context.device().poll(wgpu::PollType::wait_indefinitely());
-    let out = read_u32s(&context, &args, 8);
-    assert_eq!(
-        out[0], 16,
-        "1000 elements / 64 threads must dispatch 16 workgroups"
-    );
-    assert_eq!(out[1], 1);
-    assert_eq!(
-        out[4], 4,
-        "1000 elements / 256 threads must dispatch 4 workgroups"
-    );
 }
 
 #[test]
@@ -250,29 +199,20 @@ fn bucket_sort_groups_keys_and_values_stably() {
         12,
         BufferUsages::STORAGE | BufferUsages::COPY_DST,
     );
-    let args = GpuBuffer::new(
-        device,
-        "args",
-        32,
-        BufferUsages::STORAGE | BufferUsages::INDIRECT,
-    );
     let mut count_bytes = vec![0u8; 12];
     count_bytes[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
     count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
     count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     holder.write(context.queue(), &count_bytes);
     let bucket = GpuBucketSort::new(&context, "test bucket", 4, data.len() as u32);
-    let count_args = GpuCountArgs::new(&context, "bucket args");
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
         let mut recorder = ComputeRecorder::begin(&mut encoder, "bucket");
-        count_args.encode(device, &mut recorder, &holder, &args);
         bucket.sort(
             device,
             &mut recorder,
             &holder,
-            &args,
             &keys,
             &values,
             &keys_out,

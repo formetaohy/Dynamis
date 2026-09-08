@@ -56,10 +56,8 @@ pub(crate) struct StageBuffers {
     pub(crate) aabbs: GpuBuffer,
     pub(crate) entries: SortSlots,
     pub(crate) entry_count: GpuBuffer,
-    pub(crate) entry_args: GpuBuffer,
     pub(crate) pairs: SortSlots,
     pub(crate) pair_count: GpuBuffer,
-    pub(crate) pair_args: GpuBuffer,
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) large_count: GpuBuffer,
     pub(crate) contacts_raw: GpuBuffer,
@@ -71,10 +69,8 @@ pub(crate) struct StageBuffers {
     pub(crate) compact_block_offsets: GpuBuffer,
     pub(crate) contacts: GpuBuffer,
     pub(crate) contact_count: GpuBuffer,
-    pub(crate) contact_args: GpuBuffer,
     pub(crate) prev_contacts: GpuBuffer,
     pub(crate) prev_contact_count: GpuBuffer,
-    pub(crate) prev_args: GpuBuffer,
     pub(crate) contact_b_keys: GpuBuffer,
     pub(crate) contact_b_values: GpuBuffer,
     pub(crate) contact_b_keys_out: GpuBuffer,
@@ -99,11 +95,9 @@ pub(crate) struct StageBuffers {
     pub(crate) constraint_deltas: GpuBuffer,
     pub(crate) constraint_joint_count: GpuBuffer,
     pub(crate) constraint_count_state: GpuBuffer,
-    pub(crate) constraint_args: GpuBuffer,
     pub(crate) joint_hi: GpuBuffer,
     pub(crate) joint_lo: GpuBuffer,
     pub(crate) joint_count: GpuBuffer,
-    pub(crate) joint_args: GpuBuffer,
     pub(crate) shapes: GpuBuffer,
     pub(crate) shape_vertices: GpuBuffer,
     pub(crate) shape_triangles: GpuBuffer,
@@ -167,8 +161,6 @@ impl StageBuffers {
         let events_bytes = (pair_capacity * size_of::<ContactEventRecord>()) as u64;
         let compact_blocks = (pair_capacity as u64).div_ceil(COMPACT_BLOCK as u64);
         let compact_bytes = (compact_blocks * size_of::<u32>() as u64) as u64;
-        let args_bytes: u64 = 32;
-        let constraint_args_bytes: u64 = 32;
         Self {
             params: GpuBuffer::new(
                 device,
@@ -199,32 +191,14 @@ impl StageBuffers {
                 device,
                 "grid entry count",
                 counter_bytes,
-                BufferUsages::STORAGE
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::COPY_SRC,
-            ),
-            entry_args: GpuBuffer::new(
-                device,
-                "grid entry args",
-                args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             pairs: SortSlots::new(device, "pairs", pair_capacity),
             pair_count: GpuBuffer::new(
                 device,
                 "pair count",
                 counter_bytes,
-                BufferUsages::STORAGE
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::COPY_SRC,
-            ),
-            pair_args: GpuBuffer::new(
-                device,
-                "pair args",
-                args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             large_bodies: GpuBuffer::new(
                 device,
@@ -290,16 +264,7 @@ impl StageBuffers {
                 device,
                 "contact count",
                 counter_bytes,
-                BufferUsages::STORAGE
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::COPY_SRC,
-            ),
-            contact_args: GpuBuffer::new(
-                device,
-                "contact args",
-                args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             prev_contacts: GpuBuffer::new(
                 device,
@@ -311,16 +276,7 @@ impl StageBuffers {
                 device,
                 "previous contact count",
                 counter_bytes,
-                BufferUsages::STORAGE
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::COPY_SRC,
-            ),
-            prev_args: GpuBuffer::new(
-                device,
-                "previous contact args",
-                args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
             contact_b_keys: GpuBuffer::new(
                 device,
@@ -466,12 +422,6 @@ impl StageBuffers {
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             ),
-            constraint_args: GpuBuffer::new(
-                device,
-                "constraint args",
-                constraint_args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
-            ),
             joint_hi: GpuBuffer::new(
                 device,
                 "joint filter keys hi",
@@ -489,12 +439,6 @@ impl StageBuffers {
                 "joint filter count",
                 counter_bytes,
                 BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            ),
-            joint_args: GpuBuffer::new(
-                device,
-                "joint filter args",
-                args_bytes,
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
             ),
             shapes: GpuBuffer::new(
                 device,
@@ -618,6 +562,18 @@ impl StageBuffers {
 
     pub(crate) fn contact_capacity(&self) -> u32 {
         (self.contacts.size() / size_of::<ContactRecord>() as u64) as u32
+    }
+
+    pub(crate) fn entry_capacity(&self) -> u32 {
+        (self.entries.keys_hi.size() / 4) as u32
+    }
+
+    pub(crate) fn pair_capacity(&self) -> u32 {
+        (self.pairs.keys_hi.size() / 4) as u32
+    }
+
+    pub(crate) fn collider_capacity(&self) -> u32 {
+        (self.colliders.size() / size_of::<ColliderRecord>() as u64) as u32
     }
 
     pub(crate) fn reset_counters(&self, queue: &Queue) {

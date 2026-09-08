@@ -1,4 +1,3 @@
-use crate::buffer::GpuBuffer;
 use wgpu::{
     BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BindingType, BufferBindingType, CommandEncoder, ComputePassDescriptor,
@@ -25,21 +24,6 @@ impl<'a> ComputeRecorder<'a> {
             self.pass.set_bind_group(group as u32, *bind_group, &[]);
         }
         self.pass.dispatch_workgroups(count, 1, 1);
-    }
-
-    pub fn record_indirect(
-        &mut self,
-        pipeline: &ComputePipeline,
-        bind_groups: &[&BindGroup],
-        args: &GpuBuffer,
-        offset: u64,
-    ) {
-        self.pass.set_pipeline(pipeline.pipeline());
-        for (group, bind_group) in bind_groups.iter().enumerate() {
-            self.pass.set_bind_group(group as u32, *bind_group, &[]);
-        }
-        self.pass
-            .dispatch_workgroups_indirect(args.as_indirect_args(), offset);
     }
 }
 

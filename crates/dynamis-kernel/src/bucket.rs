@@ -114,6 +114,7 @@ pub struct GpuBucketSort {
     cursor: GpuBuffer,
     block_histogram: GpuBuffer,
     block_prefix: GpuBuffer,
+    blocks: u32,
     bindings: std::sync::Mutex<Option<BucketBindGroups>>,
 }
 
@@ -217,8 +218,8 @@ impl GpuBucketSort {
             THREADS,
         );
         let bucket_bytes = (buckets as u64) * 4;
-        let data_blocks = data_capacity.div_ceil(BLOCK);
-        let block_bytes = data_blocks as u64 * buckets as u64 * 4;
+        let blocks = data_capacity.div_ceil(BLOCK);
+        let block_bytes = blocks as u64 * buckets as u64 * 4;
         let histogram = GpuBuffer::zeroed(
             device,
             &format!("{label} histogram"),
@@ -282,6 +283,7 @@ impl GpuBucketSort {
             cursor,
             block_histogram,
             block_prefix,
+            blocks,
             bindings: std::sync::Mutex::new(None),
         }
     }
@@ -321,14 +323,13 @@ impl GpuBucketSort {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "bucket sort carries both key/value channels and their outputs explicitly"
+        reason = "bucket sort carries key/value channels and their outputs explicitly"
     )]
     pub fn sort(
         &self,
         device: &Device,
         recorder: &mut ComputeRecorder,
         count_holder: &GpuBuffer,
-        args: &GpuBuffer,
         keys: &GpuBuffer,
         values: &GpuBuffer,
         keys_out: &GpuBuffer,
@@ -351,9 +352,13 @@ impl GpuBucketSort {
             count_holder,
         );
         let bindings = guard.as_ref().expect("bindings ensured just above");
-        recorder.record_indirect(&self.histogram_pipeline, &[&bindings.histogram], args, 16);
+        recorder.record(
+            &self.histogram_pipeline,
+            &[&bindings.histogram],
+            self.blocks,
+        );
         recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
         recorder.record(&self.block_prefix_pipeline, &[&self.block_prefix_group], 1);
-        recorder.record_indirect(&self.scatter_pipeline, &[&bindings.scatter], args, 16);
+        recorder.record(&self.scatter_pipeline, &[&bindings.scatter], self.blocks);
     }
 }

@@ -165,7 +165,7 @@ fn constraint_break_emits_handle_event() {
     settle(&mut world, 30);
     let broken = world.drain_constraint_breaks();
     assert!(
-        broken.iter().any(|handle| *handle == joint),
+        broken.contains(&joint),
         "overloaded constraint must report a break"
     );
     assert!(
