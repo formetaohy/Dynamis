@@ -1,7 +1,8 @@
 use super::Simulation;
 use crate::query_pool::{QueryHandle, QueryHit};
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord, QueryResultHeader};
+use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
+use std::mem::size_of;
 
 impl Simulation {
     pub fn ray_query(
@@ -79,81 +80,82 @@ impl Simulation {
     }
 
     fn submit_query(&mut self, record: QueryRecord) -> QueryHandle {
-        let slot = self.query_pool.allocate();
-        let generation = self.query_pool.generation(slot);
         let mut record = record;
-        record.slot = slot as u32;
         record.max_hits = record.max_hits.min(MAX_HITS_PER_QUERY);
+        let index = self.queries.len() as u32;
         self.queries.push(record);
         QueryHandle {
-            slot: slot as u32,
-            generation,
+            batch: self.next_batch,
+            index,
         }
     }
 
     pub fn query_hit(&self, handle: QueryHandle) -> Option<QueryHit> {
         self.validate_query(handle);
-        self.query_pool.hit(handle.slot as usize)
+        self.query_pool.hit(handle)
     }
 
     pub fn query_hits(&self, handle: QueryHandle) -> &[QueryHit] {
         self.validate_query(handle);
-        self.query_pool.hits(handle.slot as usize)
+        self.query_pool.hits(handle)
     }
 
     pub fn query_overflow(&self, handle: QueryHandle) -> bool {
         self.validate_query(handle);
-        self.query_pool.overflow(handle.slot as usize)
+        self.query_pool.overflow(handle)
     }
 
+    /// Runs the pending query batch without advancing the world.
     pub fn flush_queries(&mut self) {
         if self.queries.is_empty() {
             return;
         }
         self.gpu.assert_alive();
         self.collect_readbacks();
+        self.apply_plan();
+        self.flush_rows();
         let step = self.step_index;
         let queue = self.gpu.queue().clone();
         let device = self.gpu.device().clone();
         self.buffers
             .queries
             .write(&queue, bytemuck::cast_slice(&self.queries));
-        let header_bytes = self.query_pool.capacity() * std::mem::size_of::<QueryResultHeader>();
-        self.buffers
-            .query_headers
-            .write(&queue, &vec![0u8; header_bytes]);
-        let slots = self.queries.iter().map(|query| query.slot).collect();
-        self.query_pool.mark_batch(step, slots);
+        let count = self.queries.len();
+        let batch = self.next_batch;
+        self.query_pool.submit(batch, step, count);
+        self.next_batch += 1;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis query flush encoder"),
+            label: Some("dynamis query flush"),
         });
-        self.pipeline
-            .encode_queries(&mut encoder, self.queries.len() as u32);
-        let stale = self.submit_queries_pack(&device, &mut encoder, step);
+        self.pipeline.encode_queries(&mut encoder, count as u32);
+        let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
+        let arrived = self.buffers.queries_readback.enqueue(
+            &device,
+            &mut encoder,
+            self.buffers.query_results.buffer(),
+            bytes,
+            batch,
+        );
         queue.submit([encoder.finish()]);
         self.buffers.queries_readback.arm();
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        if let Some((stale_step, bytes)) = stale {
-            self.consume_queries(stale_step, &bytes);
+        if let Some((batch, bytes)) = arrived {
+            self.query_pool.collect(batch, &bytes);
         }
-        self.collect_readbacks();
+        for (batch, bytes) in self.buffers.queries_readback.poll(&device) {
+            self.query_pool.collect(batch, &bytes);
+        }
         self.queries.clear();
     }
 
     fn validate_query(&self, handle: QueryHandle) {
-        let slot = handle.slot as usize;
         assert!(
-            slot < self.query_pool.capacity(),
-            "query handle {handle:?} is out of range"
+            self.query_pool.is_current(handle),
+            "query handle {handle:?} belongs to a batch that has been retired"
         );
-        assert_eq!(
-            self.query_pool.generation(slot),
-            handle.generation,
-            "query handle {handle:?} is stale"
+        assert!(
+            self.query_pool.is_ready(handle),
+            "query handle {handle:?} has no results yet; call poll() or wait()"
         );
-    }
-
-    pub(super) fn consume_queries(&mut self, step: u64, bytes: &[u8]) {
-        self.query_pool.consume(step, bytes);
     }
 }

@@ -3,7 +3,7 @@
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
+    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
     if (index >= params.dynamic_count && index < params.body_count) {
         atomicStore(&wake_flags[index], 0u);
     }

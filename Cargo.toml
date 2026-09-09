@@ -64,7 +64,9 @@ dynamis-example-common = { workspace = true }
 dynamis-example-render = { workspace = true }
 bytemuck = { workspace = true }
 dynamis-profile = { workspace = true }
+dynamis-layout = { workspace = true }
 pollster = { workspace = true }
+wgpu = { workspace = true }
 
 [[example]]
 name = "falling"
@@ -77,3 +79,4 @@ required-features = ["profile"]
 
 [lints]
 workspace = true
+

@@ -1,7 +1,7 @@
 use super::common::distance;
 use super::common::{DT, gpu, gravity_config, sim, static_config};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_simulate::Simulation;
+use dynamis_simulate::{Simulation, StreamBudget};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn sphere_inertia(radius: f32, mass: f32) -> f32 {
@@ -112,7 +112,7 @@ fn invalid_inputs_panic() {
 #[test]
 fn cloned_gpu_context_runs_independent_worlds() {
     let mut first = sim(8, static_config());
-    let mut second = Simulation::new(gpu(), 8, static_config());
+    let mut second = Simulation::new(gpu(), 8, static_config(), StreamBudget::default());
     let a = first.spawn(
         BodyDesc::sphere(0.2)
             .position([0.0, 1.0, 0.0])

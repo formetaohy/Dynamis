@@ -1,31 +1,32 @@
 mod body;
 mod constraint;
 mod event;
+mod pack;
 mod query;
 mod readback;
 mod shape;
 mod step;
 
+use crate::StreamBudget;
 use crate::buffers::WorldBuffers;
 use crate::pipeline::Pipeline;
 use crate::query_pool::QueryPool;
+use crate::reservation::{Live, Reservation, ShapeReservation};
 use crate::shape_pool::ShapePool;
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{
-    AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
-    ConstraintCommandRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, Counter,
-    QueryRecord, QueryResultHeader,
+    BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, COUNTER_BODIES,
+    COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS, COUNTER_PREV_CONTACTS,
+    ColliderRecord, ConstraintCommandRecord, ConstraintDescriptorRecord, Counters,
+    QueryResultRecord,
 };
 use dynamis_model::{
     BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MAX_COLLIDERS_PER_BODY,
     MassProperties, PhysicsConfig, Shape,
 };
-
-pub(crate) const PAIR_CAPACITY_PER_BODY: usize = 64;
-pub(crate) const QUERY_RATIO: usize = 2;
 
 pub struct ContactPoint {
     pub position: [f32; 3],
@@ -47,15 +48,11 @@ pub struct ContactManifold {
 pub enum DebugBuffer {
     Aabbs,
     LargeBodies,
-    LargeCount,
-    EntryCount,
     EntryKeys,
     EntryLo,
-    PairCount,
     PairLo,
     PairHi,
     ContactValid,
-    ContactCount,
     Contacts,
     PrevContacts,
     BodyDescriptors,
@@ -66,30 +63,30 @@ pub enum DebugBuffer {
     ConstraintKeysA,
     ConstraintValuesA,
     ConstraintFirstA,
-    ConstraintKeysBOut,
+    ConstraintKeysB,
     ConstraintValuesB,
     ConstraintFirstB,
     ConstraintDeltas,
     ConstraintDescriptors,
-    ConstraintCommandCount,
     ConstraintRuntime,
     Events,
-    EventCount,
-    Overflow,
     IslandParents,
     IslandState,
     WakeFlags,
-    QueryHeaders,
-    QueryHits,
+    QueryResults,
+    Counters,
 }
 
 pub struct Simulation {
     gpu: GpuContext,
     config: PhysicsConfig,
-    capacity: usize,
-    reserved: usize,
+    /// The host-side handle space; bounds ids, never device work.
+    slots: usize,
+    reservation: Reservation,
+    shape_reservation: ShapeReservation,
+    /// What the device measured on the step whose counters last arrived.
+    observed: Counters,
     dynamic_count: usize,
-    constraint_capacity: usize,
     step_index: u64,
     alive: Vec<BodyHandle>,
     index_of: Vec<u32>,
@@ -106,13 +103,17 @@ pub struct Simulation {
     constraint_generations: Vec<u32>,
     constraint_free_ids: Vec<u32>,
     constraint_commands: Vec<ConstraintCommandRecord>,
-    queries: Vec<QueryRecord>,
+    queries: Vec<dynamis_layout::QueryRecord>,
+    next_batch: u64,
     query_pool: QueryPool,
     shape_pool: ShapePool,
     events: Vec<ContactEvent>,
     event_sink: Option<Box<dyn FnMut(ContactEvent)>>,
-    event_capacity: usize,
     broken_constraints: Vec<ConstraintHandle>,
+    dirty_bodies: Vec<u32>,
+    dirty_constraints: Vec<u32>,
+    shapes_dirty: bool,
+    stream_budget: StreamBudget,
     accumulator: f32,
     time_scale: f32,
     sub_dt: f32,
@@ -126,62 +127,52 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new(gpu: GpuContext, capacity: usize, config: PhysicsConfig) -> Self {
-        Self::with_shape_sources(gpu, capacity, capacity, config)
-    }
-
-    pub fn with_shape_sources(
-        gpu: GpuContext,
-        capacity: usize,
-        shape_sources: usize,
-        config: PhysicsConfig,
-    ) -> Self {
-        assert!(capacity > 0, "simulation capacity must be positive");
-        let pair_capacity = capacity * PAIR_CAPACITY_PER_BODY;
-        let query_capacity = capacity * QUERY_RATIO;
-        let constraint_capacity = capacity;
-        let buffers = WorldBuffers::new(
-            gpu.device(),
-            shape_sources,
-            capacity,
-            pair_capacity,
-            query_capacity,
-            constraint_capacity,
-        );
-        let pipeline = Pipeline::new(&gpu, &buffers, capacity as u32);
-        let query_header_bytes = query_capacity * std::mem::size_of::<QueryResultHeader>();
-        let zeros = vec![0u8; query_header_bytes];
-        buffers.query_headers.write(gpu.queue(), &zeros);
+    /// A world able to address `slots` body and constraint ids. Device storage is
+    /// planned from what is live, so this bound costs nothing until it is used;
+    /// `budget` sets how much the first plan gives each live body.
+    pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig, budget: StreamBudget) -> Self {
+        assert!(slots > 0, "simulation slot count must be positive");
+        let reservation = Reservation::initial(slots as u32, budget.pairs_per_body);
+        let shape_pool = ShapePool::new();
+        let shape_reservation =
+            ShapeReservation::planned(&ShapeReservation::EMPTY, &shape_pool.used());
+        let buffers = WorldBuffers::new(gpu.device(), &reservation, &shape_reservation);
+        let pipeline = Pipeline::new(&gpu, &buffers, &reservation);
         Self {
             gpu,
             config,
-            capacity,
-            reserved: capacity,
+            slots,
+            reservation,
+            shape_reservation,
+            observed: [0; dynamis_layout::COUNTER_COUNT],
             dynamic_count: 0,
-            constraint_capacity,
             step_index: 0,
             alive: Vec::new(),
-            index_of: vec![u32::MAX; capacity],
-            generations: vec![1; capacity],
-            free_ids: (0..capacity as u32).rev().collect(),
+            index_of: vec![u32::MAX; slots],
+            generations: vec![1; slots],
+            free_ids: (0..slots as u32).rev().collect(),
             commands: Vec::new(),
-            collider_descs: vec![Vec::new(); capacity],
-            masses: vec![1.0; capacity],
-            com_overrides: vec![None; capacity],
-            inertia_overrides: vec![None; capacity],
-            descriptors: vec![BodyDescriptorRecord::zeroed(); capacity],
+            collider_descs: vec![Vec::new(); slots],
+            masses: vec![1.0; slots],
+            com_overrides: vec![None; slots],
+            inertia_overrides: vec![None; slots],
+            descriptors: vec![BodyDescriptorRecord::zeroed(); slots],
             constraint_alive: Vec::new(),
-            constraint_index_of: vec![u32::MAX; capacity],
-            constraint_generations: vec![1; capacity],
-            constraint_free_ids: (0..capacity as u32).rev().collect(),
+            constraint_index_of: vec![u32::MAX; slots],
+            constraint_generations: vec![1; slots],
+            constraint_free_ids: (0..slots as u32).rev().collect(),
             constraint_commands: Vec::new(),
             queries: Vec::new(),
-            query_pool: QueryPool::new(query_capacity),
-            shape_pool: ShapePool::new(shape_sources),
+            next_batch: 0,
+            query_pool: QueryPool::new(),
+            shape_pool,
             events: Vec::new(),
             event_sink: None,
-            event_capacity: pair_capacity,
             broken_constraints: Vec::new(),
+            dirty_bodies: Vec::new(),
+            dirty_constraints: Vec::new(),
+            shapes_dirty: false,
+            stream_budget: budget,
             accumulator: 0.0,
             time_scale: 1.0,
             sub_dt: 1.0 / 60.0,
@@ -189,8 +180,8 @@ impl Simulation {
             pass_timings: Vec::new(),
             buffers,
             pipeline,
-            states: vec![None; capacity],
-            kinematic: vec![false; capacity],
+            states: vec![None; slots],
+            kinematic: vec![false; slots],
             constraint_records: Vec::new(),
         }
     }
@@ -207,8 +198,9 @@ impl Simulation {
         self.config.gravity = gravity;
     }
 
+    /// The number of body ids this world can address.
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.slots
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {
@@ -219,45 +211,148 @@ impl Simulation {
         self.alive.len()
     }
 
-    pub fn grow(&mut self, capacity: usize) {
+    /// Raises the id space. Device storage follows live bodies, so this alone never
+    /// reallocates anything on the card.
+    pub fn grow(&mut self, slots: usize) {
         assert!(
-            capacity >= self.alive.len(),
-            "grow capacity must not drop below the live body count"
+            slots >= self.alive.len(),
+            "grow slot count must not drop below the live body count"
         );
-        if capacity <= self.capacity {
+        if slots <= self.slots {
             return;
         }
-        self.extend_free_ids(capacity);
-        self.capacity = capacity;
-        if capacity > self.reserved {
-            let target = capacity.max(self.reserved.saturating_mul(2));
-            self.rebuild(target);
+        let base = self.slots;
+        self.slots = slots;
+        self.free_ids
+            .extend((base..slots).rev().map(|id| id as u32));
+        self.ensure_storage();
+    }
+
+    fn ensure_storage(&mut self) {
+        self.index_of.resize(self.slots, u32::MAX);
+        self.generations.resize(self.slots, 1);
+        self.collider_descs.resize(self.slots, Vec::new());
+        self.masses.resize(self.slots, 1.0);
+        self.com_overrides.resize(self.slots, None);
+        self.inertia_overrides.resize(self.slots, None);
+        self.descriptors
+            .resize(self.slots, BodyDescriptorRecord::zeroed());
+        self.states.resize(self.slots, None);
+        self.kinematic.resize(self.slots, false);
+        self.constraint_index_of.resize(self.slots, u32::MAX);
+        self.constraint_generations.resize(self.slots, 1);
+    }
+
+    fn live(&self) -> Live {
+        Live {
+            bodies: self.alive.len() as u32,
+            constraints: self.constraint_alive.len() as u32,
+            body_commands: self.commands.len() as u32,
+            constraint_commands: self.constraint_commands.len() as u32,
+            queries: self.queries.len() as u32,
         }
     }
 
-    fn extend_free_ids(&mut self, capacity: usize) {
-        let base = self.capacity;
-        if capacity > base {
-            self.free_ids
-                .extend((base..capacity).rev().map(|id| id as u32));
+    /// Publishes every host-side row edit the world accumulated since the last step.
+    ///
+    /// Host mutations never touch the device directly, so this is the only place that
+    /// writes rows and the only place that may need to reallocate first.
+    pub(crate) fn flush_rows(&mut self) {
+        let queue = self.gpu.queue();
+        if self.shapes_dirty {
+            self.shape_pool.upload_pending(
+                queue,
+                &self.buffers.shapes,
+                &self.buffers.shape_vertices,
+                &self.buffers.shape_triangles,
+                &self.buffers.shape_nodes,
+            );
+            self.shapes_dirty = false;
+        }
+        self.dirty_bodies.sort_unstable();
+        self.dirty_bodies.dedup();
+        for slot in std::mem::take(&mut self.dirty_bodies) {
+            let id = self.alive[slot as usize].id as usize;
+            let colliders = self.collider_block_of(id);
+            let descriptor = self.descriptors[id];
+            let aabbs = self.aabb_block_of(id);
+            self.buffers.colliders.write_at(
+                queue,
+                slot as u64 * self.buffers.collider_row(),
+                bytemuck::cast_slice(&colliders),
+            );
+            self.buffers.body_descs.write_at(
+                queue,
+                slot as u64 * self.buffers.descriptor_row(),
+                bytemuck::cast_slice(&[descriptor]),
+            );
+            self.buffers.aabbs.write_at(
+                queue,
+                slot as u64 * self.buffers.aabb_row(),
+                bytemuck::cast_slice(&aabbs),
+            );
+            if let Some(state) = self.states[id] {
+                let row = BodyStateRecord::observed(
+                    state.position,
+                    state.prev_position,
+                    state.orientation,
+                    state.velocity,
+                    state.angular_velocity,
+                    id as u32,
+                    self.alive[slot as usize].generation,
+                );
+                self.buffers.body_states.write_at(
+                    queue,
+                    slot as u64 * self.buffers.body_state_row(),
+                    bytemuck::cast_slice(&[row]),
+                );
+            }
+        }
+        self.dirty_constraints.sort_unstable();
+        self.dirty_constraints.dedup();
+        for slot in std::mem::take(&mut self.dirty_constraints) {
+            let record = self.constraint_records[slot as usize];
+            self.buffers.constraint_descs.write_at(
+                queue,
+                slot as u64 * self.buffers.constraint_row(),
+                bytemuck::cast_slice(&[record]),
+            );
         }
     }
 
-    fn rebuild(&mut self, reserved: usize) {
-        assert!(
-            reserved >= self.alive.len(),
-            "rebuild capacity must not drop below the live body count"
+    /// Asks the device what the streams will hold, then grows them before any of that
+    /// work is attempted. The sizing pass mutates nothing, so growing here is free of
+    /// any need to rewind the world.
+    /// Replans device storage from what is live and what the device measured, and
+    /// reallocates only when the plan actually grew.
+    pub(crate) fn apply_plan(&mut self) {
+        let next = Reservation::planned(
+            &self.reservation,
+            &self.live(),
+            &self.observed,
+            self.stream_budget.pairs_per_body,
         );
-        self.ensure_storage(reserved);
-        let pair_capacity = reserved * PAIR_CAPACITY_PER_BODY;
-        let query_capacity = reserved * QUERY_RATIO;
+        let shapes = ShapeReservation::planned(&self.shape_reservation, &self.shape_pool.used());
+        if next == self.reservation && shapes == self.shape_reservation {
+            return;
+        }
+        self.reservation = next;
+        self.shape_reservation = shapes;
+        self.drain_in_flight();
+        self.rebuild();
+    }
+
+    /// A reallocation destroys the buffers holding in-flight reads, so every pending
+    /// result is brought home first.
+    fn drain_in_flight(&mut self) {
+        self.drain_readbacks();
+    }
+
+    pub(crate) fn rebuild(&mut self) {
         let buffers = WorldBuffers::new(
             self.gpu.device(),
-            self.shape_pool.capacity(),
-            reserved,
-            pair_capacity,
-            query_capacity,
-            self.constraint_capacity,
+            &self.reservation,
+            &self.shape_reservation,
         );
         self.transfer_device_state(&buffers);
         self.upload_host_state(&buffers);
@@ -269,39 +364,26 @@ impl Simulation {
             &buffers.shape_triangles,
             &buffers.shape_nodes,
         );
-        let pipeline = Pipeline::new(&self.gpu, &buffers, reserved as u32);
-        self.buffers = buffers;
-        self.pipeline = pipeline;
-        self.reserved = reserved;
-    }
 
-    fn ensure_storage(&mut self, reserved: usize) {
-        self.index_of.resize(reserved, u32::MAX);
-        self.generations.resize(reserved, 1);
-        self.collider_descs.resize(reserved, Vec::new());
-        self.masses.resize(reserved, 1.0);
-        self.com_overrides.resize(reserved, None);
-        self.inertia_overrides.resize(reserved, None);
-        self.descriptors
-            .resize(reserved, BodyDescriptorRecord::zeroed());
-        self.states.resize(reserved, None);
-        self.kinematic.resize(reserved, false);
+        self.pipeline = Pipeline::new(&self.gpu, &buffers, &self.reservation);
+        self.buffers = buffers;
     }
 
     /// Device-owned rows survive a reallocation untouched; only their storage moves.
     fn transfer_device_state(&self, next: &WorldBuffers) {
         let previous = &self.buffers;
-        let bodies = (self.alive.len() * std::mem::size_of::<BodyStateRecord>()) as u64;
-        let aabbs =
-            (self.alive.len() * MAX_COLLIDERS_PER_BODY * std::mem::size_of::<AabbRecord>()) as u64;
-        let contacts = previous.prev_contacts.size().min(next.prev_contacts.size());
-        let constraints =
-            (self.constraint_alive.len() * std::mem::size_of::<ConstraintRuntimeRecord>()) as u64;
+        let bodies = previous.body_states.size().min(next.body_states.size());
+        let aabbs = previous.aabbs.size().min(next.aabbs.size());
+        let contacts = previous.contacts.size().min(next.contacts.size());
+        let constraints = previous
+            .constraint_runtime
+            .size()
+            .min(next.constraint_runtime.size());
         let mut encoder =
             self.gpu
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("dynamis grow transfer"),
+                    label: Some("dynamis reallocate"),
                 });
         let mut copy =
             |source: &dynamis_gpu::GpuBuffer, target: &dynamis_gpu::GpuBuffer, bytes: u64| {
@@ -311,14 +393,20 @@ impl Simulation {
         copy(&previous.aabbs, &next.aabbs, aabbs);
         copy(&previous.prev_contacts, &next.prev_contacts, contacts);
         copy(
-            &previous.prev_contact_count,
-            &next.prev_contact_count,
-            std::mem::size_of::<Counter>() as u64,
-        );
-        copy(
             &previous.constraint_runtime,
             &next.constraint_runtime,
             constraints,
+        );
+        let (offset, width) = (
+            COUNTER_PREV_CONTACTS as u64 * dynamis_layout::COUNTER_STRIDE,
+            4,
+        );
+        encoder.copy_buffer_to_buffer(
+            previous.counters.buffer(),
+            offset,
+            next.counters.buffer(),
+            offset,
+            width,
         );
         self.gpu.queue().submit([encoder.finish()]);
     }
@@ -340,17 +428,32 @@ impl Simulation {
             queue,
             bytemuck::cast_slice(&self.constraint_records[..self.constraint_alive.len()]),
         );
-        next.constraint_count_state.write(
-            queue,
-            bytemuck::cast_slice(&[Counter::sized(self.constraint_alive.len() as u32)]),
-        );
     }
 
-    fn state_snapshot(&self, id: usize) -> Option<BodyState> {
+    pub(crate) fn write_declared_counters(&self, queue: &wgpu::Queue) {
+        let declared = [
+            (COUNTER_BODIES, self.alive.len() as u32),
+            (COUNTER_CONSTRAINTS, self.constraint_alive.len() as u32),
+            (COUNTER_BODY_COMMANDS, self.commands.len() as u32),
+            (
+                COUNTER_CONSTRAINT_COMMANDS,
+                self.constraint_commands.len() as u32,
+            ),
+        ];
+        for (slot, value) in declared {
+            self.buffers.counters.write_at(
+                queue,
+                slot as u64 * dynamis_layout::COUNTER_STRIDE,
+                bytemuck::cast_slice(&[value]),
+            );
+        }
+    }
+
+    pub(crate) fn state_snapshot(&self, id: usize) -> Option<BodyState> {
         self.states[id]
     }
 
-    fn mass_properties_of(&self, id: usize) -> MassProperties {
+    pub(crate) fn mass_properties_of(&self, id: usize) -> MassProperties {
         dynamis_model::mass_properties_of_intent(
             &self.collider_descs[id],
             self.masses[id],
@@ -360,7 +463,7 @@ impl Simulation {
         )
     }
 
-    fn collider_record(&self, desc: &ColliderDesc) -> ColliderRecord {
+    pub(crate) fn collider_record(&self, desc: &ColliderDesc) -> ColliderRecord {
         let source = match desc.shape {
             Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => handle.id,
             _ => 0,
@@ -390,40 +493,33 @@ impl Simulation {
         let buffer = match which {
             DebugBuffer::Aabbs => &self.buffers.aabbs,
             DebugBuffer::LargeBodies => &self.buffers.large_bodies,
-            DebugBuffer::LargeCount => &self.buffers.large_count,
-            DebugBuffer::EntryCount => &self.buffers.entry_count,
             DebugBuffer::EntryKeys => &self.buffers.entries.keys_hi,
             DebugBuffer::EntryLo => &self.buffers.entries.keys_lo,
-            DebugBuffer::PairCount => &self.buffers.pair_count,
             DebugBuffer::PairLo => &self.buffers.pairs.keys_lo,
             DebugBuffer::PairHi => &self.buffers.pairs.keys_hi,
             DebugBuffer::ContactValid => &self.buffers.contact_valid,
-            DebugBuffer::ContactCount => &self.buffers.contact_count,
             DebugBuffer::Contacts => &self.buffers.contacts,
-            DebugBuffer::BodyDescriptors => &self.buffers.body_descs,
             DebugBuffer::PrevContacts => &self.buffers.prev_contacts,
+            DebugBuffer::BodyDescriptors => &self.buffers.body_descs,
             DebugBuffer::CompactRanks => &self.buffers.compact_ranks,
             DebugBuffer::CompactSums => &self.buffers.compact_block_sums,
             DebugBuffer::CompactOffsets => &self.buffers.compact_block_offsets,
             DebugBuffer::ContactABodies => &self.buffers.contact_a_body,
-            DebugBuffer::ConstraintKeysA => &self.buffers.constraint_gather_a_keys_out,
-            DebugBuffer::ConstraintValuesA => &self.buffers.constraint_gather_a_values_out,
+            DebugBuffer::ConstraintKeysA => &self.buffers.constraint_a_keys,
+            DebugBuffer::ConstraintValuesA => &self.buffers.constraint_a_values,
             DebugBuffer::ConstraintFirstA => &self.buffers.constraint_first_a,
-            DebugBuffer::ConstraintKeysBOut => &self.buffers.constraint_gather_b_keys_out,
-            DebugBuffer::ConstraintValuesB => &self.buffers.constraint_gather_b_values_out,
+            DebugBuffer::ConstraintKeysB => &self.buffers.constraint_b_keys,
+            DebugBuffer::ConstraintValuesB => &self.buffers.constraint_b_values,
             DebugBuffer::ConstraintFirstB => &self.buffers.constraint_first_b,
             DebugBuffer::ConstraintDeltas => &self.buffers.constraint_deltas,
-            DebugBuffer::ConstraintCommandCount => &self.buffers.constraint_command_count,
             DebugBuffer::ConstraintDescriptors => &self.buffers.constraint_descs,
             DebugBuffer::ConstraintRuntime => &self.buffers.constraint_runtime,
             DebugBuffer::Events => &self.buffers.events,
-            DebugBuffer::EventCount => &self.buffers.event_count,
-            DebugBuffer::Overflow => &self.buffers.overflow_flags,
             DebugBuffer::IslandParents => &self.buffers.island_parents,
             DebugBuffer::IslandState => &self.buffers.island_state,
             DebugBuffer::WakeFlags => &self.buffers.wake_flags,
-            DebugBuffer::QueryHeaders => &self.buffers.query_headers,
-            DebugBuffer::QueryHits => &self.buffers.query_hits,
+            DebugBuffer::QueryResults => &self.buffers.query_results,
+            DebugBuffer::Counters => &self.buffers.counters,
         };
         buffer.buffer()
     }
@@ -436,3 +532,8 @@ impl Simulation {
         self.gpu.device()
     }
 }
+
+const _: () = {
+    use std::mem::size_of;
+    assert!(size_of::<QueryResultRecord>() == 784);
+};

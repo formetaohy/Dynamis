@@ -5,10 +5,10 @@
 @group(0) @binding(4) var<storage, read> pair_keys_lo: array<u32>;
 @group(0) @binding(5) var<storage, read_write> contacts_raw: array<Contact>;
 @group(0) @binding(6) var<storage, read_write> contact_valid: array<u32>;
-@group(0) @binding(7) var<storage, read_write> pair_count: atomic<u32>;
+@group(0) @binding(7) var<storage, read_write> pair_count: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read> joint_hi: array<u32>;
 @group(0) @binding(9) var<storage, read> joint_lo: array<u32>;
-@group(0) @binding(10) var<storage, read> joint_count: array<u32>;
+@group(0) @binding(10) var<storage, read_write> joint_count: array<atomic<u32>>;
 @group(0) @binding(11) var<uniform> params: SimParams;
 
 fn load_body(slot: u32) -> Body {
@@ -21,7 +21,7 @@ fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
 }
 
 fn pair_joined(first_body: u32, second_body: u32) -> bool {
-    let count = joint_count[0];
+    let count = min(atomicLoad(&joint_count[0]), arrayLength(&joint_hi));
     if (count == 0u) {
         return false;
     }
@@ -497,8 +497,8 @@ fn scaled_shape(collider: Collider) -> bool {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
-    if (index >= atomicLoad(&pair_count)) {
+    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_keys_hi))) {
         return;
     }
     contact_valid[index] = 0u;

@@ -40,13 +40,13 @@ impl Simulation {
         let slot = self.constraint_alive.len() as u32;
         self.constraint_index_of[id as usize] = slot;
         self.constraint_alive.push(handle);
+        self.dirty_constraints.push(slot);
         let record = ConstraintDescriptorRecord::build(
             &desc,
             self.index_of[first.id as usize],
             self.index_of[second.id as usize],
         );
         self.constraint_records.push(record);
-        self.write_constraint_descriptor(slot, record);
         self.constraint_commands.push(ConstraintCommandRecord::add(
             slot,
             id,
@@ -62,7 +62,7 @@ impl Simulation {
         let existing = self.constraint_records[slot];
         let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
         self.constraint_records[slot] = record;
-        self.write_constraint_descriptor(slot as u32, record);
+        self.dirty_constraints.push(slot as u32);
     }
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
@@ -157,7 +157,7 @@ impl Simulation {
         let existing = self.constraint_records[slot];
         let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
         self.constraint_records[slot] = record;
-        self.write_constraint_descriptor(slot as u32, record);
+        self.dirty_constraints.push(slot as u32);
     }
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
@@ -170,21 +170,13 @@ impl Simulation {
         if slot < tail {
             let moved = self.constraint_alive[slot];
             self.constraint_index_of[moved.id as usize] = slot as u32;
-            let record = self.constraint_records[slot];
-            self.write_constraint_descriptor(slot as u32, record);
+            self.dirty_constraints.push(slot as u32);
             self.constraint_commands
                 .push(ConstraintCommandRecord::swap(slot as u32, tail as u32));
         }
         self.constraint_index_of[id] = u32::MAX;
         self.constraint_free_ids.push(handle.id);
-    }
-
-    fn write_constraint_descriptor(&self, slot: u32, record: ConstraintDescriptorRecord) {
-        self.buffers.constraint_descs.write_at(
-            self.gpu.queue(),
-            (slot as usize * std::mem::size_of::<ConstraintDescriptorRecord>()) as u64,
-            bytemuck::cast_slice(&[record]),
-        );
+        self.dirty_constraints.retain(|dirty| *dirty != tail as u32);
     }
 
     pub fn constraints(&self) -> &[ConstraintHandle] {
@@ -193,7 +185,7 @@ impl Simulation {
 
     fn validate_constraint(&self, handle: ConstraintHandle) {
         let id = handle.id as usize;
-        if id >= self.constraint_capacity {
+        if id >= self.slots {
             panic!("constraint handle {handle:?} is out of range");
         }
         if self.constraint_generations[id] != handle.generation {
@@ -252,8 +244,7 @@ impl Simulation {
                 }
             }
             if changed {
-                let row = *record;
-                self.write_constraint_descriptor(index as u32, row);
+                self.dirty_constraints.push(index as u32);
             }
         }
     }

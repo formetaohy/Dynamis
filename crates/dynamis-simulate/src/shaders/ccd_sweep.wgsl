@@ -4,7 +4,7 @@
 @group(0) @binding(3) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(4) var<storage, read> pair_keys_hi: array<u32>;
 @group(0) @binding(5) var<storage, read> pair_keys_lo: array<u32>;
-@group(0) @binding(6) var<storage, read_write> pair_count: atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> pair_count: array<atomic<u32>>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -65,8 +65,8 @@ fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, othe
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
-    if (index >= atomicLoad(&pair_count)) {
+    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_keys_hi))) {
         return;
     }
     if (index > 0u && pair_keys_hi[index] == pair_keys_hi[index - 1u] && pair_keys_lo[index] == pair_keys_lo[index - 1u]) {

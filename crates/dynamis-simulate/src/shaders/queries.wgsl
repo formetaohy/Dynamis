@@ -5,12 +5,11 @@
 @group(0) @binding(4) var<storage, read> aabbs: array<Aabb>;
 @group(0) @binding(5) var<storage, read> entry_keys_hi: array<u32>;
 @group(0) @binding(6) var<storage, read> entry_keys_lo: array<u32>;
-@group(0) @binding(7) var<storage, read> entry_count: array<u32>;
-@group(0) @binding(8) var<storage, read_write> query_headers: array<QueryResultHeader>;
-@group(0) @binding(9) var<storage, read_write> query_hits: array<QueryHit>;
-@group(0) @binding(10) var<storage, read> large_bodies: array<u32>;
-@group(0) @binding(11) var<storage, read> large_count: array<u32>;
-@group(0) @binding(12) var<uniform> params: SimParams;
+@group(0) @binding(7) var<storage, read_write> entry_count: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> query_results: array<QueryResult>;
+@group(0) @binding(9) var<storage, read> large_bodies: array<u32>;
+@group(0) @binding(10) var<storage, read_write> large_count: array<atomic<u32>>;
+@group(0) @binding(11) var<uniform> params: SimParams;
 
 const CANDIDATES_PER_QUERY: u32 = 512u;
 
@@ -65,7 +64,7 @@ fn cell_hash(coord: vec3i) -> u32 {
 
 fn hash_range(hash: u32) -> vec2u {
     var lo = 0u;
-    var hi = entry_count[0];
+    var hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_keys_lo));
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
         if (entry_keys_hi[mid] < hash) {
@@ -75,7 +74,7 @@ fn hash_range(hash: u32) -> vec2u {
         }
     }
     let first = lo;
-    hi = entry_count[0];
+    hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_keys_lo));
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
         if (entry_keys_hi[mid] <= hash) {
@@ -261,24 +260,21 @@ fn query_world_aabb(query: Query) -> Aabb {
     return world_aabb_of(shape);
 }
 
-fn emit_hit(query: Query, body: Body, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
+fn emit_hit(batch: u32, query: Query, body: Body, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
     var slot = 0u;
     loop {
-        let current = atomicLoad(&query_headers[query.slot].count);
+        let current = atomicLoad(&query_results[batch].header.count);
         if (current >= query.max_hits || current >= MAX_HITS_PER_QUERY) {
-            atomicStore(&query_headers[query.slot].overflow, 1u);
+            atomicStore(&query_results[batch].header.overflow, 1u);
             return;
         }
-        let result = atomicCompareExchangeWeak(&query_headers[query.slot].count, current, current + 1u);
-        if (result.exchanged) {
+        let exchanged = atomicCompareExchangeWeak(&query_results[batch].header.count, current, current + 1u);
+        if (exchanged.exchanged) {
             slot = current;
             break;
         }
     }
-    let base = query.slot * MAX_HITS_PER_QUERY;
-    if (base + slot < arrayLength(&query_hits)) {
-        query_hits[base + slot] = QueryHit(body.state.body_id, body.state.generation, distance, collider_index, point, 0.0, normal, 0.0);
-    }
+    query_results[batch].hits[slot] = QueryHit(body.state.body_id, body.state.generation, distance, collider_index, point, 0.0, normal, 0.0);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -286,7 +282,13 @@ fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
     @builtin(local_invocation_id) invocation_id: vec3u,
 ) {
-    let query = queries[workgroup_id.x];
+    let batch = workgroup_id.y * WORKGROUPS_PER_ROW + workgroup_id.x;
+    let query = queries[batch];
+    if (invocation_id.x == 0u) {
+        atomicStore(&query_results[batch].header.count, 0u);
+        atomicStore(&query_results[batch].header.overflow, 0u);
+    }
+    workgroupBarrier();
     atomicStore(&candidate_count, 0u);
     atomicStore(&overflow_flag, 0u);
     workgroupBarrier();
@@ -314,7 +316,7 @@ fn main(
         cell_index = cell_index + WORKGROUP_SIZE;
     }
     var large_index = invocation_id.x;
-    while (large_index < large_count[0]) {
+    while (large_index < min(atomicLoad(&large_count[0]), arrayLength(&large_bodies))) {
         let slot = atomicAdd(&candidate_count, 1u);
         if (slot < CANDIDATES_PER_QUERY) {
             candidates[slot] = large_bodies[large_index];
@@ -388,7 +390,7 @@ fn main(
             }
         }
         if (hit.distance < NO_HIT) {
-            emit_hit(query, body, collider, collider_slot % MAX_COLLIDERS_PER_BODY, hit.distance, hit.point, hit.normal);
+            emit_hit(batch, query, body, collider, collider_slot % MAX_COLLIDERS_PER_BODY, hit.distance, hit.point, hit.normal);
         }
         candidate_index = candidate_index + WORKGROUP_SIZE;
     }

@@ -6,7 +6,7 @@ mod context;
 #[cfg(feature = "profile")]
 mod timing;
 
-pub use buffer::{GpuBuffer, GpuReadback};
+pub use buffer::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
 pub use compute::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
 #[cfg(feature = "profile")]

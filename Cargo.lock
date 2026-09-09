@@ -378,10 +378,12 @@ dependencies = [
  "dynamis-example-render",
  "dynamis-gpu",
  "dynamis-kernel",
+ "dynamis-layout",
  "dynamis-model",
  "dynamis-profile",
  "dynamis-simulate",
  "pollster",
+ "wgpu",
 ]
 
 [[package]]
@@ -409,6 +411,7 @@ dependencies = [
 name = "dynamis-gpu"
 version = "0.5.0"
 dependencies = [
+ "dynamis-layout",
  "pollster",
  "wgpu",
 ]
@@ -419,6 +422,7 @@ version = "0.5.0"
 dependencies = [
  "bytemuck",
  "dynamis-gpu",
+ "dynamis-layout",
  "pollster",
  "wgpu",
 ]

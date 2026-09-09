@@ -208,6 +208,20 @@ pub struct QueryResultHeader {
     pub _pad1: u32,
 }
 
+/// One query's header followed by its hit lanes, so a batch of queries is one
+/// contiguous, exactly-sized readback.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct QueryResultRecord {
+    pub header: QueryResultHeader,
+    pub hits: [QueryHitRecord; crate::constant::MAX_HITS_PER_QUERY as usize],
+}
+
+const _: () = {
+    use std::mem::size_of;
+    assert!(size_of::<QueryResultRecord>() == 784);
+};
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct QueryHitRecord {

@@ -123,9 +123,14 @@ fn contact_manifolds_surface_contact_points() {
             .any(|point| { point.depth > -0.1 && point.normal_impulse >= 0.0 }),
         "manifold must expose contact points"
     );
-    assert!(
-        world.overflow() == (0, 0),
-        "quiet simulation must not overflow"
+    let measured = world.measured().to_owned();
+    assert_eq!(
+        (
+            measured[dynamis_layout::COUNTER_SPILLOVER_PAIRS],
+            measured[dynamis_layout::COUNTER_SPILLOVER_EVENTS],
+        ),
+        (0, 0),
+        "quiet simulation must not spill"
     );
 }
 

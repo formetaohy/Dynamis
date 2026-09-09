@@ -84,16 +84,24 @@ fn pass_timings_split_a_step_by_stage() {
                     label: Some("timing frame"),
                 });
         {
-            let mut idle =
-                ComputeRecorder::begin_timed(&mut encoder, labels[0], Some(timer.writes(0)));
+            let mut idle = ComputeRecorder::begin_timed(
+                &mut encoder,
+                labels[0],
+                Some(timer.writes(0)),
+                context.workgroups_per_row(),
+            );
             idle.record(&pipeline, &[], 0);
         }
         {
-            let mut busy =
-                ComputeRecorder::begin_timed(&mut encoder, labels[1], Some(timer.writes(1)));
+            let mut busy = ComputeRecorder::begin_timed(
+                &mut encoder,
+                labels[1],
+                Some(timer.writes(1)),
+                context.workgroups_per_row(),
+            );
             busy.record(&pipeline, &[&group], 4096);
         }
-        if let Some((_, timings)) = timer.capture(context.device(), &mut encoder, frame) {
+        if let Some((_, timings)) = timer.capture(&mut encoder, frame) {
             reported = Some(timings);
             context.queue().submit([encoder.finish()]);
             timer.arm();

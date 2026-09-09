@@ -28,9 +28,6 @@ pub const OVERRIDE_SLEEP_ANGULAR: u32 = 8;
 
 pub const NO_COLLISION_FILTER: u32 = u32::MAX;
 
-pub const OVERFLOW_PAIRS: u32 = 0;
-pub const OVERFLOW_EVENTS: u32 = 1;
-
 pub const SHAPE_NONE: u32 = 0;
 pub const SHAPE_SPHERE: u32 = 1;
 pub const SHAPE_CUBOID: u32 = 2;

@@ -18,7 +18,7 @@ var<workgroup> bin_count: array<atomic<u32>, BIN_COUNT>;
 
 @compute @workgroup_size(TILE_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-    let index = gid.x;
+    let index = gid.y * (__ROW__ * TILE_SIZE) + gid.x;
     let lane = lid.x;
     bin_count[lane] = 0u;
     workgroupBarrier();

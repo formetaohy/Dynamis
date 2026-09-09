@@ -283,6 +283,11 @@ impl GpuContext {
         self.features
     }
 
+    /// The largest workgroup count a single dispatch dimension may carry.
+    pub fn workgroups_per_row(&self) -> u32 {
+        self.limits.max_compute_workgroups_per_dimension.max(1)
+    }
+
     pub fn limits(&self) -> &Limits {
         &self.limits
     }

@@ -1,8 +1,8 @@
+use crate::reservation::ShapeReservation;
 use dynamis_layout::BvhNodeRecord;
 use dynamis_model::ShapeSourceHandle;
 
 pub(crate) struct ShapePool {
-    capacity: usize,
     generations: Vec<u32>,
     free_ids: Vec<u32>,
     refs: Vec<u32>,
@@ -27,12 +27,11 @@ pub(crate) struct ShapeSourceRecordStorage {
 }
 
 impl ShapePool {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            capacity,
-            generations: vec![1; capacity],
-            free_ids: (0..capacity as u32).rev().collect(),
-            refs: vec![0; capacity],
+            generations: Vec::new(),
+            free_ids: Vec::new(),
+            refs: Vec::new(),
             records: Vec::new(),
             vertices: Vec::new(),
             triangles: Vec::new(),
@@ -43,8 +42,14 @@ impl ShapePool {
         }
     }
 
-    pub fn capacity(&self) -> usize {
-        self.capacity
+    /// The packed lengths the store has actually reached, in elements.
+    pub fn used(&self) -> ShapeReservation {
+        ShapeReservation {
+            sources: self.generations.len() as u32,
+            vertices: self.vertices.len() as u32,
+            triangles: self.triangles.len() as u32,
+            nodes: self.nodes.len() as u32,
+        }
     }
 
     pub fn record(&self, handle: ShapeSourceHandle) -> &ShapeSourceRecordStorage {
@@ -138,10 +143,15 @@ impl ShapePool {
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
-        let id = self
-            .free_ids
-            .pop()
-            .expect("shape source capacity exhausted");
+        let id = match self.free_ids.pop() {
+            Some(id) => id,
+            None => {
+                let id = self.generations.len() as u32;
+                self.generations.push(1);
+                self.refs.push(0);
+                id
+            }
+        };
         self.generations[id as usize] += 1;
         let (bounds_min, bounds_max) = bounds_of(vertices);
         let vertex_offset = self.vertices.len() as u32;

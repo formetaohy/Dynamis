@@ -1,6 +1,6 @@
 use dynamis_gpu::GpuContext;
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
-use dynamis_simulate::Simulation;
+use dynamis_simulate::{Simulation, StreamBudget};
 use std::sync::OnceLock;
 
 pub const DT: f32 = 1.0 / 60.0;
@@ -13,7 +13,7 @@ pub fn gpu() -> GpuContext {
 }
 
 pub fn sim(capacity: usize, config: PhysicsConfig) -> Simulation {
-    Simulation::new(gpu(), capacity, config)
+    Simulation::new(gpu(), capacity, config, StreamBudget::default())
 }
 
 pub fn static_config() -> PhysicsConfig {

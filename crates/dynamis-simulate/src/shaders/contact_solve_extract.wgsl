@@ -2,7 +2,7 @@
 @group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(4) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(4) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read_write> contact_deltas: array<vec4f>;
 
@@ -23,8 +23,8 @@ fn wake_on_impact(slot: u32, sleeping: Body, moving: Body) {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
-    if (index >= contact_count[0]) {
+    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    if (index >= min(atomicLoad(&contact_count[0]), arrayLength(&contacts))) {
         return;
     }
     let contact = contacts[index];

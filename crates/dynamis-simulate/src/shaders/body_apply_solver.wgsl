@@ -11,17 +11,17 @@
 @group(0) @binding(10) var<storage, read> constraint_values_a: array<u32>;
 @group(0) @binding(11) var<storage, read> constraint_keys_b: array<u32>;
 @group(0) @binding(12) var<storage, read> constraint_values_b: array<u32>;
-@group(0) @binding(13) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(13) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(14) var<storage, read> contact_deltas: array<vec4f>;
 @group(0) @binding(15) var<storage, read> constraint_deltas: array<vec4f>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let body_index = gid.x;
+    let body_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
     if (body_index >= params.dynamic_count) {
         return;
     }
-    let total = contact_count[0];
+    let total = min(atomicLoad(&contact_count[0]), arrayLength(&contact_a_body));
     let constraint_total = params.constraint_count;
     let body = body_states[body_index];
     var velocity = vec3f(0.0);

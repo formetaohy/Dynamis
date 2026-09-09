@@ -60,6 +60,37 @@ impl BodyStateRecord {
             sleeping: 0,
         }
     }
+
+    /// The row for a pose the host already knows, used when a slot is first published.
+    pub fn observed(
+        position: [f32; 3],
+        prev_position: [f32; 3],
+        orientation: [f32; 4],
+        velocity: [f32; 3],
+        angular_velocity: [f32; 3],
+        body_id: u32,
+        generation: u32,
+    ) -> Self {
+        Self {
+            position,
+            _pad0: 0.0,
+            prev_position,
+            _pad1: 0.0,
+            orientation,
+            velocity,
+            _pad2: 0.0,
+            angular_velocity,
+            _pad3: 0.0,
+            force: [0.0; 3],
+            _pad4: 0.0,
+            torque: [0.0; 3],
+            _pad5: 0.0,
+            body_id,
+            generation,
+            sleep_timer: 0.0,
+            sleeping: 0,
+        }
+    }
 }
 
 /// Invariant properties of one body slot. The host owns this row and the device

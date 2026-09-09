@@ -7,7 +7,7 @@ use dynamis_layout::{
     CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
     CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
     CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
-    ConstraintCommandRecord, ConstraintDescriptorRecord, Counter, FILTER_IGNORE_KINEMATIC,
+    ConstraintCommandRecord, ConstraintDescriptorRecord, FILTER_IGNORE_KINEMATIC,
     FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR,
     OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
     QUERY_SWEEP, QueryRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
@@ -394,8 +394,28 @@ fn constraint_command_and_dispatch_args_encode() {
     assert_eq!(swap.kind, COMMAND_CONSTRAINT_SWAP);
     assert_eq!(swap.tail, 9);
 
-    assert_eq!(Counter::none().count, 0);
-    assert_eq!(Counter::sized(42).count, 42);
+    let declared = dynamis_layout::counters(9, 0, 42, 7);
+    assert_eq!(declared[dynamis_layout::COUNTER_BODIES], 9);
+    assert_eq!(declared[dynamis_layout::COUNTER_BODY_COMMANDS], 42);
+    assert_eq!(declared[dynamis_layout::COUNTER_CONSTRAINT_COMMANDS], 7);
+    assert_eq!(
+        declared[dynamis_layout::COUNTER_PAIRS],
+        0,
+        "measured slots start empty"
+    );
+    let bytes = dynamis_layout::counter_bytes(&declared);
+    assert_eq!(bytes.len(), dynamis_layout::COUNTER_COUNT * 256);
+    for (slot, chunk) in bytes.chunks_exact(256).enumerate() {
+        assert_eq!(
+            u32::from_le_bytes(chunk[..4].try_into().unwrap()),
+            declared[slot],
+            "slot {slot} must land at its stride"
+        );
+        assert!(
+            chunk[4..].iter().all(|byte| *byte == 0),
+            "slot {slot} must be padded to its stride"
+        );
+    }
 }
 
 #[test]

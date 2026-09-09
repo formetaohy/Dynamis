@@ -9,14 +9,14 @@ struct ConstraintCommand {
 
 @group(0) @binding(0) var<storage, read> commands: array<ConstraintCommand>;
 @group(0) @binding(1) var<storage, read_write> constraint_runtime: array<ConstraintRuntime>;
-@group(0) @binding(2) var<storage, read> command_count: u32;
+@group(0) @binding(2) var<storage, read_write> command_count: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (gid.x != 0u) {
         return;
     }
-    let count = command_count;
+    let count = atomicLoad(&command_count[0]);
     for (var i = 0u; i < count; i = i + 1u) {
         let command = commands[i];
         if (command.kind == COMMAND_CONSTRAINT_ADD) {

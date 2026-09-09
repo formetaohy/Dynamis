@@ -1,5 +1,6 @@
-use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext};
-use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
+use dynamis_gpu::{ComputeRecorder, DispatchTable, GpuBuffer, GpuContext, GpuSlot};
+use dynamis_kernel::{RadixSort, SortChannels};
+use dynamis_layout::dispatch;
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 
@@ -79,6 +80,16 @@ fn sort_inputs(context: &GpuContext, lo_data: &[u32], hi_data: &[u32]) -> SortIn
     }
 }
 
+fn fill_args(table: &DispatchTable, context: &GpuContext, count: u32) {
+    let row = context.workgroups_per_row();
+    let workgroups = count.div_ceil(256);
+    let mut args = [0u8; 16];
+    args[..4].copy_from_slice(&workgroups.min(row).to_le_bytes());
+    args[4..8].copy_from_slice(&workgroups.div_ceil(row).to_le_bytes());
+    args[8..12].copy_from_slice(&1u32.to_le_bytes());
+    table.buffer().write(context.queue(), &args);
+}
+
 fn run_sort(
     keys_lo: &[u32],
     keys_hi: &[u32],
@@ -100,16 +111,18 @@ fn run_sort(
     count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     holder.write(context.queue(), &count_bytes);
     let sort = RadixSort::new(&context, "test sort", keys_lo.len() as u32);
+    let table = DispatchTable::new(device, "test dispatch", 1);
+    fill_args(&table, &context, keys_lo.len() as u32);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("sort"),
     });
     {
-        let mut recorder = ComputeRecorder::begin(&mut encoder, "sort pass");
+        let mut recorder =
+            ComputeRecorder::begin(&mut encoder, "sort pass", context.workgroups_per_row());
         sort.sort(
-            device,
             &mut recorder,
             &SortChannels {
-                count: &holder,
+                count: GpuSlot::whole(&holder),
                 keys_lo: &inputs.keys_lo,
                 keys_hi: &inputs.keys_hi,
                 values: &inputs.values,
@@ -119,6 +132,8 @@ fn run_sort(
             },
             lo_words,
             hi_words,
+            &table,
+            dispatch(0, 256, 0),
         );
     }
     context.queue().submit([encoder.finish()]);
@@ -163,38 +178,22 @@ fn radix_sort_orders_high_words_alone() {
 }
 
 #[test]
-fn bucket_sort_groups_keys_and_values_stably() {
+fn sort_groups_by_bucket_and_keeps_the_payload_order_stable() {
     let context = shared().clone();
     let device = context.device();
-    let data = vec![2u32, 0, 1, 2, 0, 1, 3, 3, 0, 2];
-    let bytes = (data.len() * 4) as u64;
-    let keys = GpuBuffer::new(
-        device,
-        "keys",
-        bytes,
-        BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-    );
-    keys.write(context.queue(), bytemuck::cast_slice(&data));
-    let indices: Vec<u32> = (0..data.len() as u32).collect();
-    let values = GpuBuffer::new(
-        device,
-        "values",
-        bytes,
-        BufferUsages::STORAGE | BufferUsages::COPY_DST,
-    );
-    values.write(context.queue(), bytemuck::cast_slice(&indices));
-    let keys_out = GpuBuffer::new(
-        device,
-        "keys_out",
-        bytes,
-        BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-    );
-    let values_out = GpuBuffer::new(
-        device,
-        "values_out",
-        bytes,
-        BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-    );
+    let buckets = vec![2u32, 0, 1, 2, 0, 1, 3, 3, 0, 2];
+    let payload: Vec<u32> = (0..buckets.len() as u32).collect();
+    let lanes = buckets.len() as u32;
+    let bytes = (buckets.len() * 4) as u64;
+    let stream = BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+    let group = GpuBuffer::new(device, "group", bytes, stream);
+    group.write(context.queue(), bytemuck::cast_slice(&buckets));
+    let index = GpuBuffer::new(device, "index", bytes, stream);
+    index.write(context.queue(), bytemuck::cast_slice(&payload));
+    let pad = GpuBuffer::new(device, "pad", bytes, stream);
+    let scratch = GpuBuffer::new(device, "scratch", bytes, stream);
+    let scratch_hi = GpuBuffer::new(device, "scratch hi", bytes, stream);
+    let scratch_values = GpuBuffer::new(device, "scratch values", bytes, stream);
     let holder = GpuBuffer::new(
         device,
         "holder",
@@ -202,43 +201,55 @@ fn bucket_sort_groups_keys_and_values_stably() {
         BufferUsages::STORAGE | BufferUsages::COPY_DST,
     );
     let mut count_bytes = vec![0u8; 12];
-    count_bytes[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
-    count_bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
-    count_bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+    count_bytes[..4].copy_from_slice(&(buckets.len() as u32).to_le_bytes());
     holder.write(context.queue(), &count_bytes);
-    let bucket = BucketSort::new(&context, "test bucket", 4, data.len() as u32);
+    let sort = RadixSort::new(&context, "grouping sort", lanes);
+    let table = DispatchTable::new(device, "grouping dispatch", 1);
+    fill_args(&table, &context, buckets.len() as u32);
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
-        let mut recorder = ComputeRecorder::begin(&mut encoder, "bucket");
-        bucket.sort(
-            device,
+        let mut recorder =
+            ComputeRecorder::begin(&mut encoder, "grouping", context.workgroups_per_row());
+        sort.sort(
             &mut recorder,
-            &BucketChannels {
-                count: &holder,
-                keys: &keys,
-                values: &values,
-                keys_out: &keys_out,
-                values_out: &values_out,
+            &SortChannels {
+                count: GpuSlot::whole(&holder),
+                keys_lo: &index,
+                keys_hi: &group,
+                values: &pad,
+                scratch_lo: &scratch,
+                scratch_hi: &scratch_hi,
+                scratch_values: &scratch_values,
             },
+            dynamis_kernel::key_words(lanes),
+            dynamis_kernel::key_words(4),
+            &table,
+            dispatch(0, 256, 0),
         );
     }
     context.queue().submit([encoder.finish()]);
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    let keys_sorted = read_u32s(&context, &keys_out, data.len());
-    let values_sorted = read_u32s(&context, &values_out, data.len());
-    let mut pairs: Vec<(u32, u32)> = data
+    let grouped = read_u32s(&context, &group, buckets.len());
+    let ordered = read_u32s(&context, &index, buckets.len());
+    let mut expected: Vec<(u32, u32)> = buckets
         .iter()
         .enumerate()
-        .map(|(i, &k)| (k, i as u32))
+        .map(|(at, &bucket)| (bucket, at as u32))
         .collect();
-    pairs.sort();
-    let expected_keys: Vec<u32> = pairs.iter().map(|&(k, _)| k).collect();
-    let expected_values: Vec<u32> = pairs.iter().map(|&(_, v)| v).collect();
-    assert_eq!(keys_sorted, expected_keys, "keys must be grouped ascending");
+    expected.sort();
     assert_eq!(
-        values_sorted, expected_values,
-        "values must be stably ordered"
+        grouped,
+        expected
+            .iter()
+            .map(|&(bucket, _)| bucket)
+            .collect::<Vec<_>>(),
+        "groups must be ascending"
+    );
+    assert_eq!(
+        ordered,
+        expected.iter().map(|&(_, at)| at).collect::<Vec<_>>(),
+        "entries within a group must keep their original order"
     );
 }
 

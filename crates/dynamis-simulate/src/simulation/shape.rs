@@ -52,13 +52,7 @@ impl Simulation {
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
         self.shape_pool.remove(handle);
-        self.shape_pool.upload_pending(
-            self.gpu.queue(),
-            &self.buffers.shapes,
-            &self.buffers.shape_vertices,
-            &self.buffers.shape_triangles,
-            &self.buffers.shape_nodes,
-        );
+        self.shapes_dirty = true;
     }
 
     pub fn update_mesh(
@@ -97,13 +91,7 @@ impl Simulation {
         triangles: Vec<[u32; 3]>,
     ) -> ShapeSourceHandle {
         let handle = self.shape_pool.allocate(kind, vertices, &triangles);
-        self.shape_pool.upload_pending(
-            self.gpu.queue(),
-            &self.buffers.shapes,
-            &self.buffers.shape_vertices,
-            &self.buffers.shape_triangles,
-            &self.buffers.shape_nodes,
-        );
+        self.shapes_dirty = true;
         handle
     }
 

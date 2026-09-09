@@ -4,14 +4,14 @@
 @group(0) @binding(3) var<storage, read> block_offsets: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(5) var<storage, read_write> a_body: array<u32>;
-@group(0) @binding(6) var<storage, read> count_holder: array<u32>;
+@group(0) @binding(6) var<storage, read_write> count_holder: array<atomic<u32>>;
 
 const BLOCK_SIZE: u32 = 256u;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
-    if (index >= count_holder[0]) {
+    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    if (index >= min(atomicLoad(&count_holder[0]), arrayLength(&contacts_raw))) {
         return;
     }
     if (valid[index] == 0u) {

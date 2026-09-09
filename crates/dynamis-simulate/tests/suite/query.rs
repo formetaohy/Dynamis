@@ -363,9 +363,8 @@ fn results_persist_until_slot_reused() {
 }
 
 #[test]
-fn ring_reuse_invalidates_stale_handle() {
+fn retired_batch_invalidates_handle() {
     let mut world = sim(2, static_config());
-    query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let first = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
@@ -375,42 +374,34 @@ fn ring_reuse_invalidates_stale_handle() {
     world.step(DT);
     world.wait();
     let _ = world.query_hit(first);
-    for _ in 0..world.capacity() * 2 {
+    for _ in 0..4 {
         world.ray_query(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             10.0,
             &QueryFilter::default(),
         );
+        world.step(DT);
+        world.wait();
     }
     assert!(
         catch_unwind(AssertUnwindSafe(|| world.query_hit(first))).is_err(),
-        "recycled slot must invalidate the old handle"
+        "a handle whose batch has been retired must stop resolving"
     );
 }
 
 #[test]
-fn ring_exhaustion_panics_without_results() {
+fn handle_without_arrived_results_panics() {
     let mut world = sim(2, static_config());
-    for _ in 0..world.capacity() * 2 {
-        world.ray_query(
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-            10.0,
-            &QueryFilter::default(),
-        );
-    }
+    let pending = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+        &QueryFilter::default(),
+    );
     assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            world.ray_query(
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0],
-                10.0,
-                &QueryFilter::default(),
-            );
-        }))
-        .is_err(),
-        "submitting beyond the query ring must panic"
+        catch_unwind(AssertUnwindSafe(|| world.query_hit(pending))).is_err(),
+        "reading a query before its step has run must panic"
     );
 }
 

@@ -270,6 +270,11 @@ struct QueryHit {
     _pad2: f32,
 }
 
+struct QueryResult {
+    header: QueryResultHeader,
+    hits: array<QueryHit, MAX_HITS_PER_QUERY>,
+}
+
 struct ContactEvent {
     kind: u32,
     sensor: u32,

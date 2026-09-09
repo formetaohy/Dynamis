@@ -9,7 +9,7 @@ struct BodyCommand {
 @group(0) @binding(0) var<storage, read> commands: array<BodyCommand>;
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
-@group(0) @binding(3) var<storage, read> command_count: u32;
+@group(0) @binding(3) var<storage, read_write> command_count: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
 fn wake(body: ptr<function, BodyState>, slot: u32) {
@@ -37,7 +37,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (gid.x != 0u) {
         return;
     }
-    let count = command_count;
+    let count = atomicLoad(&command_count[0]);
     for (var i = 0u; i < count; i = i + 1u) {
         let command = commands[i];
         let slot = command.slot;

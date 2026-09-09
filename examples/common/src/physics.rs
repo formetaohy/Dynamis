@@ -1,4 +1,4 @@
-use dynamis::{BodyHandle, GpuContext, PhysicsConfig, Simulation};
+use dynamis::{BodyHandle, GpuContext, PhysicsConfig, Simulation, StreamBudget};
 use dynamis_example_render::{AppContext, MeshId, Quat, Vec3};
 
 const PHYSICS_STEP: f32 = 1.0 / 60.0;
@@ -12,7 +12,12 @@ impl Simulator {
     pub fn with_capacity(capacity: usize) -> Self {
         let gpu = pollster::block_on(GpuContext::new());
         Self {
-            simulation: Simulation::new(gpu, capacity, PhysicsConfig::default()),
+            simulation: Simulation::new(
+                gpu,
+                capacity,
+                PhysicsConfig::default(),
+                StreamBudget::default(),
+            ),
             accumulator: 0.0,
         }
     }

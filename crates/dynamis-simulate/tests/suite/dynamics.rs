@@ -3,7 +3,7 @@ use super::common::{
 };
 use dynamis_layout::ContactRecord;
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_simulate::{DebugBuffer, Simulation};
+use dynamis_simulate::DebugBuffer;
 
 const GRAVITY: f32 = 9.81;
 
@@ -379,7 +379,7 @@ fn resting_contact_carries_warm_start_impulse() {
         world.step(DT);
     }
     world.wait();
-    let count = read_u32(&world, world.debug_buffer(DebugBuffer::ContactCount));
+    let count = world.measured()[dynamis_layout::COUNTER_CONTACTS];
     assert_eq!(count, 1, "resting ball must hold exactly one contact");
     let contacts: Vec<ContactRecord> = read_records(
         &world,
@@ -436,10 +436,6 @@ fn settled_stack_drifts_nothing_across_frames() {
             "settled stack body {index} must stay still, drifted {drift}"
         );
     }
-}
-
-fn read_u32(world: &Simulation, buffer: &wgpu::Buffer) -> u32 {
-    read_records::<u32>(world, buffer, 3)[0]
 }
 
 #[test]

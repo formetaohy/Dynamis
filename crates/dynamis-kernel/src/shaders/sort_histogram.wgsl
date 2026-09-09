@@ -10,7 +10,7 @@ const SHIFT: u32 = __SHIFT__u;
 
 @compute @workgroup_size(TILE_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.x;
+    let index = gid.y * (__ROW__ * TILE_SIZE) + gid.x;
     let length = min(count_holder[0], arrayLength(&keys_lo));
     if (index >= length) {
         return;

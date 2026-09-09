@@ -9,7 +9,6 @@ use dynamis_layout::{
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MAX_COLLIDERS_PER_BODY, Shape,
 };
-use std::mem::size_of;
 
 impl Simulation {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
@@ -43,17 +42,14 @@ impl Simulation {
         let slot = self.alive.len() as u32;
         self.index_of[id] = slot;
         self.alive.push(handle);
-        let colliders = self.collider_block_of(id);
-        self.write_collider_block(slot, &colliders);
-        self.write_descriptor_row(slot, descriptor);
+        self.dirty_bodies.push(slot);
+        let _ = descriptor;
         self.commands.push(BodyCommandRecord::add(slot, state));
         if mass > 0.0 || desc.kinematic {
             if (self.dynamic_count as u32) < slot {
                 self.swap_slots(self.dynamic_count as u32, slot);
             }
             self.dynamic_count += 1;
-        } else {
-            self.sync_slot_aabbs(slot);
         }
         handle
     }
@@ -89,12 +85,11 @@ impl Simulation {
         self.index_of[id] = u32::MAX;
         self.free_ids.push(handle.id);
         self.alive.pop();
+        self.dirty_bodies.retain(|dirty| *dirty != last);
         let removed = std::mem::take(&mut self.collider_descs[id]);
         for collider in &removed {
             self.release_shape_ref(&collider.shape);
         }
-        let cleared = self.collider_block_of(id);
-        self.write_collider_block(last, &cleared);
         self.states[id] = None;
         self.kinematic[id] = false;
         self.descriptors[id] = BodyDescriptorRecord::zeroed();
@@ -107,12 +102,8 @@ impl Simulation {
         self.index_of[self.alive[second as usize].id as usize] = second;
         self.remap_constraint_slots(first, second);
         self.commands.push(BodyCommandRecord::swap(first, second));
-        self.sync_collider_block(first);
-        self.sync_collider_block(second);
-        self.sync_descriptor_row(first);
-        self.sync_descriptor_row(second);
-        self.sync_slot_aabbs(first);
-        self.sync_slot_aabbs(second);
+        self.dirty_bodies.push(first);
+        self.dirty_bodies.push(second);
     }
 
     fn migrate_partition(&mut self, handle: BodyHandle) {
@@ -121,9 +112,6 @@ impl Simulation {
         let slot = self.index_of[id];
         let in_dynamic = (slot as usize) < self.dynamic_count;
         if static_now == !in_dynamic {
-            if static_now {
-                self.sync_slot_aabbs(slot);
-            }
             return;
         }
         if static_now {
@@ -141,7 +129,7 @@ impl Simulation {
                 state.velocity = [0.0; 3];
                 state.angular_velocity = [0.0; 3];
             }
-            self.sync_slot_aabbs(tail);
+            self.dirty_bodies.push(tail);
         } else {
             let boundary = self.dynamic_count as u32;
             if slot != boundary {
@@ -149,6 +137,7 @@ impl Simulation {
             }
             self.dynamic_count += 1;
         }
+        self.dirty_bodies.push(slot);
     }
 
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
@@ -189,9 +178,10 @@ impl Simulation {
         }
     }
 
-    fn sync_slot_aabbs(&self, slot: u32) {
-        let id = self.alive[slot as usize].id as usize;
-        let aabbs = if self.is_static_id(id) {
+    /// The collider boxes of a slot as the host authority sees them; dynamic slots
+    /// leave their boxes for the device to compute.
+    pub(super) fn aabb_block_of(&self, id: usize) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
+        if self.is_static_id(id) {
             let (position, orientation) = self.observed_pose(id);
             static_aabb::static_aabbs(
                 position,
@@ -201,26 +191,7 @@ impl Simulation {
             )
         } else {
             [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY]
-        };
-        let offset = (slot as usize) * MAX_COLLIDERS_PER_BODY * size_of::<AabbRecord>();
-        self.buffers.aabbs.write_at(
-            self.gpu.queue(),
-            offset as u64,
-            bytemuck::cast_slice(&aabbs),
-        );
-    }
-
-    fn sync_descriptor_row(&self, slot: u32) {
-        let id = self.alive[slot as usize].id as usize;
-        self.write_descriptor_row(slot, self.descriptors[id]);
-    }
-
-    fn write_descriptor_row(&self, slot: u32, descriptor: BodyDescriptorRecord) {
-        self.buffers.body_descs.write_at(
-            self.gpu.queue(),
-            (slot as usize * size_of::<BodyDescriptorRecord>()) as u64,
-            bytemuck::cast_slice(&[descriptor]),
-        );
+        }
     }
 
     /// Applies a host-side edit to one descriptor row and publishes it.
@@ -232,8 +203,7 @@ impl Simulation {
         self.validate(handle);
         let id = handle.id as usize;
         edit(&mut self.descriptors[id]);
-        let row = self.descriptors[id];
-        self.write_descriptor_row(self.index_of[id], row);
+        self.dirty_bodies.push(self.index_of[id]);
     }
 
     /// Republishes the mass-derived half of a descriptor after the colliders,
@@ -242,18 +212,19 @@ impl Simulation {
         let id = handle.id as usize;
         let mass = self.mass_properties_of(id);
         let kinematic = self.kinematic[id];
-        let descriptor = &mut self.descriptors[id];
-        descriptor.com = mass.com;
-        descriptor.inverse_inertia = mass.inverse_inertia;
-        descriptor.inverse_mass = if kinematic || self.masses[id] <= 0.0 {
+        let inverse_mass = if kinematic || self.masses[id] <= 0.0 {
             0.0
         } else {
             1.0 / self.masses[id]
         };
+        let descriptor = &mut self.descriptors[id];
+        descriptor.com = mass.com;
+        descriptor.inverse_inertia = mass.inverse_inertia;
+        descriptor.inverse_mass = inverse_mass;
         descriptor.flags =
             (descriptor.flags & !BODY_KINEMATIC) | if kinematic { BODY_KINEMATIC } else { 0 };
         let row = *descriptor;
-        self.write_descriptor_row(self.index_of[id], row);
+        self.dirty_bodies.push(self.index_of[id]);
         if let Some(state) = self.states[id].as_mut() {
             state.inverse_mass = row.inverse_mass;
             state.com = row.com;
@@ -285,7 +256,7 @@ impl Simulation {
         let mut payload = BodyStateRecord::zeroed();
         payload.position = position;
         self.schedule_patch(handle, PATCH_POSITION, payload);
-        self.sync_slot_aabbs(self.index_of[handle.id as usize]);
+        self.dirty_bodies.push(self.index_of[handle.id as usize]);
     }
 
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
@@ -297,7 +268,7 @@ impl Simulation {
         let mut payload = BodyStateRecord::zeroed();
         payload.orientation = orientation;
         self.schedule_patch(handle, PATCH_ORIENTATION, payload);
-        self.sync_slot_aabbs(self.index_of[handle.id as usize]);
+        self.dirty_bodies.push(self.index_of[handle.id as usize]);
     }
 
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
@@ -417,9 +388,7 @@ impl Simulation {
         let existing = std::mem::replace(&mut self.collider_descs[id][index], collider);
         self.release_shape_ref(&existing.shape);
         self.retain_shape_ref(&collider.shape);
-        self.write_collider(self.index_of[id], index as u32);
         self.refresh_descriptor(handle);
-        self.sync_slot_aabbs(self.index_of[id]);
     }
 
     pub fn add_collider(&mut self, handle: BodyHandle, collider: ColliderDesc) {
@@ -432,9 +401,7 @@ impl Simulation {
         );
         self.retain_shape_ref(&collider.shape);
         self.collider_descs[id].push(collider);
-        self.write_collider(self.index_of[id], count as u32);
         self.refresh_descriptor(handle);
-        self.sync_slot_aabbs(self.index_of[id]);
     }
 
     pub fn remove_collider(&mut self, handle: BodyHandle, index: usize) {
@@ -450,9 +417,7 @@ impl Simulation {
         );
         let removed = self.collider_descs[id].swap_remove(index);
         self.release_shape_ref(&removed.shape);
-        self.sync_collider_block(self.index_of[id]);
         self.refresh_descriptor(handle);
-        self.sync_slot_aabbs(self.index_of[id]);
     }
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
@@ -481,14 +446,14 @@ impl Simulation {
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
         self.validate(handle);
         self.collider_descs[handle.id as usize][0].restitution = restitution;
-        self.write_collider(self.index_of[handle.id as usize], 0);
+        self.dirty_bodies.push(self.index_of[handle.id as usize]);
     }
 
     pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
         assert!(friction >= 0.0, "friction must be non-negative");
         self.validate(handle);
         self.collider_descs[handle.id as usize][0].friction = friction;
-        self.write_collider(self.index_of[handle.id as usize], 0);
+        self.dirty_bodies.push(self.index_of[handle.id as usize]);
     }
 
     pub fn set_collider_events(
@@ -504,7 +469,7 @@ impl Simulation {
             "collider index out of range"
         );
         self.collider_descs[id][index].events = events;
-        self.write_collider(self.index_of[id], index as u32);
+        self.dirty_bodies.push(self.index_of[id]);
     }
 
     pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
@@ -566,37 +531,9 @@ impl Simulation {
         })
     }
 
-    fn write_collider_block(&self, slot: u32, block: &[ColliderRecord; MAX_COLLIDERS_PER_BODY]) {
-        let offset = (slot as usize) * MAX_COLLIDERS_PER_BODY * size_of::<ColliderRecord>();
-        self.buffers.colliders.write_at(
-            self.gpu.queue(),
-            offset as u64,
-            bytemuck::cast_slice(block),
-        );
-    }
-
-    fn write_collider(&self, slot: u32, index: u32) {
-        let offset = ((slot as usize) * MAX_COLLIDERS_PER_BODY + index as usize)
-            * size_of::<ColliderRecord>();
-        let record = self.collider_record(
-            &self.collider_descs[self.alive[slot as usize].id as usize][index as usize],
-        );
-        self.buffers.colliders.write_at(
-            self.gpu.queue(),
-            offset as u64,
-            bytemuck::cast_slice(&[record]),
-        );
-    }
-
-    fn sync_collider_block(&self, slot: u32) {
-        let id = self.alive[slot as usize].id as usize;
-        let block = self.collider_block_of(id);
-        self.write_collider_block(slot, &block);
-    }
-
     pub(super) fn validate(&self, handle: BodyHandle) {
         let id = handle.id as usize;
-        if id >= self.capacity {
+        if id >= self.slots {
             panic!("body handle {handle:?} is out of range");
         }
         if self.generations[id] != handle.generation {

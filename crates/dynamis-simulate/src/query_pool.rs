@@ -1,11 +1,12 @@
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryHitRecord, QueryResultHeader};
+use dynamis_layout::{MAX_HITS_PER_QUERY, QueryResultHeader, QueryResultRecord};
 use dynamis_model::BodyHandle;
 use std::collections::VecDeque;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Identifies one submitted query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueryHandle {
-    pub slot: u32,
-    pub generation: u32,
+    pub batch: u64,
+    pub index: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,118 +19,123 @@ pub struct QueryHit {
     pub step: u64,
 }
 
-struct QueryBatch {
-    step: u64,
-    slots: Vec<u32>,
+/// One query's answers, as the device left them.
+pub struct QueryOutcome {
+    pub hits: Vec<Vec<QueryHit>>,
+    pub overflow: Vec<bool>,
 }
 
+struct QueryBatch {
+    batch: u64,
+    step: u64,
+    width: usize,
+    outcome: Option<QueryOutcome>,
+}
+
+/// The results of every query batch the device has been asked for and the host has
+/// not yet read. A batch is one contiguous run of [`QueryResultRecord`] lanes, so its
+/// size follows the number of queries submitted, nothing else.
 pub(crate) struct QueryPool {
-    capacity: usize,
-    next_slot: usize,
-    generations: Vec<u32>,
-    pending: Vec<bool>,
-    hits: Vec<Vec<QueryHit>>,
-    overflow: Vec<bool>,
     batches: VecDeque<QueryBatch>,
 }
 
 impl QueryPool {
-    pub fn new(capacity: usize) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            capacity,
-            next_slot: 0,
-            generations: vec![0; capacity],
-            pending: vec![false; capacity],
-            hits: vec![Vec::new(); capacity],
-            overflow: vec![false; capacity],
             batches: VecDeque::new(),
         }
     }
 
-    pub fn capacity(&self) -> usize {
-        self.capacity
+    /// Registers a submitted batch under the id the host handed out for it.
+    pub(crate) fn submit(&mut self, batch: u64, step: u64, width: usize) {
+        self.batches.push_back(QueryBatch {
+            batch,
+            step,
+            width,
+            outcome: None,
+        });
     }
 
-    pub fn generation(&self, slot: usize) -> u32 {
-        self.generations[slot]
+    pub(crate) fn hit(&self, handle: QueryHandle) -> Option<QueryHit> {
+        self.hits(handle).first().copied()
     }
 
-    pub fn hit(&self, slot: usize) -> Option<QueryHit> {
-        let hits = &self.hits[slot];
-        hits.first().copied()
+    pub(crate) fn hits(&self, handle: QueryHandle) -> &[QueryHit] {
+        &self.outcome(handle).hits[handle.index as usize]
     }
 
-    pub fn hits(&self, slot: usize) -> &[QueryHit] {
-        &self.hits[slot]
+    pub(crate) fn overflow(&self, handle: QueryHandle) -> bool {
+        self.outcome(handle).overflow[handle.index as usize]
     }
 
-    pub fn overflow(&self, slot: usize) -> bool {
-        self.overflow[slot]
+    fn outcome(&self, handle: QueryHandle) -> &QueryOutcome {
+        self.batch(handle)
+            .and_then(|batch| batch.outcome.as_ref())
+            .expect("query outcome read before it arrived")
     }
 
-    pub fn allocate(&mut self) -> usize {
-        let slot = self.next_slot;
-        self.next_slot = (slot + 1) % self.capacity;
-        assert!(
-            !self.pending[slot],
-            "query slot ring exhausted; collect results with poll() or wait() before submitting more queries"
-        );
-        self.pending[slot] = true;
-        self.generations[slot] += 1;
-        slot
+    /// Whether a handle names a batch whose results have already been dropped.
+    pub(crate) fn is_current(&self, handle: QueryHandle) -> bool {
+        self.batch(handle).is_some()
     }
 
-    pub fn mark_batch(&mut self, step: u64, slots: Vec<u32>) {
-        self.batches.push_back(QueryBatch { step, slots });
+    pub(crate) fn is_ready(&self, handle: QueryHandle) -> bool {
+        self.batch(handle)
+            .is_some_and(|batch| batch.outcome.is_some())
     }
 
-    pub fn consume(&mut self, step: u64, bytes: &[u8]) {
+    fn batch(&self, handle: QueryHandle) -> Option<&QueryBatch> {
+        self.batches
+            .iter()
+            .find(|batch| batch.batch == handle.batch)
+    }
+
+    /// Brings a landed batch's results home. The readback sequence is the batch id, so
+    /// a step that flushed queries outside the step loop cannot be confused with it.
+    pub(crate) fn collect(&mut self, batch_id: u64, bytes: &[u8]) {
         let batch = self
             .batches
-            .pop_front()
-            .expect("query readback arrived without a pending batch");
-        assert_eq!(batch.step, step, "query readback arrived out of order");
-        for slot in batch.slots {
-            self.consume_slot(step, slot as usize, bytes);
+            .iter_mut()
+            .find(|batch| batch.batch == batch_id)
+            .unwrap_or_else(|| panic!("no query batch is registered for batch {batch_id}"));
+        let step = batch.step;
+        let records = crate::records::records::<QueryResultRecord>(bytes);
+        let mut hits = vec![Vec::new(); batch.width];
+        let mut overflow = vec![false; batch.width];
+        for (index, result) in records.iter().take(batch.width).enumerate() {
+            let QueryResultHeader {
+                count,
+                overflow: spilled,
+                ..
+            } = result.header;
+            assert!(
+                count <= MAX_HITS_PER_QUERY,
+                "GPU query result exceeds the hit lane count"
+            );
+            hits[index] = result.hits[..count as usize]
+                .iter()
+                .map(|record| QueryHit {
+                    body: BodyHandle {
+                        id: record.body_id,
+                        generation: record.body_generation,
+                    },
+                    collider: record.collider_index,
+                    distance: record.distance,
+                    point: record.point,
+                    normal: record.normal,
+                    step,
+                })
+                .collect();
+            hits[index].sort_unstable_by(|left, right| left.distance.total_cmp(&right.distance));
+            overflow[index] = spilled != 0;
         }
-    }
-
-    fn consume_slot(&mut self, step: u64, slot: usize, bytes: &[u8]) {
-        let per_header = std::mem::size_of::<QueryResultHeader>();
-        let per_hit = std::mem::size_of::<QueryHitRecord>();
-        let header_offset = slot * per_header;
-        let hits_offset = self.capacity * per_header + slot * MAX_HITS_PER_QUERY as usize * per_hit;
-        let header: QueryResultHeader = bytemuck::cast_slice::<u8, QueryResultHeader>(
-            &bytes[header_offset..header_offset + per_header],
-        )[0];
-        let records: &[QueryHitRecord] = bytemuck::cast_slice::<u8, QueryHitRecord>(
-            &bytes[hits_offset..hits_offset + MAX_HITS_PER_QUERY as usize * per_hit],
-        );
-        assert!(
-            header.count <= MAX_HITS_PER_QUERY,
-            "GPU query result exceeds the slot capacity"
-        );
-        let mut hits = records[..header.count as usize]
-            .iter()
-            .map(|record| QueryHit {
-                body: BodyHandle {
-                    id: record.body_id,
-                    generation: record.body_generation,
-                },
-                collider: record.collider_index,
-                distance: record.distance,
-                point: record.point,
-                normal: record.normal,
-                step,
-            })
-            .collect::<Vec<_>>();
-        hits.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
-        assert!(
-            self.pending[slot],
-            "query readback arrived for an idle slot"
-        );
-        self.hits[slot] = hits;
-        self.overflow[slot] = header.overflow != 0;
-        self.pending[slot] = false;
+        batch.outcome = Some(QueryOutcome { hits, overflow });
+        while self
+            .batches
+            .front()
+            .is_some_and(|oldest| oldest.outcome.is_some() && oldest.step < step)
+        {
+            self.batches.pop_front();
+        }
     }
 }

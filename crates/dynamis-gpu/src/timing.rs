@@ -21,6 +21,7 @@ impl GpuPassTiming {
 
 /// Begin/end timestamp pairs for a fixed set of compute passes.
 pub struct GpuTimer {
+    device: Device,
     query_set: QuerySet,
     resolved: Buffer,
     readback: GpuReadback,
@@ -58,6 +59,7 @@ impl GpuTimer {
             resolved_bytes,
         );
         Self {
+            device: device.clone(),
             query_set,
             resolved,
             readback,
@@ -89,15 +91,18 @@ impl GpuTimer {
 
     pub fn capture(
         &mut self,
-        device: &Device,
         encoder: &mut CommandEncoder,
         sequence: u64,
     ) -> Option<(u64, Vec<GpuPassTiming>)> {
         let count = (self.labels.len() * 2) as u32;
         encoder.resolve_query_set(&self.query_set, 0..count, &self.resolved, 0);
-        let displaced = self
-            .readback
-            .enqueue(device, encoder, &self.resolved, sequence);
+        let displaced = self.readback.enqueue(
+            &self.device,
+            encoder,
+            &self.resolved,
+            self.resolved.size(),
+            sequence,
+        );
         displaced.map(|(frame, bytes)| (frame, self.decode(&bytes)))
     }
 
@@ -105,9 +110,9 @@ impl GpuTimer {
         self.readback.arm();
     }
 
-    pub fn poll(&mut self, device: &Device) -> Vec<(u64, Vec<GpuPassTiming>)> {
+    pub fn poll(&mut self) -> Vec<(u64, Vec<GpuPassTiming>)> {
         self.readback
-            .poll(device)
+            .poll(&self.device)
             .into_iter()
             .map(|(frame, bytes)| (frame, self.decode(&bytes)))
             .collect()

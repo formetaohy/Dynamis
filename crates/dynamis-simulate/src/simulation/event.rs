@@ -1,5 +1,5 @@
 use super::Simulation;
-use dynamis_layout::ContactEventRecord;
+use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 
 impl Simulation {
@@ -11,17 +11,17 @@ impl Simulation {
         self.event_sink = sink;
     }
 
-    pub(super) fn consume_events(&mut self, bytes: &[u8]) {
-        let event_count = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+    /// The count travels in the same pack as the records it describes, so the two can
+    /// never be paired with different steps.
+    pub(crate) fn consume_events(&mut self, _step: u64, bytes: &[u8]) {
+        let count = self.observed[COUNTER_EVENTS] as usize;
+        let records = crate::records::records::<ContactEventRecord>(bytes);
         assert!(
-            (event_count as usize) <= self.event_capacity,
-            "GPU event count exceeds the event capacity"
+            count <= records.len(),
+            "GPU event count exceeds the event stream"
         );
-        let events_bytes =
-            &bytes[12..12 + self.event_capacity * std::mem::size_of::<ContactEventRecord>()];
-        let records: &[ContactEventRecord] = bytemuck::cast_slice(events_bytes);
-        let mut fresh = Vec::with_capacity(event_count as usize);
-        for record in &records[..event_count as usize] {
+        let mut fresh = Vec::with_capacity(count);
+        for record in &records[..count] {
             let kind = match record.kind {
                 dynamis_layout::EVENT_BEGIN => ContactEventKind::Begin,
                 dynamis_layout::EVENT_END => ContactEventKind::End,

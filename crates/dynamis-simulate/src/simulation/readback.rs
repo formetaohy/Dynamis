@@ -1,6 +1,10 @@
 use super::{ContactManifold, ContactPoint, Simulation};
-use dynamis_layout::{BodyStateRecord, ConstraintRuntimeRecord, ContactRecord};
+use dynamis_layout::{
+    BodyStateRecord, COUNTER_CONTACTS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS,
+    COUNTER_SPILLOVER_PAIRS, ConstraintRuntimeRecord, ContactRecord, Counters,
+};
 use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
+use std::mem::size_of;
 
 impl Simulation {
     pub fn poll(&mut self) {
@@ -18,22 +22,21 @@ impl Simulation {
         self.collect_readbacks();
     }
 
+    /// What the device measured on the step whose pack last arrived.
+    pub fn measured(&self) -> &Counters {
+        &self.observed
+    }
+
     pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {
         self.wait();
-        let count_bytes = std::mem::size_of::<dynamis_layout::Counter>();
-        let args: Vec<dynamis_layout::Counter> = bytemuck::cast_slice(
-            &self.read_gpu(self.buffers.contact_count.buffer(), count_bytes as u64),
-        )
-        .to_vec();
-        let count = (args[0].count as usize).min(self.buffers.contact_capacity() as usize);
+        let count = self.observed[COUNTER_CONTACTS] as usize;
         if count == 0 {
             return Vec::new();
         }
-        let record_bytes = (count * std::mem::size_of::<ContactRecord>()) as u64;
-        let bytes = self.read_gpu(self.buffers.contacts.buffer(), record_bytes);
-        let records: &[ContactRecord] = bytemuck::cast_slice(&bytes);
-        records
-            .iter()
+        let bytes = (count * size_of::<ContactRecord>()) as u64;
+        let records = self.read_range(self.buffers.contacts.buffer(), bytes);
+        crate::records::records::<ContactRecord>(&records)
+            .into_iter()
             .map(|record| ContactManifold {
                 first: BodyHandle {
                     id: record.first_body_id,
@@ -62,16 +65,9 @@ impl Simulation {
             .collect()
     }
 
-    pub fn overflow(&mut self) -> (u32, u32) {
-        self.wait();
-        let bytes = self.read_gpu(self.buffers.overflow_flags.buffer(), 8);
-        (
-            u32::from_le_bytes(bytes[0..4].try_into().expect("overflow read")),
-            u32::from_le_bytes(bytes[4..8].try_into().expect("overflow read")),
-        )
-    }
-
-    fn read_gpu(&self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
+    /// Reads `bytes` of a device buffer with a synchronous round trip. For inspection
+    /// only; the step path never uses it.
+    pub(crate) fn read_range(&self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
         let staging = self.device().create_buffer(&wgpu::BufferDescriptor {
             label: Some("dynamis sync readback"),
             size: bytes.max(16),
@@ -80,96 +76,125 @@ impl Simulation {
         });
         let mut encoder = self
             .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, bytes);
         self.queue().submit([encoder.finish()]);
         let _ = self.device().poll(wgpu::PollType::wait_indefinitely());
         let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (sender, receiver) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
+            let _ = sender.send(result);
         });
         let _ = self.device().poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().expect("map").expect("map error");
+        receiver.recv().expect("map").expect("map error");
         let mapped = slice.get_mapped_range().unwrap();
         mapped[..bytes as usize].to_vec()
     }
 
     pub(crate) fn collect_readbacks(&mut self) {
-        for (step, bytes) in self.buffers.body_states_readback.poll(self.gpu.device()) {
-            self.consume_bodies(step, &bytes);
+        for (step, bytes) in self.buffers.readback.poll(self.gpu.device()) {
+            self.consume_pack(step, &bytes);
         }
-        for (step, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
-            self.consume_queries(step, &bytes);
-        }
-        for (_step, bytes) in self.buffers.events_readback.poll(self.gpu.device()) {
-            self.consume_events(&bytes);
-        }
-        for (step, bytes) in self
-            .buffers
-            .constraint_runtime_readback
-            .poll(self.gpu.device())
-        {
-            self.consume_constraints(step, &bytes);
+        for (batch, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
+            self.query_pool.collect(batch, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.pipeline.poll_timings(self.gpu.device()) {
+        for (_step, timings) in self.pipeline.poll_timings() {
             self.pass_timings = timings;
         }
     }
 
-    pub(crate) fn consume_bodies(&mut self, step: u64, bytes: &[u8]) {
-        let records: &[BodyStateRecord] = bytemuck::cast_slice(bytes);
-        for record in records {
-            let id = record.body_id as usize;
-            assert!(
-                id < self.capacity,
-                "GPU readback returned an out-of-range body id"
-            );
-            if record.generation != self.generations[id] {
-                continue;
-            }
-            if self.index_of[id] == u32::MAX {
-                continue;
-            }
-            self.states[id] = Some(BodyState {
-                position: record.position,
-                prev_position: record.prev_position,
-                orientation: record.orientation,
-                velocity: record.velocity,
-                angular_velocity: record.angular_velocity,
-                inverse_mass: self.descriptors[id].inverse_mass,
-                com: self.descriptors[id].com,
-                sleeping: record.sleeping != 0,
-                step,
-            });
+    pub(crate) fn drain_readbacks(&mut self) {
+        for (step, bytes) in self.buffers.readback.drain(self.gpu.device()) {
+            self.consume_pack(step, &bytes);
+        }
+        let device = self.gpu.device();
+        for (batch, bytes) in self.buffers.queries_readback.drain(device) {
+            self.query_pool.collect(batch, &bytes);
         }
     }
 
-    pub(crate) fn consume_constraints(&mut self, _step: u64, bytes: &[u8]) {
-        let records: &[ConstraintRuntimeRecord] = bytemuck::cast_slice(bytes);
-        for record in records.iter().filter(|record| record.broken != 0) {
-            let id = record.constraint_id as usize;
-            if id >= self.constraint_generations.len() {
-                continue;
-            }
-            if self.constraint_generations[id] != record.generation {
-                continue;
-            }
-            let slot = self.constraint_index_of[id];
-            if slot == u32::MAX {
-                continue;
-            }
-            let handle = ConstraintHandle {
-                id: id as u32,
-                generation: record.generation,
-            };
-            self.broken_constraints.push(handle);
-            self.remove_constraint(handle);
-        }
+    /// Adopts a measured vector and fails the moment a stream ran out of room, so a
+    /// shortfall surfaces at the step that hit it rather than as missing contacts.
+    pub(crate) fn accept_measured(&mut self, _step: u64, measured: &Counters) {
+        assert_eq!(
+            measured[COUNTER_SPILLOVER_PAIRS],
+            0,
+            "the pair stream held {} lanes, this step needed {}",
+            self.reservation.pairs,
+            self.reservation
+                .pairs
+                .saturating_add(measured[COUNTER_SPILLOVER_PAIRS])
+        );
+        assert_eq!(
+            measured[COUNTER_SPILLOVER_ENTRIES],
+            0,
+            "the entry stream held {} cells, this step needed {}",
+            self.reservation.entries,
+            self.reservation
+                .entries
+                .saturating_add(measured[COUNTER_SPILLOVER_ENTRIES])
+        );
+        assert_eq!(
+            measured[COUNTER_SPILLOVER_EVENTS],
+            0,
+            "the event stream held {} lanes, this step needed {}",
+            self.reservation.events,
+            self.reservation
+                .events
+                .saturating_add(measured[COUNTER_SPILLOVER_EVENTS])
+        );
+        self.observed = *measured;
     }
 
-    pub fn drain_constraint_breaks(&mut self) -> Vec<dynamis_model::ConstraintHandle> {
+    pub(crate) fn accept_body(&mut self, step: u64, record: BodyStateRecord) {
+        let id = record.body_id as usize;
+        assert!(
+            id < self.slots,
+            "GPU readback returned an out-of-range body id"
+        );
+        if record.generation != self.generations[id] || self.index_of[id] == u32::MAX {
+            return;
+        }
+        self.states[id] = Some(BodyState {
+            position: record.position,
+            prev_position: record.prev_position,
+            orientation: record.orientation,
+            velocity: record.velocity,
+            angular_velocity: record.angular_velocity,
+            inverse_mass: self.descriptors[id].inverse_mass,
+            com: self.descriptors[id].com,
+            sleeping: record.sleeping != 0,
+            step,
+        });
+    }
+
+    pub(crate) fn accept_constraint_break(&mut self, _step: u64, record: ConstraintRuntimeRecord) {
+        if record.broken == 0 {
+            return;
+        }
+        let id = record.constraint_id as usize;
+        if id >= self.constraint_generations.len() {
+            return;
+        }
+        if self.constraint_generations[id] != record.generation
+            || self.constraint_index_of[id] == u32::MAX
+        {
+            return;
+        }
+        let handle = ConstraintHandle {
+            id: id as u32,
+            generation: record.generation,
+        };
+        self.broken_constraints.push(handle);
+        self.remove_constraint(handle);
+    }
+
+    pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
         std::mem::take(&mut self.broken_constraints)
+    }
+
+    pub(crate) fn island_rounds(&self) -> u32 {
+        self.reservation.bodies.max(2).ilog2() + 1
     }
 }

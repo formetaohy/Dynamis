@@ -1,10 +1,12 @@
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
+use crate::reservation::Reservation;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuBuffer, GpuContext,
+    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
+    GpuContext, GpuSlot,
 };
-use dynamis_kernel::{BucketChannels, BucketSort, RadixSort, SortChannels};
+use dynamis_kernel::{RadixSort, SortChannels, key_words};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
     COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP,
@@ -14,23 +16,27 @@ use dynamis_layout::{
     CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
     CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
     CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START,
-    CONTACT_MAX_POINTS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END,
+    CONTACT_MAX_POINTS, COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS, COUNTER_LARGE,
+    COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS,
+    COUNTER_SPILLOVER_PAIRS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END,
     EVENT_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
     FILTER_IGNORE_STATIC, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
-    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERFLOW_EVENTS, OVERFLOW_PAIRS, OVERRIDE_SLEEP_ANGULAR,
-    OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
-    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE,
+    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
+    PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, QUERY_CONVEX,
+    QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID,
+    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE,
+    SHAPE_SPHERE, SHAPE_TRIANGLE, dispatch,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
-use wgpu::{BindGroup, BindGroupEntry, CommandEncoder, Device};
+use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
 
 const WORKGROUP_SIZE: u32 = 64;
 
 pub(crate) const SIM_PASSES: &[&str] = &[
     "commands",
     "integrate",
+    "grid",
     "broadphase",
     "narrowphase",
     "islands",
@@ -42,20 +48,22 @@ pub(crate) const SIM_PASSES: &[&str] = &[
 
 const PASS_COMMANDS: usize = 0;
 const PASS_INTEGRATE: usize = 1;
-const PASS_BROADPHASE: usize = 2;
-const PASS_NARROWPHASE: usize = 3;
-const PASS_ISLANDS: usize = 4;
-const PASS_SLEEP: usize = 5;
-const PASS_VELOCITY_SOLVE: usize = 6;
-const PASS_POSITION_SOLVE: usize = 7;
-const PASS_TAIL: usize = 8;
+const PASS_GRID: usize = 2;
+const PASS_BROADPHASE: usize = 3;
+const PASS_NARROWPHASE: usize = 4;
+const PASS_ISLANDS: usize = 5;
+const PASS_SLEEP: usize = 6;
+const PASS_VELOCITY_SOLVE: usize = 7;
+const PASS_POSITION_SOLVE: usize = 8;
+const PASS_TAIL: usize = 9;
 
-fn shader_constants() -> String {
+fn shader_constants(per_row: u32) -> String {
     let mut source = String::new();
     let mut emit = |name: &str, value: u32| {
         source.push_str(&format!("const {name}: u32 = {value}u;\n"));
     };
     emit("WORKGROUP_SIZE", WORKGROUP_SIZE);
+    emit("WORKGROUPS_PER_ROW", per_row);
     emit("COMMAND_ADD", COMMAND_ADD);
     emit("COMMAND_REMOVE", COMMAND_REMOVE);
     emit("COMMAND_PATCH", COMMAND_PATCH);
@@ -75,8 +83,6 @@ fn shader_constants() -> String {
     emit("PATCH_ORIENTATION", PATCH_ORIENTATION);
     emit("PATCH_ANGULAR_VELOCITY", PATCH_ANGULAR_VELOCITY);
     emit("NO_COLLISION_FILTER", NO_COLLISION_FILTER);
-    emit("OVERFLOW_PAIRS", OVERFLOW_PAIRS);
-    emit("OVERFLOW_EVENTS", OVERFLOW_EVENTS);
     emit("SHAPE_NONE", SHAPE_NONE);
     emit("SHAPE_SPHERE", SHAPE_SPHERE);
     emit("SHAPE_CUBOID", SHAPE_CUBOID);
@@ -137,6 +143,29 @@ fn shader_constants() -> String {
     emit("MAX_CELLS_PER_COLLIDER", MAX_CELLS_PER_COLLIDER);
     emit("MAX_COLLIDERS_PER_BODY", MAX_COLLIDERS_PER_BODY as u32);
     emit("MAX_HITS_PER_QUERY", MAX_HITS_PER_QUERY);
+    emit("COMPACT_BLOCK", COMPACT_BLOCK);
+    emit(
+        "COUNTER_STRIDE_WORDS",
+        (dynamis_layout::COUNTER_STRIDE / 4) as u32,
+    );
+    emit("COUNTER_ENTRIES", dynamis_layout::COUNTER_ENTRIES as u32);
+    emit("COUNTER_PAIRS", dynamis_layout::COUNTER_PAIRS as u32);
+    emit("COUNTER_LARGE", dynamis_layout::COUNTER_LARGE as u32);
+    emit("COUNTER_CONTACTS", dynamis_layout::COUNTER_CONTACTS as u32);
+    emit("COUNTER_JOINTS", dynamis_layout::COUNTER_JOINTS as u32);
+    emit("COUNTER_EVENTS", dynamis_layout::COUNTER_EVENTS as u32);
+    emit(
+        "COUNTER_SPILLOVER_PAIRS",
+        dynamis_layout::COUNTER_SPILLOVER_PAIRS as u32,
+    );
+    emit(
+        "COUNTER_SPILLOVER_EVENTS",
+        dynamis_layout::COUNTER_SPILLOVER_EVENTS as u32,
+    );
+    emit(
+        "COUNTER_SPILLOVER_ENTRIES",
+        dynamis_layout::COUNTER_SPILLOVER_ENTRIES as u32,
+    );
     source.push_str(&format!("const NO_HIT: f32 = {NO_HIT:e};\n"));
     source
 }
@@ -144,18 +173,25 @@ fn shader_constants() -> String {
 pub(crate) const COMMON_SHADER: &str = include_str!("shaders/common.wgsl");
 pub(crate) const SHAPES_FRAGMENT: &str = include_str!("shaders/shapes.wgsl");
 
-fn assemble_shader(body: &str) -> String {
+fn assemble_shader(body: &str, per_row: u32) -> String {
     format!(
         "{COMMON_SHADER}\n{body}\n{SHAPES_FRAGMENT}\n{}",
-        shader_constants()
+        shader_constants(per_row)
     )
 }
+
+fn whole(buffer: &GpuBuffer) -> GpuSlot<'_> {
+    GpuSlot::whole(buffer)
+}
+
+const RO: BindingKind = BindingKind::ReadOnlyStorage;
+const RW: BindingKind = BindingKind::ReadWriteStorage;
+const UNIFORM: BindingKind = BindingKind::Uniform;
 
 struct Stage {
     pipeline: ComputePipeline,
     bind_group: BindGroup,
     shapes_group: BindGroup,
-    workgroups: u32,
 }
 
 impl Stage {
@@ -163,10 +199,8 @@ impl Stage {
         context: &GpuContext,
         label: &str,
         shader: &str,
-        bindings: &[(BindingKind, &GpuBuffer)],
+        bindings: &[(BindingKind, GpuSlot)],
         shape_resources: &[&GpuBuffer],
-        elements: u32,
-        threads: u32,
     ) -> Self {
         let shape_specs = shape_resources
             .iter()
@@ -194,9 +228,9 @@ impl Stage {
         let entries: Vec<BindGroupEntry> = bindings
             .iter()
             .enumerate()
-            .map(|(position, (_, buffer))| BindGroupEntry {
+            .map(|(position, (_, slot))| BindGroupEntry {
                 binding: position as u32,
-                resource: buffer.as_binding(),
+                resource: slot.as_binding(),
             })
             .collect();
         let bind_group = pipeline.create_bind_group(context.device(), 0, &entries);
@@ -213,19 +247,11 @@ impl Stage {
             pipeline,
             bind_group,
             shapes_group,
-            workgroups: elements.div_ceil(threads),
         }
     }
 
-    fn dispatch(&self, recorder: &mut ComputeRecorder) {
-        recorder.record(
-            &self.pipeline,
-            &[&self.bind_group, &self.shapes_group],
-            self.workgroups,
-        );
-    }
-
-    fn dispatch_at(&self, recorder: &mut ComputeRecorder, elements: u32) {
+    /// Dispatches one workgroup per `elements` lanes.
+    fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
         recorder.record(
             &self.pipeline,
             &[&self.bind_group, &self.shapes_group],
@@ -233,13 +259,120 @@ impl Stage {
         );
     }
 
-    fn dispatch_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
+    /// Dispatches an exact number of workgroups.
+    fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
         recorder.record(
             &self.pipeline,
             &[&self.bind_group, &self.shapes_group],
             workgroups,
         );
     }
+
+    /// Dispatches by what the device wrote into the dispatch table.
+    fn record_indirect(&self, recorder: &mut ComputeRecorder, table: &DispatchTable, slot: u32) {
+        recorder.record_indirect(
+            &self.pipeline,
+            &[&self.bind_group, &self.shapes_group],
+            table,
+            slot,
+        );
+    }
+}
+
+/// The dispatch table the device writes once per step, one slot per indirect stage.
+///
+/// Sort tiles cover 256 lanes, simulation workgroups 64, compaction blocks 256, so a
+/// count becomes a workgroup count of the right density for each consumer.
+const SORT_JOINTS: u32 = 0;
+const SORT_ENTRIES: u32 = 1;
+const SORT_PAIRS: u32 = 2;
+const SORT_CONTACTS: u32 = 3;
+const SORT_CONSTRAINTS: u32 = 4;
+const BROADPHASE_PAIRS: u32 = 5;
+const NARROWPHASE: u32 = 6;
+const COMPACT_SCAN: u32 = 7;
+const COMPACT_SCATTER: u32 = 8;
+const CCD_SWEEP: u32 = 9;
+const CONTACT_ARCHIVE: u32 = 10;
+const ISLAND_LINK_CONTACTS: u32 = 11;
+const GATHER_CONTACT_KEYS_B: u32 = 12;
+const MARK_CONTACT_BOUNDARIES: u32 = 13;
+const CONTACT_MATCH: u32 = 14;
+const CONTACT_SOLVE_EXTRACT: u32 = 15;
+const POSITION_SOLVE_EXTRACT: u32 = 16;
+const EVENTS_END: u32 = 17;
+
+pub(crate) const DISPATCH_SLOTS: u32 = 18;
+
+const KERNEL_TILE: u32 = 256;
+
+/// One table entry: the slot it fills, the counter it reads, the lanes a workgroup
+/// covers. A entry point writes one batch, at the point of the step where every
+/// counter in it is final.
+type DispatchBatch = &'static [(u32, usize, u32)];
+
+const DISPATCH_BATCHES: &[DispatchBatch] = &[
+    // After commands: joints were counted, constraints and the previous contact count
+    // were already final last step.
+    &[
+        (SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
+        (SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
+        (EVENTS_END, COUNTER_PREV_CONTACTS, WORKGROUP_SIZE),
+    ],
+    // After the grid emitted its entries.
+    &[
+        (SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
+        (BROADPHASE_PAIRS, COUNTER_ENTRIES, WORKGROUP_SIZE),
+    ],
+    // After entries were paired and the pair count is final.
+    &[
+        (SORT_PAIRS, COUNTER_PAIRS, KERNEL_TILE),
+        (NARROWPHASE, COUNTER_PAIRS, WORKGROUP_SIZE),
+        (COMPACT_SCAN, COUNTER_PAIRS, COMPACT_BLOCK),
+        (COMPACT_SCATTER, COUNTER_PAIRS, WORKGROUP_SIZE),
+        (CCD_SWEEP, COUNTER_PAIRS, WORKGROUP_SIZE),
+    ],
+    // After pairs were compacted into contacts and the contact count is final.
+    &[
+        (SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
+        (CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (ISLAND_LINK_CONTACTS, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (GATHER_CONTACT_KEYS_B, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (MARK_CONTACT_BOUNDARIES, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (CONTACT_MATCH, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (CONTACT_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        (POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
+    ],
+];
+
+/// The shader filling the dispatch table: one entry point per batch, one lane per
+/// table slot, a slot only written once its counter is final.
+fn dispatch_source() -> String {
+    let mut source = String::from(
+        "struct Args { per_row: u32, rows: u32, layers: u32, _pad: u32 }\n\
+@group(0) @binding(0) var<storage, read> counters: array<u32>;\n\
+@group(0) @binding(1) var<storage, read_write> table: array<Args>;\n\
+fn write_args(index: u32, counter: u32, lanes: u32) {\n\
+    let count = counters[counter * COUNTER_STRIDE_WORDS];\n\
+    let workgroups = (count + lanes - 1u) / lanes;\n\
+    let per_row = min(workgroups, WORKGROUPS_PER_ROW);\n\
+    let rows = (workgroups + WORKGROUPS_PER_ROW - 1u) / WORKGROUPS_PER_ROW;\n\
+    table[index] = Args(per_row, rows, 1u, 0u);\n\
+}\n\n",
+    );
+    for (batch, entries) in DISPATCH_BATCHES.iter().enumerate() {
+        let entry = ['a', 'b', 'c', 'd'][batch];
+        source.push_str(&format!(
+            "@compute @workgroup_size(64u)\nfn dispatch_{entry}(@builtin(local_invocation_id) lid: vec3u) {{\n"
+        ));
+        for (index, (slot, counter, lanes)) in entries.iter().enumerate() {
+            source.push_str(&format!(
+                "    if (lid.x == {index}u) {{ write_args({slot}u, {counter}u, {lanes}u); }}\n"
+            ));
+        }
+        source.push_str("}\n\n");
+    }
+    source
 }
 
 pub(crate) struct FrameParams {
@@ -253,7 +386,8 @@ pub(crate) struct FrameParams {
 }
 
 pub(crate) struct Pipeline {
-    device: Device,
+    per_row: u32,
+    reset_counters: Stage,
     apply_commands: Stage,
     apply_constraint_commands: Stage,
     joint_filter: Stage,
@@ -290,703 +424,628 @@ pub(crate) struct Pipeline {
     query: Stage,
     constraints_warm_end: Stage,
     static_wake_clear: Stage,
+    dispatch_args: [ComputePipeline; 4],
+    dispatch_group: [BindGroup; 4],
     sort: RadixSort,
-    sort_hi: GpuBuffer,
-    sort_lo: GpuBuffer,
-    sort_values: GpuBuffer,
-    contact_bucket: BucketSort,
-    constraint_bucket: BucketSort,
     #[cfg(feature = "profile")]
     timer: Option<GpuTimer>,
 }
 
 impl Pipeline {
-    pub(crate) fn new(context: &GpuContext, buffers: &WorldBuffers, body_capacity: u32) -> Self {
-        let device = context.device().clone();
+    pub(crate) fn new(context: &GpuContext, buffers: &WorldBuffers, plan: &Reservation) -> Self {
+        let per_row = context.workgroups_per_row();
         let shape_resources = [
             &buffers.shapes,
             &buffers.shape_vertices,
             &buffers.shape_triangles,
             &buffers.shape_nodes,
         ];
+        let reset_counters = Stage::build(
+            context,
+            "reset_counters",
+            &assemble_shader(include_str!("shaders/reset_counters.wgsl"), per_row),
+            &[(RW, whole(&buffers.counters))],
+            &shape_resources,
+        );
+
         let apply_commands = Stage::build(
             context,
             "apply_commands",
-            &assemble_shader(include_str!("shaders/apply_commands.wgsl")),
+            &assemble_shader(include_str!("shaders/apply_commands.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.commands),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.command_count),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (RO, whole(&buffers.commands)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RW, buffers.counter(COUNTER_BODY_COMMANDS)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            1,
-            WORKGROUP_SIZE,
         );
 
         let apply_constraint_commands = Stage::build(
             context,
             "apply_constraint_commands",
-            &assemble_shader(include_str!("shaders/apply_constraint_commands.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/apply_constraint_commands.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_commands),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_command_count,
-                ),
+                (RO, whole(&buffers.constraint_commands)),
+                (RW, whole(&buffers.constraint_runtime)),
+                (RW, buffers.counter(COUNTER_CONSTRAINT_COMMANDS)),
             ],
             &shape_resources,
-            1,
-            WORKGROUP_SIZE,
         );
 
         let joint_filter = Stage::build(
             context,
             "joint_filter",
-            &assemble_shader(include_str!("shaders/joint_filter.wgsl")),
+            &assemble_shader(include_str!("shaders/joint_filter.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
-                (BindingKind::ReadWriteStorage, &buffers.joint_hi),
-                (BindingKind::ReadWriteStorage, &buffers.joint_lo),
-                (BindingKind::ReadWriteStorage, &buffers.joint_count),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.constraint_descs)),
+                (RO, whole(&buffers.constraint_runtime)),
+                (RW, whole(&buffers.joint_hi)),
+                (RW, whole(&buffers.joint_lo)),
+                (RW, buffers.counter(COUNTER_JOINTS)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let integrate = Stage::build(
             context,
             "integrate",
-            &assemble_shader(include_str!("shaders/integrate.wgsl")),
+            &assemble_shader(include_str!("shaders/integrate.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let broadphase_aabb = Stage::build(
             context,
             "broadphase_aabb",
-            &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl")),
+            &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.colliders),
-                (BindingKind::ReadWriteStorage, &buffers.aabbs),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.colliders)),
+                (RW, whole(&buffers.aabbs)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let grid_entries = Stage::build(
             context,
             "grid_entries",
-            &assemble_shader(include_str!("shaders/grid_entries.wgsl")),
+            &assemble_shader(include_str!("shaders/grid_entries.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.aabbs),
-                (BindingKind::ReadWriteStorage, &buffers.entries.keys_hi),
-                (BindingKind::ReadWriteStorage, &buffers.entries.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.entry_count),
-                (BindingKind::ReadWriteStorage, &buffers.large_bodies),
-                (BindingKind::ReadWriteStorage, &buffers.large_count),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.aabbs)),
+                (RW, whole(&buffers.entries.keys_hi)),
+                (RW, whole(&buffers.entries.keys_lo)),
+                (RW, buffers.counter(COUNTER_ENTRIES)),
+                (RW, whole(&buffers.large_bodies)),
+                (RW, buffers.counter(COUNTER_LARGE)),
+                (RW, buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let broadphase_pairs = Stage::build(
             context,
             "broadphase_pairs",
-            &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl")),
+            &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.entries.keys_hi),
-                (BindingKind::ReadOnlyStorage, &buffers.entries.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.entry_count),
-                (BindingKind::ReadWriteStorage, &buffers.pairs.keys_hi),
-                (BindingKind::ReadWriteStorage, &buffers.pairs.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.pair_count),
-                (BindingKind::ReadWriteStorage, &buffers.overflow_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.entries.keys_hi)),
+                (RO, whole(&buffers.entries.keys_lo)),
+                (RW, buffers.counter(COUNTER_ENTRIES)),
+                (RW, whole(&buffers.pairs.keys_hi)),
+                (RW, whole(&buffers.pairs.keys_lo)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
+                (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
             &shape_resources,
-            buffers.entry_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let large_pairs = Stage::build(
             context,
             "large_pairs",
-            &assemble_shader(include_str!("shaders/large_pairs.wgsl")),
+            &assemble_shader(include_str!("shaders/large_pairs.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.large_bodies),
-                (BindingKind::ReadWriteStorage, &buffers.large_count),
-                (BindingKind::ReadWriteStorage, &buffers.pairs.keys_hi),
-                (BindingKind::ReadWriteStorage, &buffers.pairs.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.pair_count),
-                (BindingKind::ReadOnlyStorage, &buffers.colliders),
-                (BindingKind::ReadWriteStorage, &buffers.overflow_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.large_bodies)),
+                (RW, buffers.counter(COUNTER_LARGE)),
+                (RW, whole(&buffers.pairs.keys_hi)),
+                (RW, whole(&buffers.pairs.keys_lo)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
+                (RO, whole(&buffers.colliders)),
+                (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let narrowphase = Stage::build(
             context,
             "narrowphase",
-            &assemble_shader(include_str!("shaders/narrowphase.wgsl")),
+            &assemble_shader(include_str!("shaders/narrowphase.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.colliders),
-                (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_hi),
-                (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.contacts_raw),
-                (BindingKind::ReadWriteStorage, &buffers.contact_valid),
-                (BindingKind::ReadWriteStorage, &buffers.pair_count),
-                (BindingKind::ReadOnlyStorage, &buffers.joint_hi),
-                (BindingKind::ReadOnlyStorage, &buffers.joint_lo),
-                (BindingKind::ReadOnlyStorage, &buffers.joint_count),
-                (BindingKind::Uniform, &buffers.params),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.colliders)),
+                (RO, whole(&buffers.pairs.keys_hi)),
+                (RO, whole(&buffers.pairs.keys_lo)),
+                (RW, whole(&buffers.contacts_raw)),
+                (RW, whole(&buffers.contact_valid)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
+                (RO, whole(&buffers.joint_hi)),
+                (RO, whole(&buffers.joint_lo)),
+                (RW, buffers.counter(COUNTER_JOINTS)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &shape_resources,
-            buffers.pair_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let compact_scan = Stage::build(
             context,
             "compact_scan",
-            &assemble_shader(include_str!("shaders/compact_scan.wgsl")),
+            &assemble_shader(include_str!("shaders/compact_scan.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contact_valid),
-                (BindingKind::ReadWriteStorage, &buffers.compact_ranks),
-                (BindingKind::ReadWriteStorage, &buffers.compact_block_sums),
-                (BindingKind::ReadOnlyStorage, &buffers.pair_count),
+                (RO, whole(&buffers.contact_valid)),
+                (RW, whole(&buffers.compact_ranks)),
+                (RW, whole(&buffers.compact_block_sums)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &shape_resources,
-            buffers.pair_capacity(),
-            COMPACT_BLOCK,
         );
 
         let compact_offsets = Stage::build(
             context,
             "compact_offsets",
-            &assemble_shader(include_str!("shaders/compact_offsets.wgsl")),
+            &assemble_shader(include_str!("shaders/compact_offsets.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.compact_block_sums),
-                (
-                    BindingKind::ReadWriteStorage,
-                    &buffers.compact_block_offsets,
-                ),
-                (BindingKind::ReadWriteStorage, &buffers.contact_count),
+                (RO, whole(&buffers.compact_block_sums)),
+                (RW, whole(&buffers.compact_block_offsets)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &shape_resources,
-            1,
-            COMPACT_BLOCK,
         );
 
         let compact_scatter = Stage::build(
             context,
             "compact_scatter",
-            &assemble_shader(include_str!("shaders/compact_scatter.wgsl")),
+            &assemble_shader(include_str!("shaders/compact_scatter.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contacts_raw),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_valid),
-                (BindingKind::ReadOnlyStorage, &buffers.compact_ranks),
-                (BindingKind::ReadOnlyStorage, &buffers.compact_block_offsets),
-                (BindingKind::ReadWriteStorage, &buffers.contacts),
-                (BindingKind::ReadWriteStorage, &buffers.contact_a_body),
-                (BindingKind::ReadOnlyStorage, &buffers.pair_count),
+                (RO, whole(&buffers.contacts_raw)),
+                (RO, whole(&buffers.contact_valid)),
+                (RO, whole(&buffers.compact_ranks)),
+                (RO, whole(&buffers.compact_block_offsets)),
+                (RW, whole(&buffers.contacts)),
+                (RW, whole(&buffers.contact_a_body)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &shape_resources,
-            buffers.pair_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let events_end = Stage::build(
             context,
             "events_end",
-            &assemble_shader(include_str!("shaders/events_end.wgsl")),
+            &assemble_shader(include_str!("shaders/events_end.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.prev_contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.prev_contact_count),
-                (BindingKind::ReadOnlyStorage, &buffers.contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.events),
-                (BindingKind::ReadWriteStorage, &buffers.event_count),
-                (BindingKind::ReadWriteStorage, &buffers.overflow_flags),
+                (RO, whole(&buffers.prev_contacts)),
+                (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
+                (RO, whole(&buffers.contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.events)),
+                (RW, buffers.counter(COUNTER_EVENTS)),
+                (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let contact_archive = Stage::build(
             context,
             "contact_archive",
-            &assemble_shader(include_str!("shaders/contact_archive.wgsl")),
+            &assemble_shader(include_str!("shaders/contact_archive.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contacts),
-                (BindingKind::ReadWriteStorage, &buffers.prev_contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
+                (RO, whole(&buffers.contacts)),
+                (RW, whole(&buffers.prev_contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let prev_count_sync = Stage::build(
             context,
             "prev_count_sync",
-            &assemble_shader(include_str!("shaders/prev_count_sync.wgsl")),
+            &assemble_shader(include_str!("shaders/prev_count_sync.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.prev_contact_count),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
+                (RO, whole(&buffers.contacts)),
             ],
             &shape_resources,
-            1,
-            WORKGROUP_SIZE,
         );
 
         let island_init = Stage::build(
             context,
             "island_init",
-            &assemble_shader(include_str!("shaders/island_init.wgsl")),
+            &assemble_shader(include_str!("shaders/island_init.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
-                (BindingKind::ReadWriteStorage, &buffers.island_state),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.island_state)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let island_link_contacts = Stage::build(
             context,
             "island_link_contacts",
-            &assemble_shader(include_str!("shaders/island_link_contacts.wgsl")),
+            &assemble_shader(include_str!("shaders/island_link_contacts.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.contacts),
-                (BindingKind::ReadWriteStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let island_link_constraints = Stage::build(
             context,
             "island_link_constraints",
-            &assemble_shader(include_str!("shaders/island_link_constraints.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/island_link_constraints.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.constraint_descs)),
+                (RO, whole(&buffers.constraint_runtime)),
+                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let island_jump = Stage::build(
             context,
             "island_jump",
-            &assemble_shader(include_str!("shaders/island_jump.wgsl")),
+            &assemble_shader(include_str!("shaders/island_jump.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.island_parents)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let island_aggregate = Stage::build(
             context,
             "island_aggregate",
-            &assemble_shader(include_str!("shaders/island_aggregate.wgsl")),
+            &assemble_shader(include_str!("shaders/island_aggregate.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
-                (BindingKind::ReadWriteStorage, &buffers.island_state),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.island_state)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let island_broadcast = Stage::build(
             context,
             "island_broadcast",
-            &assemble_shader(include_str!("shaders/island_broadcast.wgsl")),
+            &assemble_shader(include_str!("shaders/island_broadcast.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadWriteStorage, &buffers.island_parents),
-                (BindingKind::ReadWriteStorage, &buffers.island_state),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.island_state)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let gather_contact_keys_b = Stage::build(
             context,
             "gather_contact_keys_b",
-            &assemble_shader(include_str!("shaders/gather_contact_keys_b.wgsl")),
+            &assemble_shader(include_str!("shaders/gather_contact_keys_b.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.contact_b_keys),
-                (BindingKind::ReadWriteStorage, &buffers.contact_b_values),
+                (RO, whole(&buffers.contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.contact_b_keys)),
+                (RW, whole(&buffers.contact_b_values)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let gather_constraint_keys = Stage::build(
             context,
             "gather_constraint_keys",
-            &assemble_shader(include_str!("shaders/gather_constraint_keys.wgsl")),
+            &assemble_shader(include_str!("shaders/gather_constraint_keys.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_runtime),
-                (
-                    BindingKind::ReadWriteStorage,
-                    &buffers.constraint_gather_a_keys,
-                ),
-                (
-                    BindingKind::ReadWriteStorage,
-                    &buffers.constraint_gather_a_values,
-                ),
-                (
-                    BindingKind::ReadWriteStorage,
-                    &buffers.constraint_gather_b_keys,
-                ),
-                (
-                    BindingKind::ReadWriteStorage,
-                    &buffers.constraint_gather_b_values,
-                ),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.constraint_runtime)),
+                (RW, whole(&buffers.constraint_a_keys)),
+                (RW, whole(&buffers.constraint_a_values)),
+                (RW, whole(&buffers.constraint_b_keys)),
+                (RW, whole(&buffers.constraint_b_values)),
+                (RO, whole(&buffers.constraint_descs)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let reset_gather_boundaries = Stage::build(
             context,
             "reset_gather_boundaries",
-            &assemble_shader(include_str!("shaders/reset_gather_boundaries.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/reset_gather_boundaries.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.contact_first_a),
-                (BindingKind::ReadWriteStorage, &buffers.contact_first_b),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_first_a),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_first_b),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.contact_first_a)),
+                (RW, whole(&buffers.contact_first_b)),
+                (RW, whole(&buffers.constraint_first_a)),
+                (RW, whole(&buffers.constraint_first_b)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let mark_contact_boundaries = Stage::build(
             context,
             "mark_contact_boundaries",
-            &assemble_shader(include_str!("shaders/mark_contact_boundaries.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/mark_contact_boundaries.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.contact_a_body),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_b_keys_out),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.contact_first_a),
-                (BindingKind::ReadWriteStorage, &buffers.contact_first_b),
+                (RO, whole(&buffers.contact_a_body)),
+                (RO, whole(&buffers.contact_b_keys)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.contact_first_a)),
+                (RW, whole(&buffers.contact_first_b)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let mark_constraint_boundaries = Stage::build(
             context,
             "mark_constraint_boundaries",
-            &assemble_shader(include_str!("shaders/mark_constraint_boundaries.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/mark_constraint_boundaries.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_a_keys_out,
-                ),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_b_keys_out,
-                ),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_first_a),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_first_b),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.constraint_a_keys)),
+                (RO, whole(&buffers.constraint_b_keys)),
+                (RW, whole(&buffers.constraint_first_a)),
+                (RW, whole(&buffers.constraint_first_b)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let ccd_sweep = Stage::build(
             context,
             "ccd_sweep",
-            &assemble_shader(include_str!("shaders/ccd_sweep.wgsl")),
+            &assemble_shader(include_str!("shaders/ccd_sweep.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.colliders),
-                (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_hi),
-                (BindingKind::ReadOnlyStorage, &buffers.pairs.keys_lo),
-                (BindingKind::ReadWriteStorage, &buffers.pair_count),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.colliders)),
+                (RO, whole(&buffers.pairs.keys_hi)),
+                (RO, whole(&buffers.pairs.keys_lo)),
+                (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &shape_resources,
-            buffers.pair_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let contact_match = Stage::build(
             context,
             "contact_match",
-            &assemble_shader(include_str!("shaders/contact_match.wgsl")),
+            &assemble_shader(include_str!("shaders/contact_match.wgsl"), per_row),
             &[
-                (BindingKind::ReadWriteStorage, &buffers.contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.prev_contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.prev_contact_count),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.events),
-                (BindingKind::ReadWriteStorage, &buffers.event_count),
-                (BindingKind::ReadWriteStorage, &buffers.overflow_flags),
+                (RW, whole(&buffers.contacts)),
+                (RO, whole(&buffers.prev_contacts)),
+                (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.events)),
+                (RW, buffers.counter(COUNTER_EVENTS)),
+                (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let contact_solve_extract = Stage::build(
             context,
             "contact_solve_extract",
-            &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl")),
+            &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadWriteStorage, &buffers.contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
-                (BindingKind::ReadWriteStorage, &buffers.contact_deltas),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RW, whole(&buffers.contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.wake_flags)),
+                (RW, whole(&buffers.contact_deltas)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let constraint_solve_extract = Stage::build(
             context,
             "constraint_solve_extract",
-            &assemble_shader(include_str!("shaders/constraint_solve_extract.wgsl")),
+            &assemble_shader(
+                include_str!("shaders/constraint_solve_extract.wgsl"),
+                per_row,
+            ),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_deltas),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.constraint_descs)),
+                (RW, whole(&buffers.constraint_runtime)),
+                (RW, whole(&buffers.wake_flags)),
+                (RW, whole(&buffers.constraint_deltas)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let body_apply_solver = Stage::build(
             context,
             "body_apply_solver",
-            &assemble_shader(include_str!("shaders/body_apply_solver.wgsl")),
+            &assemble_shader(include_str!("shaders/body_apply_solver.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_first_a),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_first_b),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_a_body),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_b_keys_out),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_b_values_out),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_first_a),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_first_b),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_a_keys_out,
-                ),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_a_values_out,
-                ),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_b_keys_out,
-                ),
-                (
-                    BindingKind::ReadOnlyStorage,
-                    &buffers.constraint_gather_b_values_out,
-                ),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_deltas),
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_deltas),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.contact_first_a)),
+                (RO, whole(&buffers.contact_first_b)),
+                (RO, whole(&buffers.contact_a_body)),
+                (RO, whole(&buffers.contact_b_keys)),
+                (RO, whole(&buffers.contact_b_values)),
+                (RO, whole(&buffers.constraint_first_a)),
+                (RO, whole(&buffers.constraint_first_b)),
+                (RO, whole(&buffers.constraint_a_keys)),
+                (RO, whole(&buffers.constraint_a_values)),
+                (RO, whole(&buffers.constraint_b_keys)),
+                (RO, whole(&buffers.constraint_b_values)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RO, whole(&buffers.contact_deltas)),
+                (RO, whole(&buffers.constraint_deltas)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let position_solve_extract = Stage::build(
             context,
             "position_solve_extract",
-            &assemble_shader(include_str!("shaders/position_solve_extract.wgsl")),
+            &assemble_shader(include_str!("shaders/position_solve_extract.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.contacts),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadWriteStorage, &buffers.contact_deltas),
+                (UNIFORM, whole(&buffers.params)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.contacts)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RW, whole(&buffers.contact_deltas)),
             ],
             &shape_resources,
-            buffers.contact_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let body_apply_positions = Stage::build(
             context,
             "body_apply_positions",
-            &assemble_shader(include_str!("shaders/body_apply_positions.wgsl")),
+            &assemble_shader(include_str!("shaders/body_apply_positions.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_first_a),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_first_b),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_a_body),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_b_keys_out),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_b_values_out),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_count),
-                (BindingKind::ReadOnlyStorage, &buffers.contact_deltas),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.contact_first_a)),
+                (RO, whole(&buffers.contact_first_b)),
+                (RO, whole(&buffers.contact_a_body)),
+                (RO, whole(&buffers.contact_b_keys)),
+                (RO, whole(&buffers.contact_b_values)),
+                (RW, buffers.counter(COUNTER_CONTACTS)),
+                (RO, whole(&buffers.contact_deltas)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
         let query = Stage::build(
             context,
             "query",
-            &assemble_shader(include_str!("shaders/queries.wgsl")),
+            &assemble_shader(include_str!("shaders/queries.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.queries),
-                (BindingKind::ReadOnlyStorage, &buffers.body_states),
-                (BindingKind::ReadOnlyStorage, &buffers.body_descs),
-                (BindingKind::ReadOnlyStorage, &buffers.colliders),
-                (BindingKind::ReadOnlyStorage, &buffers.aabbs),
-                (BindingKind::ReadOnlyStorage, &buffers.entries.keys_hi),
-                (BindingKind::ReadOnlyStorage, &buffers.entries.keys_lo),
-                (BindingKind::ReadOnlyStorage, &buffers.entry_count),
-                (BindingKind::ReadWriteStorage, &buffers.query_headers),
-                (BindingKind::ReadWriteStorage, &buffers.query_hits),
-                (BindingKind::ReadOnlyStorage, &buffers.large_bodies),
-                (BindingKind::ReadOnlyStorage, &buffers.large_count),
-                (BindingKind::Uniform, &buffers.params),
+                (RO, whole(&buffers.queries)),
+                (RO, whole(&buffers.body_states)),
+                (RO, whole(&buffers.body_descs)),
+                (RO, whole(&buffers.colliders)),
+                (RO, whole(&buffers.aabbs)),
+                (RO, whole(&buffers.entries.keys_hi)),
+                (RO, whole(&buffers.entries.keys_lo)),
+                (RW, buffers.counter(COUNTER_ENTRIES)),
+                (RW, whole(&buffers.query_results)),
+                (RO, whole(&buffers.large_bodies)),
+                (RW, buffers.counter(COUNTER_LARGE)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &shape_resources,
-            1,
-            WORKGROUP_SIZE,
         );
 
         let constraints_warm_end = Stage::build(
             context,
             "constraints_warm_end",
-            &assemble_shader(include_str!("shaders/constraints_warm_end.wgsl")),
+            &assemble_shader(include_str!("shaders/constraints_warm_end.wgsl"), per_row),
             &[
-                (BindingKind::ReadOnlyStorage, &buffers.constraint_descs),
-                (BindingKind::ReadWriteStorage, &buffers.constraint_runtime),
-                (BindingKind::Uniform, &buffers.params),
+                (RO, whole(&buffers.constraint_descs)),
+                (RW, whole(&buffers.constraint_runtime)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &shape_resources,
-            buffers.constraint_capacity(),
-            WORKGROUP_SIZE,
         );
 
         let static_wake_clear = Stage::build(
             context,
             "static_wake_clear",
-            &assemble_shader(include_str!("shaders/static_wake_clear.wgsl")),
+            &assemble_shader(include_str!("shaders/static_wake_clear.wgsl"), per_row),
             &[
-                (BindingKind::Uniform, &buffers.params),
-                (BindingKind::ReadWriteStorage, &buffers.wake_flags),
+                (UNIFORM, whole(&buffers.params)),
+                (RW, whole(&buffers.wake_flags)),
             ],
             &shape_resources,
-            body_capacity,
-            WORKGROUP_SIZE,
         );
 
-        let sort = RadixSort::new(context, "sim sort", buffers.sort_scratch.capacity_u32());
-        let sort_hi = GpuBuffer::new(
-            &device,
-            "sort scratch hi",
-            buffers.sort_scratch.keys_hi.size(),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let sort_lo = GpuBuffer::new(
-            &device,
-            "sort scratch lo",
-            buffers.sort_scratch.keys_lo.size(),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let sort_values = GpuBuffer::new(
-            &device,
-            "sort scratch values",
-            buffers.sort_scratch.values.size(),
-            wgpu::BufferUsages::STORAGE,
-        );
-        let contact_bucket = BucketSort::new(
-            context,
-            "contact bucket",
-            body_capacity,
-            buffers.contact_capacity(),
-        );
-        let constraint_bucket = BucketSort::new(
-            context,
-            "constraint bucket",
-            body_capacity,
-            buffers.constraint_capacity(),
-        );
+        let dispatch_shader = assemble_shader(&dispatch_source(), per_row);
+        const DISPATCH_BINDINGS: &[BindingSpec] = &[
+            BindingSpec {
+                binding: 0,
+                kind: BindingKind::ReadOnlyStorage,
+            },
+            BindingSpec {
+                binding: 1,
+                kind: BindingKind::ReadWriteStorage,
+            },
+        ];
+        let dispatch_args = std::array::from_fn(|batch| {
+            let entry = ["dispatch_a", "dispatch_b", "dispatch_c", "dispatch_d"][batch];
+            context.compute_pipeline(
+                "dispatch args",
+                &dispatch_shader,
+                entry,
+                &[DISPATCH_BINDINGS],
+                64,
+            )
+        });
+        let dispatch_group = std::array::from_fn(|batch| {
+            dispatch_args[batch].create_bind_group(
+                context.device(),
+                0,
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: buffers.counters.as_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: buffers.dispatch.buffer().as_binding(),
+                    },
+                ],
+            )
+        });
+
+        let sort = RadixSort::new(context, "sim sort", plan.sort());
         #[cfg(feature = "profile")]
         let timer = context.supports_pass_timing().then(|| {
             GpuTimer::new(
@@ -997,7 +1056,8 @@ impl Pipeline {
             )
         });
         Self {
-            device,
+            per_row,
+            reset_counters,
             apply_commands,
             apply_constraint_commands,
             joint_filter,
@@ -1034,12 +1094,9 @@ impl Pipeline {
             query,
             constraints_warm_end,
             static_wake_clear,
+            dispatch_args,
+            dispatch_group,
             sort,
-            sort_hi,
-            sort_lo,
-            sort_values,
-            contact_bucket,
-            constraint_bucket,
             #[cfg(feature = "profile")]
             timer,
         }
@@ -1049,11 +1106,38 @@ impl Pipeline {
         let label = SIM_PASSES[slot];
         #[cfg(feature = "profile")]
         if let Some(timer) = &self.timer {
-            return ComputeRecorder::begin_timed(encoder, label, Some(timer.writes(slot)));
+            return ComputeRecorder::begin_timed(
+                encoder,
+                label,
+                Some(timer.writes(slot)),
+                self.per_row,
+            );
         }
-        ComputeRecorder::begin(encoder, label)
+        ComputeRecorder::begin(encoder, label, self.per_row)
     }
 
+    fn sort_lanes<'a>(
+        buffers: &'a WorldBuffers,
+        count: GpuSlot<'a>,
+        keys_lo: &'a GpuBuffer,
+        keys_hi: &'a GpuBuffer,
+        values: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            keys_lo,
+            keys_hi,
+            values,
+            scratch_lo: &buffers.sort_scratch.keys_lo,
+            scratch_hi: &buffers.sort_scratch.keys_hi,
+            scratch_values: &buffers.sort_scratch.values,
+        }
+    }
+
+    /// One step, recorded from the host-owned counts and the dispatch table alike:
+    /// stages whose work the device counted run by indirect arguments, stages whose
+    /// work the host knows run by direct counts, and a batch of arguments is written
+    /// at every point of the step where its counters become final.
     pub(crate) fn encode(
         &self,
         encoder: &mut CommandEncoder,
@@ -1061,180 +1145,235 @@ impl Pipeline {
         params: &FrameParams,
     ) {
         let constraint_active = params.constraint_count > 0;
-        let collider_words = key_bytes(buffers.collider_capacity());
-        let joint_words = key_bytes(buffers.constraint_capacity());
+        let collider_words = key_words(buffers.colliders());
+        let joint_words = key_words(buffers.constraints().max(1));
+        let index_words = key_words(buffers.contacts().max(1));
+        let body_words = key_words(buffers.bodies().max(1));
+        let gather_words = key_words(buffers.constraints().max(1));
 
         let mut commands = self.open(encoder, PASS_COMMANDS);
-        self.apply_commands.dispatch(&mut commands);
-        self.apply_constraint_commands.dispatch(&mut commands);
+        self.reset_counters
+            .record(&mut commands, dynamis_layout::COUNTER_COUNT as u32);
+        self.apply_commands.record_workgroups(&mut commands, 1);
+        self.apply_constraint_commands
+            .record_workgroups(&mut commands, 1);
         if constraint_active {
-            self.joint_filter.dispatch(&mut commands);
-            let channels = SortChannels {
-                count: &buffers.joint_count,
-                keys_lo: &buffers.joint_lo,
-                keys_hi: &buffers.joint_hi,
-                values: &buffers.entries.values,
-                scratch_lo: &self.sort_lo,
-                scratch_hi: &self.sort_hi,
-                scratch_values: &self.sort_values,
-            };
+            self.joint_filter
+                .record(&mut commands, params.constraint_count);
+        }
+        drop(commands);
+        self.encode_dispatch(encoder, 0);
+
+        let mut integrate = self.open(encoder, PASS_INTEGRATE);
+        if constraint_active {
+            let channels = Self::sort_lanes(
+                buffers,
+                buffers.counter(COUNTER_JOINTS),
+                &buffers.joint_lo,
+                &buffers.joint_hi,
+                &buffers.sort_values,
+            );
             self.sort.sort(
-                &self.device,
-                &mut commands,
+                &mut integrate,
                 &channels,
                 joint_words,
                 joint_words,
+                &buffers.dispatch,
+                dispatch(COUNTER_JOINTS as u32, KERNEL_TILE, SORT_JOINTS),
             );
         }
-        drop(commands);
-
-        let mut integrate = self.open(encoder, PASS_INTEGRATE);
-        self.integrate
-            .dispatch_at(&mut integrate, params.dynamic_count);
+        self.integrate.record(&mut integrate, params.dynamic_count);
         self.broadphase_aabb
-            .dispatch_at(&mut integrate, params.dynamic_count);
+            .record(&mut integrate, params.dynamic_count);
         drop(integrate);
 
+        let mut grid = self.open(encoder, PASS_GRID);
+        self.grid_entries.record(&mut grid, params.body_count);
+        drop(grid);
+        self.encode_dispatch(encoder, 1);
+
         let mut broadphase = self.open(encoder, PASS_BROADPHASE);
-        self.grid_entries
-            .dispatch_at(&mut broadphase, params.body_count);
-        let channels = SortChannels {
-            count: &buffers.entry_count,
-            keys_lo: &buffers.entries.keys_lo,
-            keys_hi: &buffers.entries.keys_hi,
-            values: &buffers.entries.values,
-            scratch_lo: &self.sort_lo,
-            scratch_hi: &self.sort_hi,
-            scratch_values: &self.sort_values,
-        };
-        self.sort
-            .sort(&self.device, &mut broadphase, &channels, collider_words, 4);
-        self.broadphase_pairs.dispatch(&mut broadphase);
-        self.large_pairs
-            .dispatch_at(&mut broadphase, params.body_count);
-        let channels = SortChannels {
-            count: &buffers.pair_count,
-            keys_lo: &buffers.pairs.keys_lo,
-            keys_hi: &buffers.pairs.keys_hi,
-            values: &buffers.pairs.values,
-            scratch_lo: &self.sort_lo,
-            scratch_hi: &self.sort_hi,
-            scratch_values: &self.sort_values,
-        };
+        let channels = Self::sort_lanes(
+            buffers,
+            buffers.counter(COUNTER_ENTRIES),
+            &buffers.entries.keys_lo,
+            &buffers.entries.keys_hi,
+            &buffers.sort_values,
+        );
         self.sort.sort(
-            &self.device,
             &mut broadphase,
             &channels,
             collider_words,
-            collider_words,
+            4,
+            &buffers.dispatch,
+            dispatch(COUNTER_ENTRIES as u32, KERNEL_TILE, SORT_ENTRIES),
         );
-        self.ccd_sweep.dispatch(&mut broadphase);
+        self.broadphase_pairs
+            .record_indirect(&mut broadphase, &buffers.dispatch, BROADPHASE_PAIRS);
+        self.large_pairs.record(&mut broadphase, params.body_count);
         drop(broadphase);
+        self.encode_dispatch(encoder, 2);
 
         let mut narrowphase = self.open(encoder, PASS_NARROWPHASE);
-        self.narrowphase.dispatch(&mut narrowphase);
-        self.compact_scan.dispatch(&mut narrowphase);
-        self.compact_offsets.dispatch(&mut narrowphase);
-        self.compact_scatter.dispatch(&mut narrowphase);
-        self.contact_match.dispatch(&mut narrowphase);
+        let channels = Self::sort_lanes(
+            buffers,
+            buffers.counter(COUNTER_PAIRS),
+            &buffers.pairs.keys_lo,
+            &buffers.pairs.keys_hi,
+            &buffers.sort_values,
+        );
+        self.sort.sort(
+            &mut narrowphase,
+            &channels,
+            collider_words,
+            collider_words,
+            &buffers.dispatch,
+            dispatch(COUNTER_PAIRS as u32, KERNEL_TILE, SORT_PAIRS),
+        );
+        self.ccd_sweep
+            .record_indirect(&mut narrowphase, &buffers.dispatch, CCD_SWEEP);
+        self.narrowphase
+            .record_indirect(&mut narrowphase, &buffers.dispatch, NARROWPHASE);
+        self.compact_scan
+            .record_indirect(&mut narrowphase, &buffers.dispatch, COMPACT_SCAN);
+        self.compact_offsets.record_workgroups(&mut narrowphase, 1);
+        self.compact_scatter
+            .record_indirect(&mut narrowphase, &buffers.dispatch, COMPACT_SCATTER);
         drop(narrowphase);
+        self.encode_dispatch(encoder, 3);
 
         let mut islands = self.open(encoder, PASS_ISLANDS);
-        self.island_init
-            .dispatch_at(&mut islands, params.dynamic_count);
-        self.island_link_contacts.dispatch(&mut islands);
-        if constraint_active {
-            self.island_link_constraints.dispatch(&mut islands);
-        }
-        for _ in 0..params.island_rounds {
-            self.island_jump
-                .dispatch_at(&mut islands, params.dynamic_count);
-        }
-        self.gather_contact_keys_b.dispatch(&mut islands);
-        self.contact_bucket.sort(
-            &self.device,
+        self.contact_match
+            .record_indirect(&mut islands, &buffers.dispatch, CONTACT_MATCH);
+        self.island_init.record(&mut islands, params.dynamic_count);
+        self.island_link_contacts.record_indirect(
             &mut islands,
-            &BucketChannels {
-                count: &buffers.contact_count,
-                keys: &buffers.contact_b_keys,
-                values: &buffers.contact_b_values,
-                keys_out: &buffers.contact_b_keys_out,
-                values_out: &buffers.contact_b_values_out,
-            },
+            &buffers.dispatch,
+            ISLAND_LINK_CONTACTS,
         );
         if constraint_active {
-            self.gather_constraint_keys.dispatch(&mut islands);
-            self.constraint_bucket.sort(
-                &self.device,
-                &mut islands,
-                &BucketChannels {
-                    count: &buffers.constraint_count_state,
-                    keys: &buffers.constraint_gather_a_keys,
-                    values: &buffers.constraint_gather_a_values,
-                    keys_out: &buffers.constraint_gather_a_keys_out,
-                    values_out: &buffers.constraint_gather_a_values_out,
-                },
-            );
-            self.constraint_bucket.sort(
-                &self.device,
-                &mut islands,
-                &BucketChannels {
-                    count: &buffers.constraint_count_state,
-                    keys: &buffers.constraint_gather_b_keys,
-                    values: &buffers.constraint_gather_b_values,
-                    keys_out: &buffers.constraint_gather_b_keys_out,
-                    values_out: &buffers.constraint_gather_b_values_out,
-                },
-            );
+            self.island_link_constraints
+                .record(&mut islands, params.constraint_count);
+        }
+        for _ in 0..params.island_rounds {
+            self.island_jump.record(&mut islands, params.dynamic_count);
+        }
+        self.gather_contact_keys_b.record_indirect(
+            &mut islands,
+            &buffers.dispatch,
+            GATHER_CONTACT_KEYS_B,
+        );
+        let channels = Self::sort_lanes(
+            buffers,
+            buffers.counter(COUNTER_CONTACTS),
+            &buffers.contact_b_values,
+            &buffers.contact_b_keys,
+            &buffers.sort_pad,
+        );
+        self.sort.sort(
+            &mut islands,
+            &channels,
+            index_words,
+            body_words,
+            &buffers.dispatch,
+            dispatch(COUNTER_CONTACTS as u32, KERNEL_TILE, SORT_CONTACTS),
+        );
+        if constraint_active {
+            self.gather_constraint_keys
+                .record(&mut islands, params.constraint_count);
+            for (keys, values) in [
+                (&buffers.constraint_a_keys, &buffers.constraint_a_values),
+                (&buffers.constraint_b_keys, &buffers.constraint_b_values),
+            ] {
+                let channels = Self::sort_lanes(
+                    buffers,
+                    buffers.counter(COUNTER_CONSTRAINTS),
+                    values,
+                    keys,
+                    &buffers.sort_pad,
+                );
+                self.sort.sort(
+                    &mut islands,
+                    &channels,
+                    gather_words,
+                    body_words,
+                    &buffers.dispatch,
+                    dispatch(COUNTER_CONSTRAINTS as u32, KERNEL_TILE, SORT_CONSTRAINTS),
+                );
+            }
         }
         self.reset_gather_boundaries
-            .dispatch_at(&mut islands, params.dynamic_count);
-        self.mark_contact_boundaries.dispatch(&mut islands);
+            .record(&mut islands, params.dynamic_count);
+        self.mark_contact_boundaries.record_indirect(
+            &mut islands,
+            &buffers.dispatch,
+            MARK_CONTACT_BOUNDARIES,
+        );
         if constraint_active {
-            self.mark_constraint_boundaries.dispatch(&mut islands);
+            self.mark_constraint_boundaries
+                .record(&mut islands, params.constraint_count);
         }
         drop(islands);
 
         let mut sleep = self.open(encoder, PASS_SLEEP);
         self.island_aggregate
-            .dispatch_at(&mut sleep, params.dynamic_count);
+            .record(&mut sleep, params.dynamic_count);
         self.island_broadcast
-            .dispatch_at(&mut sleep, params.dynamic_count);
+            .record(&mut sleep, params.dynamic_count);
         drop(sleep);
 
         let mut velocity_solve = self.open(encoder, PASS_VELOCITY_SOLVE);
         for _ in 0..params.solve_iterations {
             if constraint_active {
-                self.constraint_solve_extract.dispatch(&mut velocity_solve);
+                self.constraint_solve_extract
+                    .record(&mut velocity_solve, params.constraint_count);
             }
-            self.contact_solve_extract.dispatch(&mut velocity_solve);
+            self.contact_solve_extract.record_indirect(
+                &mut velocity_solve,
+                &buffers.dispatch,
+                CONTACT_SOLVE_EXTRACT,
+            );
             self.body_apply_solver
-                .dispatch_at(&mut velocity_solve, params.dynamic_count);
+                .record(&mut velocity_solve, params.dynamic_count);
         }
         drop(velocity_solve);
 
         let mut position_solve = self.open(encoder, PASS_POSITION_SOLVE);
         for _ in 0..params.position_iterations {
-            self.position_solve_extract.dispatch(&mut position_solve);
+            self.position_solve_extract.record_indirect(
+                &mut position_solve,
+                &buffers.dispatch,
+                POSITION_SOLVE_EXTRACT,
+            );
             self.body_apply_positions
-                .dispatch_at(&mut position_solve, params.dynamic_count);
+                .record(&mut position_solve, params.dynamic_count);
         }
         drop(position_solve);
 
         let mut tail = self.open(encoder, PASS_TAIL);
-        self.events_end.dispatch(&mut tail);
-        self.contact_archive.dispatch(&mut tail);
-        self.prev_count_sync.dispatch(&mut tail);
-        self.constraints_warm_end.dispatch(&mut tail);
-        self.static_wake_clear
-            .dispatch_at(&mut tail, params.body_count);
+        self.events_end
+            .record_indirect(&mut tail, &buffers.dispatch, EVENTS_END);
+        self.contact_archive
+            .record_indirect(&mut tail, &buffers.dispatch, CONTACT_ARCHIVE);
+        self.prev_count_sync.record_workgroups(&mut tail, 1);
+        self.constraints_warm_end
+            .record(&mut tail, params.constraint_count);
+        self.static_wake_clear.record(&mut tail, params.body_count);
         if params.query_count > 0 {
-            self.query
-                .dispatch_workgroups(&mut tail, params.query_count);
+            self.query.record_workgroups(&mut tail, params.query_count);
         }
         drop(tail);
     }
 
+    /// Writes one batch of the dispatch table, after the counters it reads are final.
+    fn encode_dispatch(&self, encoder: &mut CommandEncoder, batch: usize) {
+        let mut recorder = ComputeRecorder::begin(encoder, "dispatch", self.per_row);
+        recorder.record(
+            &self.dispatch_args[batch],
+            &[&self.dispatch_group[batch]],
+            1,
+        );
+    }
     #[cfg(feature = "profile")]
     pub(crate) fn capture_timings(
         &mut self,
@@ -1243,16 +1382,13 @@ impl Pipeline {
     ) -> Option<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
         self.timer
             .as_mut()
-            .and_then(|timer| timer.capture(&self.device, encoder, sequence))
+            .and_then(|timer| timer.capture(encoder, sequence))
     }
 
     #[cfg(feature = "profile")]
-    pub(crate) fn poll_timings(
-        &mut self,
-        device: &Device,
-    ) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+    pub(crate) fn poll_timings(&mut self) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
         match &mut self.timer {
-            Some(timer) => timer.poll(device),
+            Some(timer) => timer.poll(),
             None => Vec::new(),
         }
     }
@@ -1265,12 +1401,7 @@ impl Pipeline {
     }
 
     pub(crate) fn encode_queries(&self, encoder: &mut CommandEncoder, query_count: u32) {
-        let mut recorder = ComputeRecorder::begin(encoder, "query flush");
-        self.query.dispatch_workgroups(&mut recorder, query_count);
+        let mut recorder = ComputeRecorder::begin(encoder, "query flush", self.per_row);
+        self.query.record_workgroups(&mut recorder, query_count);
     }
-}
-
-fn key_bytes(values: u32) -> u32 {
-    let bits = 32 - values.saturating_sub(1).leading_zeros();
-    bits.div_ceil(8).clamp(1, 4)
 }

@@ -5,16 +5,16 @@
 @group(0) @binding(4) var<storage, read> contact_a_body: array<u32>;
 @group(0) @binding(5) var<storage, read> contact_keys_b: array<u32>;
 @group(0) @binding(6) var<storage, read> contact_values_b: array<u32>;
-@group(0) @binding(7) var<storage, read> contact_count: array<u32>;
+@group(0) @binding(7) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read> contact_deltas: array<vec4f>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let body_index = gid.x;
+    let body_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
     if (body_index >= params.dynamic_count) {
         return;
     }
-    let total = contact_count[0];
+    let total = min(atomicLoad(&contact_count[0]), arrayLength(&contact_a_body));
     let body = body_states[body_index];
     var position = vec3f(0.0);
     var links = 0u;
