@@ -191,7 +191,7 @@ const UNIFORM: BindingKind = BindingKind::Uniform;
 struct Stage {
     pipeline: ComputePipeline,
     bind_group: BindGroup,
-    shapes_group: BindGroup,
+    shapes_group: Option<BindGroup>,
 }
 
 impl Stage {
@@ -218,13 +218,12 @@ impl Stage {
                 kind: *kind,
             })
             .collect::<Vec<_>>();
-        let pipeline = context.compute_pipeline(
-            label,
-            shader,
-            "main",
-            &[&specs[..], &shape_specs[..]],
-            WORKGROUP_SIZE,
-        );
+        let groups = if shape_specs.is_empty() {
+            vec![&specs[..]]
+        } else {
+            vec![&specs[..], &shape_specs[..]]
+        };
+        let pipeline = context.compute_pipeline(label, shader, "main", &groups, WORKGROUP_SIZE);
         let entries: Vec<BindGroupEntry> = bindings
             .iter()
             .enumerate()
@@ -234,15 +233,19 @@ impl Stage {
             })
             .collect();
         let bind_group = pipeline.create_bind_group(context.device(), 0, &entries);
-        let shape_entries = shape_resources
-            .iter()
-            .enumerate()
-            .map(|(position, buffer)| BindGroupEntry {
-                binding: position as u32,
-                resource: buffer.as_binding(),
-            })
-            .collect::<Vec<_>>();
-        let shapes_group = pipeline.create_bind_group(context.device(), 1, &shape_entries);
+        let shapes_group = if shape_resources.is_empty() {
+            None
+        } else {
+            let entries = shape_resources
+                .iter()
+                .enumerate()
+                .map(|(position, buffer)| BindGroupEntry {
+                    binding: position as u32,
+                    resource: buffer.as_binding(),
+                })
+                .collect::<Vec<_>>();
+            Some(pipeline.create_bind_group(context.device(), 1, &entries))
+        };
         Self {
             pipeline,
             bind_group,
@@ -252,30 +255,31 @@ impl Stage {
 
     /// Dispatches one workgroup per `elements` lanes.
     fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
-        recorder.record(
-            &self.pipeline,
-            &[&self.bind_group, &self.shapes_group],
-            elements.div_ceil(WORKGROUP_SIZE),
-        );
+        let workgroups = elements.div_ceil(WORKGROUP_SIZE);
+        match &self.shapes_group {
+            Some(shapes) => {
+                recorder.record(&self.pipeline, &[&self.bind_group, shapes], workgroups)
+            }
+            None => recorder.record(&self.pipeline, &[&self.bind_group], workgroups),
+        }
     }
 
-    /// Dispatches an exact number of workgroups.
     fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
-        recorder.record(
-            &self.pipeline,
-            &[&self.bind_group, &self.shapes_group],
-            workgroups,
-        );
+        match &self.shapes_group {
+            Some(shapes) => {
+                recorder.record(&self.pipeline, &[&self.bind_group, shapes], workgroups)
+            }
+            None => recorder.record(&self.pipeline, &[&self.bind_group], workgroups),
+        }
     }
 
-    /// Dispatches by what the device wrote into the dispatch table.
     fn record_indirect(&self, recorder: &mut ComputeRecorder, table: &DispatchTable, slot: u32) {
-        recorder.record_indirect(
-            &self.pipeline,
-            &[&self.bind_group, &self.shapes_group],
-            table,
-            slot,
-        );
+        match &self.shapes_group {
+            Some(shapes) => {
+                recorder.record_indirect(&self.pipeline, &[&self.bind_group, shapes], table, slot)
+            }
+            None => recorder.record_indirect(&self.pipeline, &[&self.bind_group], table, slot),
+        }
     }
 }
 
@@ -445,7 +449,7 @@ impl Pipeline {
             "reset_counters",
             &assemble_shader(include_str!("shaders/reset_counters.wgsl"), per_row),
             &[(RW, whole(&buffers.counters))],
-            &shape_resources,
+            &[],
         );
 
         let apply_commands = Stage::build(
@@ -459,7 +463,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_BODY_COMMANDS)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let apply_constraint_commands = Stage::build(
@@ -474,7 +478,7 @@ impl Pipeline {
                 (RW, whole(&buffers.constraint_runtime)),
                 (RW, buffers.counter(COUNTER_CONSTRAINT_COMMANDS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let joint_filter = Stage::build(
@@ -489,7 +493,7 @@ impl Pipeline {
                 (RW, whole(&buffers.joint_lo)),
                 (RW, buffers.counter(COUNTER_JOINTS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let integrate = Stage::build(
@@ -501,7 +505,7 @@ impl Pipeline {
                 (RW, whole(&buffers.body_states)),
                 (RO, whole(&buffers.body_descs)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let broadphase_aabb = Stage::build(
@@ -531,7 +535,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_LARGE)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let broadphase_pairs = Stage::build(
@@ -548,7 +552,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_PAIRS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let large_pairs = Stage::build(
@@ -565,7 +569,7 @@ impl Pipeline {
                 (RO, whole(&buffers.colliders)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let narrowphase = Stage::build(
@@ -599,7 +603,7 @@ impl Pipeline {
                 (RW, whole(&buffers.compact_block_sums)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let compact_offsets = Stage::build(
@@ -612,7 +616,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let compact_scatter = Stage::build(
@@ -628,7 +632,7 @@ impl Pipeline {
                 (RW, whole(&buffers.contact_a_body)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let events_end = Stage::build(
@@ -644,7 +648,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_EVENTS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let contact_archive = Stage::build(
@@ -656,7 +660,7 @@ impl Pipeline {
                 (RW, whole(&buffers.prev_contacts)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let prev_count_sync = Stage::build(
@@ -668,7 +672,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
                 (RO, whole(&buffers.contacts)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_init = Stage::build(
@@ -680,7 +684,7 @@ impl Pipeline {
                 (RW, whole(&buffers.island_parents)),
                 (RW, whole(&buffers.island_state)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_link_contacts = Stage::build(
@@ -695,7 +699,7 @@ impl Pipeline {
                 (RW, whole(&buffers.island_parents)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_link_constraints = Stage::build(
@@ -714,7 +718,7 @@ impl Pipeline {
                 (RW, whole(&buffers.island_parents)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_jump = Stage::build(
@@ -725,7 +729,7 @@ impl Pipeline {
                 (UNIFORM, whole(&buffers.params)),
                 (RW, whole(&buffers.island_parents)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_aggregate = Stage::build(
@@ -740,7 +744,7 @@ impl Pipeline {
                 (RW, whole(&buffers.island_state)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let island_broadcast = Stage::build(
@@ -755,7 +759,7 @@ impl Pipeline {
                 (RW, whole(&buffers.island_state)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let gather_contact_keys_b = Stage::build(
@@ -768,7 +772,7 @@ impl Pipeline {
                 (RW, whole(&buffers.contact_b_keys)),
                 (RW, whole(&buffers.contact_b_values)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let gather_constraint_keys = Stage::build(
@@ -784,7 +788,7 @@ impl Pipeline {
                 (RW, whole(&buffers.constraint_b_values)),
                 (RO, whole(&buffers.constraint_descs)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let reset_gather_boundaries = Stage::build(
@@ -801,7 +805,7 @@ impl Pipeline {
                 (RW, whole(&buffers.constraint_first_a)),
                 (RW, whole(&buffers.constraint_first_b)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let mark_contact_boundaries = Stage::build(
@@ -818,7 +822,7 @@ impl Pipeline {
                 (RW, whole(&buffers.contact_first_a)),
                 (RW, whole(&buffers.contact_first_b)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let mark_constraint_boundaries = Stage::build(
@@ -835,7 +839,7 @@ impl Pipeline {
                 (RW, whole(&buffers.constraint_first_a)),
                 (RW, whole(&buffers.constraint_first_b)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let ccd_sweep = Stage::build(
@@ -867,7 +871,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_EVENTS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let contact_solve_extract = Stage::build(
@@ -883,7 +887,7 @@ impl Pipeline {
                 (RW, whole(&buffers.wake_flags)),
                 (RW, whole(&buffers.contact_deltas)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let constraint_solve_extract = Stage::build(
@@ -902,7 +906,7 @@ impl Pipeline {
                 (RW, whole(&buffers.wake_flags)),
                 (RW, whole(&buffers.constraint_deltas)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let body_apply_solver = Stage::build(
@@ -927,7 +931,7 @@ impl Pipeline {
                 (RO, whole(&buffers.contact_deltas)),
                 (RO, whole(&buffers.constraint_deltas)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let position_solve_extract = Stage::build(
@@ -942,7 +946,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, whole(&buffers.contact_deltas)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let body_apply_positions = Stage::build(
@@ -960,7 +964,7 @@ impl Pipeline {
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RO, whole(&buffers.contact_deltas)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let query = Stage::build(
@@ -993,7 +997,7 @@ impl Pipeline {
                 (RW, whole(&buffers.constraint_runtime)),
                 (UNIFORM, whole(&buffers.params)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let static_wake_clear = Stage::build(
@@ -1004,7 +1008,7 @@ impl Pipeline {
                 (UNIFORM, whole(&buffers.params)),
                 (RW, whole(&buffers.wake_flags)),
             ],
-            &shape_resources,
+            &[],
         );
 
         let dispatch_shader = assemble_shader(&dispatch_source(), per_row);

@@ -88,7 +88,7 @@ fn spawn_collection(
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
     common::physics::advance_physics(ctx, &mut example.simulator);
-    common::physics::sync_visuals(ctx, &example.simulator, &example.bodies);
+    common::physics::sync_visuals(ctx, &mut example.simulator, &example.bodies);
     let sleeping = example
         .simulator
         .simulation

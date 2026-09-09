@@ -1,26 +1,11 @@
-//! How much device storage the world needs, planned from what is live and from what
-//! the device measured on the previous step — never from the world's ceiling.
-
-use dynamis_layout::{COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, Counters};
+use dynamis_layout::MAX_CELLS_PER_COLLIDER;
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
-/// Headroom kept over a stream's last measured demand, so ordinary frame-to-frame
-/// growth never costs a reallocation.
-const MEASURED_HEADROOM: u32 = 2;
-/// Growth applied to the body slot tables once live bodies outgrow them.
 const SLOTS_HEADROOM: u32 = 2;
-/// Grid cells guaranteed per live collider before the device has measured anything.
-const ENTRIES_PER_COLLIDER: u32 = 2;
-/// Contact events guaranteed per live body.
-const EVENTS_PER_BODY: u32 = 4;
-/// Body commands guaranteed per live body.
 const COMMANDS_PER_BODY: u32 = 4;
-/// Queries guaranteed per live body.
 const QUERIES_PER_BODY: u32 = 2;
-/// The smallest slot table worth building.
 const MIN_SLOTS: u32 = 64;
 
-/// What the host is about to hand the device this step.
 pub(crate) struct Live {
     pub bodies: u32,
     pub constraints: u32,
@@ -29,7 +14,6 @@ pub(crate) struct Live {
     pub queries: u32,
 }
 
-/// The device footprint of one world, in elements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Reservation {
     pub bodies: u32,
@@ -42,19 +26,15 @@ pub(crate) struct Reservation {
     pub queries: u32,
 }
 
-/// A plan only ever grows: shrinking would free storage the next step needs again,
-/// and a reservation that oscillates reallocates the world every frame.
-fn grown(current: u32, live: u32) -> u32 {
-    current.max(live).max(MIN_SLOTS)
+fn product(left: u32, right: u32, name: &str) -> u32 {
+    left.checked_mul(right)
+        .unwrap_or_else(|| panic!("{name} capacity exceeds the device index space"))
 }
 
-fn grown_from(current: u32, floor: u32, observed: u32) -> u32 {
-    current
-        .max(floor)
-        .max(observed.saturating_mul(MEASURED_HEADROOM))
+fn grown(current: u32, required: u32) -> u32 {
+    current.max(required).max(MIN_SLOTS)
 }
 
-/// The reservation a stream takes once live bodies outgrow it.
 fn stepped(current: u32, live: u32) -> u32 {
     if live <= current {
         return current.max(MIN_SLOTS);
@@ -64,8 +44,7 @@ fn stepped(current: u32, live: u32) -> u32 {
 }
 
 impl Reservation {
-    pub(crate) fn initial(bodies: u32, pairs_per_body: u32) -> Self {
-        let bodies = bodies.max(MIN_SLOTS);
+    pub(crate) fn initial(pairs_per_body: u32, events_per_body: u32) -> Self {
         Self::planned(
             &Self {
                 bodies: 0,
@@ -78,70 +57,64 @@ impl Reservation {
                 queries: 0,
             },
             &Live {
-                bodies,
+                bodies: 0,
                 constraints: 0,
                 body_commands: 0,
                 constraint_commands: 0,
                 queries: 0,
             },
-            &[0; dynamis_layout::COUNTER_COUNT],
             pairs_per_body,
+            events_per_body,
         )
     }
 
-    /// The next plan, given what is live now and what the device measured last step.
     pub(crate) fn planned(
         current: &Self,
         live: &Live,
-        observed: &Counters,
         pairs_per_body: u32,
+        events_per_body: u32,
     ) -> Self {
         let bodies = stepped(current.bodies, live.bodies);
         let constraints = stepped(current.constraints, live.constraints);
-        let colliders = bodies * MAX_COLLIDERS_PER_BODY as u32;
+        let colliders = product(bodies, MAX_COLLIDERS_PER_BODY as u32, "collider");
+        let entries = product(colliders, MAX_CELLS_PER_COLLIDER, "grid entry");
+        let pairs = product(bodies, pairs_per_body, "pair");
+        let events = product(bodies, events_per_body, "event");
         Self {
             bodies,
             constraints,
-            entries: grown_from(
-                current.entries,
-                ENTRIES_PER_COLLIDER * colliders,
-                observed[COUNTER_ENTRIES],
-            ),
-            pairs: grown_from(
-                current.pairs,
-                pairs_per_body * bodies,
-                observed[COUNTER_PAIRS],
-            ),
-            events: grown_from(
-                current.events,
-                EVENTS_PER_BODY * bodies,
-                observed[COUNTER_EVENTS],
-            ),
-            body_commands: grown_from(
+            entries: grown(current.entries, entries),
+            pairs: grown(current.pairs, pairs),
+            events: grown(current.events, events),
+            body_commands: grown(
                 current.body_commands,
-                COMMANDS_PER_BODY * bodies,
-                live.body_commands,
+                live.body_commands
+                    .max(product(bodies, COMMANDS_PER_BODY, "body command")),
             ),
-            constraint_commands: grown_from(
+            constraint_commands: grown(
                 current.constraint_commands,
-                COMMANDS_PER_BODY * constraints,
-                live.constraint_commands,
+                live.constraint_commands.max(product(
+                    constraints,
+                    COMMANDS_PER_BODY,
+                    "constraint command",
+                )),
             ),
-            queries: grown_from(current.queries, QUERIES_PER_BODY * bodies, live.queries),
+            queries: grown(
+                current.queries,
+                live.queries.max(product(bodies, QUERIES_PER_BODY, "query")),
+            ),
         }
     }
 
     pub(crate) fn colliders(&self) -> u32 {
-        self.bodies * MAX_COLLIDERS_PER_BODY as u32
+        product(self.bodies, MAX_COLLIDERS_PER_BODY as u32, "collider")
     }
 
-    /// The widest lane set any sort in this world will face.
     pub(crate) fn sort(&self) -> u32 {
         self.entries.max(self.pairs)
     }
 }
 
-/// The device footprint of the shape store, in elements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ShapeReservation {
     pub sources: u32,
@@ -158,7 +131,6 @@ impl ShapeReservation {
         nodes: 0,
     };
 
-    /// The next plan, given the packed lengths the shape store has actually reached.
     pub(crate) fn planned(current: &Self, used: &Self) -> Self {
         Self {
             sources: grown(current.sources, used.sources),

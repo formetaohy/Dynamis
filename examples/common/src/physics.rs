@@ -31,7 +31,12 @@ pub fn advance_physics(ctx: &AppContext, simulator: &mut Simulator) {
     }
 }
 
-pub fn sync_visuals(ctx: &mut AppContext, simulator: &Simulator, bodies: &[(BodyHandle, MeshId)]) {
+pub fn sync_visuals(
+    ctx: &mut AppContext,
+    simulator: &mut Simulator,
+    bodies: &[(BodyHandle, MeshId)],
+) {
+    simulator.simulation.synchronize_states();
     for (body, mesh) in bodies {
         let state = simulator.simulation.read_state(*body);
         let transform = ctx.mesh_transform(*mesh);

@@ -51,10 +51,12 @@ impl Simulation {
             constraint_count: self.constraint_alive.len() as u32,
         };
         self.encode_step(&frame, batch, step);
+        self.device_body_count = frame.body_count;
         self.commands.clear();
         self.constraint_commands.clear();
         self.queries.clear();
         self.step_index += 1;
+        self.states_synchronized = false;
     }
 
     fn write_step_records(&mut self, dt: f32) {
@@ -100,12 +102,12 @@ impl Simulation {
         self.pipeline.encode(&mut encoder, &self.buffers, frame);
         #[cfg(feature = "profile")]
         let timings = self.pipeline.capture_timings(&mut encoder, step);
-        self.pack_step(&mut encoder);
+        let pack_bytes = self.pack_step(&mut encoder);
         let pack = self.buffers.readback.enqueue(
             &device,
             &mut encoder,
             self.buffers.readback_pack.buffer(),
-            self.buffers.readback_pack.size(),
+            pack_bytes,
             step,
         );
         let queries = match batch {

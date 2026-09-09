@@ -28,7 +28,10 @@ fn main() {
             gpu.clone(),
             bodies + 4,
             PhysicsConfig::default(),
-            StreamBudget { pairs_per_body },
+            StreamBudget {
+                pairs_per_body,
+                ..StreamBudget::default()
+            },
         )
     });
     profiler.measure("spawn_scene", || {

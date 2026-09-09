@@ -113,12 +113,38 @@ impl WorldBuffers {
         let bodies = plan.bodies;
         let colliders = plan.colliders();
         let constraints = plan.constraints;
-        let lanes =
-            |label: &str, count: u32| GpuBuffer::new(device, label, count as u64 * 4, STREAM);
+        let limits = device.limits();
+        let storage_limit = limits.max_storage_buffer_binding_size;
+        let buffer_limit = limits.max_buffer_size;
+        let checked_size = |label: &str, count: u32, stride: u64| {
+            let bytes = u64::from(count)
+                .checked_mul(stride)
+                .unwrap_or_else(|| panic!("{label} exceeds the device address space"));
+            assert!(
+                bytes <= storage_limit,
+                "{label} requires {bytes} bytes but the device storage binding limit is {storage_limit}"
+            );
+            bytes
+        };
+        let lanes = |label: &str, count: u32| {
+            GpuBuffer::new(device, label, checked_size(label, count, 4), STREAM)
+        };
         let rows = |label: &str, count: u32, stride: u64| {
-            GpuBuffer::new(device, label, count as u64 * stride, STREAM)
+            GpuBuffer::new(device, label, checked_size(label, count, stride), STREAM)
         };
         let queries = plan.queries;
+        let readback_bytes = COUNTER_BYTES
+            + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
+            + plan.events as u64 * size_of::<ContactEventRecord>() as u64;
+        assert!(
+            readback_bytes <= buffer_limit,
+            "simulation readback requires {readback_bytes} bytes but the device buffer limit is {buffer_limit}"
+        );
+        let query_readback_bytes = queries as u64 * QUERY_RESULT_BYTES;
+        assert!(
+            query_readback_bytes <= buffer_limit,
+            "query readback requires {query_readback_bytes} bytes but the device buffer limit is {buffer_limit}"
+        );
         Self {
             params: GpuBuffer::new(
                 device,
@@ -220,27 +246,12 @@ impl WorldBuffers {
             query_results: rows("query results", queries, QUERY_RESULT_BYTES),
             sort_values: lanes("sort values", plan.sort()),
             sort_pad: lanes("sort pad", plan.sort()),
-            readback_pack: GpuBuffer::new(
-                device,
-                "sim readback pack",
-                COUNTER_BYTES
-                    + bodies as u64 * size_of::<BodyStateRecord>() as u64
-                    + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
-                    + plan.events as u64 * size_of::<ContactEventRecord>() as u64,
-                PACK,
-            ),
-            readback: GpuReadback::new(
-                device,
-                "sim readback",
-                COUNTER_BYTES
-                    + bodies as u64 * size_of::<BodyStateRecord>() as u64
-                    + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
-                    + plan.events as u64 * size_of::<ContactEventRecord>() as u64,
-            ),
+            readback_pack: GpuBuffer::new(device, "sim readback pack", readback_bytes, PACK),
+            readback: GpuReadback::new(device, "sim readback", readback_bytes),
             queries_readback: GpuReadback::new(
                 device,
                 "query results readback",
-                queries as u64 * QUERY_RESULT_BYTES,
+                query_readback_bytes,
             ),
             sort_scratch: ChannelSlots::new(device, "sort scratch", plan.sort()),
         }
@@ -265,10 +276,6 @@ impl WorldBuffers {
 
     pub(crate) fn constraint_row(&self) -> u64 {
         size_of::<ConstraintDescriptorRecord>() as u64
-    }
-
-    pub(crate) fn body_state_row(&self) -> u64 {
-        size_of::<BodyStateRecord>() as u64
     }
 
     pub(crate) fn bodies(&self) -> u32 {

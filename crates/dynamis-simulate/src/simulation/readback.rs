@@ -13,6 +13,10 @@ impl Simulation {
     }
 
     pub fn wait(&mut self) {
+        self.synchronize_states();
+    }
+
+    pub fn synchronize_states(&mut self) {
         self.gpu.assert_alive();
         self.gpu
             .device()
@@ -20,6 +24,22 @@ impl Simulation {
             .expect("device lost while awaiting readback");
         self.gpu.assert_alive();
         self.collect_readbacks();
+        if !self.states_synchronized {
+            self.refresh_body_states();
+            self.states_synchronized = true;
+        }
+    }
+
+    fn refresh_body_states(&mut self) {
+        let bytes = u64::from(self.device_body_count) * size_of::<BodyStateRecord>() as u64;
+        if bytes == 0 {
+            return;
+        }
+        let records = self.read_range(self.buffers.body_states.buffer(), bytes);
+        let step = self.step_index.saturating_sub(1);
+        for record in crate::records::records::<BodyStateRecord>(&records) {
+            self.accept_body(step, record);
+        }
     }
 
     /// What the device measured on the step whose pack last arrived.
@@ -114,35 +134,27 @@ impl Simulation {
         }
     }
 
-    /// Adopts a measured vector and fails the moment a stream ran out of room, so a
-    /// shortfall surfaces at the step that hit it rather than as missing contacts.
     pub(crate) fn accept_measured(&mut self, _step: u64, measured: &Counters) {
         assert_eq!(
             measured[COUNTER_SPILLOVER_PAIRS],
             0,
             "the pair stream held {} lanes, this step needed {}",
             self.reservation.pairs,
-            self.reservation
-                .pairs
-                .saturating_add(measured[COUNTER_SPILLOVER_PAIRS])
+            measured[dynamis_layout::COUNTER_PAIRS]
         );
         assert_eq!(
             measured[COUNTER_SPILLOVER_ENTRIES],
             0,
             "the entry stream held {} cells, this step needed {}",
             self.reservation.entries,
-            self.reservation
-                .entries
-                .saturating_add(measured[COUNTER_SPILLOVER_ENTRIES])
+            measured[dynamis_layout::COUNTER_ENTRIES]
         );
         assert_eq!(
             measured[COUNTER_SPILLOVER_EVENTS],
             0,
             "the event stream held {} lanes, this step needed {}",
             self.reservation.events,
-            self.reservation
-                .events
-                .saturating_add(measured[COUNTER_SPILLOVER_EVENTS])
+            measured[dynamis_layout::COUNTER_EVENTS]
         );
         self.observed = *measured;
     }

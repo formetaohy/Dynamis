@@ -193,7 +193,7 @@ impl GpuContext {
         max_storage_textures_per_shader_stage: 0,
         max_storage_buffer_binding_size: 16 * 1024 * 1024,
         max_buffer_size: 64 * 1024 * 1024,
-        max_compute_workgroup_size_x: 64,
+        max_compute_workgroup_size_x: 256,
         max_compute_workgroup_size_y: 64,
         max_compute_workgroup_size_z: 64,
         max_compute_workgroups_per_dimension: 65_535,

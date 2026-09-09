@@ -1,8 +1,20 @@
 use super::common::distance;
 use super::common::{DT, gpu, gravity_config, sim, static_config};
+use dynamis_gpu::{GpuContext, GpuRequest};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
 use dynamis_simulate::{Simulation, StreamBudget};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+
+#[test]
+fn logical_capacity_runs_on_minimum_device_limits() {
+    let context = pollster::block_on(GpuContext::open(&GpuRequest::minimum_limits()))
+        .expect("minimum device limits must support a simulation");
+    let mut world = Simulation::new(context, 1024, static_config(), StreamBudget::default());
+    let body = world.spawn(BodyDesc::sphere(0.5));
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.read_state(body).position, [0.0; 3]);
+}
 
 fn sphere_inertia(radius: f32, mass: f32) -> f32 {
     5.0 / (2.0 * mass * radius * radius)
@@ -56,6 +68,11 @@ fn removed_and_stale_handles_panic() {
     );
     assert!(catch_unwind(AssertUnwindSafe(|| world.read_state(ball))).is_err());
     world.step(DT);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(fresh))).is_err(),
+        "device-owned state must require explicit synchronization"
+    );
+    world.wait();
     assert_eq!(world.count(), 1);
     assert_eq!(world.read_state(fresh).position, [0.0, 0.0, 0.0]);
 }
@@ -95,6 +112,34 @@ fn grow_below_live_count_panics() {
 
 #[test]
 fn invalid_inputs_panic() {
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            Simulation::new(
+                gpu(),
+                2,
+                static_config(),
+                StreamBudget {
+                    pairs_per_body: 0,
+                    events_per_body: 1,
+                },
+            )
+        }))
+        .is_err()
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            Simulation::new(
+                gpu(),
+                2,
+                static_config(),
+                StreamBudget {
+                    pairs_per_body: 1,
+                    events_per_body: 0,
+                },
+            )
+        }))
+        .is_err()
+    );
     let mut world = sim(2, static_config());
     let _first = world.spawn(BodyDesc::sphere(0.5));
     let _second = world.spawn(BodyDesc::sphere(0.5));

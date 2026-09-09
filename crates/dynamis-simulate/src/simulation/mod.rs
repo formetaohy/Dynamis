@@ -18,10 +18,9 @@ use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{
-    BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, COUNTER_BODIES,
-    COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS, COUNTER_PREV_CONTACTS,
-    ColliderRecord, ConstraintCommandRecord, ConstraintDescriptorRecord, Counters,
-    QueryResultRecord,
+    BodyCommandRecord, BodyDescriptorRecord, COUNTER_BODIES, COUNTER_BODY_COMMANDS,
+    COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS, COUNTER_PREV_CONTACTS, ColliderRecord,
+    ConstraintCommandRecord, ConstraintDescriptorRecord, Counters, QueryResultRecord,
 };
 use dynamis_model::{
     BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MAX_COLLIDERS_PER_BODY,
@@ -87,6 +86,7 @@ pub struct Simulation {
     /// What the device measured on the step whose counters last arrived.
     observed: Counters,
     dynamic_count: usize,
+    device_body_count: u32,
     step_index: u64,
     alive: Vec<BodyHandle>,
     index_of: Vec<u32>,
@@ -122,6 +122,7 @@ pub struct Simulation {
     buffers: WorldBuffers,
     pipeline: Pipeline,
     states: Vec<Option<BodyState>>,
+    states_synchronized: bool,
     kinematic: Vec<bool>,
     constraint_records: Vec<ConstraintDescriptorRecord>,
 }
@@ -132,7 +133,16 @@ impl Simulation {
     /// `budget` sets how much the first plan gives each live body.
     pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig, budget: StreamBudget) -> Self {
         assert!(slots > 0, "simulation slot count must be positive");
-        let reservation = Reservation::initial(slots as u32, budget.pairs_per_body);
+        assert!(
+            u32::try_from(slots).is_ok(),
+            "simulation slot count exceeds the handle space"
+        );
+        assert!(budget.pairs_per_body > 0, "pairs per body must be positive");
+        assert!(
+            budget.events_per_body > 0,
+            "events per body must be positive"
+        );
+        let reservation = Reservation::initial(budget.pairs_per_body, budget.events_per_body);
         let shape_pool = ShapePool::new();
         let shape_reservation =
             ShapeReservation::planned(&ShapeReservation::EMPTY, &shape_pool.used());
@@ -146,6 +156,7 @@ impl Simulation {
             shape_reservation,
             observed: [0; dynamis_layout::COUNTER_COUNT],
             dynamic_count: 0,
+            device_body_count: 0,
             step_index: 0,
             alive: Vec::new(),
             index_of: vec![u32::MAX; slots],
@@ -181,6 +192,7 @@ impl Simulation {
             buffers,
             pipeline,
             states: vec![None; slots],
+            states_synchronized: true,
             kinematic: vec![false; slots],
             constraint_records: Vec::new(),
         }
@@ -214,6 +226,10 @@ impl Simulation {
     /// Raises the id space. Device storage follows live bodies, so this alone never
     /// reallocates anything on the card.
     pub fn grow(&mut self, slots: usize) {
+        assert!(
+            u32::try_from(slots).is_ok(),
+            "simulation slot count exceeds the handle space"
+        );
         assert!(
             slots >= self.alive.len(),
             "grow slot count must not drop below the live body count"
@@ -291,22 +307,6 @@ impl Simulation {
                 slot as u64 * self.buffers.aabb_row(),
                 bytemuck::cast_slice(&aabbs),
             );
-            if let Some(state) = self.states[id] {
-                let row = BodyStateRecord::observed(
-                    state.position,
-                    state.prev_position,
-                    state.orientation,
-                    state.velocity,
-                    state.angular_velocity,
-                    id as u32,
-                    self.alive[slot as usize].generation,
-                );
-                self.buffers.body_states.write_at(
-                    queue,
-                    slot as u64 * self.buffers.body_state_row(),
-                    bytemuck::cast_slice(&[row]),
-                );
-            }
         }
         self.dirty_constraints.sort_unstable();
         self.dirty_constraints.dedup();
@@ -320,17 +320,12 @@ impl Simulation {
         }
     }
 
-    /// Asks the device what the streams will hold, then grows them before any of that
-    /// work is attempted. The sizing pass mutates nothing, so growing here is free of
-    /// any need to rewind the world.
-    /// Replans device storage from what is live and what the device measured, and
-    /// reallocates only when the plan actually grew.
     pub(crate) fn apply_plan(&mut self) {
         let next = Reservation::planned(
             &self.reservation,
             &self.live(),
-            &self.observed,
             self.stream_budget.pairs_per_body,
+            self.stream_budget.events_per_body,
         );
         let shapes = ShapeReservation::planned(&self.shape_reservation, &self.shape_pool.used());
         if next == self.reservation && shapes == self.shape_reservation {
@@ -450,6 +445,10 @@ impl Simulation {
     }
 
     pub(crate) fn state_snapshot(&self, id: usize) -> Option<BodyState> {
+        assert!(
+            self.states_synchronized,
+            "body states require synchronize_states() after stepping"
+        );
         self.states[id]
     }
 

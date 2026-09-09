@@ -142,6 +142,10 @@ impl Simulation {
 
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
+        assert!(
+            self.states_synchronized,
+            "body states require synchronize_states() after stepping"
+        );
         self.states[handle.id as usize].expect("body state is unavailable")
     }
 
