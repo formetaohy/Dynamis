@@ -1,3 +1,6 @@
+//! Stream planning: what the device measured turns into the lane counts the next
+//! step allocates.
+
 use dynamis_layout::MAX_CELLS_PER_COLLIDER;
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
@@ -5,6 +8,8 @@ const SLOTS_HEADROOM: u32 = 2;
 const COMMANDS_PER_BODY: u32 = 4;
 const QUERIES_PER_BODY: u32 = 2;
 const MIN_SLOTS: u32 = 64;
+const STREAM_DENSITY_PAIRS: u32 = 128;
+const STREAM_DENSITY_EVENTS: u32 = 8;
 
 pub(crate) struct Live {
     pub bodies: u32,
@@ -12,6 +17,23 @@ pub(crate) struct Live {
     pub body_commands: u32,
     pub constraint_commands: u32,
     pub queries: u32,
+}
+
+/// The lane counts the device measured a step to need; the next plan serves them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StreamDemand {
+    pub pairs: u32,
+    pub entries: u32,
+    pub events: u32,
+}
+
+/// How many streams the device measured. `MIN` seeds the first plan, before any
+/// device measurement exists; it is not a user knob, a plan replaces it on the first
+/// step boundary that the device says it needs more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StreamLevel {
+    Min,
+    Served(StreamDemand),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,8 +65,20 @@ fn stepped(current: u32, live: u32) -> u32 {
         .max(MIN_SLOTS)
 }
 
+impl StreamLevel {
+    pub(crate) const MIN: Self = Self::Min;
+
+    fn lanes(&self) -> Option<StreamDemand> {
+        match self {
+            Self::Min => None,
+            Self::Served(demand) => Some(*demand),
+        }
+    }
+}
+
 impl Reservation {
-    pub(crate) fn initial(pairs_per_body: u32, events_per_body: u32) -> Self {
+    /// The plan a world starts on: nothing live, nothing measured, minimum streams.
+    pub(crate) fn initial() -> Self {
         Self::planned(
             &Self {
                 bodies: 0,
@@ -63,29 +97,24 @@ impl Reservation {
                 constraint_commands: 0,
                 queries: 0,
             },
-            pairs_per_body,
-            events_per_body,
+            StreamLevel::MIN,
         )
     }
 
-    pub(crate) fn planned(
-        current: &Self,
-        live: &Live,
-        pairs_per_body: u32,
-        events_per_body: u32,
-    ) -> Self {
+    pub(crate) fn planned(current: &Self, live: &Live, level: StreamLevel) -> Self {
         let bodies = stepped(current.bodies, live.bodies);
         let constraints = stepped(current.constraints, live.constraints);
         let colliders = product(bodies, MAX_COLLIDERS_PER_BODY as u32, "collider");
         let entries = product(colliders, MAX_CELLS_PER_COLLIDER, "grid entry");
-        let pairs = product(bodies, pairs_per_body, "pair");
-        let events = product(bodies, events_per_body, "event");
-        Self {
+        let next = Self {
             bodies,
             constraints,
             entries: grown(current.entries, entries),
-            pairs: grown(current.pairs, pairs),
-            events: grown(current.events, events),
+            pairs: grown(current.pairs, product(bodies, STREAM_DENSITY_PAIRS, "pair")),
+            events: grown(
+                current.events,
+                product(bodies, STREAM_DENSITY_EVENTS, "event"),
+            ),
             body_commands: grown(
                 current.body_commands,
                 live.body_commands
@@ -103,6 +132,15 @@ impl Reservation {
                 current.queries,
                 live.queries.max(product(bodies, QUERIES_PER_BODY, "query")),
             ),
+        };
+        match level.lanes() {
+            None => next,
+            Some(demand) => Self {
+                pairs: next.pairs.max(demand.pairs),
+                entries: next.entries.max(demand.entries),
+                events: next.events.max(demand.events),
+                ..next
+            },
         }
     }
 

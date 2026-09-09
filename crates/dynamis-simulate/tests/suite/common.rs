@@ -1,6 +1,6 @@
-use dynamis_gpu::GpuContext;
+use dynamis_gpu::{Backends, GpuContext, GpuRequest};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
-use dynamis_simulate::{Simulation, StreamBudget};
+use dynamis_simulate::Simulation;
 use std::sync::OnceLock;
 
 pub const DT: f32 = 1.0 / 60.0;
@@ -8,12 +8,24 @@ pub const DT: f32 = 1.0 / 60.0;
 static GPU: OnceLock<GpuContext> = OnceLock::new();
 
 pub fn gpu() -> GpuContext {
-    GPU.get_or_init(|| pollster::block_on(GpuContext::new()))
-        .clone()
+    GPU.get_or_init(|| {
+        pollster::block_on(async {
+            let mut request = GpuRequest::default();
+            if let Ok(backend) = std::env::var("DYNAMIS_TEST_BACKEND") {
+                request.backends = match backend.as_str() {
+                    "vulkan" => Backends::VULKAN,
+                    "dx12" => Backends::DX12,
+                    _ => request.backends,
+                };
+            }
+            GpuContext::open(&request).await.expect("test gpu")
+        })
+    })
+    .clone()
 }
 
 pub fn sim(capacity: usize, config: PhysicsConfig) -> Simulation {
-    Simulation::new(gpu(), capacity, config, StreamBudget::default())
+    Simulation::new(gpu(), capacity, config)
 }
 
 pub fn static_config() -> PhysicsConfig {

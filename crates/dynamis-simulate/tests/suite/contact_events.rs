@@ -1,6 +1,5 @@
 use super::common::{DT, sim, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, ContactEventKind, ContactEventMode, Shape};
-use dynamis_simulate::StreamBudget;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -124,12 +123,7 @@ fn event_sink_receives_events() {
 #[test]
 fn persisted_touch_envokes_sink_per_frame() {
     let gpu = super::common::gpu();
-    let mut world = dynamis_simulate::Simulation::new(
-        gpu,
-        6,
-        super::common::gravity_config(),
-        StreamBudget::default(),
-    );
+    let mut world = dynamis_simulate::Simulation::new(gpu, 6, super::common::gravity_config());
     let ground = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(10.0)).events(ContactEventMode::Persist))
             .mass(0.0)

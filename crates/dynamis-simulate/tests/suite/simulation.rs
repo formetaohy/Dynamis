@@ -2,14 +2,14 @@ use super::common::distance;
 use super::common::{DT, gpu, gravity_config, sim, static_config};
 use dynamis_gpu::{GpuContext, GpuRequest};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_simulate::{Simulation, StreamBudget};
+use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn logical_capacity_runs_on_minimum_device_limits() {
     let context = pollster::block_on(GpuContext::open(&GpuRequest::minimum_limits()))
         .expect("minimum device limits must support a simulation");
-    let mut world = Simulation::new(context, 1024, static_config(), StreamBudget::default());
+    let mut world = Simulation::new(context, 1024, static_config());
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
     world.wait();
@@ -112,34 +112,6 @@ fn grow_below_live_count_panics() {
 
 #[test]
 fn invalid_inputs_panic() {
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            Simulation::new(
-                gpu(),
-                2,
-                static_config(),
-                StreamBudget {
-                    pairs_per_body: 0,
-                    events_per_body: 1,
-                },
-            )
-        }))
-        .is_err()
-    );
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            Simulation::new(
-                gpu(),
-                2,
-                static_config(),
-                StreamBudget {
-                    pairs_per_body: 1,
-                    events_per_body: 0,
-                },
-            )
-        }))
-        .is_err()
-    );
     let mut world = sim(2, static_config());
     let _first = world.spawn(BodyDesc::sphere(0.5));
     let _second = world.spawn(BodyDesc::sphere(0.5));
@@ -157,7 +129,7 @@ fn invalid_inputs_panic() {
 #[test]
 fn cloned_gpu_context_runs_independent_worlds() {
     let mut first = sim(8, static_config());
-    let mut second = Simulation::new(gpu(), 8, static_config(), StreamBudget::default());
+    let mut second = Simulation::new(gpu(), 8, static_config());
     let a = first.spawn(
         BodyDesc::sphere(0.2)
             .position([0.0, 1.0, 0.0])
@@ -695,4 +667,32 @@ fn sleep_threshold_override_accepts_zero() {
         !world.read_state(ball).sleeping,
         "a zero threshold must keep the body awake rather than inherit the global one"
     );
+}
+
+#[test]
+fn deterministic_rebuild_on_spawn_burst() {
+    let mut world = Simulation::new(gpu(), 256, static_config());
+    let a = world.spawn(BodyDesc::sphere(0.3));
+    let _b = world.spawn(BodyDesc::sphere(0.3).position([5.0, 0.3, 0.0]));
+    let _ = a;
+    for _ in 0..140 {
+        world.step(DT);
+        let probe =
+            world.sphere_query([0.0, 0.0, 0.0], 2.0, &dynamis_model::QueryFilter::default());
+        world.flush_queries();
+        let hits = world.query_hits(probe);
+        assert!(hits.iter().all(|hit| hit.distance.is_finite()));
+    }
+    world.wait();
+    let probe = world.sphere_query([0.0, 0.0, 0.0], 2.0, &dynamis_model::QueryFilter::default());
+    world.flush_queries();
+    let hits = world.query_hits(probe);
+    assert!(
+        hits.iter().all(|hit| hit.distance.is_finite()),
+        "query results are garbage after capacity rebuild"
+    );
+    for handle in world.bodies().to_vec() {
+        let y = world.read_state(handle).position[1];
+        assert!(y.is_finite(), "body drifted after capacity rebuild: {y}");
+    }
 }

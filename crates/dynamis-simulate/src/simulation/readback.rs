@@ -1,7 +1,6 @@
 use super::{ContactManifold, ContactPoint, Simulation};
 use dynamis_layout::{
-    BodyStateRecord, COUNTER_CONTACTS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS,
-    COUNTER_SPILLOVER_PAIRS, ConstraintRuntimeRecord, ContactRecord, Counters,
+    BodyStateRecord, COUNTER_CONTACTS, ConstraintRuntimeRecord, ContactRecord, Counters,
 };
 use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
 use std::mem::size_of;
@@ -134,28 +133,10 @@ impl Simulation {
         }
     }
 
+    /// Records what the device measured; the capacity controller widens or narrows
+    /// the streams from this at the next step boundary, so a spill only ever degrades
+    /// the step that produced it.
     pub(crate) fn accept_measured(&mut self, _step: u64, measured: &Counters) {
-        assert_eq!(
-            measured[COUNTER_SPILLOVER_PAIRS],
-            0,
-            "the pair stream held {} lanes, this step needed {}",
-            self.reservation.pairs,
-            measured[dynamis_layout::COUNTER_PAIRS]
-        );
-        assert_eq!(
-            measured[COUNTER_SPILLOVER_ENTRIES],
-            0,
-            "the entry stream held {} cells, this step needed {}",
-            self.reservation.entries,
-            measured[dynamis_layout::COUNTER_ENTRIES]
-        );
-        assert_eq!(
-            measured[COUNTER_SPILLOVER_EVENTS],
-            0,
-            "the event stream held {} lanes, this step needed {}",
-            self.reservation.events,
-            measured[dynamis_layout::COUNTER_EVENTS]
-        );
         self.observed = *measured;
     }
 

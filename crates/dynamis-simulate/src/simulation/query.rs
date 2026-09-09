@@ -106,13 +106,17 @@ impl Simulation {
     }
 
     /// Runs the pending query batch without advancing the world.
+    ///
+    /// The capacity plan is applied only after this flush's reads have landed: a
+    /// reallocation may not touch device resources while a staging mapping is in
+    /// flight, so the rebuild waits for the last batch to arrive.
     pub fn flush_queries(&mut self) {
         if self.queries.is_empty() {
+            self.apply_plan();
             return;
         }
         self.gpu.assert_alive();
         self.collect_readbacks();
-        self.apply_plan();
         self.flush_rows();
         let step = self.step_index;
         let queue = self.gpu.queue().clone();
@@ -146,6 +150,7 @@ impl Simulation {
             self.query_pool.collect(batch, &bytes);
         }
         self.queries.clear();
+        self.apply_plan();
     }
 
     fn validate_query(&self, handle: QueryHandle) {

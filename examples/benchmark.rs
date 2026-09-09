@@ -1,4 +1,4 @@
-use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation, StreamBudget};
+use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation};
 use dynamis_profile::Profiler;
 use std::time::Instant;
 
@@ -15,24 +15,12 @@ fn main() {
         .nth(2)
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_STEPS);
-    let pairs_per_body = std::env::args()
-        .nth(3)
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(StreamBudget::default().pairs_per_body);
     let gpu = pollster::block_on(GpuContext::new());
     let adapter = gpu.adapter_info();
 
     let mut profiler = Profiler::new();
     let mut sim = profiler.measure("simulation_new", || {
-        Simulation::new(
-            gpu.clone(),
-            bodies + 4,
-            PhysicsConfig::default(),
-            StreamBudget {
-                pairs_per_body,
-                ..StreamBudget::default()
-            },
-        )
+        Simulation::new(gpu.clone(), bodies + 4, PhysicsConfig::default())
     });
     profiler.measure("spawn_scene", || {
         spawn_scene(&mut sim, bodies);

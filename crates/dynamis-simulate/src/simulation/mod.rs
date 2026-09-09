@@ -7,11 +7,11 @@ mod readback;
 mod shape;
 mod step;
 
-use crate::StreamBudget;
 use crate::buffers::WorldBuffers;
+use crate::capacity::Capacity;
 use crate::pipeline::Pipeline;
 use crate::query_pool::QueryPool;
-use crate::reservation::{Live, Reservation, ShapeReservation};
+use crate::reservation::{Live, Reservation, ShapeReservation, StreamLevel};
 use crate::shape_pool::ShapePool;
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
@@ -113,7 +113,7 @@ pub struct Simulation {
     dirty_bodies: Vec<u32>,
     dirty_constraints: Vec<u32>,
     shapes_dirty: bool,
-    stream_budget: StreamBudget,
+    capacity: Capacity,
     accumulator: f32,
     time_scale: f32,
     sub_dt: f32,
@@ -128,21 +128,16 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    /// A world able to address `slots` body and constraint ids. Device storage is
-    /// planned from what is live, so this bound costs nothing until it is used;
-    /// `budget` sets how much the first plan gives each live body.
-    pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig, budget: StreamBudget) -> Self {
+    /// A world able to address `slots` body and constraint ids. Stream lanes are
+    /// sized from what the device measures, so the first plan serves a minimum and
+    /// every step boundary widens or narrows them to the observed demand.
+    pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig) -> Self {
         assert!(slots > 0, "simulation slot count must be positive");
         assert!(
             u32::try_from(slots).is_ok(),
             "simulation slot count exceeds the handle space"
         );
-        assert!(budget.pairs_per_body > 0, "pairs per body must be positive");
-        assert!(
-            budget.events_per_body > 0,
-            "events per body must be positive"
-        );
-        let reservation = Reservation::initial(budget.pairs_per_body, budget.events_per_body);
+        let reservation = Reservation::initial();
         let shape_pool = ShapePool::new();
         let shape_reservation =
             ShapeReservation::planned(&ShapeReservation::EMPTY, &shape_pool.used());
@@ -183,7 +178,7 @@ impl Simulation {
             dirty_bodies: Vec::new(),
             dirty_constraints: Vec::new(),
             shapes_dirty: false,
-            stream_budget: budget,
+            capacity: Capacity::new(),
             accumulator: 0.0,
             time_scale: 1.0,
             sub_dt: 1.0 / 60.0,
@@ -321,12 +316,9 @@ impl Simulation {
     }
 
     pub(crate) fn apply_plan(&mut self) {
-        let next = Reservation::planned(
-            &self.reservation,
-            &self.live(),
-            self.stream_budget.pairs_per_body,
-            self.stream_budget.events_per_body,
-        );
+        let demand = self.capacity.observe(&self.observed, &self.reservation);
+        let level = demand.map_or(StreamLevel::MIN, StreamLevel::Served);
+        let next = Reservation::planned(&self.reservation, &self.live(), level);
         let shapes = ShapeReservation::planned(&self.shape_reservation, &self.shape_pool.used());
         if next == self.reservation && shapes == self.shape_reservation {
             return;
@@ -343,13 +335,19 @@ impl Simulation {
         self.drain_readbacks();
     }
 
+    /// Rebuilds every device allocation for the current plan. The caller must have
+    /// drained all in-flight reads and settled the queue first: a staging buffer
+    /// dropped with a mapping in flight fails that mapping and invalidates every
+    /// later map on freshly created staging buffers.
     pub(crate) fn rebuild(&mut self) {
         let buffers = WorldBuffers::new(
             self.gpu.device(),
             &self.reservation,
             &self.shape_reservation,
         );
+
         self.transfer_device_state(&buffers);
+
         self.upload_host_state(&buffers);
         self.shape_pool.reset_upload_cursor();
         self.shape_pool.upload_pending(
@@ -361,6 +359,7 @@ impl Simulation {
         );
 
         self.pipeline = Pipeline::new(&self.gpu, &buffers, &self.reservation);
+
         self.buffers = buffers;
     }
 
@@ -370,6 +369,11 @@ impl Simulation {
         let bodies = previous.body_states.size().min(next.body_states.size());
         let aabbs = previous.aabbs.size().min(next.aabbs.size());
         let contacts = previous.contacts.size().min(next.contacts.size());
+        let island = previous
+            .island_parents
+            .size()
+            .min(next.island_parents.size());
+        let wake_flags = previous.wake_flags.size().min(next.wake_flags.size());
         let constraints = previous
             .constraint_runtime
             .size()
@@ -387,6 +391,9 @@ impl Simulation {
         copy(&previous.body_states, &next.body_states, bodies);
         copy(&previous.aabbs, &next.aabbs, aabbs);
         copy(&previous.prev_contacts, &next.prev_contacts, contacts);
+        copy(&previous.wake_flags, &next.wake_flags, wake_flags);
+        copy(&previous.island_parents, &next.island_parents, island);
+        copy(&previous.island_state, &next.island_state, island);
         copy(
             &previous.constraint_runtime,
             &next.constraint_runtime,

@@ -1,6 +1,6 @@
 use super::common::{settle, sim, static_config};
 use dynamis_model::BodyDesc;
-use dynamis_simulate::{HullDecomposeSettings, StreamBudget};
+use dynamis_simulate::HullDecomposeSettings;
 
 fn l_prism() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
     let h = 0.5;
@@ -59,12 +59,8 @@ fn decomposition_splits_concave_mesh_into_convex_parts() {
 
 #[test]
 fn decomposed_body_rests_on_ground() {
-    let mut world = dynamis_simulate::Simulation::new(
-        super::common::gpu(),
-        8,
-        super::common::gravity_config(),
-        StreamBudget::default(),
-    );
+    let mut world =
+        dynamis_simulate::Simulation::new(super::common::gpu(), 8, super::common::gravity_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, HullDecomposeSettings::default());
     let desc = BodyDesc::compound(&parts).position([2.0, 3.0, 2.0]);
@@ -89,12 +85,7 @@ fn decomposed_body_rests_on_ground() {
 
 #[test]
 fn shape_source_refcount_blocks_removal_while_live() {
-    let mut world = dynamis_simulate::Simulation::new(
-        super::common::gpu(),
-        4,
-        static_config(),
-        StreamBudget::default(),
-    );
+    let mut world = dynamis_simulate::Simulation::new(super::common::gpu(), 4, static_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, HullDecomposeSettings::default());
     let body = world.spawn(BodyDesc::compound(&parts));

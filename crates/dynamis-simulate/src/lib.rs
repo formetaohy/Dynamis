@@ -1,6 +1,7 @@
 //! The GPU-resident rigid-body world.
 
 mod buffers;
+mod capacity;
 mod character;
 mod pipeline;
 mod query_pool;
@@ -18,19 +19,4 @@ pub use dynamis_layout::{
 };
 pub use dynamis_mesh::HullDecomposeSettings;
 pub use query_pool::{QueryHandle, QueryHit};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StreamBudget {
-    pub pairs_per_body: u32,
-    pub events_per_body: u32,
-}
-
-impl Default for StreamBudget {
-    fn default() -> Self {
-        Self {
-            pairs_per_body: 128,
-            events_per_body: 8,
-        }
-    }
-}
 pub use simulation::{ContactManifold, ContactPoint, DebugBuffer, Simulation};
