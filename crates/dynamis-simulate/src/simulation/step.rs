@@ -4,7 +4,7 @@ use crate::simulation::commands::{
     CompiledBodyCommands, CompiledConstraintCommands, MoveLanes, RowMove,
 };
 use dynamis_gpu::{GpuBuffer, GpuReadback};
-use dynamis_layout::{QueryResultRecord, SimParamsRecord};
+use dynamis_layout::{COUNTER_ACTIVE, QueryResultRecord, SimParamsRecord};
 use std::mem::size_of;
 
 impl Simulation {
@@ -45,6 +45,14 @@ impl Simulation {
         self.write_step_records(dt);
         let query_count = self.queries.pending.len() as u32;
         let batch = self.submit_queries(step, query_count);
+        let quiet = self.device.measured_step.is_some_and(|measured| {
+            self.device.measured[COUNTER_ACTIVE] == 0
+                && self
+                    .device
+                    .commanded_step
+                    .is_none_or(|commanded| commanded <= measured)
+        });
+        let idle = quiet && self.constraints.alive.is_empty();
         let frame = FrameParams {
             dynamic_count: self.bodies.dynamic_count as u32,
             body_count: self.bodies.alive.len() as u32,
@@ -57,7 +65,7 @@ impl Simulation {
             constraint_structural: self.constraints.structural,
             has_body_edits: self.bodies.has_edits,
         };
-        self.encode_step(&frame, batch, step);
+        self.encode_step(&frame, batch, step, idle);
         self.bodies.device_count = frame.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
@@ -65,6 +73,9 @@ impl Simulation {
     }
 
     pub(crate) fn apply_pending_commands(&mut self) {
+        if !self.bodies.commands.is_empty() || !self.constraints.commands.is_empty() {
+            self.device.commanded_step = Some(self.clock.step);
+        }
         let body_compiled = self.compile_commands();
         let constraint_compiled = self.compile_constraint_commands();
         self.upload_body_compile(&body_compiled);
@@ -159,7 +170,7 @@ impl Simulation {
         Some(batch)
     }
 
-    fn encode_step(&mut self, frame: &FrameParams, batch: Option<u64>, step: u64) {
+    fn encode_step(&mut self, frame: &FrameParams, batch: Option<u64>, step: u64, idle: bool) {
         let device = self.device.gpu.device().clone();
         let queue = self.device.gpu.queue().clone();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -169,7 +180,7 @@ impl Simulation {
         self.copy_events(&mut encoder, &device);
         self.device
             .pipeline
-            .encode(&mut encoder, &self.device.buffers, frame);
+            .encode(&mut encoder, &self.device.buffers, frame, idle);
         #[cfg(feature = "profile")]
         let timings = self.device.pipeline.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);

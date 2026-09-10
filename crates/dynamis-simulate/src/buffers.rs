@@ -3,8 +3,8 @@ use dynamis_gpu::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
 use dynamis_layout::{
     AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
-    ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
-    QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
+    ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, NO_SLOT,
+    QueryHitRecord, QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use std::mem::size_of;
@@ -27,27 +27,61 @@ const QUERY_BYTES: u64 = size_of::<QueryRecord>() as u64;
 const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeader>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
-pub(crate) struct ChannelSlots {
-    pub(crate) keys_hi: GpuBuffer,
-    pub(crate) keys_lo: GpuBuffer,
-    pub(crate) values: GpuBuffer,
+pub(crate) struct Lanes {
+    pub(crate) major: GpuBuffer,
+    pub(crate) minor: GpuBuffer,
+    pub(crate) payload: GpuBuffer,
 }
 
-impl ChannelSlots {
+pub(crate) struct GridLanes {
+    pub(crate) cells: GpuBuffer,
+    pub(crate) colliders: GpuBuffer,
+}
+
+impl GridLanes {
+    fn new(device: &Device, label: &str, lanes: u32) -> Self {
+        Self {
+            cells: GpuBuffer::new(device, &format!("{label} cells"), lanes as u64 * 4, STREAM),
+            colliders: GpuBuffer::new(
+                device,
+                &format!("{label} colliders"),
+                lanes as u64 * 4,
+                STREAM,
+            ),
+        }
+    }
+}
+
+pub(crate) struct PairLanes {
+    pub(crate) major: GpuBuffer,
+    pub(crate) minor: GpuBuffer,
+}
+
+impl PairLanes {
+    fn new(device: &Device, label: &str, lanes: u32) -> Self {
+        Self {
+            major: GpuBuffer::new(device, &format!("{label} major"), lanes as u64 * 4, STREAM),
+            minor: GpuBuffer::new(device, &format!("{label} minor"), lanes as u64 * 4, STREAM),
+        }
+    }
+}
+
+impl Lanes {
     fn new(device: &Device, label: &str, lanes: u32) -> Self {
         let lane = |name: &str| {
             GpuBuffer::new(device, &format!("{label} {name}"), lanes as u64 * 4, STREAM)
         };
         Self {
-            keys_hi: lane("keys hi"),
-            keys_lo: lane("keys lo"),
-            values: lane("values"),
+            major: lane("major"),
+            minor: lane("minor"),
+            payload: lane("payload"),
         }
     }
 }
 
 pub(crate) struct BodyBuffers {
     pub(crate) states: GpuBuffer,
+    pub(crate) activity: GpuBuffer,
     pub(crate) descriptors: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
@@ -62,15 +96,15 @@ pub(crate) struct BodyBuffers {
 pub(crate) struct ConstraintBuffers {
     pub(crate) descriptors: GpuBuffer,
     pub(crate) runtime: GpuBuffer,
-    pub(crate) a_keys: GpuBuffer,
-    pub(crate) a_values: GpuBuffer,
-    pub(crate) b_keys: GpuBuffer,
-    pub(crate) b_values: GpuBuffer,
+    pub(crate) a_bodies: GpuBuffer,
+    pub(crate) a_rows: GpuBuffer,
+    pub(crate) b_bodies: GpuBuffer,
+    pub(crate) b_rows: GpuBuffer,
     pub(crate) first_a: GpuBuffer,
     pub(crate) first_b: GpuBuffer,
     pub(crate) deltas: GpuBuffer,
-    pub(crate) joint_hi: GpuBuffer,
-    pub(crate) joint_lo: GpuBuffer,
+    pub(crate) joint_major: GpuBuffer,
+    pub(crate) joint_minor: GpuBuffer,
     pub(crate) row_src: GpuBuffer,
     pub(crate) row_fresh: GpuBuffer,
     pub(crate) fresh: GpuBuffer,
@@ -78,8 +112,8 @@ pub(crate) struct ConstraintBuffers {
 }
 
 pub(crate) struct ContactBuffers {
-    pub(crate) entries: ChannelSlots,
-    pub(crate) pairs: ChannelSlots,
+    pub(crate) entries: GridLanes,
+    pub(crate) pairs: PairLanes,
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) raw: GpuBuffer,
     pub(crate) valid: GpuBuffer,
@@ -89,8 +123,12 @@ pub(crate) struct ContactBuffers {
     pub(crate) compact_offsets: GpuBuffer,
     pub(crate) manifolds: GpuBuffer,
     pub(crate) previous: GpuBuffer,
-    pub(crate) b_keys: GpuBuffer,
-    pub(crate) b_values: GpuBuffer,
+    pub(crate) resting: GpuBuffer,
+    pub(crate) resting_live: GpuBuffer,
+    pub(crate) resting_next: GpuBuffer,
+    pub(crate) resting_free: GpuBuffer,
+    pub(crate) b_bodies: GpuBuffer,
+    pub(crate) b_rows: GpuBuffer,
     pub(crate) first_a: GpuBuffer,
     pub(crate) first_b: GpuBuffer,
     pub(crate) deltas: GpuBuffer,
@@ -115,9 +153,8 @@ pub(crate) struct QueryBuffers {
 }
 
 pub(crate) struct SortBuffers {
-    pub(crate) values: GpuBuffer,
-    pub(crate) pad: GpuBuffer,
-    pub(crate) scratch: ChannelSlots,
+    pub(crate) scratch: Lanes,
+    pub(crate) dummy: Lanes,
 }
 
 pub(crate) struct ReadbackBuffers {
@@ -145,7 +182,12 @@ pub(crate) struct WorldBuffers {
 }
 
 impl WorldBuffers {
-    pub(crate) fn new(device: &Device, plan: &Reservation, shapes: &ShapeReservation) -> Self {
+    pub(crate) fn new(
+        device: &Device,
+        queue: &wgpu::Queue,
+        plan: &Reservation,
+        shapes: &ShapeReservation,
+    ) -> Self {
         let bodies = plan.bodies;
         let colliders = plan.colliders();
         let constraints = plan.constraints;
@@ -182,6 +224,8 @@ impl WorldBuffers {
             query_readback_bytes <= buffer_limit,
             "query readback requires {query_readback_bytes} bytes but the device buffer limit is {buffer_limit}"
         );
+        let resting_free = GpuBuffer::new(device, "resting contact free", 4, STREAM);
+        resting_free.write(queue, bytemuck::cast_slice(&[NO_SLOT]));
         Self {
             params: GpuBuffer::new(
                 device,
@@ -189,10 +233,11 @@ impl WorldBuffers {
                 size_of::<SimParamsRecord>() as u64,
                 BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             ),
-            counters: GpuBuffer::new(device, "sim counters", COUNTER_BYTES, STREAM),
+            counters: GpuBuffer::zeroed(device, "sim counters", COUNTER_BYTES, STREAM),
             dispatch: DispatchTable::new(device, "sim dispatch", crate::pipeline::DISPATCH_SLOTS),
             bodies: BodyBuffers {
                 states: rows("body states", bodies, size_of::<BodyStateRecord>() as u64),
+                activity: lanes("body activity", bodies),
                 descriptors: rows(
                     "body descriptors",
                     bodies,
@@ -226,15 +271,15 @@ impl WorldBuffers {
                     constraints,
                     size_of::<ConstraintRuntimeRecord>() as u64,
                 ),
-                a_keys: lanes("constraint gather a keys", constraints),
-                a_values: lanes("constraint gather a values", constraints),
-                b_keys: lanes("constraint gather b keys", constraints),
-                b_values: lanes("constraint gather b values", constraints),
+                a_bodies: lanes("constraint gather a bodies", constraints),
+                a_rows: lanes("constraint gather a rows", constraints),
+                b_bodies: lanes("constraint gather b bodies", constraints),
+                b_rows: lanes("constraint gather b rows", constraints),
                 first_a: lanes("constraint gather first a", bodies),
                 first_b: lanes("constraint gather first b", bodies),
                 deltas: rows("constraint solver deltas", constraints, DELTA_BYTES),
-                joint_hi: lanes("joint filter keys hi", constraints),
-                joint_lo: lanes("joint filter keys lo", constraints),
+                joint_major: lanes("joint filter major", constraints),
+                joint_minor: lanes("joint filter minor", constraints),
                 row_src: lanes("constraint row src", constraints),
                 row_fresh: lanes("constraint row fresh", constraints),
                 fresh: rows(
@@ -249,8 +294,8 @@ impl WorldBuffers {
                 ),
             },
             contacts: ContactBuffers {
-                entries: ChannelSlots::new(device, "grid entries", plan.entries),
-                pairs: ChannelSlots::new(device, "pairs", plan.pairs),
+                entries: GridLanes::new(device, "grid entries", plan.entries),
+                pairs: PairLanes::new(device, "pairs", plan.pairs),
                 large_bodies: lanes("large colliders", colliders),
                 raw: rows(
                     "contacts raw",
@@ -268,8 +313,16 @@ impl WorldBuffers {
                     plan.pairs,
                     size_of::<ContactRecord>() as u64,
                 ),
-                b_keys: lanes("contact gather b keys", plan.pairs),
-                b_values: lanes("contact gather b values", plan.pairs),
+                resting: rows(
+                    "resting contacts",
+                    plan.pairs,
+                    size_of::<ContactRecord>() as u64,
+                ),
+                resting_live: lanes("resting contact live", plan.pairs),
+                resting_next: lanes("resting contact next", plan.pairs),
+                resting_free,
+                b_bodies: lanes("contact gather b bodies", plan.pairs),
+                b_rows: lanes("contact gather b rows", plan.pairs),
                 first_a: lanes("contact gather first a", bodies),
                 first_b: lanes("contact gather first b", bodies),
                 deltas: rows("contact solver deltas", plan.pairs, DELTA_BYTES),
@@ -299,9 +352,8 @@ impl WorldBuffers {
                 results: rows("query results", queries, QUERY_RESULT_BYTES),
             },
             sort: SortBuffers {
-                values: lanes("sort values", plan.sort()),
-                pad: lanes("sort pad", plan.sort()),
-                scratch: ChannelSlots::new(device, "sort scratch", plan.sort()),
+                scratch: Lanes::new(device, "sort scratch", plan.sort()),
+                dummy: Lanes::new(device, "sort dummy", plan.sort()),
             },
             readback: ReadbackBuffers {
                 pack: GpuBuffer::new(device, "sim readback pack", readback_bytes, PACK),
@@ -338,13 +390,5 @@ impl WorldBuffers {
 
     pub(crate) fn collider_rows(&self) -> u32 {
         (self.bodies.colliders.size() / size_of::<ColliderRecord>() as u64) as u32
-    }
-
-    pub(crate) fn contact_rows(&self) -> u32 {
-        (self.contacts.manifolds.size() / size_of::<ContactRecord>() as u64) as u32
-    }
-
-    pub(crate) fn constraint_rows(&self) -> u32 {
-        (self.constraints.runtime.size() / size_of::<ConstraintRuntimeRecord>() as u64) as u32
     }
 }

@@ -95,6 +95,8 @@ pub const EVENT_END: u32 = 1;
 pub const EVENT_PERSIST: u32 = 2;
 
 pub const NO_BODY: u32 = 0xFFFF_FFFF;
+
+pub const NO_SLOT: u32 = 0xFFFF_FFFF;
 pub const NO_HIT: f32 = f32::MAX;
 
 pub const MAX_HITS_PER_QUERY: u32 = 16;

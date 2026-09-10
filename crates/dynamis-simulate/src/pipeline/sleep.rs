@@ -2,6 +2,7 @@ use super::FrameParams;
 use super::stage::{RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE};
 
 pub(super) struct Sleep {
     island_aggregate: Stage,
@@ -38,6 +39,8 @@ impl Sleep {
                     (RW, whole(&buffers.islands.parents)),
                     (RW, whole(&buffers.islands.state)),
                     (RW, whole(&buffers.islands.wake_flags)),
+                    (RW, buffers.counter(COUNTER_SLEPT)),
+                    (RW, buffers.counter(COUNTER_WOKE)),
                 ],
                 &[],
             ),

@@ -1,13 +1,13 @@
 @group(0) @binding(0) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(1) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(2) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(3) var<storage, read> pair_keys_hi: array<u32>;
-@group(0) @binding(4) var<storage, read> pair_keys_lo: array<u32>;
+@group(0) @binding(3) var<storage, read> pair_major: array<u32>;
+@group(0) @binding(4) var<storage, read> pair_minor: array<u32>;
 @group(0) @binding(5) var<storage, read_write> contacts_raw: array<Contact>;
 @group(0) @binding(6) var<storage, read_write> contact_valid: array<u32>;
 @group(0) @binding(7) var<storage, read_write> pair_count: array<atomic<u32>>;
-@group(0) @binding(8) var<storage, read> joint_hi: array<u32>;
-@group(0) @binding(9) var<storage, read> joint_lo: array<u32>;
+@group(0) @binding(8) var<storage, read> joint_major: array<u32>;
+@group(0) @binding(9) var<storage, read> joint_minor: array<u32>;
 @group(0) @binding(10) var<storage, read_write> joint_count: array<atomic<u32>>;
 @group(0) @binding(11) var<uniform> params: SimParams;
 
@@ -21,7 +21,7 @@ fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
 }
 
 fn pair_joined(first_body: u32, second_body: u32) -> bool {
-    let count = min(atomicLoad(&joint_count[0]), arrayLength(&joint_hi));
+    let count = min(atomicLoad(&joint_count[0]), arrayLength(&joint_major));
     if (count == 0u) {
         return false;
     }
@@ -31,13 +31,13 @@ fn pair_joined(first_body: u32, second_body: u32) -> bool {
     var hi = count;
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
-        if (joint_hi[mid] < a || (joint_hi[mid] == a && joint_lo[mid] < b)) {
+        if (joint_major[mid] < a || (joint_major[mid] == a && joint_minor[mid] < b)) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
-    return lo < count && joint_hi[lo] == a && joint_lo[lo] == b;
+    return lo < count && joint_major[lo] == a && joint_minor[lo] == b;
 }
 
 fn sphere_sphere(
@@ -498,15 +498,15 @@ fn scaled_shape(collider: Collider) -> bool {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_keys_hi))) {
+    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_major))) {
         return;
     }
     contact_valid[index] = 0u;
-    if (index > 0u && pair_keys_hi[index] == pair_keys_hi[index - 1u] && pair_keys_lo[index] == pair_keys_lo[index - 1u]) {
+    if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
         return;
     }
-    let first_slot = pair_keys_hi[index];
-    let second_slot = pair_keys_lo[index];
+    let first_slot = pair_major[index];
+    let second_slot = pair_minor[index];
     let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
     let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
     let first = load_body(first_body_slot);

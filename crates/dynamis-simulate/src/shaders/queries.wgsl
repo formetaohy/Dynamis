@@ -3,8 +3,8 @@
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(4) var<storage, read> aabbs: array<Aabb>;
-@group(0) @binding(5) var<storage, read> entry_keys_hi: array<u32>;
-@group(0) @binding(6) var<storage, read> entry_keys_lo: array<u32>;
+@group(0) @binding(5) var<storage, read> entry_cells: array<u32>;
+@group(0) @binding(6) var<storage, read> entry_colliders: array<u32>;
 @group(0) @binding(7) var<storage, read_write> entry_count: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read_write> query_results: array<QueryResult>;
 @group(0) @binding(9) var<storage, read> large_bodies: array<u32>;
@@ -64,20 +64,20 @@ fn cell_hash(coord: vec3i) -> u32 {
 
 fn hash_range(hash: u32) -> vec2u {
     var lo = 0u;
-    var hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_keys_lo));
+    var hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_colliders));
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
-        if (entry_keys_hi[mid] < hash) {
+        if (entry_cells[mid] < hash) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
     let first = lo;
-    hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_keys_lo));
+    hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_colliders));
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
-        if (entry_keys_hi[mid] <= hash) {
+        if (entry_cells[mid] <= hash) {
             lo = mid + 1u;
         } else {
             hi = mid;
@@ -311,7 +311,7 @@ fn main(
                 atomicStore(&overflow_flag, 1u);
                 continue;
             }
-            candidates[slot] = entry_keys_lo[entry];
+            candidates[slot] = entry_colliders[entry];
         }
         cell_index = cell_index + WORKGROUP_SIZE;
     }

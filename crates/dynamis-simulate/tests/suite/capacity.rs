@@ -14,7 +14,7 @@ fn sphere_pile(world: &mut Simulation) -> Vec<BodyHandle> {
                 (index / LATTICE % LATTICE) as f32,
                 (index / (LATTICE * LATTICE)) as f32,
             ];
-            world.spawn(BodyDesc::static_sphere(6.0).position(position))
+            world.spawn(BodyDesc::sphere(6.0).position(position))
         })
         .collect()
 }

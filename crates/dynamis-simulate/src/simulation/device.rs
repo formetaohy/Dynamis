@@ -5,7 +5,9 @@ use crate::pipeline::Pipeline;
 use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
-use dynamis_layout::{COUNTER_COUNT, COUNTER_PREV_CONTACTS, COUNTER_STRIDE, Counters};
+use dynamis_layout::{
+    COUNTER_COUNT, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_STRIDE, Counters,
+};
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 pub(crate) struct Device {
@@ -16,6 +18,8 @@ pub(crate) struct Device {
     pub(crate) shape_reservation: ShapeReservation,
     pub(crate) capacity: Capacity,
     pub(crate) measured: Counters,
+    pub(crate) measured_step: Option<u64>,
+    pub(crate) commanded_step: Option<u64>,
     pub(crate) sync_staging: Option<(wgpu::Buffer, u64)>,
     #[cfg(feature = "profile")]
     pub(crate) pass_timings: Vec<GpuPassTiming>,
@@ -26,7 +30,8 @@ impl Device {
         let reservation = Reservation::initial();
         let shape_reservation =
             ShapeReservation::planned(&ShapeReservation::EMPTY, &shapes.pool.used());
-        let buffers = WorldBuffers::new(gpu.device(), &reservation, &shape_reservation);
+        let buffers =
+            WorldBuffers::new(gpu.device(), gpu.queue(), &reservation, &shape_reservation);
         let pipeline = Pipeline::new(&gpu, &buffers, &reservation);
         Self {
             gpu,
@@ -36,6 +41,8 @@ impl Device {
             shape_reservation,
             capacity: Capacity::new(),
             measured: [0; COUNTER_COUNT],
+            measured_step: None,
+            commanded_step: None,
             sync_staging: None,
             #[cfg(feature = "profile")]
             pass_timings: Vec::new(),
@@ -64,6 +71,7 @@ impl Simulation {
     pub(crate) fn rebuild(&mut self) {
         let buffers = WorldBuffers::new(
             self.device.gpu.device(),
+            self.device.gpu.queue(),
             &self.device.reservation,
             &self.device.shape_reservation,
         );
@@ -109,6 +117,26 @@ impl Simulation {
             .runtime
             .size()
             .min(next.constraints.runtime.size());
+        let resting = previous
+            .contacts
+            .resting
+            .size()
+            .min(next.contacts.resting.size());
+        let resting_live = previous
+            .contacts
+            .resting_live
+            .size()
+            .min(next.contacts.resting_live.size());
+        let resting_next = previous
+            .contacts
+            .resting_next
+            .size()
+            .min(next.contacts.resting_next.size());
+        let resting_free = previous
+            .contacts
+            .resting_free
+            .size()
+            .min(next.contacts.resting_free.size());
         let mut encoder =
             self.device
                 .gpu
@@ -139,14 +167,32 @@ impl Simulation {
             &next.constraints.runtime,
             constraints,
         );
-        let (offset, width) = (COUNTER_PREV_CONTACTS as u64 * COUNTER_STRIDE, 4);
-        encoder.copy_buffer_to_buffer(
-            previous.counters.buffer(),
-            offset,
-            next.counters.buffer(),
-            offset,
-            width,
+        copy(&previous.contacts.resting, &next.contacts.resting, resting);
+        copy(
+            &previous.contacts.resting_live,
+            &next.contacts.resting_live,
+            resting_live,
         );
+        copy(
+            &previous.contacts.resting_next,
+            &next.contacts.resting_next,
+            resting_next,
+        );
+        copy(
+            &previous.contacts.resting_free,
+            &next.contacts.resting_free,
+            resting_free,
+        );
+        for slot in [COUNTER_PREV_CONTACTS, COUNTER_RESTING] {
+            let offset = slot as u64 * COUNTER_STRIDE;
+            encoder.copy_buffer_to_buffer(
+                previous.counters.buffer(),
+                offset,
+                next.counters.buffer(),
+                offset,
+                4,
+            );
+        }
         self.device.gpu.queue().submit([encoder.finish()]);
     }
 

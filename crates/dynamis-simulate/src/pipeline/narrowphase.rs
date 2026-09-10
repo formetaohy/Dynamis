@@ -1,10 +1,9 @@
 use super::dispatch::{CCD_SWEEP, COMPACT_SCAN, COMPACT_SCATTER, NARROWPHASE, SORT_PAIRS};
-use super::sort;
 use super::stage::{RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
-use dynamis_sort::{RadixSort, key_words};
+use dynamis_sort::RadixSort;
 
 pub(super) struct Narrowphase {
     narrowphase: Stage,
@@ -26,13 +25,13 @@ impl Narrowphase {
                     (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
                     (RO, whole(&buffers.bodies.colliders)),
-                    (RO, whole(&buffers.contacts.pairs.keys_hi)),
-                    (RO, whole(&buffers.contacts.pairs.keys_lo)),
+                    (RO, whole(&buffers.contacts.pairs.major)),
+                    (RO, whole(&buffers.contacts.pairs.minor)),
                     (RW, whole(&buffers.contacts.raw)),
                     (RW, whole(&buffers.contacts.valid)),
                     (RW, buffers.counter(COUNTER_PAIRS)),
-                    (RO, whole(&buffers.constraints.joint_hi)),
-                    (RO, whole(&buffers.constraints.joint_lo)),
+                    (RO, whole(&buffers.constraints.joint_major)),
+                    (RO, whole(&buffers.constraints.joint_minor)),
                     (RW, buffers.counter(COUNTER_JOINTS)),
                     (UNIFORM, whole(&buffers.params)),
                 ],
@@ -90,8 +89,8 @@ impl Narrowphase {
                     (RW, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
                     (RO, whole(&buffers.bodies.colliders)),
-                    (RO, whole(&buffers.contacts.pairs.keys_hi)),
-                    (RO, whole(&buffers.contacts.pairs.keys_lo)),
+                    (RO, whole(&buffers.contacts.pairs.major)),
+                    (RO, whole(&buffers.contacts.pairs.minor)),
                     (RW, buffers.counter(COUNTER_PAIRS)),
                 ],
                 &shape_resources(buffers),
@@ -105,13 +104,11 @@ impl Narrowphase {
         buffers: &WorldBuffers,
         sort: &RadixSort,
     ) {
-        let words = key_words(buffers.collider_rows());
-        let channels = sort::lanes(
-            buffers,
+        let words = buffers.collider_words();
+        let channels = buffers.sort_lanes_dual(
             buffers.counter(COUNTER_PAIRS),
-            &buffers.contacts.pairs.keys_lo,
-            &buffers.contacts.pairs.keys_hi,
-            &buffers.sort.values,
+            &buffers.contacts.pairs.major,
+            &buffers.contacts.pairs.minor,
         );
         sort.sort(
             recorder,

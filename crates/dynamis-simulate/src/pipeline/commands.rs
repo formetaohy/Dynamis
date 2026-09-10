@@ -2,7 +2,7 @@ use super::FrameParams;
 use super::stage::{RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_layout::{COUNTER_COUNT, COUNTER_JOINTS};
+use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
 
 pub(super) struct Commands {
     reset_counters: Stage,
@@ -12,6 +12,7 @@ pub(super) struct Commands {
     constraint_gather: Stage,
     constraint_scatter: Stage,
     joint_filter: Stage,
+    activity: Stage,
 }
 
 impl Commands {
@@ -64,6 +65,8 @@ impl Commands {
                     (RO, whole(&buffers.bodies.descriptors)),
                     (RW, whole(&buffers.islands.wake_flags)),
                     (UNIFORM, whole(&buffers.params)),
+                    (RW, buffers.counter(COUNTER_SLEPT)),
+                    (RW, buffers.counter(COUNTER_WOKE)),
                 ],
                 &[],
             ),
@@ -94,6 +97,20 @@ impl Commands {
                 ],
                 &[],
             ),
+            activity: Stage::build(
+                context,
+                "activity",
+                include_str!("../shaders/activity.wgsl"),
+                per_row,
+                &[
+                    (UNIFORM, whole(&buffers.params)),
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.descriptors)),
+                    (RW, whole(&buffers.bodies.activity)),
+                    (RW, buffers.counter(COUNTER_ACTIVE)),
+                ],
+                &[],
+            ),
             joint_filter: Stage::build(
                 context,
                 "joint_filter",
@@ -103,8 +120,8 @@ impl Commands {
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.constraints.descriptors)),
                     (RO, whole(&buffers.constraints.runtime)),
-                    (RW, whole(&buffers.constraints.joint_hi)),
-                    (RW, whole(&buffers.constraints.joint_lo)),
+                    (RW, whole(&buffers.constraints.joint_major)),
+                    (RW, whole(&buffers.constraints.joint_minor)),
                     (RW, buffers.counter(COUNTER_JOINTS)),
                 ],
                 &[],
@@ -138,5 +155,6 @@ impl Commands {
         if params.constraint_count > 0 {
             self.joint_filter.record(recorder, params.constraint_count);
         }
+        self.activity.record(recorder, params.body_count);
     }
 }

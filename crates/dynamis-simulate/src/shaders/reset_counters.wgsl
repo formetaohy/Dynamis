@@ -11,7 +11,11 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_EVENTS ||
         slot == COUNTER_SPILLOVER_PAIRS ||
         slot == COUNTER_SPILLOVER_EVENTS ||
-        slot == COUNTER_SPILLOVER_ENTRIES) {
+        slot == COUNTER_SPILLOVER_ENTRIES ||
+        slot == COUNTER_SPILLOVER_RESTING ||
+        slot == COUNTER_ACTIVE ||
+        slot == COUNTER_SLEPT ||
+        slot == COUNTER_WOKE) {
         atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], 0u);
     }
 }

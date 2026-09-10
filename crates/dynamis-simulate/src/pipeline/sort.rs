@@ -1,21 +1,46 @@
-use crate::buffers::WorldBuffers;
-use dynamis_gpu::{GpuBuffer, GpuSlot};
-use dynamis_sort::SortChannels;
+use dynamis_gpu::GpuBuffer;
+use dynamis_sort::{SortChannels, key_words};
 
-pub(super) fn lanes<'a>(
-    buffers: &'a WorldBuffers,
-    count: GpuSlot<'a>,
-    keys_lo: &'a GpuBuffer,
-    keys_hi: &'a GpuBuffer,
-    values: &'a GpuBuffer,
-) -> SortChannels<'a> {
-    SortChannels {
-        count,
-        keys_lo,
-        keys_hi,
-        values,
-        scratch_lo: &buffers.sort.scratch.keys_lo,
-        scratch_hi: &buffers.sort.scratch.keys_hi,
-        scratch_values: &buffers.sort.scratch.values,
+impl crate::buffers::WorldBuffers {
+    pub(crate) fn body_words(&self) -> u32 {
+        key_words(self.body_rows().max(1))
+    }
+
+    pub(crate) fn collider_words(&self) -> u32 {
+        key_words(self.collider_rows().max(1))
+    }
+
+    pub(crate) fn sort_lanes<'a>(
+        &'a self,
+        count: dynamis_gpu::GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        payload: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor: payload,
+            payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.payload,
+            scratch_payload: &self.sort.scratch.payload,
+        }
+    }
+
+    pub(crate) fn sort_lanes_dual<'a>(
+        &'a self,
+        count: dynamis_gpu::GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        minor: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor,
+            payload: &self.sort.dummy.payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.minor,
+            scratch_payload: &self.sort.scratch.payload,
+        }
     }
 }

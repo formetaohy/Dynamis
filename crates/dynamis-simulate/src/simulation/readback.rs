@@ -1,10 +1,12 @@
 use super::Simulation;
 use crate::buffers::EVENT_SLOTS;
+use dynamis_layout::COUNTER_RESTING;
 use dynamis_layout::{
     BodyStateRecord, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_EVENTS,
     COUNTER_STRIDE, ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, Counters,
 };
 use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
+use std::collections::HashSet;
 use std::mem::size_of;
 
 pub struct ContactPoint {
@@ -117,41 +119,44 @@ impl Simulation {
 
     pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {
         self.wait();
-        let count = self.device.measured[COUNTER_CONTACTS] as usize;
+        let step = self.clock.step.saturating_sub(1);
+        let active = self.device.measured[COUNTER_CONTACTS] as usize;
+        let capacity = (self.device.buffers.contacts.resting.size()
+            / size_of::<ContactRecord>() as u64) as usize;
+        let resting = (self.device.measured[COUNTER_RESTING] as usize).min(capacity);
+        let mut seen = HashSet::new();
+        let mut manifolds = Vec::with_capacity(active + resting);
+        let active_buffer = self.device.buffers.contacts.manifolds.buffer().clone();
+        for record in self.read_manifolds(&active_buffer, active) {
+            if seen.insert((record.a, record.b)) {
+                manifolds.push(manifold_of(&record, step));
+            }
+        }
+        let resting_buffer = self.device.buffers.contacts.resting.buffer().clone();
+        let resting_live = self.device.buffers.contacts.resting_live.buffer().clone();
+        let live = self.read_range(&resting_live, resting as u64 * 4);
+        for (index, record) in self
+            .read_manifolds(&resting_buffer, resting)
+            .into_iter()
+            .enumerate()
+        {
+            if live[index * 4..index * 4 + 4] == [0, 0, 0, 0] {
+                continue;
+            }
+            if seen.insert((record.a, record.b)) {
+                manifolds.push(manifold_of(&record, step));
+            }
+        }
+        manifolds
+    }
+
+    fn read_manifolds(&mut self, buffer: &wgpu::Buffer, count: usize) -> Vec<ContactRecord> {
         if count == 0 {
             return Vec::new();
         }
         let bytes = (count * size_of::<ContactRecord>()) as u64;
-        let buffer = self.device.buffers.contacts.manifolds.buffer().clone();
-        let records = self.read_range(&buffer, bytes);
+        let records = self.read_range(buffer, bytes);
         crate::records::decode::<ContactRecord>(&records)
-            .into_iter()
-            .map(|record| ContactManifold {
-                first: BodyHandle {
-                    id: record.first_body_id,
-                    generation: record.first_generation,
-                },
-                second: BodyHandle {
-                    id: record.second_body_id,
-                    generation: record.second_generation,
-                },
-                sensor: record.sensor == 1,
-                normal: record.normal,
-                points: record.points[..record.point_count as usize]
-                    .iter()
-                    .map(|point| ContactPoint {
-                        position: point.position,
-                        depth: point.depth,
-                        normal_impulse: point.accumulated_normal,
-                        tangent_impulse: (point.accumulated_tangent_1
-                            * point.accumulated_tangent_1
-                            + point.accumulated_tangent_2 * point.accumulated_tangent_2)
-                            .sqrt(),
-                    })
-                    .collect(),
-                step: self.clock.step.saturating_sub(1),
-            })
-            .collect()
     }
 
     pub(crate) fn read_range(&mut self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
@@ -276,7 +281,7 @@ impl Simulation {
         while let Some((step, count)) = self.events.due.pop_front() {
             let segment = self.device.buffers.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
-            let bytes = count as u64 * size_of::<ContactEventRecord>() as u64;
+            let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
             let displaced = self.device.buffers.readback.events.enqueue(
                 device,
                 encoder,
@@ -309,6 +314,7 @@ impl Simulation {
 
     pub(crate) fn accept_measured(&mut self, step: u64, measured: &Counters) {
         self.device.measured = *measured;
+        self.device.measured_step = Some(step);
         self.note_events_due(step);
     }
 
@@ -362,6 +368,33 @@ impl Simulation {
 
     pub(crate) fn island_rounds(&self) -> u32 {
         self.device.reservation.bodies.max(2).ilog2() + 1
+    }
+}
+
+fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
+    ContactManifold {
+        first: BodyHandle {
+            id: record.first_body_id,
+            generation: record.first_generation,
+        },
+        second: BodyHandle {
+            id: record.second_body_id,
+            generation: record.second_generation,
+        },
+        sensor: record.sensor == 1,
+        normal: record.normal,
+        points: record.points[..record.point_count as usize]
+            .iter()
+            .map(|point| ContactPoint {
+                position: point.position,
+                depth: point.depth,
+                normal_impulse: point.accumulated_normal,
+                tangent_impulse: (point.accumulated_tangent_1 * point.accumulated_tangent_1
+                    + point.accumulated_tangent_2 * point.accumulated_tangent_2)
+                    .sqrt(),
+            })
+            .collect(),
+        step,
     }
 }
 

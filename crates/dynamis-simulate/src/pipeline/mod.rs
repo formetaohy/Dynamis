@@ -21,7 +21,7 @@ use crate::capacity::Reservation;
 use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_ENTRIES;
-use dynamis_sort::{RadixSort, key_words};
+use dynamis_sort::RadixSort;
 use wgpu::CommandEncoder;
 
 use broadphase::Broadphase;
@@ -154,53 +154,59 @@ impl Pipeline {
         encoder: &mut CommandEncoder,
         buffers: &WorldBuffers,
         params: &FrameParams,
+        idle: bool,
     ) {
         let mut commands = self.open(encoder, Pass::Commands);
         self.commands.record(&mut commands, params);
         drop(commands);
         self.dispatch.write(encoder, 0);
 
-        let mut integrate = self.open(encoder, Pass::Integrate);
-        self.integrate
-            .record(&mut integrate, buffers, params, &self.sort);
-        drop(integrate);
+        if idle {
+            self.dispatch.write(encoder, 3);
+            self.dispatch.write(encoder, 4);
+        } else {
+            let mut integrate = self.open(encoder, Pass::Integrate);
+            self.integrate
+                .record(&mut integrate, buffers, params, &self.sort);
+            drop(integrate);
 
-        let mut grid = self.open(encoder, Pass::Grid);
-        self.grid.record(&mut grid, params.body_count);
-        drop(grid);
-        self.dispatch.write(encoder, 1);
+            let mut grid = self.open(encoder, Pass::Grid);
+            self.grid.record(&mut grid, params.body_count);
+            drop(grid);
+            self.dispatch.write(encoder, 1);
 
-        let mut broadphase = self.open(encoder, Pass::Broadphase);
-        self.broadphase
-            .record(&mut broadphase, buffers, params, &self.sort);
-        drop(broadphase);
-        self.dispatch.write(encoder, 2);
+            let mut broadphase = self.open(encoder, Pass::Broadphase);
+            self.broadphase
+                .record(&mut broadphase, buffers, params, &self.sort);
+            drop(broadphase);
+            self.dispatch.write(encoder, 2);
 
-        let mut narrowphase = self.open(encoder, Pass::Narrowphase);
-        self.narrowphase
-            .record(&mut narrowphase, buffers, &self.sort);
-        drop(narrowphase);
-        self.dispatch.write(encoder, 3);
+            let mut narrowphase = self.open(encoder, Pass::Narrowphase);
+            self.narrowphase
+                .record(&mut narrowphase, buffers, &self.sort);
+            drop(narrowphase);
+            self.dispatch.write(encoder, 3);
 
-        let mut islands = self.open(encoder, Pass::Islands);
-        self.islands
-            .record(&mut islands, buffers, params, &self.sort);
-        drop(islands);
+            let mut islands = self.open(encoder, Pass::Islands);
+            self.islands
+                .record(&mut islands, buffers, params, &self.sort);
+            drop(islands);
 
-        let mut sleep = self.open(encoder, Pass::Sleep);
-        self.sleep.record(&mut sleep, params);
-        drop(sleep);
+            let mut sleep = self.open(encoder, Pass::Sleep);
+            self.sleep.record(&mut sleep, params);
+            drop(sleep);
+            self.dispatch.write(encoder, 4);
 
-        let mut velocity_solve = self.open(encoder, Pass::VelocitySolve);
-        self.velocity_solve
-            .record(&mut velocity_solve, buffers, params);
-        drop(velocity_solve);
+            let mut velocity_solve = self.open(encoder, Pass::VelocitySolve);
+            self.velocity_solve
+                .record(&mut velocity_solve, buffers, params);
+            drop(velocity_solve);
 
-        let mut position_solve = self.open(encoder, Pass::PositionSolve);
-        self.position_solve
-            .record(&mut position_solve, buffers, params);
-        drop(position_solve);
-
+            let mut position_solve = self.open(encoder, Pass::PositionSolve);
+            self.position_solve
+                .record(&mut position_solve, buffers, params);
+            drop(position_solve);
+        }
         let mut tail = self.open(encoder, Pass::Tail);
         self.tail.record(&mut tail, buffers, params);
         drop(tail);
@@ -222,21 +228,13 @@ impl Pipeline {
         self.dispatch.write(encoder, 1);
 
         let mut flush = ComputeRecorder::begin(encoder, "query flush", self.per_row);
-        let channels = sort::lanes(
-            buffers,
+        let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.keys_lo,
-            &buffers.contacts.entries.keys_hi,
-            &buffers.sort.values,
+            &buffers.contacts.entries.cells,
+            &buffers.contacts.entries.colliders,
         );
-        self.sort.sort(
-            &mut flush,
-            &channels,
-            key_words(buffers.collider_rows()),
-            4,
-            &buffers.dispatch,
-            SORT_ENTRIES,
-        );
+        self.sort
+            .sort(&mut flush, &channels, 4, 0, &buffers.dispatch, SORT_ENTRIES);
         self.tail.record_query(&mut flush, frame.query_count);
     }
 }

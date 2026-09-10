@@ -1,4 +1,6 @@
 @group(0) @binding(0) var<storage, read> prev_contacts: array<Contact>;
+@group(0) @binding(8) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(9) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(1) var<storage, read_write> prev_contact_count: array<atomic<u32>>;
 @group(0) @binding(2) var<storage, read> contacts: array<Contact>;
 @group(0) @binding(3) var<storage, read_write> contact_count: array<atomic<u32>>;
@@ -31,6 +33,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let prev = prev_contacts[index];
     if (current_find(prev.a, prev.b) || (prev.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
+        return;
+    }
+    let first_row = prev.a / MAX_COLLIDERS_PER_BODY;
+    let second_row = prev.b / MAX_COLLIDERS_PER_BODY;
+    let first = body_states[first_row];
+    let second = body_states[second_row];
+    let held = first.body_id == prev.first_body_id && first.generation == prev.first_generation
+        && second.body_id == prev.second_body_id && second.generation == prev.second_generation;
+    if (held && !body_is_active(first, body_descs[first_row])
+        && !body_is_active(second, body_descs[second_row])) {
         return;
     }
     let slot = atomicAdd(&event_count[0], 1u);

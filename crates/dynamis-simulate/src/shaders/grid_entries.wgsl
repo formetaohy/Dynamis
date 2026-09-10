@@ -1,7 +1,7 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> aabbs: array<Aabb>;
-@group(0) @binding(2) var<storage, read_write> entry_keys_hi: array<u32>;
-@group(0) @binding(3) var<storage, read_write> entry_keys_lo: array<u32>;
+@group(0) @binding(2) var<storage, read_write> entry_cells: array<u32>;
+@group(0) @binding(3) var<storage, read_write> entry_colliders: array<u32>;
 @group(0) @binding(4) var<storage, read_write> entry_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> large_bodies: array<u32>;
 @group(0) @binding(6) var<storage, read_write> large_count: array<atomic<u32>>;
@@ -42,9 +42,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
                 for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
                     let slot = atomicAdd(&entry_count[0], 1u);
-                    if (slot < arrayLength(&entry_keys_hi)) {
-                        entry_keys_hi[slot] = cell_hash(vec3i(dx, dy, dz));
-                        entry_keys_lo[slot] = collider_index;
+                    if (slot < arrayLength(&entry_cells)) {
+                        entry_cells[slot] = cell_hash(vec3i(dx, dy, dz));
+                        entry_colliders[slot] = collider_index;
                     } else {
                         atomicAdd(&spillover[0], 1u);
                     }

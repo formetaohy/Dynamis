@@ -1,8 +1,8 @@
 @group(0) @binding(0) var<uniform> params: SimParams;
 @group(0) @binding(1) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
 @group(0) @binding(2) var<storage, read> constraint_runtime: array<ConstraintRuntime>;
-@group(0) @binding(3) var<storage, read_write> joint_hi: array<u32>;
-@group(0) @binding(4) var<storage, read_write> joint_lo: array<u32>;
+@group(0) @binding(3) var<storage, read_write> joint_major: array<u32>;
+@group(0) @binding(4) var<storage, read_write> joint_minor: array<u32>;
 @group(0) @binding(5) var<storage, read_write> joint_count: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -21,8 +21,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let a = min(constraint.a, constraint.b);
     let b = max(constraint.a, constraint.b);
     let slot = atomicAdd(&joint_count[0], 1u);
-    if (slot < arrayLength(&joint_hi)) {
-        joint_hi[slot] = a;
-        joint_lo[slot] = b;
+    if (slot < arrayLength(&joint_major)) {
+        joint_major[slot] = a;
+        joint_minor[slot] = b;
     }
 }

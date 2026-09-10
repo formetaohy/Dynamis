@@ -4,7 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(4) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(6) var<storage, read_write> contact_deltas: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> deltas: array<vec4f>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -29,10 +29,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let contact = contacts[index];
     if (contact.point_count == 0u || contact.sensor == 1u) {
-        contact_deltas[index * 4u] = vec4f(0.0);
-        contact_deltas[index * 4u + 1u] = vec4f(0.0);
-        contact_deltas[index * 4u + 2u] = vec4f(0.0);
-        contact_deltas[index * 4u + 3u] = vec4f(0.0);
+        deltas[index * 4u] = vec4f(0.0);
+        deltas[index * 4u + 1u] = vec4f(0.0);
+        deltas[index * 4u + 2u] = vec4f(0.0);
+        deltas[index * 4u + 3u] = vec4f(0.0);
         return;
     }
     let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
@@ -125,10 +125,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let delta_spin_a = first.state.angular_velocity - first_original.state.angular_velocity;
     let delta_b = second.state.velocity - second_original.state.velocity;
     let delta_spin_b = second.state.angular_velocity - second_original.state.angular_velocity;
-    contact_deltas[index * 4u] = vec4f(delta_a, 0.0);
-    contact_deltas[index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
-    contact_deltas[index * 4u + 2u] = vec4f(delta_b, 0.0);
-    contact_deltas[index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
+    deltas[index * 4u] = vec4f(delta_a, 0.0);
+    deltas[index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
+    deltas[index * 4u + 2u] = vec4f(delta_b, 0.0);
+    deltas[index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
     wake_on_impact(first_slot, first_original, second_original);
     wake_on_impact(second_slot, second_original, first_original);
 }

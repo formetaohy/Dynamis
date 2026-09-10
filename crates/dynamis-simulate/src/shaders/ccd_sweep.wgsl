@@ -2,8 +2,8 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(4) var<storage, read> pair_keys_hi: array<u32>;
-@group(0) @binding(5) var<storage, read> pair_keys_lo: array<u32>;
+@group(0) @binding(4) var<storage, read> pair_major: array<u32>;
+@group(0) @binding(5) var<storage, read> pair_minor: array<u32>;
 @group(0) @binding(6) var<storage, read_write> pair_count: array<atomic<u32>>;
 
 fn load_body(slot: u32) -> Body {
@@ -66,14 +66,14 @@ fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, othe
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_keys_hi))) {
+    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_major))) {
         return;
     }
-    if (index > 0u && pair_keys_hi[index] == pair_keys_hi[index - 1u] && pair_keys_lo[index] == pair_keys_lo[index - 1u]) {
+    if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
         return;
     }
-    let first_slot = pair_keys_hi[index];
-    let second_slot = pair_keys_lo[index];
+    let first_slot = pair_major[index];
+    let second_slot = pair_minor[index];
     let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
     let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
     if (first_body_slot == second_body_slot) {

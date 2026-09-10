@@ -18,8 +18,8 @@ impl Grid {
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.aabbs)),
-                    (RW, whole(&buffers.contacts.entries.keys_hi)),
-                    (RW, whole(&buffers.contacts.entries.keys_lo)),
+                    (RW, whole(&buffers.contacts.entries.cells)),
+                    (RW, whole(&buffers.contacts.entries.colliders)),
                     (RW, buffers.counter(COUNTER_ENTRIES)),
                     (RW, whole(&buffers.contacts.large_bodies)),
                     (RW, buffers.counter(COUNTER_LARGE)),

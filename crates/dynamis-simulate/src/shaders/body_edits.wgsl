@@ -12,10 +12,13 @@ struct BodyCommand {
 @group(0) @binding(3) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(5) var<uniform> params: SimParams;
+@group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
 
 fn wake(body: ptr<function, BodyState>, slot: u32) {
     if ((*body).sleeping != 0u) {
         atomicOr(&wake_flags[slot], 1u);
+        atomicAdd(&woke_count[0], 1u);
     }
     (*body).sleeping = 0u;
     (*body).sleep_timer = 0.0;
@@ -91,12 +94,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 + apply_inverse_inertia_of(desc, state.orientation, command.state.angular_velocity);
             wake(&state, body_index);
         } else if (command.kind == COMMAND_SLEEP) {
+            if (state.sleeping == 0u) {
+                atomicAdd(&slept_count[0], 1u);
+            }
             state.velocity = vec3f(0.0);
             state.angular_velocity = vec3f(0.0);
             state.sleep_timer = 0.0;
             state.sleeping = 1u;
             atomicStore(&wake_flags[body_index], 0u);
         } else if (command.kind == COMMAND_WAKE) {
+            if (state.sleeping != 0u) {
+                atomicAdd(&woke_count[0], 1u);
+            }
             state.sleep_timer = 0.0;
             state.sleeping = 0u;
             atomicOr(&wake_flags[body_index], 1u);

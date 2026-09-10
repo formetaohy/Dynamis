@@ -21,35 +21,35 @@ pub fn key_words(elements: u32) -> u32 {
 
 pub struct SortChannels<'a> {
     pub count: GpuSlot<'a>,
-    pub keys_lo: &'a GpuBuffer,
-    pub keys_hi: &'a GpuBuffer,
-    pub values: &'a GpuBuffer,
-    pub scratch_lo: &'a GpuBuffer,
-    pub scratch_hi: &'a GpuBuffer,
-    pub scratch_values: &'a GpuBuffer,
+    pub major: &'a GpuBuffer,
+    pub minor: &'a GpuBuffer,
+    pub payload: &'a GpuBuffer,
+    pub scratch_major: &'a GpuBuffer,
+    pub scratch_minor: &'a GpuBuffer,
+    pub scratch_payload: &'a GpuBuffer,
 }
 
 #[derive(PartialEq, Eq)]
 struct ChannelsKey {
     count: (u64, u64, u64),
-    keys_lo: u64,
-    keys_hi: u64,
-    values: u64,
-    scratch_lo: u64,
-    scratch_hi: u64,
-    scratch_values: u64,
+    major: u64,
+    minor: u64,
+    payload: u64,
+    scratch_major: u64,
+    scratch_minor: u64,
+    scratch_payload: u64,
 }
 
 impl ChannelsKey {
     fn of(channels: &SortChannels<'_>) -> Self {
         Self {
             count: channels.count.identity(),
-            keys_lo: channels.keys_lo.token(),
-            keys_hi: channels.keys_hi.token(),
-            values: channels.values.token(),
-            scratch_lo: channels.scratch_lo.token(),
-            scratch_hi: channels.scratch_hi.token(),
-            scratch_values: channels.scratch_values.token(),
+            major: channels.major.token(),
+            minor: channels.minor.token(),
+            payload: channels.payload.token(),
+            scratch_major: channels.scratch_major.token(),
+            scratch_minor: channels.scratch_minor.token(),
+            scratch_payload: channels.scratch_payload.token(),
         }
     }
 }
@@ -58,16 +58,17 @@ struct SortBindGroups {
     channels: ChannelsKey,
     histogram: [BindGroup; 2],
     scatter: [BindGroup; 2],
+    prefix: BindGroup,
 }
 
 impl SortBindGroups {
     fn build(device: &Device, sort: &RadixSort, channels: &SortChannels<'_>) -> Self {
-        let in_lo = [channels.keys_lo, channels.scratch_lo];
-        let in_hi = [channels.keys_hi, channels.scratch_hi];
-        let in_values = [channels.values, channels.scratch_values];
-        let out_lo = [channels.scratch_lo, channels.keys_lo];
-        let out_hi = [channels.scratch_hi, channels.keys_hi];
-        let out_values = [channels.scratch_values, channels.values];
+        let in_minor = [channels.minor, channels.scratch_minor];
+        let in_major = [channels.major, channels.scratch_major];
+        let in_payload = [channels.payload, channels.scratch_payload];
+        let out_minor = [channels.scratch_minor, channels.minor];
+        let out_major = [channels.scratch_major, channels.major];
+        let out_payload = [channels.scratch_payload, channels.payload];
         let histogram = std::array::from_fn(|parity| {
             sort.histogram_pipelines[0].create_bind_group(
                 device,
@@ -75,11 +76,11 @@ impl SortBindGroups {
                 &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: in_lo[parity].as_binding(),
+                        resource: in_minor[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: in_hi[parity].as_binding(),
+                        resource: in_major[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
@@ -103,35 +104,35 @@ impl SortBindGroups {
                 &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: in_lo[parity].as_binding(),
+                        resource: in_minor[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: in_hi[parity].as_binding(),
+                        resource: in_major[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: in_values[parity].as_binding(),
+                        resource: in_payload[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 3,
-                        resource: sort.cursor.as_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 4,
                         resource: sort.block_prefix.as_binding(),
                     },
                     BindGroupEntry {
+                        binding: 4,
+                        resource: sort.histogram.as_binding(),
+                    },
+                    BindGroupEntry {
                         binding: 5,
-                        resource: out_lo[parity].as_binding(),
+                        resource: out_minor[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 6,
-                        resource: out_hi[parity].as_binding(),
+                        resource: out_major[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 7,
-                        resource: out_values[parity].as_binding(),
+                        resource: out_payload[parity].as_binding(),
                     },
                     BindGroupEntry {
                         binding: 8,
@@ -140,10 +141,33 @@ impl SortBindGroups {
                 ],
             )
         });
+        let prefix = sort.prefix_pipeline.create_bind_group(
+            device,
+            0,
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: sort.histogram.as_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: sort.block_histogram.as_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: sort.block_prefix.as_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: channels.count.as_binding(),
+                },
+            ],
+        );
         Self {
             channels: ChannelsKey::of(channels),
             histogram,
             scatter,
+            prefix,
         }
     }
 }
@@ -153,11 +177,7 @@ pub struct RadixSort {
     histogram_pipelines: [ComputePipeline; PASSES],
     scatter_pipelines: [ComputePipeline; PASSES],
     prefix_pipeline: ComputePipeline,
-    prefix_group: BindGroup,
-    block_prefix_pipeline: ComputePipeline,
-    block_prefix_group: BindGroup,
     histogram: GpuBuffer,
-    cursor: GpuBuffer,
     block_histogram: GpuBuffer,
     block_prefix: GpuBuffer,
     bindings: std::sync::Mutex<Vec<SortBindGroups>>,
@@ -190,23 +210,21 @@ impl RadixSort {
             binding(1, READ),
             binding(2, READ),
             binding(3, READ),
-            binding(4, READ),
+            binding(4, WRITE),
             binding(5, WRITE),
             binding(6, WRITE),
             binding(7, WRITE),
             binding(8, READ),
         ];
-        let prefix_spec = [binding(0, WRITE), binding(1, WRITE)];
+        let prefix_spec = [
+            binding(0, WRITE),
+            binding(1, WRITE),
+            binding(2, WRITE),
+            binding(3, READ),
+        ];
         let prefix_pipeline = context.compute_pipeline(
             &format!("{label} prefix"),
             include_str!("shaders/sort_prefix.wgsl"),
-            "main",
-            &[&prefix_spec[..]],
-            THREADS,
-        );
-        let block_prefix_pipeline = context.compute_pipeline(
-            &format!("{label} block prefix"),
-            include_str!("shaders/sort_block_prefix.wgsl"),
             "main",
             &[&prefix_spec[..]],
             THREADS,
@@ -237,12 +255,6 @@ impl RadixSort {
             (BINS * 4) as u64,
             wgpu::BufferUsages::STORAGE,
         );
-        let cursor = GpuBuffer::new(
-            &device,
-            &format!("{label} cursor"),
-            (BINS * 4) as u64,
-            wgpu::BufferUsages::STORAGE,
-        );
         let block_bytes = blocks as u64 * BINS as u64 * 4;
         let block_histogram = GpuBuffer::zeroed(
             &device,
@@ -256,44 +268,12 @@ impl RadixSort {
             block_bytes,
             wgpu::BufferUsages::STORAGE,
         );
-        let prefix_group = prefix_pipeline.create_bind_group(
-            &device,
-            0,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: histogram.as_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: cursor.as_binding(),
-                },
-            ],
-        );
-        let block_prefix_group = block_prefix_pipeline.create_bind_group(
-            &device,
-            0,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: block_histogram.as_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: block_prefix.as_binding(),
-                },
-            ],
-        );
         Self {
             device,
             histogram_pipelines,
             scatter_pipelines,
             prefix_pipeline,
-            prefix_group,
-            block_prefix_pipeline,
-            block_prefix_group,
             histogram,
-            cursor,
             block_histogram,
             block_prefix,
             bindings: std::sync::Mutex::new(Vec::new()),
@@ -304,13 +284,18 @@ impl RadixSort {
         &self,
         recorder: &mut ComputeRecorder,
         bindings: &SortBindGroups,
-        lo_words: u32,
-        hi_words: u32,
+        major_words: u32,
+        minor_words: u32,
         table: &DispatchTable,
         slot: u32,
     ) {
-        let mut passes = (0..lo_words).chain(4..4 + hi_words).collect::<Vec<_>>();
-
+        let mut passes = (0..minor_words)
+            .chain(4..4 + major_words)
+            .collect::<Vec<_>>();
+        assert!(
+            !passes.is_empty(),
+            "a sort needs at least one key digit to permute the payload"
+        );
         if passes.len() % 2 == 1 {
             let last = *passes.last().expect("a sort runs at least one pass");
             passes.push(last);
@@ -324,12 +309,7 @@ impl RadixSort {
                 table,
                 slot,
             );
-            recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
-            recorder.record(
-                &self.block_prefix_pipeline,
-                &[&self.block_prefix_group],
-                BINS,
-            );
+            recorder.record(&self.prefix_pipeline, &[&bindings.prefix], THREADS);
             recorder.record_indirect(
                 &self.scatter_pipelines[pass],
                 &[&bindings.scatter[parity]],
@@ -361,13 +341,13 @@ impl RadixSort {
         &self,
         recorder: &mut ComputeRecorder,
         channels: &SortChannels<'_>,
-        lo_words: u32,
-        hi_words: u32,
+        major_words: u32,
+        minor_words: u32,
         table: &DispatchTable,
         slot: u32,
     ) {
         self.with_bindings(&self.device, channels, |bindings| {
-            self.encode_passes(recorder, bindings, lo_words, hi_words, table, slot)
-        });
+            self.encode_passes(recorder, bindings, major_words, minor_words, table, slot)
+        })
     }
 }

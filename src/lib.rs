@@ -14,7 +14,11 @@ pub use dynamis_model::{
     ShapeSourceHandle,
 };
 pub use dynamis_simulate::{
-    ContactManifold, ContactPoint, Counters, HullDecomposeSettings, QueryHandle, QueryHit,
-    Simulation,
+    COUNTER_ACTIVE, COUNTER_BODIES, COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS,
+    COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_ENTRIES, COUNTER_EVENTS,
+    COUNTER_JOINTS, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_RESTING,
+    COUNTER_SLEPT, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS,
+    COUNTER_SPILLOVER_RESTING, COUNTER_WOKE, ContactManifold, ContactPoint, Counters,
+    HullDecomposeSettings, QueryHandle, QueryHit, Simulation,
 };
 pub use dynamis_sort::{RadixSort, SortChannels};

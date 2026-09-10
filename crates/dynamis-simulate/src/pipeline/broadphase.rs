@@ -1,11 +1,10 @@
 use super::FrameParams;
 use super::dispatch::{BROADPHASE_PAIRS, SORT_ENTRIES};
-use super::sort;
 use super::stage::{RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_SPILLOVER_PAIRS};
-use dynamis_sort::{RadixSort, key_words};
+use dynamis_sort::RadixSort;
 
 pub(super) struct Broadphase {
     broadphase_pairs: Stage,
@@ -22,13 +21,14 @@ impl Broadphase {
                 per_row,
                 &[
                     (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.contacts.entries.keys_hi)),
-                    (RO, whole(&buffers.contacts.entries.keys_lo)),
+                    (RO, whole(&buffers.contacts.entries.cells)),
+                    (RO, whole(&buffers.contacts.entries.colliders)),
                     (RW, buffers.counter(COUNTER_ENTRIES)),
-                    (RW, whole(&buffers.contacts.pairs.keys_hi)),
-                    (RW, whole(&buffers.contacts.pairs.keys_lo)),
+                    (RW, whole(&buffers.contacts.pairs.major)),
+                    (RW, whole(&buffers.contacts.pairs.minor)),
                     (RW, buffers.counter(COUNTER_PAIRS)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
+                    (RO, whole(&buffers.bodies.activity)),
                 ],
                 &[],
             ),
@@ -41,11 +41,12 @@ impl Broadphase {
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.contacts.large_bodies)),
                     (RW, buffers.counter(COUNTER_LARGE)),
-                    (RW, whole(&buffers.contacts.pairs.keys_hi)),
-                    (RW, whole(&buffers.contacts.pairs.keys_lo)),
+                    (RW, whole(&buffers.contacts.pairs.major)),
+                    (RW, whole(&buffers.contacts.pairs.minor)),
                     (RW, buffers.counter(COUNTER_PAIRS)),
                     (RO, whole(&buffers.bodies.colliders)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
+                    (RO, whole(&buffers.bodies.activity)),
                 ],
                 &[],
             ),
@@ -59,22 +60,12 @@ impl Broadphase {
         params: &FrameParams,
         sort: &RadixSort,
     ) {
-        let words = key_words(buffers.collider_rows());
-        let channels = sort::lanes(
-            buffers,
+        let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.keys_lo,
-            &buffers.contacts.entries.keys_hi,
-            &buffers.sort.values,
+            &buffers.contacts.entries.cells,
+            &buffers.contacts.entries.colliders,
         );
-        sort.sort(
-            recorder,
-            &channels,
-            words,
-            4,
-            &buffers.dispatch,
-            SORT_ENTRIES,
-        );
+        sort.sort(recorder, &channels, 4, 0, &buffers.dispatch, SORT_ENTRIES);
         self.broadphase_pairs
             .record_indirect(recorder, &buffers.dispatch, BROADPHASE_PAIRS);
         self.large_pairs.record(recorder, params.body_count);

@@ -3,7 +3,7 @@
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> contacts: array<Contact>;
 @group(0) @binding(4) var<storage, read_write> contact_count: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read_write> contact_deltas: array<vec4f>;
+@group(0) @binding(5) var<storage, read_write> deltas: array<vec4f>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -17,12 +17,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
     let contact = contacts[index];
     if (contact.point_count == 0u || contact.sensor == 1u) {
-        contact_deltas[index * 4u] = vec4f(0.0);
-        contact_deltas[index * 4u + 1u] = vec4f(0.0);
+        deltas[index * 4u] = vec4f(0.0);
+        deltas[index * 4u + 1u] = vec4f(0.0);
         return;
     }
-    let first = load_body(contact.a / MAX_COLLIDERS_PER_BODY);
-    let second = load_body(contact.b / MAX_COLLIDERS_PER_BODY);
+    let first_loaded = load_body(contact.a / MAX_COLLIDERS_PER_BODY);
+    let second_loaded = load_body(contact.b / MAX_COLLIDERS_PER_BODY);
+    var first = first_loaded;
+    var second = second_loaded;
+    if (body_is_inert(first_loaded)) {
+        first = body_frozen(first_loaded);
+    }
+    if (body_is_inert(second_loaded)) {
+        second = body_frozen(second_loaded);
+    }
     let normal = contact.normal;
     var delta_a = vec3f(0.0);
     var delta_b = vec3f(0.0);
@@ -41,6 +49,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         delta_a = delta_a - normal * (correction * first.desc.inverse_mass);
         delta_b = delta_b + normal * (correction * second.desc.inverse_mass);
     }
-    contact_deltas[index * 4u] = vec4f(delta_a, 0.0);
-    contact_deltas[index * 4u + 1u] = vec4f(delta_b, 0.0);
+    deltas[index * 4u] = vec4f(delta_a, 0.0);
+    deltas[index * 4u + 1u] = vec4f(delta_b, 0.0);
 }

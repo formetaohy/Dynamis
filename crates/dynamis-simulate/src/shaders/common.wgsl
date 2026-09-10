@@ -327,6 +327,14 @@ fn body_frozen(body: Body) -> Body {
     return frozen;
 }
 
+fn body_is_movable(desc: BodyDescriptor) -> bool {
+    return desc.inverse_mass > 0.0 || (desc.flags & BODY_KINEMATIC) != 0u;
+}
+
+fn body_is_active(state: BodyState, desc: BodyDescriptor) -> bool {
+    return body_is_movable(desc) && state.sleeping == 0u;
+}
+
 fn body_is_dynamic(body: Body) -> bool {
     return body.desc.inverse_mass > 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
 }

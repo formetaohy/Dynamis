@@ -1,6 +1,7 @@
 use dynamis_layout::{
     COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES,
-    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER,
+    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_SPILLOVER_RESTING, Counters,
+    MAX_CELLS_PER_COLLIDER,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
@@ -321,7 +322,7 @@ impl Capacity {
     ) -> Option<CapacityPlan> {
         self.pairs.observe(
             measured[COUNTER_PAIRS],
-            measured[COUNTER_SPILLOVER_PAIRS] > 0,
+            measured[COUNTER_SPILLOVER_PAIRS] > 0 || measured[COUNTER_SPILLOVER_RESTING] > 0,
             plan.pairs,
         );
         self.entries.observe(

@@ -1,11 +1,10 @@
 use super::FrameParams;
 use super::dispatch::SORT_JOINTS;
-use super::sort;
 use super::stage::{RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
-use dynamis_sort::{RadixSort, key_words};
+use dynamis_sort::RadixSort;
 
 pub(super) struct Integrate {
     integrate: Stage,
@@ -55,13 +54,11 @@ impl Integrate {
         sort: &RadixSort,
     ) {
         if params.constraint_count > 0 {
-            let words = key_words(buffers.constraint_rows().max(1));
-            let channels = sort::lanes(
-                buffers,
+            let words = buffers.body_words();
+            let channels = buffers.sort_lanes_dual(
                 buffers.counter(COUNTER_JOINTS),
-                &buffers.constraints.joint_lo,
-                &buffers.constraints.joint_hi,
-                &buffers.sort.values,
+                &buffers.constraints.joint_major,
+                &buffers.constraints.joint_minor,
             );
             sort.sort(
                 recorder,
