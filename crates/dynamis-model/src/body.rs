@@ -20,8 +20,8 @@ pub struct BodyState {
     pub step: u64,
 }
 
-pub const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
-pub const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
+const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
+const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
 pub const MAX_COLLIDERS_PER_BODY: usize = 16;
 
 #[derive(Clone, Debug)]
@@ -103,15 +103,16 @@ impl BodyDesc {
     }
 
     pub fn compound(handles: &[ShapeSourceHandle]) -> Self {
+        let first = handles
+            .first()
+            .expect("compound body requires at least one hull");
         assert!(
-            !handles.is_empty() && handles.len() <= MAX_COLLIDERS_PER_BODY,
-            "a compound body requires between 1 and {MAX_COLLIDERS_PER_BODY} hulls"
+            handles.len() <= MAX_COLLIDERS_PER_BODY,
+            "a compound body takes at most {MAX_COLLIDERS_PER_BODY} hulls"
         );
-        let mut members = handles.iter().copied();
-        let first = members.next().expect("compound body hulls are non-empty");
-        let mut body = Self::new(ColliderDesc::new(Shape::hull(first)));
-        for handle in members {
-            body = body.collider(ColliderDesc::new(Shape::hull(handle)));
+        let mut body = Self::new(ColliderDesc::new(Shape::hull(*first)));
+        for handle in &handles[1..] {
+            body = body.collider(ColliderDesc::new(Shape::hull(*handle)));
         }
         body
     }
@@ -141,10 +142,6 @@ impl BodyDesc {
     }
 
     pub fn sensor(mut self, sensor: bool) -> Self {
-        assert!(
-            !self.colliders.is_empty(),
-            "a body needs at least one collider"
-        );
         self.colliders[0].sensor = sensor;
         self
     }

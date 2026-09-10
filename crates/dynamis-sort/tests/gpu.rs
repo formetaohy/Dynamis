@@ -1,6 +1,5 @@
 use dynamis_gpu::{ComputeRecorder, DispatchTable, GpuBuffer, GpuContext, GpuSlot};
-use dynamis_kernel::{RadixSort, SortChannels};
-use dynamis_layout::dispatch;
+use dynamis_sort::{RadixSort, SortChannels};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 
@@ -133,7 +132,7 @@ fn run_sort(
             lo_words,
             hi_words,
             &table,
-            dispatch(0, 256, 0),
+            0,
         );
     }
     context.queue().submit([encoder.finish()]);
@@ -222,10 +221,10 @@ fn sort_groups_by_bucket_and_keeps_the_payload_order_stable() {
                 scratch_hi: &scratch_hi,
                 scratch_values: &scratch_values,
             },
-            dynamis_kernel::key_words(lanes),
-            dynamis_kernel::key_words(4),
+            dynamis_sort::key_words(lanes),
+            dynamis_sort::key_words(4),
             &table,
-            dispatch(0, 256, 0),
+            0,
         );
     }
     context.queue().submit([encoder.finish()]);

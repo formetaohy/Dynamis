@@ -1,23 +1,40 @@
 use super::Simulation;
 use dynamis_layout::ContactEventRecord;
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
+use std::collections::VecDeque;
+
+pub(crate) struct Events {
+    pub(crate) contact: Vec<ContactEvent>,
+    pub(crate) due: VecDeque<(u64, u32)>,
+    pub(crate) sink: Option<Box<dyn FnMut(ContactEvent)>>,
+}
+
+impl Events {
+    pub(crate) fn new() -> Self {
+        Self {
+            contact: Vec::new(),
+            due: VecDeque::new(),
+            sink: None,
+        }
+    }
+}
 
 impl Simulation {
     pub fn drain_events(&mut self) -> Vec<ContactEvent> {
-        self.gpu.assert_alive();
+        self.device.gpu.assert_alive();
         self.collect_readbacks();
         self.sync_events();
-        std::mem::take(&mut self.events)
+        std::mem::take(&mut self.events.contact)
     }
 
     pub fn set_event_sink(&mut self, sink: Option<Box<dyn FnMut(ContactEvent)>>) {
-        self.event_sink = sink;
+        self.events.sink = sink;
     }
 
     /// The count travels with the bytes: the segment was copied home by exactly the
     /// number of records the step produced, so the two can never be paired wrong.
-    pub(crate) fn consume_events(&mut self, _step: u64, bytes: &[u8]) {
-        let records = crate::records::records::<ContactEventRecord>(bytes);
+    pub(crate) fn consume_events(&mut self, bytes: &[u8]) {
+        let records = crate::records::decode::<ContactEventRecord>(bytes);
         let count = records.len();
         let mut fresh = Vec::with_capacity(count);
         for record in &records[..count] {
@@ -42,11 +59,11 @@ impl Simulation {
                 normal: record.normal,
             });
         }
-        if let Some(sink) = self.event_sink.as_mut() {
+        if let Some(sink) = self.events.sink.as_mut() {
             for event in fresh.iter().copied() {
                 sink(event);
             }
         }
-        self.events.extend(fresh);
+        self.events.contact.extend(fresh);
     }
 }

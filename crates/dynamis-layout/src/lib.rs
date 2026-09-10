@@ -6,7 +6,6 @@ mod constant;
 mod constraint;
 mod contact;
 mod counter;
-mod dispatch;
 mod event;
 mod param;
 mod query;
@@ -36,14 +35,11 @@ pub use constraint::{
     ConstraintCommandRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord,
 };
 pub use contact::{ContactRecord, ManifoldPointRecord};
-pub use dispatch::{DISPATCH_ARGS_BYTES, DispatchArgs, Dispatcher, dispatch};
-
 pub use counter::{
     COUNTER_BODIES, COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
     COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS,
     COUNTER_LARGE, COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES,
-    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_STRIDE, Counters, counter_bytes,
-    counters,
+    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_STRIDE, Counters,
 };
 pub use event::ContactEventRecord;
 pub use param::SimParamsRecord;

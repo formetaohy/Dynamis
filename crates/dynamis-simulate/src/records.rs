@@ -3,7 +3,7 @@
 use bytemuck::{Pod, pod_read_unaligned};
 use std::mem::size_of;
 
-pub(crate) fn records<T: Pod>(bytes: &[u8]) -> Vec<T> {
+pub(crate) fn decode<T: Pod>(bytes: &[u8]) -> Vec<T> {
     let width = size_of::<T>();
     assert_eq!(
         bytes.len() % width,

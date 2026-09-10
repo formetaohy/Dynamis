@@ -25,14 +25,14 @@ glam = "0.32"
 font8x8 = "0.3"
 dynamis = { path = "." }
 dynamis-gpu = { version = "0.5.0", path = "crates/dynamis-gpu" }
-dynamis-kernel = { version = "0.5.0", path = "crates/dynamis-kernel" }
+dynamis-sort = { version = "0.5.0", path = "crates/dynamis-sort" }
 dynamis-layout = { version = "0.5.0", path = "crates/dynamis-layout" }
 dynamis-math = { version = "0.5.0", path = "crates/dynamis-math" }
 dynamis-mesh = { version = "0.5.0", path = "crates/dynamis-mesh" }
 dynamis-model = { version = "0.5.0", path = "crates/dynamis-model" }
-dynamis-profile = { version = "0.5.0", path = "crates/dynamis-profile" }
 dynamis-simulate = { version = "0.5.0", path = "crates/dynamis-simulate" }
-dynamis-example-common = { path = "examples/common" }
+dynamis-character = { version = "0.5.0", path = "crates/dynamis-character" }
+dynamis-example-profile = { path = "examples/profile" }
 dynamis-example-render = { path = "examples/render" }
 
 [workspace.lints.rust]
@@ -51,8 +51,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+dynamis-character = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-kernel = { workspace = true }
+dynamis-sort = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-simulate = { workspace = true }
 
@@ -60,13 +61,9 @@ dynamis-simulate = { workspace = true }
 profile = ["dynamis-gpu/profile", "dynamis-simulate/profile"]
 
 [dev-dependencies]
-dynamis-example-common = { workspace = true }
+dynamis-example-profile = { workspace = true }
 dynamis-example-render = { workspace = true }
-bytemuck = { workspace = true }
-dynamis-profile = { workspace = true }
-dynamis-layout = { workspace = true }
 pollster = { workspace = true }
-wgpu = { workspace = true }
 
 [[example]]
 name = "falling"

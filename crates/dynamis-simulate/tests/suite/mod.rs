@@ -1,5 +1,4 @@
 pub mod capabilities;
-pub mod character;
 pub mod commands;
 pub mod common;
 pub mod compound;

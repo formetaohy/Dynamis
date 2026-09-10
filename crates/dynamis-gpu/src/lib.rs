@@ -3,12 +3,14 @@
 mod buffer;
 mod compute;
 mod context;
+mod dispatch;
 #[cfg(feature = "profile")]
 mod timing;
 
-pub use buffer::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
+pub use buffer::{GpuBuffer, GpuReadback, GpuSlot};
 pub use compute::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
+pub use dispatch::{DISPATCH_ARGS_BYTES, DispatchTable};
 #[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};
 pub use wgpu::{

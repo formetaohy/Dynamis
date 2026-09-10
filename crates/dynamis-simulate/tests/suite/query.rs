@@ -432,6 +432,20 @@ fn query_validation_panics() {
     let mut world = sim(4, static_config());
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
+            world.sphere_query(
+                [0.0, 0.0, 0.0],
+                1.0,
+                &QueryFilter {
+                    max_hits: 32,
+                    ..QueryFilter::default()
+                },
+            );
+        }))
+        .is_err(),
+        "a request above the hit lane count must fail fast"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
             world.ray_query(
                 [0.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0],

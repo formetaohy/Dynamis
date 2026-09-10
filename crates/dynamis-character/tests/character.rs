@@ -1,29 +1,32 @@
-use super::common::{DT, sim};
+mod common;
+
+use common::{DT, gravity_config, sim};
+use dynamis_character::{Character, CharacterDesc};
 use dynamis_model::BodyDesc;
-use dynamis_simulate::{CharacterDesc, Simulation};
+use dynamis_simulate::Simulation;
 
 fn walk_and_settle(
     world: &mut Simulation,
-    character: &mut dynamis_simulate::Character,
+    character: &mut Character,
     frames: usize,
     direction: [f32; 3],
 ) {
     for _ in 0..frames {
         world.step(DT);
-        world.character_step(character, DT, direction, false);
+        character.step(world, DT, direction, false);
         world.wait();
     }
 }
 
 #[test]
 fn character_walks_on_flat_ground() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
     );
-    let mut character = world.spawn_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
     walk_and_settle(&mut world, &mut character, 30, [1.0, 0.0, 0.0]);
     assert!(character.grounded(), "character must stay grounded");
     assert!(
@@ -40,7 +43,7 @@ fn character_walks_on_flat_ground() {
 
 #[test]
 fn character_climbs_step() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -51,7 +54,8 @@ fn character_climbs_step() {
             .mass(0.0)
             .position([2.0, 0.1, 0.0]),
     );
-    let mut character = world.spawn_character(
+    let mut character = Character::spawn(
+        &mut world,
         [0.0, 1.0, 0.0],
         CharacterDesc {
             step_height: 0.3,
@@ -78,7 +82,7 @@ fn character_climbs_step() {
 
 #[test]
 fn character_blocked_by_tall_wall() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -89,7 +93,7 @@ fn character_blocked_by_tall_wall() {
             .mass(0.0)
             .position([2.0, 1.5, 0.0]),
     );
-    let mut character = world.spawn_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
     walk_and_settle(&mut world, &mut character, 60, [1.0, 0.0, 0.0]);
     assert!(
         character.position()[0] < 2.0 - 0.3,
@@ -100,27 +104,27 @@ fn character_blocked_by_tall_wall() {
 
 #[test]
 fn character_lands_after_jump() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
     );
-    let mut character = world.spawn_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
     world.step(DT);
-    world.character_step(&mut character, DT, [0.0, 0.0, 0.0], true);
+    character.step(&mut world, DT, [0.0, 0.0, 0.0], true);
     world.wait();
     let mut apex = character.position()[1];
     for _ in 0..10 {
         world.step(DT);
-        world.character_step(&mut character, DT, [0.0, 0.0, 0.0], false);
+        character.step(&mut world, DT, [0.0, 0.0, 0.0], false);
         world.wait();
         apex = apex.max(character.position()[1]);
     }
     assert!(apex > 1.35, "jump must lift the character, got apex {apex}");
     for _ in 0..60 {
         world.step(DT);
-        world.character_step(&mut character, DT, [0.0, 0.0, 0.0], false);
+        character.step(&mut world, DT, [0.0, 0.0, 0.0], false);
         world.wait();
     }
     assert!(
@@ -131,7 +135,7 @@ fn character_lands_after_jump() {
 
 #[test]
 fn character_pushes_dynamic_box() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -142,7 +146,7 @@ fn character_pushes_dynamic_box() {
             .position([1.6, 0.75, 0.0])
             .friction(0.6),
     );
-    let mut character = world.spawn_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
     walk_and_settle(&mut world, &mut character, 100, [1.0, 0.0, 0.0]);
     let moved = world.read_state(box_body).position[0];
     assert!(
@@ -153,7 +157,7 @@ fn character_pushes_dynamic_box() {
 
 #[test]
 fn character_climbs_walkable_slope() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(8, gravity_config());
     let angle = 20.0_f32.to_radians();
     let tilt = [0.0, 0.0, (angle * 0.5).sin(), (angle * 0.5).cos()];
     world.spawn(
@@ -168,7 +172,8 @@ fn character_climbs_walkable_slope() {
             .position([2.0, rise * 0.5 - 0.15, 0.0])
             .orientation(tilt),
     );
-    let mut character = world.spawn_character(
+    let mut character = Character::spawn(
+        &mut world,
         [0.0, 1.0, 0.0],
         CharacterDesc {
             slope_limit: 30.0_f32.to_radians(),

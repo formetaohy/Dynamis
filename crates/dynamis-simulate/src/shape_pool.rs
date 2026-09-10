@@ -1,6 +1,8 @@
-use crate::reservation::ShapeReservation;
+use crate::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
+use crate::capacity::ShapeReservation;
 use dynamis_layout::BvhNodeRecord;
 use dynamis_model::ShapeSourceHandle;
+use std::mem::size_of;
 
 pub(crate) struct ShapePool {
     generations: Vec<u32>,
@@ -73,12 +75,12 @@ impl ShapePool {
     }
 
     pub fn retain(&mut self, handle: ShapeSourceHandle) {
-        let _ = self.record(handle);
+        self.record(handle);
         self.refs[handle.id as usize] += 1;
     }
 
     pub fn release(&mut self, handle: ShapeSourceHandle) {
-        let _ = self.record(handle);
+        self.record(handle);
         assert!(
             self.refs[handle.id as usize] > 0,
             "shape source refcount underflow"
@@ -87,7 +89,7 @@ impl ShapePool {
     }
 
     pub fn remove(&mut self, handle: ShapeSourceHandle) {
-        let _ = self.record(handle);
+        self.record(handle);
         assert!(
             self.refs[handle.id as usize] == 0,
             "shape source is still referenced by a live body"
@@ -221,7 +223,7 @@ impl ShapePool {
         if !pending_vertices.is_empty() {
             vertices_buffer.write_at(
                 queue,
-                (self.uploaded_vertices * 16) as u64,
+                self.uploaded_vertices as u64 * VERTEX_BYTES,
                 bytemuck::cast_slice(pending_vertices),
             );
             self.uploaded_vertices = self.vertices.len();
@@ -230,7 +232,7 @@ impl ShapePool {
         if !pending_triangles.is_empty() {
             triangles_buffer.write_at(
                 queue,
-                (self.uploaded_triangles * 16) as u64,
+                self.uploaded_triangles as u64 * TRIANGLE_BYTES,
                 bytemuck::cast_slice(pending_triangles),
             );
             self.uploaded_triangles = self.triangles.len();
@@ -239,7 +241,7 @@ impl ShapePool {
         if !pending_nodes.is_empty() {
             nodes_buffer.write_at(
                 queue,
-                (self.uploaded_nodes * std::mem::size_of::<BvhNodeRecord>()) as u64,
+                (self.uploaded_nodes * size_of::<BvhNodeRecord>()) as u64,
                 bytemuck::cast_slice(pending_nodes),
             );
             self.uploaded_nodes = self.nodes.len();
@@ -274,7 +276,7 @@ impl ShapePool {
             let end = start + record.vertex_count as usize;
             vertices_buffer.write_at(
                 queue,
-                (record.vertex_offset as u64) * 16,
+                (record.vertex_offset as u64) * VERTEX_BYTES,
                 bytemuck::cast_slice(&self.vertices[start..end]),
             );
         }
@@ -283,7 +285,7 @@ impl ShapePool {
             let end = start + record.triangle_count as usize;
             triangles_buffer.write_at(
                 queue,
-                (record.triangle_offset as u64) * 16,
+                (record.triangle_offset as u64) * TRIANGLE_BYTES,
                 bytemuck::cast_slice(&self.triangles[start..end]),
             );
         }
@@ -292,7 +294,7 @@ impl ShapePool {
             let end = start + record.node_count as usize;
             nodes_buffer.write_at(
                 queue,
-                (record.node_offset as u64) * std::mem::size_of::<BvhNodeRecord>() as u64,
+                (record.node_offset as u64) * size_of::<BvhNodeRecord>() as u64,
                 bytemuck::cast_slice(&self.nodes[start..end]),
             );
         }
@@ -312,6 +314,10 @@ fn bounds_of(vertices: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
 }
 
 fn build_bvh(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<BvhNodeRecord> {
+    assert!(
+        !triangles.is_empty(),
+        "a shape source requires at least one triangle"
+    );
     let mut nodes = Vec::new();
     let mut order = (0..triangles.len() as u32).collect::<Vec<_>>();
     build_node(vertices, triangles, &mut order, &mut nodes);

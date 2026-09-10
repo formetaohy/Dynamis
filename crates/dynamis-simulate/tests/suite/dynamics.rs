@@ -1,9 +1,5 @@
-use super::common::{
-    DT, gravity_config, read_records, settle, sim, static_config, static_sphere_ground,
-};
-use dynamis_layout::ContactRecord;
+use super::common::{DT, gravity_config, settle, sim, static_config, static_sphere_ground};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
-use dynamis_simulate::DebugBuffer;
 
 const GRAVITY: f32 = 9.81;
 
@@ -378,33 +374,35 @@ fn resting_contact_carries_warm_start_impulse() {
     for _ in 0..60 {
         world.step(DT);
     }
-    world.wait();
-    let count = world.measured()[dynamis_layout::COUNTER_CONTACTS];
-    assert_eq!(count, 1, "resting ball must hold exactly one contact");
-    let contacts: Vec<ContactRecord> = read_records(
-        &world,
-        world.debug_buffer(DebugBuffer::Contacts),
-        count as usize,
+    let resting = world.contact_manifolds();
+    assert_eq!(
+        resting.len(),
+        1,
+        "resting ball must hold exactly one contact"
     );
-    let impulse = contacts[0].points[0].accumulated_normal;
+    let impulse = resting[0].points[0].normal_impulse;
     assert!(
         impulse > 0.01,
         "resting contact must accumulate normal impulse, got {impulse}"
     );
-    for point in &contacts[0].points[..contacts[0].point_count as usize] {
-        assert!(point.accumulated_normal.is_finite() && point.accumulated_normal >= 0.0);
+    for point in &resting[0].points {
+        assert!(point.normal_impulse.is_finite() && point.normal_impulse >= 0.0);
     }
+    let pair = (resting[0].first, resting[0].second);
     world.step(DT);
-    world.wait();
-    let archived: Vec<ContactRecord> = read_records(
-        &world,
-        world.debug_buffer(DebugBuffer::PrevContacts),
-        count as usize,
-    );
-    assert_eq!(archived[0].a, contacts[0].a);
-    assert_eq!(archived[0].b, contacts[0].b);
+    let relayed = world.contact_manifolds();
     assert_eq!(
-        archived[0].points[0].accumulated_normal, impulse,
+        relayed.len(),
+        1,
+        "the archived contact must be matched again"
+    );
+    assert_eq!(
+        (relayed[0].first, relayed[0].second),
+        pair,
+        "the same pair must keep its contact"
+    );
+    assert!(
+        relayed[0].points[0].normal_impulse > 0.01,
         "archived contact must relay the solved impulse into the next frame"
     );
 }

@@ -16,12 +16,7 @@ pub fn static_aabbs(
     colliders: &[ColliderRecord; MAX_COLLIDERS_PER_BODY],
     shapes: &ShapePool,
 ) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
-    let mut aabbs = [AabbRecord {
-        min: [f32::MAX; 3],
-        _pad0: 0.0,
-        max: [f32::MIN; 3],
-        _pad1: 0.0,
-    }; MAX_COLLIDERS_PER_BODY];
+    let mut aabbs = [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY];
     for (index, collider) in colliders.iter().enumerate() {
         if collider.kind == SHAPE_NONE {
             continue;
@@ -73,15 +68,10 @@ fn collider_aabb(
             for vertex in &shapes.vertices[record.vertex_offset as usize
                 ..(record.vertex_offset + record.vertex_count) as usize]
             {
-                let local = [vertex[0], vertex[1], vertex[2]];
-                let world = [
-                    center[0] + quat_rotate(rotation, local)[0],
-                    center[1] + quat_rotate(rotation, local)[1],
-                    center[2] + quat_rotate(rotation, local)[2],
-                ];
+                let rotated = quat_rotate(rotation, [vertex[0], vertex[1], vertex[2]]);
                 for axis in 0..3 {
-                    min[axis] = min[axis].min(world[axis]);
-                    max[axis] = max[axis].max(world[axis]);
+                    min[axis] = min[axis].min(rotated[axis]);
+                    max[axis] = max[axis].max(rotated[axis]);
                 }
             }
             [

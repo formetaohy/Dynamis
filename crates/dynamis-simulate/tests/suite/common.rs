@@ -74,32 +74,3 @@ pub fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dz = a[2] - b[2];
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
-
-pub fn read_records<T: bytemuck::Pod>(
-    sim: &Simulation,
-    buffer: &wgpu::Buffer,
-    count: usize,
-) -> Vec<T> {
-    let bytes = (count * std::mem::size_of::<T>()) as u64;
-    let staging = sim.device().create_buffer(&wgpu::BufferDescriptor {
-        label: Some("record readback"),
-        size: bytes,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder = sim
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, bytes);
-    sim.queue().submit([encoder.finish()]);
-    let _ = sim.device().poll(wgpu::PollType::wait_indefinitely());
-    let slice = staging.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = tx.send(result);
-    });
-    let _ = sim.device().poll(wgpu::PollType::wait_indefinitely());
-    rx.recv().expect("map").expect("map error");
-    let mapped = slice.get_mapped_range().unwrap();
-    bytemuck::cast_slice::<u8, T>(&mapped).to_vec()
-}

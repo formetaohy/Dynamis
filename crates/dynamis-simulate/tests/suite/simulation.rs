@@ -103,6 +103,27 @@ fn grow_preserves_live_state_and_adds_capacity() {
 }
 
 #[test]
+fn grow_extends_the_constraint_id_space() {
+    let mut world = sim(4, static_config());
+    let ground = world.spawn(BodyDesc::static_sphere(5.0));
+    world.grow(64);
+    let mut balls = Vec::new();
+    for index in 0..40u32 {
+        let ball = world.spawn(BodyDesc::sphere(0.1).position([0.0, 3.0 + index as f32, 0.0]));
+        world.add_constraint(
+            ball,
+            ground,
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+        );
+        balls.push(ball);
+    }
+    assert_eq!(world.constraints().len(), 40);
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.count(), 41);
+}
+
+#[test]
 fn grow_below_live_count_panics() {
     let mut world = sim(8, static_config());
     world.spawn(BodyDesc::sphere(0.5));

@@ -72,7 +72,7 @@ impl FilterBasis {
     }
 }
 
-fn query_record(kind: u32, filter: &QueryFilter) -> (FilterBasis, QueryRecord) {
+fn query_record(kind: u32, filter: &QueryFilter) -> QueryRecord {
     let basis = FilterBasis::of(filter);
     let mut record = QueryRecord::zeroed();
     record.kind = kind;
@@ -84,10 +84,10 @@ fn query_record(kind: u32, filter: &QueryFilter) -> (FilterBasis, QueryRecord) {
     record.exclude_generation = basis.exclude_generation;
     record.include_id = basis.include_id;
     record.include_generation = basis.include_generation;
-    (basis, record)
+    record
 }
 
-fn shape_fields(record: &mut QueryRecord, shape: &Shape) -> (u32, u32) {
+fn shape_fields(record: &mut QueryRecord, shape: &Shape) {
     let (shape_kind, source) = match shape {
         Shape::Sphere { .. } => (SHAPE_SPHERE, 0),
         Shape::Cuboid { .. } => (SHAPE_CUBOID, 0),
@@ -115,12 +115,11 @@ fn shape_fields(record: &mut QueryRecord, shape: &Shape) -> (u32, u32) {
     if let Shape::Cuboid { half_extents } = shape {
         record.half_extents = *half_extents;
     }
-    (shape_kind, source)
 }
 
 impl QueryRecord {
     pub fn ray(origin: [f32; 3], direction: [f32; 3], max_t: f32, filter: &QueryFilter) -> Self {
-        let (_, mut record) = query_record(QUERY_RAY, filter);
+        let mut record = query_record(QUERY_RAY, filter);
         record.origin = origin;
         record.direction = direction;
         record.extent = max_t;
@@ -128,7 +127,7 @@ impl QueryRecord {
     }
 
     pub fn sphere(center: [f32; 3], radius: f32, filter: &QueryFilter) -> Self {
-        let (_, mut record) = query_record(QUERY_SPHERE, filter);
+        let mut record = query_record(QUERY_SPHERE, filter);
         record.shape_kind = SHAPE_SPHERE;
         record.origin = center;
         record.extent = radius;
@@ -137,14 +136,14 @@ impl QueryRecord {
     }
 
     pub fn point(origin: [f32; 3], filter: &QueryFilter) -> Self {
-        let (_, mut record) = query_record(QUERY_POINT, filter);
+        let mut record = query_record(QUERY_POINT, filter);
         record.shape_kind = SHAPE_SPHERE;
         record.origin = origin;
         record
     }
 
     pub fn cuboid(center: [f32; 3], half_extents: [f32; 3], filter: &QueryFilter) -> Self {
-        let (_, mut record) = query_record(QUERY_CUBOID, filter);
+        let mut record = query_record(QUERY_CUBOID, filter);
         record.shape_kind = SHAPE_CUBOID;
         record.origin = center;
         record.half_extents = half_extents;
@@ -157,7 +156,7 @@ impl QueryRecord {
         position: [f32; 3],
         filter: &QueryFilter,
     ) -> Self {
-        let (_, mut record) = query_record(QUERY_CONVEX, filter);
+        let mut record = query_record(QUERY_CONVEX, filter);
         record.origin = position;
         record.orientation = orientation;
         shape_fields(&mut record, shape);
@@ -172,7 +171,7 @@ impl QueryRecord {
         length: f32,
         filter: &QueryFilter,
     ) -> Self {
-        let (_, mut record) = query_record(QUERY_SWEEP, filter);
+        let mut record = query_record(QUERY_SWEEP, filter);
         record.origin = start;
         record.direction = direction;
         record.extent = length;

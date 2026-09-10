@@ -41,7 +41,8 @@ impl GpuBuffer {
             .slice(..)
             .get_mapped_range_mut()
             .expect("mapped at creation range unavailable")
-            .copy_from_slice(&vec![0u8; size as usize]);
+            .slice(..)
+            .fill(0);
         buffer.unmap();
         Self {
             buffer,
@@ -319,35 +320,5 @@ impl GpuReadback {
             }
             std::thread::yield_now();
         }
-    }
-}
-
-/// The table a device writes once per step, then every stage dispatches from.
-pub struct DispatchTable {
-    buffer: GpuBuffer,
-}
-
-impl DispatchTable {
-    /// A table of `slots` indirect argument words, in both storage and indirect usage.
-    pub fn new(device: &Device, label: &str, slots: u32) -> Self {
-        let size = slots as u64 * dynamis_layout::DISPATCH_ARGS_BYTES;
-        Self {
-            buffer: GpuBuffer::new(
-                device,
-                label,
-                size,
-                BufferUsages::STORAGE
-                    .union(BufferUsages::INDIRECT)
-                    .union(BufferUsages::COPY_DST),
-            ),
-        }
-    }
-
-    pub fn buffer(&self) -> &GpuBuffer {
-        &self.buffer
-    }
-
-    pub fn offset(&self, slot: u32) -> BufferAddress {
-        slot as u64 * dynamis_layout::DISPATCH_ARGS_BYTES
     }
 }

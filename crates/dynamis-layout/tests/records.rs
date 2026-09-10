@@ -383,7 +383,7 @@ fn body_commands_encode_their_payloads() {
 }
 
 #[test]
-fn constraint_command_and_dispatch_args_encode() {
+fn constraint_command_encodes() {
     let record = ConstraintDescriptorRecord::build(&ConstraintDesc::ball([0.0; 3], [0.0; 3]), 1, 2);
     assert_eq!(record.kind, CONSTRAINT_BALL);
     assert_eq!(record.a, 1);
@@ -396,29 +396,6 @@ fn constraint_command_and_dispatch_args_encode() {
     let swap = ConstraintCommandRecord::swap(3, 9);
     assert_eq!(swap.kind, COMMAND_CONSTRAINT_SWAP);
     assert_eq!(swap.tail, 9);
-
-    let declared = dynamis_layout::counters(9, 0, 42, 7);
-    assert_eq!(declared[dynamis_layout::COUNTER_BODIES], 9);
-    assert_eq!(declared[dynamis_layout::COUNTER_BODY_COMMANDS], 42);
-    assert_eq!(declared[dynamis_layout::COUNTER_CONSTRAINT_COMMANDS], 7);
-    assert_eq!(
-        declared[dynamis_layout::COUNTER_PAIRS],
-        0,
-        "measured slots start empty"
-    );
-    let bytes = dynamis_layout::counter_bytes(&declared);
-    assert_eq!(bytes.len(), dynamis_layout::COUNTER_COUNT * 256);
-    for (slot, chunk) in bytes.chunks_exact(256).enumerate() {
-        assert_eq!(
-            u32::from_le_bytes(chunk[..4].try_into().unwrap()),
-            declared[slot],
-            "slot {slot} must land at its stride"
-        );
-        assert!(
-            chunk[4..].iter().all(|byte| *byte == 0),
-            "slot {slot} must be padded to its stride"
-        );
-    }
 }
 
 #[test]

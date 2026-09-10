@@ -1,19 +1,17 @@
 [package]
-name = "dynamis-gpu"
+name = "dynamis-sort"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-profile = []
-
 [dependencies]
-bytemuck = { workspace = true }
+dynamis-gpu = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]
+bytemuck = { workspace = true }
 pollster = { workspace = true }
 
 [lints]

@@ -1,5 +1,5 @@
 use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation};
-use dynamis_profile::Profiler;
+use dynamis_example_profile::Profiler;
 use std::time::Instant;
 
 const DEFAULT_BODIES: usize = 128;
@@ -104,7 +104,7 @@ fn record_passes(profiler: &mut Profiler, sim: &Simulation) -> u64 {
 }
 
 fn format_elapsed(ns: f64) -> String {
-    dynamis_profile::format_ns(ns)
+    dynamis_example_profile::format_ns(ns)
 }
 
 fn spawn_scene(sim: &mut Simulation, count: usize) {

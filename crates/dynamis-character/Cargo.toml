@@ -1,19 +1,19 @@
 [package]
-name = "dynamis-kernel"
+name = "dynamis-character"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[dependencies]
-dynamis-gpu = { workspace = true }
-dynamis-layout = { workspace = true }
-wgpu = { workspace = true }
-
-[dev-dependencies]
-bytemuck = { workspace = true }
-pollster = { workspace = true }
-
 [lints]
 workspace = true
+
+[dependencies]
+dynamis-math = { workspace = true }
+dynamis-model = { workspace = true }
+dynamis-simulate = { workspace = true }
+
+[dev-dependencies]
+dynamis-gpu = { workspace = true }
+pollster = { workspace = true }

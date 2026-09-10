@@ -2,7 +2,6 @@ use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
     GpuContext, GpuSlot,
 };
-use dynamis_layout::Dispatcher;
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
@@ -316,7 +315,7 @@ impl RadixSort {
         lo_words: u32,
         hi_words: u32,
         table: &DispatchTable,
-        dispatcher: Dispatcher,
+        slot: u32,
     ) {
         let mut passes = (0..lo_words).chain(4..4 + hi_words).collect::<Vec<_>>();
         // An odd count would leave the result in the scratch lanes. Repeating the most
@@ -332,7 +331,7 @@ impl RadixSort {
                 &self.histogram_pipelines[pass],
                 &[&bindings.histogram[parity]],
                 table,
-                dispatcher.slot(),
+                slot,
             );
             recorder.record(&self.prefix_pipeline, &[&self.prefix_group], 1);
             recorder.record(
@@ -344,7 +343,7 @@ impl RadixSort {
                 &self.scatter_pipelines[pass],
                 &[&bindings.scatter[parity]],
                 table,
-                dispatcher.slot(),
+                slot,
             );
         }
     }
@@ -370,7 +369,7 @@ impl RadixSort {
     /// Order `channels` by `lo_words` of the low key word then `hi_words` of the high one.
     ///
     /// The sorted lanes always end up back in `channels`, and dispatches run by how many
-    /// lanes `dispatcher`'s counter says are live, never by the reservation.
+    /// lanes the counter behind `slot` says are live, never by the reservation.
     pub fn sort(
         &self,
         recorder: &mut ComputeRecorder,
@@ -378,10 +377,10 @@ impl RadixSort {
         lo_words: u32,
         hi_words: u32,
         table: &DispatchTable,
-        dispatcher: Dispatcher,
+        slot: u32,
     ) {
         self.with_bindings(&self.device, channels, |bindings| {
-            self.encode_passes(recorder, bindings, lo_words, hi_words, table, dispatcher)
+            self.encode_passes(recorder, bindings, lo_words, hi_words, table, slot)
         });
     }
 }

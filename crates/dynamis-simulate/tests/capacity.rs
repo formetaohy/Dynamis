@@ -1,4 +1,6 @@
-use dynamis_simulate::planning::{Capacity, Live, Reservation, StreamDemand, StreamPlan};
+use dynamis_simulate::capacity::{
+    Capacity, CapacityPlan, Live, Reservation, STREAM_FLOOR, StreamDemand,
+};
 
 fn demand(pairs: u32, entries: u32, events: u32) -> StreamDemand {
     StreamDemand {
@@ -37,7 +39,7 @@ fn widen_serves_measured_demand_and_live_rows() {
     let plan = Reservation::planned(
         &floor_plan(),
         &live(32, 0),
-        Some(StreamPlan::Widen(demand(8192, 1024, 64))),
+        Some(CapacityPlan::Widen(demand(8192, 1024, 64))),
     );
     assert!(plan.bodies >= 32);
     assert!(plan.pairs >= 8192);
@@ -50,7 +52,7 @@ fn widen_keeps_density_baseline_for_the_live_count() {
     let plan = Reservation::planned(
         &floor_plan(),
         &live(100, 0),
-        Some(StreamPlan::Widen(demand(64, 16, 0))),
+        Some(CapacityPlan::Widen(demand(64, 16, 0))),
     );
     // 100 bodies want at least 100*128 pair lanes even when nothing measured much.
     assert!(plan.pairs >= 100 * 128);
@@ -62,14 +64,14 @@ fn narrow_releases_stream_headroom_gradually() {
     let current = Reservation::planned(
         &floor_plan(),
         &live(32, 0),
-        Some(StreamPlan::Widen(demand(8192, 1024, 64))),
+        Some(CapacityPlan::Widen(demand(8192, 1024, 64))),
     );
     assert_eq!(current.pairs, 8192);
     assert_eq!(current.entries, 8192);
     let idle = Reservation::planned(
         &current,
         &live(32, 0),
-        Some(StreamPlan::Narrow(demand(64, 32, 0))),
+        Some(CapacityPlan::Narrow(demand(64, 32, 0))),
     );
     // One halving per plan: 8192 -> 4096, never below the floor.
     assert_eq!(idle.pairs, 4096);
@@ -82,16 +84,16 @@ fn narrow_never_goes_below_the_floor_or_live_counts() {
     let mut current = Reservation::planned(
         &floor_plan(),
         &live(100, 0),
-        Some(StreamPlan::Widen(demand(8192, 2048, 256))),
+        Some(CapacityPlan::Widen(demand(8192, 2048, 256))),
     );
     for _ in 0..8 {
         let next = Reservation::planned(
             &current,
             &live(100, 0),
-            Some(StreamPlan::Narrow(demand(0, 0, 0))),
+            Some(CapacityPlan::Narrow(demand(0, 0, 0))),
         );
-        assert!(next.pairs >= dynamis_simulate::planning::STREAM_FLOOR);
-        assert!(next.entries >= dynamis_simulate::planning::STREAM_FLOOR);
+        assert!(next.pairs >= STREAM_FLOOR);
+        assert!(next.entries >= STREAM_FLOOR);
         assert!(next.bodies >= 100);
         current = next;
     }
@@ -102,13 +104,13 @@ fn body_rows_shrink_with_the_live_count() {
     let current = Reservation::planned(
         &floor_plan(),
         &live(1024, 0),
-        Some(StreamPlan::Widen(demand(0, 0, 0))),
+        Some(CapacityPlan::Widen(demand(0, 0, 0))),
     );
     assert!(current.bodies >= 1024);
     let idle = Reservation::planned(
         &current,
         &live(16, 0),
-        Some(StreamPlan::Narrow(demand(0, 0, 0))),
+        Some(CapacityPlan::Narrow(demand(0, 0, 0))),
     );
     // Halving toward live*2, yet never below the live count.
     assert!(idle.bodies >= 16);
@@ -127,7 +129,7 @@ fn observe_latches_pressure_and_then_narrows() {
     let widened = capacity
         .observe(&counts, &plan)
         .expect("pressure must plan a widen");
-    assert!(matches!(widened, StreamPlan::Widen(_)));
+    assert!(matches!(widened, CapacityPlan::Widen(_)));
     plan = Reservation::planned(&plan, &live(64, 0), Some(widened));
 
     // Sustained idleness must eventually produce a narrowing plan.
@@ -136,7 +138,7 @@ fn observe_latches_pressure_and_then_narrows() {
         counts[dynamis_layout::COUNTER_PAIRS] = 16;
         counts[dynamis_layout::COUNTER_SPILLOVER_PAIRS] = 0;
         if let Some(next) = capacity.observe(&counts, &plan) {
-            if matches!(next, StreamPlan::Narrow(_)) {
+            if matches!(next, CapacityPlan::Narrow(_)) {
                 narrowed = Some(next);
                 break;
             }

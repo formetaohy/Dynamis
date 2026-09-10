@@ -5,6 +5,41 @@ use dynamis_model::{
     ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
 };
 
+pub(crate) struct Constraints {
+    pub(crate) alive: Vec<ConstraintHandle>,
+    pub(crate) index_of: Vec<u32>,
+    pub(crate) generations: Vec<u32>,
+    pub(crate) free_ids: Vec<u32>,
+    pub(crate) records: Vec<ConstraintDescriptorRecord>,
+    pub(crate) commands: Vec<ConstraintCommandRecord>,
+    pub(crate) dirty: Vec<u32>,
+    pub(crate) structural: bool,
+    pub(crate) last_commands: u32,
+    pub(crate) broken: Vec<ConstraintHandle>,
+}
+
+impl Constraints {
+    pub(crate) fn new(slots: usize) -> Self {
+        Self {
+            alive: Vec::new(),
+            index_of: vec![u32::MAX; slots],
+            generations: vec![1; slots],
+            free_ids: (0..slots as u32).rev().collect(),
+            records: Vec::new(),
+            commands: Vec::new(),
+            dirty: Vec::new(),
+            structural: false,
+            last_commands: 0,
+            broken: Vec::new(),
+        }
+    }
+
+    pub(crate) fn resize(&mut self, slots: usize) {
+        self.index_of.resize(slots, u32::MAX);
+        self.generations.resize(slots, 1);
+    }
+}
+
 impl Simulation {
     pub fn add_constraint(
         &mut self,
@@ -29,28 +64,29 @@ impl Simulation {
             desc.reference = relative_reference(state_a.orientation, state_b.orientation);
         }
         let id = self
-            .constraint_free_ids
+            .constraints
+            .free_ids
             .pop()
             .expect("simulation constraint capacity exhausted");
-        self.constraint_generations[id as usize] += 1;
+        self.constraints.generations[id as usize] += 1;
         let handle = ConstraintHandle {
             id,
-            generation: self.constraint_generations[id as usize],
+            generation: self.constraints.generations[id as usize],
         };
-        let slot = self.constraint_alive.len() as u32;
-        self.constraint_index_of[id as usize] = slot;
-        self.constraint_alive.push(handle);
-        self.dirty_constraints.push(slot);
+        let slot = self.constraints.alive.len() as u32;
+        self.constraints.index_of[id as usize] = slot;
+        self.constraints.alive.push(handle);
+        self.constraints.dirty.push(slot);
         let record = ConstraintDescriptorRecord::build(
             &desc,
-            self.index_of[first.id as usize],
-            self.index_of[second.id as usize],
+            self.bodies.index_of[first.id as usize],
+            self.bodies.index_of[second.id as usize],
         );
-        self.constraint_records.push(record);
-        self.constraint_commands.push(ConstraintCommandRecord::add(
+        self.constraints.records.push(record);
+        self.constraints.commands.push(ConstraintCommandRecord::add(
             slot,
             id,
-            self.constraint_generations[id as usize],
+            self.constraints.generations[id as usize],
         ));
         handle
     }
@@ -58,11 +94,11 @@ impl Simulation {
     pub fn update_constraint(&mut self, handle: ConstraintHandle, desc: ConstraintDesc) {
         self.validate_constraint(handle);
         self.validate_constraint_desc(&desc);
-        let slot = self.constraint_index_of[handle.id as usize] as usize;
-        let existing = self.constraint_records[slot];
+        let slot = self.constraints.index_of[handle.id as usize] as usize;
+        let existing = self.constraints.records[slot];
         let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
-        self.constraint_records[slot] = record;
-        self.dirty_constraints.push(slot as u32);
+        self.constraints.records[slot] = record;
+        self.constraints.dirty.push(slot as u32);
     }
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
@@ -150,37 +186,38 @@ impl Simulation {
         change: impl FnOnce(&mut ConstraintDesc),
     ) {
         self.validate_constraint(handle);
-        let slot = self.constraint_index_of[handle.id as usize] as usize;
-        let mut desc = constraint_desc_from_record(&self.constraint_records[slot]);
+        let slot = self.constraints.index_of[handle.id as usize] as usize;
+        let mut desc = constraint_desc_from_record(&self.constraints.records[slot]);
         change(&mut desc);
         self.validate_constraint_desc(&desc);
-        let existing = self.constraint_records[slot];
+        let existing = self.constraints.records[slot];
         let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
-        self.constraint_records[slot] = record;
-        self.dirty_constraints.push(slot as u32);
+        self.constraints.records[slot] = record;
+        self.constraints.dirty.push(slot as u32);
     }
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
         self.validate_constraint(handle);
         let id = handle.id as usize;
-        let slot = self.constraint_index_of[id] as usize;
-        let tail = self.constraint_alive.len() - 1;
-        self.constraint_alive.swap_remove(slot);
-        self.constraint_records.remove(slot);
+        let slot = self.constraints.index_of[id] as usize;
+        let tail = self.constraints.alive.len() - 1;
+        self.constraints.alive.swap_remove(slot);
+        self.constraints.records.remove(slot);
         if slot < tail {
-            let moved = self.constraint_alive[slot];
-            self.constraint_index_of[moved.id as usize] = slot as u32;
-            self.dirty_constraints.push(slot as u32);
-            self.constraint_commands
+            let moved = self.constraints.alive[slot];
+            self.constraints.index_of[moved.id as usize] = slot as u32;
+            self.constraints.dirty.push(slot as u32);
+            self.constraints
+                .commands
                 .push(ConstraintCommandRecord::swap(slot as u32, tail as u32));
         }
-        self.constraint_index_of[id] = u32::MAX;
-        self.constraint_free_ids.push(handle.id);
-        self.dirty_constraints.retain(|dirty| *dirty != tail as u32);
+        self.constraints.index_of[id] = u32::MAX;
+        self.constraints.free_ids.push(handle.id);
+        self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
     }
 
     pub fn constraints(&self) -> &[ConstraintHandle] {
-        &self.constraint_alive
+        &self.constraints.alive
     }
 
     fn validate_constraint(&self, handle: ConstraintHandle) {
@@ -188,10 +225,10 @@ impl Simulation {
         if id >= self.slots {
             panic!("constraint handle {handle:?} is out of range");
         }
-        if self.constraint_generations[id] != handle.generation {
+        if self.constraints.generations[id] != handle.generation {
             panic!("constraint handle {handle:?} is stale");
         }
-        if self.constraint_index_of[id] == u32::MAX {
+        if self.constraints.index_of[id] == u32::MAX {
             panic!("constraint handle {handle:?} is not alive");
         }
     }
@@ -216,8 +253,8 @@ impl Simulation {
     }
 
     pub(super) fn remap_constraint_slots(&mut self, first: u32, second: u32) {
-        for index in 0..self.constraint_records.len() {
-            let record = &mut self.constraint_records[index];
+        for index in 0..self.constraints.records.len() {
+            let record = &mut self.constraints.records[index];
             let mut changed = false;
             if record.a == first && record.b == second {
                 record.a = second;
@@ -244,13 +281,13 @@ impl Simulation {
                 }
             }
             if changed {
-                self.dirty_constraints.push(index as u32);
+                self.constraints.dirty.push(index as u32);
             }
         }
     }
 
     pub(super) fn assert_no_constraints(&self, handle: BodyHandle) {
-        for constraint in &self.constraint_alive {
+        for constraint in &self.constraints.alive {
             if constraint.id == handle.id {
                 panic!(
                     "body handle {handle:?} is referenced by a live constraint; remove it first"
@@ -267,16 +304,7 @@ fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32;
         -orientation_a[2],
         orientation_a[3],
     ];
-    quat_mul(a, orientation_b)
-}
-
-fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [
-        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
-        a[3] * b[1] + a[1] * b[3] + a[2] * b[0] - a[0] * b[2],
-        a[3] * b[2] + a[2] * b[3] + a[0] * b[1] - a[1] * b[0],
-        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
-    ]
+    dynamis_math::quat_mul(a, orientation_b)
 }
 
 fn constraint_desc_from_record(record: &ConstraintDescriptorRecord) -> ConstraintDesc {

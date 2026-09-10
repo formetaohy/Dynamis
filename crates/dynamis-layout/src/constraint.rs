@@ -279,24 +279,11 @@ pub struct ConstraintRuntimeRecord {
 }
 
 impl ConstraintRuntimeRecord {
-    /// The runtime row a fresh constraint slot starts with.
-    pub fn ignited(constraint_id: u32, generation: u32) -> Self {
+    pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
             accumulated: [0.0; 8],
             broken: 0,
             constraint_id,
-            generation,
-            _pad0: 0,
-        }
-    }
-}
-
-impl ConstraintRuntimeRecord {
-    pub fn fresh(id: u32, generation: u32) -> Self {
-        Self {
-            accumulated: [0.0; 8],
-            broken: 0,
-            constraint_id: id,
             generation,
             _pad0: 0,
         }

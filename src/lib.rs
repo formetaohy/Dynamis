@@ -15,6 +15,7 @@
 //! # }
 //! ```
 
+pub use dynamis_character::{Character, CharacterDesc};
 pub use dynamis_gpu::{
     AdapterInfo, Backend, Backends, BindingKind, BindingSpec, ComputePipeline, ComputeRecorder,
     DeviceLost, DeviceType, Features, GpuBuffer, GpuContext, GpuReadback, GpuRequest, GpuSlot,
@@ -22,7 +23,6 @@ pub use dynamis_gpu::{
 };
 #[cfg(feature = "profile")]
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
-pub use dynamis_kernel::{RadixSort, SortChannels};
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
@@ -31,6 +31,7 @@ pub use dynamis_model::{
     ShapeSourceHandle,
 };
 pub use dynamis_simulate::{
-    Character, CharacterDesc, Counters, DebugBuffer, HullDecomposeSettings, QueryHandle, QueryHit,
+    ContactManifold, ContactPoint, Counters, HullDecomposeSettings, QueryHandle, QueryHit,
     Simulation,
 };
+pub use dynamis_sort::{RadixSort, SortChannels};

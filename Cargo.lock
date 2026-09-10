@@ -373,27 +373,30 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 name = "dynamis"
 version = "0.5.0"
 dependencies = [
- "bytemuck",
- "dynamis-example-common",
+ "dynamis-character",
+ "dynamis-example-profile",
  "dynamis-example-render",
  "dynamis-gpu",
- "dynamis-kernel",
- "dynamis-layout",
  "dynamis-model",
- "dynamis-profile",
  "dynamis-simulate",
+ "dynamis-sort",
  "pollster",
- "wgpu",
 ]
 
 [[package]]
-name = "dynamis-example-common"
-version = "0.1.0"
+name = "dynamis-character"
+version = "0.5.0"
 dependencies = [
- "dynamis",
- "dynamis-example-render",
+ "dynamis-gpu",
+ "dynamis-math",
+ "dynamis-model",
+ "dynamis-simulate",
  "pollster",
 ]
+
+[[package]]
+name = "dynamis-example-profile"
+version = "0.1.0"
 
 [[package]]
 name = "dynamis-example-render"
@@ -411,18 +414,7 @@ dependencies = [
 name = "dynamis-gpu"
 version = "0.5.0"
 dependencies = [
- "dynamis-layout",
- "pollster",
- "wgpu",
-]
-
-[[package]]
-name = "dynamis-kernel"
-version = "0.5.0"
-dependencies = [
  "bytemuck",
- "dynamis-gpu",
- "dynamis-layout",
  "pollster",
  "wgpu",
 ]
@@ -451,20 +443,26 @@ name = "dynamis-model"
 version = "0.5.0"
 
 [[package]]
-name = "dynamis-profile"
-version = "0.5.0"
-
-[[package]]
 name = "dynamis-simulate"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
  "dynamis-gpu",
- "dynamis-kernel",
  "dynamis-layout",
  "dynamis-math",
  "dynamis-mesh",
  "dynamis-model",
+ "dynamis-sort",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
+name = "dynamis-sort"
+version = "0.5.0"
+dependencies = [
+ "bytemuck",
+ "dynamis-gpu",
  "pollster",
  "wgpu",
 ]

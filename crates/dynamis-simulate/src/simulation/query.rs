@@ -1,8 +1,24 @@
 use super::Simulation;
-use crate::query_pool::{QueryHandle, QueryHit};
+use crate::query_pool::{QueryHandle, QueryHit, QueryPool};
 use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
 use std::mem::size_of;
+
+pub(crate) struct Queries {
+    pub(crate) pending: Vec<QueryRecord>,
+    pub(crate) next_batch: u64,
+    pub(crate) pool: QueryPool,
+}
+
+impl Queries {
+    pub(crate) fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+            next_batch: 0,
+            pool: QueryPool::new(),
+        }
+    }
+}
 
 impl Simulation {
     pub fn ray_query(
@@ -80,29 +96,31 @@ impl Simulation {
     }
 
     fn submit_query(&mut self, record: QueryRecord) -> QueryHandle {
-        let mut record = record;
-        record.max_hits = record.max_hits.min(MAX_HITS_PER_QUERY);
-        let index = self.queries.len() as u32;
-        self.queries.push(record);
+        assert!(
+            record.max_hits <= MAX_HITS_PER_QUERY,
+            "a query returns at most {MAX_HITS_PER_QUERY} hits"
+        );
+        let index = self.queries.pending.len() as u32;
+        self.queries.pending.push(record);
         QueryHandle {
-            batch: self.next_batch,
+            batch: self.queries.next_batch,
             index,
         }
     }
 
     pub fn query_hit(&self, handle: QueryHandle) -> Option<QueryHit> {
         self.validate_query(handle);
-        self.query_pool.hit(handle)
+        self.queries.pool.hit(handle)
     }
 
     pub fn query_hits(&self, handle: QueryHandle) -> &[QueryHit] {
         self.validate_query(handle);
-        self.query_pool.hits(handle)
+        self.queries.pool.hits(handle)
     }
 
     pub fn query_overflow(&self, handle: QueryHandle) -> bool {
         self.validate_query(handle);
-        self.query_pool.overflow(handle)
+        self.queries.pool.overflow(handle)
     }
 
     /// Runs the pending query batch without advancing the world.
@@ -111,81 +129,88 @@ impl Simulation {
     /// reallocation may not touch device resources while a staging mapping is in
     /// flight, so the rebuild waits for the last batch to arrive.
     pub fn flush_queries(&mut self) {
-        if self.queries.is_empty() {
+        if self.queries.pending.is_empty() {
             self.apply_plan();
             return;
         }
-        self.gpu.assert_alive();
+        self.device.gpu.assert_alive();
         self.collect_readbacks();
         self.flush_rows();
         self.apply_pending_commands();
-        let step = self.step_index;
-        let queue = self.gpu.queue().clone();
-        let device = self.gpu.device().clone();
-        self.buffers
+        let step = self.clock.step;
+        let queue = self.device.gpu.queue().clone();
+        let device = self.device.gpu.device().clone();
+        self.device
+            .buffers
             .queries
-            .write(&queue, bytemuck::cast_slice(&self.queries));
+            .records
+            .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let params = dynamis_layout::SimParamsRecord::new(
             &self.config,
-            self.sub_dt,
-            self.dynamic_count as u32,
-            self.alive.len() as u32,
-            self.constraint_alive.len() as u32,
+            self.clock.sub_dt,
+            self.bodies.dynamic_count as u32,
+            self.bodies.alive.len() as u32,
+            self.constraints.alive.len() as u32,
             self.event_slot_of(step),
         );
-        self.buffers
+        self.device
+            .buffers
             .params
             .write(&queue, bytemuck::cast_slice(&[params]));
-        let count = self.queries.len();
-        let batch = self.next_batch;
-        self.query_pool.submit(batch, step, count);
-        self.next_batch += 1;
+        let count = self.queries.pending.len();
+        let batch = self.queries.next_batch;
+        self.queries.pool.submit(batch, step, count);
+        self.queries.next_batch += 1;
         let frame = crate::pipeline::FrameParams {
-            dynamic_count: self.dynamic_count as u32,
-            body_count: self.alive.len() as u32,
+            dynamic_count: self.bodies.dynamic_count as u32,
+            body_count: self.bodies.alive.len() as u32,
             solve_iterations: self.config.solve_iterations,
             position_iterations: self.config.position_iterations,
             island_rounds: self.island_rounds(),
             query_count: count as u32,
-            constraint_count: self.constraint_alive.len() as u32,
-            body_structural: self.body_structural,
-            constraint_structural: self.constraint_structural,
-            has_body_edits: self.has_body_edits,
+            constraint_count: self.constraints.alive.len() as u32,
+            body_structural: self.bodies.structural,
+            constraint_structural: self.constraints.structural,
+            has_body_edits: self.bodies.has_edits,
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis query flush"),
         });
-        self.pipeline
-            .encode_queries(&mut encoder, &self.buffers, &frame, count as u32);
+        self.device.pipeline.encode_queries(
+            &mut encoder,
+            &self.device.buffers,
+            &frame,
+            count as u32,
+        );
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
-        let arrived = self.buffers.queries_readback.enqueue(
+        let arrived = self.device.buffers.readback.queries.enqueue(
             &device,
             &mut encoder,
-            self.buffers.query_results.buffer(),
+            self.device.buffers.queries.results.buffer(),
             0,
             bytes,
             batch,
         );
         queue.submit([encoder.finish()]);
-        self.buffers.queries_readback.arm();
+        self.device.buffers.readback.queries.arm();
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         if let Some((batch, bytes)) = arrived {
-            self.query_pool.collect(batch, &bytes);
+            self.queries.pool.collect(batch, &bytes);
         }
-        for (batch, bytes) in self.buffers.queries_readback.poll(&device) {
-            self.query_pool.collect(batch, &bytes);
+        for (batch, bytes) in self.device.buffers.readback.queries.poll(&device) {
+            self.queries.pool.collect(batch, &bytes);
         }
-        self.queries.clear();
+        self.queries.pending.clear();
         self.apply_plan();
     }
 
     fn validate_query(&self, handle: QueryHandle) {
         assert!(
-            self.query_pool.is_current(handle),
+            self.queries.pool.is_current(handle),
             "query handle {handle:?} belongs to a batch that has been retired"
         );
         assert!(
-            self.query_pool.is_ready(handle),
+            self.queries.pool.is_ready(handle),
             "query handle {handle:?} has no results yet; call poll() or wait()"
         );
     }

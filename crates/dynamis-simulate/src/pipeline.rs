@@ -1,33 +1,32 @@
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
-use crate::reservation::Reservation;
+use crate::capacity::Reservation;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
     GpuContext, GpuReadback, GpuSlot,
 };
-use dynamis_kernel::{RadixSort, SortChannels, key_words};
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
-    COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP,
-    COMMAND_FORCE, COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_IMPULSE_AT_POINT,
-    COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE,
+    COMMAND_ANGULAR_IMPULSE, COMMAND_FORCE, COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE,
+    COMMAND_IMPULSE_AT_POINT, COMMAND_PATCH, COMMAND_SLEEP, COMMAND_TORQUE, COMMAND_WAKE,
     CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
-    CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
-    CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
-    CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START,
-    CONTACT_MAX_POINTS, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS,
-    COUNTER_JOINTS, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES,
-    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED,
-    DOF_LOCKED, EVENT_BEGIN, EVENT_END, EVENT_PERSIST, FILTER_IGNORE_KINEMATIC,
-    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, ISLAND_ACTIVE,
-    ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY, NO_BODY, NO_COLLISION_FILTER, NO_HIT,
-    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_VELOCITY, QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY,
-    QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
-    SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE, dispatch,
+    CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR,
+    CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY,
+    CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, CONTACT_MAX_POINTS,
+    COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS,
+    COUNTER_LARGE, COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES,
+    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, DOF_FREE, DOF_LIMITED, DOF_LOCKED,
+    EVENT_BEGIN, EVENT_END, EVENT_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS,
+    FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, ISLAND_ACTIVE, ISLAND_WAKE, MAX_HITS_PER_QUERY,
+    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
+    PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, QUERY_POINT,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
+    SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
+    SHAPE_TRIANGLE,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
+use dynamis_sort::{RadixSort, SortChannels, key_words};
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
 
 const WORKGROUP_SIZE: u32 = 64;
@@ -63,8 +62,6 @@ fn shader_constants(per_row: u32) -> String {
     };
     emit("WORKGROUP_SIZE", WORKGROUP_SIZE);
     emit("WORKGROUPS_PER_ROW", per_row);
-    emit("COMMAND_ADD", COMMAND_ADD);
-    emit("COMMAND_REMOVE", COMMAND_REMOVE);
     emit("COMMAND_PATCH", COMMAND_PATCH);
     emit("COMMAND_FORCE", COMMAND_FORCE);
     emit("COMMAND_FORCE_AT_POINT", COMMAND_FORCE_AT_POINT);
@@ -72,9 +69,6 @@ fn shader_constants(per_row: u32) -> String {
     emit("COMMAND_IMPULSE", COMMAND_IMPULSE);
     emit("COMMAND_IMPULSE_AT_POINT", COMMAND_IMPULSE_AT_POINT);
     emit("COMMAND_ANGULAR_IMPULSE", COMMAND_ANGULAR_IMPULSE);
-    emit("COMMAND_CONSTRAINT_ADD", COMMAND_CONSTRAINT_ADD);
-    emit("COMMAND_CONSTRAINT_SWAP", COMMAND_CONSTRAINT_SWAP);
-    emit("COMMAND_SWAP", COMMAND_SWAP);
     emit("COMMAND_SLEEP", COMMAND_SLEEP);
     emit("COMMAND_WAKE", COMMAND_WAKE);
     emit("PATCH_POSITION", PATCH_POSITION);
@@ -106,7 +100,6 @@ fn shader_constants(per_row: u32) -> String {
     emit("CONSTRAINT_DISTANCE", CONSTRAINT_DISTANCE);
     emit("CONSTRAINT_REVOLUTE", CONSTRAINT_REVOLUTE);
     emit("CONSTRAINT_PRISMATIC", CONSTRAINT_PRISMATIC);
-    emit("CONSTRAINT_FIXED", CONSTRAINT_FIXED);
     emit("CONSTRAINT_GEAR", CONSTRAINT_GEAR);
     emit("CONSTRAINT_PULLEY", CONSTRAINT_PULLEY);
     emit("CONSTRAINT_CONE", CONSTRAINT_CONE);
@@ -124,13 +117,10 @@ fn shader_constants(per_row: u32) -> String {
     emit("DOF_FREE", DOF_FREE);
     emit("DOF_LOCKED", DOF_LOCKED);
     emit("DOF_LIMITED", DOF_LIMITED);
-    emit("DOF_DRIVEN", DOF_DRIVEN);
     emit("QUERY_RAY", QUERY_RAY);
     emit("QUERY_SPHERE", QUERY_SPHERE);
-    emit("QUERY_CUBOID", QUERY_CUBOID);
     emit("QUERY_SWEEP", QUERY_SWEEP);
     emit("QUERY_POINT", QUERY_POINT);
-    emit("QUERY_CONVEX", QUERY_CONVEX);
     emit("FILTER_IGNORE_SENSORS", FILTER_IGNORE_SENSORS);
     emit("FILTER_IGNORE_SLEEPING", FILTER_IGNORE_SLEEPING);
     emit("FILTER_IGNORE_STATIC", FILTER_IGNORE_STATIC);
@@ -139,11 +129,9 @@ fn shader_constants(per_row: u32) -> String {
     emit("EVENT_END", EVENT_END);
     emit("EVENT_PERSIST", EVENT_PERSIST);
     emit("NO_BODY", NO_BODY);
-    emit("MAX_CELLS_PER_COLLIDER", MAX_CELLS_PER_COLLIDER);
     emit("MAX_COLLIDERS_PER_BODY", MAX_COLLIDERS_PER_BODY as u32);
     emit("MAX_HITS_PER_QUERY", MAX_HITS_PER_QUERY);
     emit("EVENT_SLOTS", GpuReadback::DEPTH as u32);
-    emit("COMPACT_BLOCK", COMPACT_BLOCK);
     emit(
         "COUNTER_STRIDE_WORDS",
         (dynamis_layout::COUNTER_STRIDE / 4) as u32,
@@ -192,6 +180,11 @@ struct Stage {
     pipeline: ComputePipeline,
     bind_group: BindGroup,
     shapes_group: Option<BindGroup>,
+}
+
+struct DispatchStage {
+    pipeline: ComputePipeline,
+    group: BindGroup,
 }
 
 impl Stage {
@@ -306,48 +299,80 @@ const CONTACT_SOLVE_EXTRACT: u32 = 15;
 const POSITION_SOLVE_EXTRACT: u32 = 16;
 const EVENTS_END: u32 = 17;
 
-pub(crate) const DISPATCH_SLOTS: u32 = 18;
-
 const KERNEL_TILE: u32 = 256;
 
-/// One table entry: the slot it fills, the counter it reads, the lanes a workgroup
-/// covers. A entry point writes one batch, at the point of the step where every
-/// counter in it is final.
-type DispatchBatch = &'static [(u32, usize, u32)];
+/// One table entry: the slot it fills, the counter it reads, and the lanes a
+/// workgroup covers. One entry point writes one batch, at the point of the step
+/// where every counter in it is final.
+struct DispatchEntry {
+    slot: u32,
+    counter: usize,
+    lanes: u32,
+}
 
-const DISPATCH_BATCHES: &[DispatchBatch] = &[
+const fn entry(slot: u32, counter: usize, lanes: u32) -> DispatchEntry {
+    DispatchEntry {
+        slot,
+        counter,
+        lanes,
+    }
+}
+
+const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
     // After commands: joints were counted, constraints and the previous contact count
     // were already final last step.
     &[
-        (SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
-        (SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
-        (EVENTS_END, COUNTER_PREV_CONTACTS, WORKGROUP_SIZE),
+        entry(SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
+        entry(SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
+        entry(EVENTS_END, COUNTER_PREV_CONTACTS, WORKGROUP_SIZE),
     ],
     // After the grid emitted its entries.
     &[
-        (SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
-        (BROADPHASE_PAIRS, COUNTER_ENTRIES, WORKGROUP_SIZE),
+        entry(SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
+        entry(BROADPHASE_PAIRS, COUNTER_ENTRIES, WORKGROUP_SIZE),
     ],
     // After entries were paired and the pair count is final.
     &[
-        (SORT_PAIRS, COUNTER_PAIRS, KERNEL_TILE),
-        (NARROWPHASE, COUNTER_PAIRS, WORKGROUP_SIZE),
-        (COMPACT_SCAN, COUNTER_PAIRS, COMPACT_BLOCK),
-        (COMPACT_SCATTER, COUNTER_PAIRS, WORKGROUP_SIZE),
-        (CCD_SWEEP, COUNTER_PAIRS, WORKGROUP_SIZE),
+        entry(SORT_PAIRS, COUNTER_PAIRS, KERNEL_TILE),
+        entry(NARROWPHASE, COUNTER_PAIRS, WORKGROUP_SIZE),
+        entry(COMPACT_SCAN, COUNTER_PAIRS, COMPACT_BLOCK),
+        entry(COMPACT_SCATTER, COUNTER_PAIRS, WORKGROUP_SIZE),
+        entry(CCD_SWEEP, COUNTER_PAIRS, WORKGROUP_SIZE),
     ],
     // After pairs were compacted into contacts and the contact count is final.
     &[
-        (SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
-        (CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (ISLAND_LINK_CONTACTS, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (GATHER_CONTACT_KEYS_B, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (MARK_CONTACT_BOUNDARIES, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (CONTACT_MATCH, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (CONTACT_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        (POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
+        entry(CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(ISLAND_LINK_CONTACTS, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(GATHER_CONTACT_KEYS_B, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(MARK_CONTACT_BOUNDARIES, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(CONTACT_MATCH, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(CONTACT_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
     ],
 ];
+
+/// One more than the highest slot any batch writes, so the table always covers the
+/// whole batch list.
+pub(crate) const DISPATCH_SLOTS: u32 = dispatch_slots();
+
+const fn dispatch_slots() -> u32 {
+    let mut slots = 0u32;
+    let mut batch = 0usize;
+    while batch < DISPATCH_BATCHES.len() {
+        let entries = DISPATCH_BATCHES[batch];
+        let mut index = 0usize;
+        while index < entries.len() {
+            let slot = entries[index].slot;
+            if slot >= slots {
+                slots = slot + 1;
+            }
+            index += 1;
+        }
+        batch += 1;
+    }
+    slots
+}
 
 /// The shader filling the dispatch table: one entry point per batch, one lane per
 /// table slot, a slot only written once its counter is final.
@@ -365,13 +390,13 @@ fn write_args(index: u32, counter: u32, lanes: u32) {\n\
 }\n\n",
     );
     for (batch, entries) in DISPATCH_BATCHES.iter().enumerate() {
-        let entry = ['a', 'b', 'c', 'd'][batch];
         source.push_str(&format!(
-            "@compute @workgroup_size(64u)\nfn dispatch_{entry}(@builtin(local_invocation_id) lid: vec3u) {{\n"
+            "@compute @workgroup_size(64u)\nfn dispatch_{batch}(@builtin(local_invocation_id) lid: vec3u) {{\n"
         ));
-        for (index, (slot, counter, lanes)) in entries.iter().enumerate() {
+        for (index, entry) in entries.iter().enumerate() {
             source.push_str(&format!(
-                "    if (lid.x == {index}u) {{ write_args({slot}u, {counter}u, {lanes}u); }}\n"
+                "    if (lid.x == {index}u) {{ write_args({}, {}, {}); }}\n",
+                entry.slot, entry.counter, entry.lanes
             ));
         }
         source.push_str("}\n\n");
@@ -436,8 +461,7 @@ pub(crate) struct Pipeline {
     query: Stage,
     constraints_warm_end: Stage,
     static_wake_clear: Stage,
-    dispatch_args: [ComputePipeline; 4],
-    dispatch_group: [BindGroup; 4],
+    dispatch_stages: Vec<DispatchStage>,
     sort: RadixSort,
     #[cfg(feature = "profile")]
     timer: Option<GpuTimer>,
@@ -447,10 +471,10 @@ impl Pipeline {
     pub(crate) fn new(context: &GpuContext, buffers: &WorldBuffers, plan: &Reservation) -> Self {
         let per_row = context.workgroups_per_row();
         let shape_resources = [
-            &buffers.shapes,
-            &buffers.shape_vertices,
-            &buffers.shape_triangles,
-            &buffers.shape_nodes,
+            &buffers.shapes.sources,
+            &buffers.shapes.vertices,
+            &buffers.shapes.triangles,
+            &buffers.shapes.nodes,
         ];
         let reset_counters = Stage::build(
             context,
@@ -465,11 +489,11 @@ impl Pipeline {
             "body_edits",
             &assemble_shader(include_str!("shaders/body_edits.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.commands)),
-                (RO, whole(&buffers.command_first)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RW, whole(&buffers.wake_flags)),
+                (RO, whole(&buffers.bodies.commands)),
+                (RO, whole(&buffers.bodies.command_first)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RW, whole(&buffers.islands.wake_flags)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -480,11 +504,11 @@ impl Pipeline {
             "body_gather",
             &assemble_shader(include_str!("shaders/body_gather.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.body_states)),
-                (RW, whole(&buffers.state_scratch)),
-                (RO, whole(&buffers.row_src)),
-                (RO, whole(&buffers.row_fresh)),
-                (RO, whole(&buffers.fresh_states)),
+                (RO, whole(&buffers.bodies.states)),
+                (RW, whole(&buffers.bodies.state_scratch)),
+                (RO, whole(&buffers.bodies.row_src)),
+                (RO, whole(&buffers.bodies.row_fresh)),
+                (RO, whole(&buffers.bodies.fresh_states)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -494,8 +518,8 @@ impl Pipeline {
             "body_scatter",
             &assemble_shader(include_str!("shaders/body_scatter.wgsl"), per_row),
             &[
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.state_scratch)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.state_scratch)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -505,11 +529,11 @@ impl Pipeline {
             "constraint_gather",
             &assemble_shader(include_str!("shaders/constraint_gather.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.constraint_runtime)),
-                (RW, whole(&buffers.constraint_scratch)),
-                (RO, whole(&buffers.constraint_row_src)),
-                (RO, whole(&buffers.constraint_row_fresh)),
-                (RO, whole(&buffers.constraint_fresh)),
+                (RO, whole(&buffers.constraints.runtime)),
+                (RW, whole(&buffers.constraints.scratch)),
+                (RO, whole(&buffers.constraints.row_src)),
+                (RO, whole(&buffers.constraints.row_fresh)),
+                (RO, whole(&buffers.constraints.fresh)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -519,8 +543,8 @@ impl Pipeline {
             "constraint_scatter",
             &assemble_shader(include_str!("shaders/constraint_scatter.wgsl"), per_row),
             &[
-                (RW, whole(&buffers.constraint_runtime)),
-                (RO, whole(&buffers.constraint_scratch)),
+                (RW, whole(&buffers.constraints.runtime)),
+                (RO, whole(&buffers.constraints.scratch)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -532,10 +556,10 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/joint_filter.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.constraint_descs)),
-                (RO, whole(&buffers.constraint_runtime)),
-                (RW, whole(&buffers.joint_hi)),
-                (RW, whole(&buffers.joint_lo)),
+                (RO, whole(&buffers.constraints.descriptors)),
+                (RO, whole(&buffers.constraints.runtime)),
+                (RW, whole(&buffers.constraints.joint_hi)),
+                (RW, whole(&buffers.constraints.joint_lo)),
                 (RW, buffers.counter(COUNTER_JOINTS)),
             ],
             &[],
@@ -547,8 +571,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/integrate.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
             ],
             &[],
         );
@@ -559,9 +583,9 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/broadphase_aabb.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.colliders)),
-                (RW, whole(&buffers.aabbs)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.colliders)),
+                (RW, whole(&buffers.bodies.aabbs)),
             ],
             &shape_resources,
         );
@@ -572,11 +596,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/grid_entries.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.aabbs)),
-                (RW, whole(&buffers.entries.keys_hi)),
-                (RW, whole(&buffers.entries.keys_lo)),
+                (RO, whole(&buffers.bodies.aabbs)),
+                (RW, whole(&buffers.contacts.entries.keys_hi)),
+                (RW, whole(&buffers.contacts.entries.keys_lo)),
                 (RW, buffers.counter(COUNTER_ENTRIES)),
-                (RW, whole(&buffers.large_bodies)),
+                (RW, whole(&buffers.contacts.large_bodies)),
                 (RW, buffers.counter(COUNTER_LARGE)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
             ],
@@ -589,11 +613,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/broadphase_pairs.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.entries.keys_hi)),
-                (RO, whole(&buffers.entries.keys_lo)),
+                (RO, whole(&buffers.contacts.entries.keys_hi)),
+                (RO, whole(&buffers.contacts.entries.keys_lo)),
                 (RW, buffers.counter(COUNTER_ENTRIES)),
-                (RW, whole(&buffers.pairs.keys_hi)),
-                (RW, whole(&buffers.pairs.keys_lo)),
+                (RW, whole(&buffers.contacts.pairs.keys_hi)),
+                (RW, whole(&buffers.contacts.pairs.keys_lo)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
@@ -606,12 +630,12 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/large_pairs.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.large_bodies)),
+                (RO, whole(&buffers.contacts.large_bodies)),
                 (RW, buffers.counter(COUNTER_LARGE)),
-                (RW, whole(&buffers.pairs.keys_hi)),
-                (RW, whole(&buffers.pairs.keys_lo)),
+                (RW, whole(&buffers.contacts.pairs.keys_hi)),
+                (RW, whole(&buffers.contacts.pairs.keys_lo)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
-                (RO, whole(&buffers.colliders)),
+                (RO, whole(&buffers.bodies.colliders)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
             ],
             &[],
@@ -622,16 +646,16 @@ impl Pipeline {
             "narrowphase",
             &assemble_shader(include_str!("shaders/narrowphase.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.colliders)),
-                (RO, whole(&buffers.pairs.keys_hi)),
-                (RO, whole(&buffers.pairs.keys_lo)),
-                (RW, whole(&buffers.contacts_raw)),
-                (RW, whole(&buffers.contact_valid)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.bodies.colliders)),
+                (RO, whole(&buffers.contacts.pairs.keys_hi)),
+                (RO, whole(&buffers.contacts.pairs.keys_lo)),
+                (RW, whole(&buffers.contacts.raw)),
+                (RW, whole(&buffers.contacts.valid)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
-                (RO, whole(&buffers.joint_hi)),
-                (RO, whole(&buffers.joint_lo)),
+                (RO, whole(&buffers.constraints.joint_hi)),
+                (RO, whole(&buffers.constraints.joint_lo)),
                 (RW, buffers.counter(COUNTER_JOINTS)),
                 (UNIFORM, whole(&buffers.params)),
             ],
@@ -643,9 +667,9 @@ impl Pipeline {
             "compact_scan",
             &assemble_shader(include_str!("shaders/compact_scan.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.contact_valid)),
-                (RW, whole(&buffers.compact_ranks)),
-                (RW, whole(&buffers.compact_block_sums)),
+                (RO, whole(&buffers.contacts.valid)),
+                (RW, whole(&buffers.contacts.compact_ranks)),
+                (RW, whole(&buffers.contacts.compact_sums)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &[],
@@ -656,8 +680,8 @@ impl Pipeline {
             "compact_offsets",
             &assemble_shader(include_str!("shaders/compact_offsets.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.compact_block_sums)),
-                (RW, whole(&buffers.compact_block_offsets)),
+                (RO, whole(&buffers.contacts.compact_sums)),
+                (RW, whole(&buffers.contacts.compact_offsets)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
@@ -669,12 +693,12 @@ impl Pipeline {
             "compact_scatter",
             &assemble_shader(include_str!("shaders/compact_scatter.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.contacts_raw)),
-                (RO, whole(&buffers.contact_valid)),
-                (RO, whole(&buffers.compact_ranks)),
-                (RO, whole(&buffers.compact_block_offsets)),
-                (RW, whole(&buffers.contacts)),
-                (RW, whole(&buffers.contact_a_body)),
+                (RO, whole(&buffers.contacts.raw)),
+                (RO, whole(&buffers.contacts.valid)),
+                (RO, whole(&buffers.contacts.compact_ranks)),
+                (RO, whole(&buffers.contacts.compact_offsets)),
+                (RW, whole(&buffers.contacts.manifolds)),
+                (RW, whole(&buffers.contacts.a_body)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &[],
@@ -685,9 +709,9 @@ impl Pipeline {
             "events_end",
             &assemble_shader(include_str!("shaders/events_end.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.prev_contacts)),
+                (RO, whole(&buffers.contacts.previous)),
                 (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
-                (RO, whole(&buffers.contacts)),
+                (RO, whole(&buffers.contacts.manifolds)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, whole(&buffers.events)),
                 (RW, buffers.counter(COUNTER_EVENTS)),
@@ -702,8 +726,8 @@ impl Pipeline {
             "contact_archive",
             &assemble_shader(include_str!("shaders/contact_archive.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.contacts)),
-                (RW, whole(&buffers.prev_contacts)),
+                (RO, whole(&buffers.contacts.manifolds)),
+                (RW, whole(&buffers.contacts.previous)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
             ],
             &[],
@@ -716,7 +740,7 @@ impl Pipeline {
             &[
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
-                (RO, whole(&buffers.contacts)),
+                (RO, whole(&buffers.contacts.manifolds)),
             ],
             &[],
         );
@@ -727,8 +751,8 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_init.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.island_parents)),
-                (RW, whole(&buffers.island_state)),
+                (RW, whole(&buffers.islands.parents)),
+                (RW, whole(&buffers.islands.state)),
             ],
             &[],
         );
@@ -738,12 +762,12 @@ impl Pipeline {
             "island_link_contacts",
             &assemble_shader(include_str!("shaders/island_link_contacts.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.contacts)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.contacts.manifolds)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RW, whole(&buffers.island_parents)),
-                (RW, whole(&buffers.wake_flags)),
+                (RW, whole(&buffers.islands.parents)),
+                (RW, whole(&buffers.islands.wake_flags)),
             ],
             &[],
         );
@@ -757,12 +781,12 @@ impl Pipeline {
             ),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.constraint_descs)),
-                (RO, whole(&buffers.constraint_runtime)),
-                (RW, whole(&buffers.island_parents)),
-                (RW, whole(&buffers.wake_flags)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.constraints.descriptors)),
+                (RO, whole(&buffers.constraints.runtime)),
+                (RW, whole(&buffers.islands.parents)),
+                (RW, whole(&buffers.islands.wake_flags)),
             ],
             &[],
         );
@@ -773,7 +797,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_jump.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.island_parents)),
+                (RW, whole(&buffers.islands.parents)),
             ],
             &[],
         );
@@ -784,11 +808,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_aggregate.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RW, whole(&buffers.island_parents)),
-                (RW, whole(&buffers.island_state)),
-                (RW, whole(&buffers.wake_flags)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RW, whole(&buffers.islands.parents)),
+                (RW, whole(&buffers.islands.state)),
+                (RW, whole(&buffers.islands.wake_flags)),
             ],
             &[],
         );
@@ -799,11 +823,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/island_broadcast.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RW, whole(&buffers.island_parents)),
-                (RW, whole(&buffers.island_state)),
-                (RW, whole(&buffers.wake_flags)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RW, whole(&buffers.islands.parents)),
+                (RW, whole(&buffers.islands.state)),
+                (RW, whole(&buffers.islands.wake_flags)),
             ],
             &[],
         );
@@ -813,10 +837,10 @@ impl Pipeline {
             "gather_contact_keys_b",
             &assemble_shader(include_str!("shaders/gather_contact_keys_b.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.contacts)),
+                (RO, whole(&buffers.contacts.manifolds)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RW, whole(&buffers.contact_b_keys)),
-                (RW, whole(&buffers.contact_b_values)),
+                (RW, whole(&buffers.contacts.b_keys)),
+                (RW, whole(&buffers.contacts.b_values)),
             ],
             &[],
         );
@@ -827,12 +851,12 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/gather_constraint_keys.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.constraint_runtime)),
-                (RW, whole(&buffers.constraint_a_keys)),
-                (RW, whole(&buffers.constraint_a_values)),
-                (RW, whole(&buffers.constraint_b_keys)),
-                (RW, whole(&buffers.constraint_b_values)),
-                (RO, whole(&buffers.constraint_descs)),
+                (RO, whole(&buffers.constraints.runtime)),
+                (RW, whole(&buffers.constraints.a_keys)),
+                (RW, whole(&buffers.constraints.a_values)),
+                (RW, whole(&buffers.constraints.b_keys)),
+                (RW, whole(&buffers.constraints.b_values)),
+                (RO, whole(&buffers.constraints.descriptors)),
             ],
             &[],
         );
@@ -846,10 +870,10 @@ impl Pipeline {
             ),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.contact_first_a)),
-                (RW, whole(&buffers.contact_first_b)),
-                (RW, whole(&buffers.constraint_first_a)),
-                (RW, whole(&buffers.constraint_first_b)),
+                (RW, whole(&buffers.contacts.first_a)),
+                (RW, whole(&buffers.contacts.first_b)),
+                (RW, whole(&buffers.constraints.first_a)),
+                (RW, whole(&buffers.constraints.first_b)),
             ],
             &[],
         );
@@ -862,11 +886,11 @@ impl Pipeline {
                 per_row,
             ),
             &[
-                (RO, whole(&buffers.contact_a_body)),
-                (RO, whole(&buffers.contact_b_keys)),
+                (RO, whole(&buffers.contacts.a_body)),
+                (RO, whole(&buffers.contacts.b_keys)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RW, whole(&buffers.contact_first_a)),
-                (RW, whole(&buffers.contact_first_b)),
+                (RW, whole(&buffers.contacts.first_a)),
+                (RW, whole(&buffers.contacts.first_b)),
             ],
             &[],
         );
@@ -880,10 +904,10 @@ impl Pipeline {
             ),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.constraint_a_keys)),
-                (RO, whole(&buffers.constraint_b_keys)),
-                (RW, whole(&buffers.constraint_first_a)),
-                (RW, whole(&buffers.constraint_first_b)),
+                (RO, whole(&buffers.constraints.a_keys)),
+                (RO, whole(&buffers.constraints.b_keys)),
+                (RW, whole(&buffers.constraints.first_a)),
+                (RW, whole(&buffers.constraints.first_b)),
             ],
             &[],
         );
@@ -894,11 +918,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/ccd_sweep.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.colliders)),
-                (RO, whole(&buffers.pairs.keys_hi)),
-                (RO, whole(&buffers.pairs.keys_lo)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.bodies.colliders)),
+                (RO, whole(&buffers.contacts.pairs.keys_hi)),
+                (RO, whole(&buffers.contacts.pairs.keys_lo)),
                 (RW, buffers.counter(COUNTER_PAIRS)),
             ],
             &shape_resources,
@@ -909,8 +933,8 @@ impl Pipeline {
             "contact_match",
             &assemble_shader(include_str!("shaders/contact_match.wgsl"), per_row),
             &[
-                (RW, whole(&buffers.contacts)),
-                (RO, whole(&buffers.prev_contacts)),
+                (RW, whole(&buffers.contacts.manifolds)),
+                (RO, whole(&buffers.contacts.previous)),
                 (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
                 (RW, whole(&buffers.events)),
@@ -927,12 +951,12 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/contact_solve_extract.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RW, whole(&buffers.contacts)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RW, whole(&buffers.contacts.manifolds)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RW, whole(&buffers.wake_flags)),
-                (RW, whole(&buffers.contact_deltas)),
+                (RW, whole(&buffers.islands.wake_flags)),
+                (RW, whole(&buffers.contacts.deltas)),
             ],
             &[],
         );
@@ -946,12 +970,12 @@ impl Pipeline {
             ),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.constraint_descs)),
-                (RW, whole(&buffers.constraint_runtime)),
-                (RW, whole(&buffers.wake_flags)),
-                (RW, whole(&buffers.constraint_deltas)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.constraints.descriptors)),
+                (RW, whole(&buffers.constraints.runtime)),
+                (RW, whole(&buffers.islands.wake_flags)),
+                (RW, whole(&buffers.constraints.deltas)),
             ],
             &[],
         );
@@ -962,21 +986,21 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/body_apply_solver.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.contact_first_a)),
-                (RO, whole(&buffers.contact_first_b)),
-                (RO, whole(&buffers.contact_a_body)),
-                (RO, whole(&buffers.contact_b_keys)),
-                (RO, whole(&buffers.contact_b_values)),
-                (RO, whole(&buffers.constraint_first_a)),
-                (RO, whole(&buffers.constraint_first_b)),
-                (RO, whole(&buffers.constraint_a_keys)),
-                (RO, whole(&buffers.constraint_a_values)),
-                (RO, whole(&buffers.constraint_b_keys)),
-                (RO, whole(&buffers.constraint_b_values)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.contacts.first_a)),
+                (RO, whole(&buffers.contacts.first_b)),
+                (RO, whole(&buffers.contacts.a_body)),
+                (RO, whole(&buffers.contacts.b_keys)),
+                (RO, whole(&buffers.contacts.b_values)),
+                (RO, whole(&buffers.constraints.first_a)),
+                (RO, whole(&buffers.constraints.first_b)),
+                (RO, whole(&buffers.constraints.a_keys)),
+                (RO, whole(&buffers.constraints.a_values)),
+                (RO, whole(&buffers.constraints.b_keys)),
+                (RO, whole(&buffers.constraints.b_values)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RO, whole(&buffers.contact_deltas)),
-                (RO, whole(&buffers.constraint_deltas)),
+                (RO, whole(&buffers.contacts.deltas)),
+                (RO, whole(&buffers.constraints.deltas)),
             ],
             &[],
         );
@@ -987,11 +1011,11 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/position_solve_extract.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.contacts)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.contacts.manifolds)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RW, whole(&buffers.contact_deltas)),
+                (RW, whole(&buffers.contacts.deltas)),
             ],
             &[],
         );
@@ -1002,14 +1026,14 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/body_apply_positions.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.body_states)),
-                (RO, whole(&buffers.contact_first_a)),
-                (RO, whole(&buffers.contact_first_b)),
-                (RO, whole(&buffers.contact_a_body)),
-                (RO, whole(&buffers.contact_b_keys)),
-                (RO, whole(&buffers.contact_b_values)),
+                (RW, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.contacts.first_a)),
+                (RO, whole(&buffers.contacts.first_b)),
+                (RO, whole(&buffers.contacts.a_body)),
+                (RO, whole(&buffers.contacts.b_keys)),
+                (RO, whole(&buffers.contacts.b_values)),
                 (RW, buffers.counter(COUNTER_CONTACTS)),
-                (RO, whole(&buffers.contact_deltas)),
+                (RO, whole(&buffers.contacts.deltas)),
             ],
             &[],
         );
@@ -1019,16 +1043,16 @@ impl Pipeline {
             "query",
             &assemble_shader(include_str!("shaders/queries.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.queries)),
-                (RO, whole(&buffers.body_states)),
-                (RO, whole(&buffers.body_descs)),
-                (RO, whole(&buffers.colliders)),
-                (RO, whole(&buffers.aabbs)),
-                (RO, whole(&buffers.entries.keys_hi)),
-                (RO, whole(&buffers.entries.keys_lo)),
+                (RO, whole(&buffers.queries.records)),
+                (RO, whole(&buffers.bodies.states)),
+                (RO, whole(&buffers.bodies.descriptors)),
+                (RO, whole(&buffers.bodies.colliders)),
+                (RO, whole(&buffers.bodies.aabbs)),
+                (RO, whole(&buffers.contacts.entries.keys_hi)),
+                (RO, whole(&buffers.contacts.entries.keys_lo)),
                 (RW, buffers.counter(COUNTER_ENTRIES)),
-                (RW, whole(&buffers.query_results)),
-                (RO, whole(&buffers.large_bodies)),
+                (RW, whole(&buffers.queries.results)),
+                (RO, whole(&buffers.contacts.large_bodies)),
                 (RW, buffers.counter(COUNTER_LARGE)),
                 (UNIFORM, whole(&buffers.params)),
             ],
@@ -1040,8 +1064,8 @@ impl Pipeline {
             "constraints_warm_end",
             &assemble_shader(include_str!("shaders/constraints_warm_end.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.constraint_descs)),
-                (RW, whole(&buffers.constraint_runtime)),
+                (RO, whole(&buffers.constraints.descriptors)),
+                (RW, whole(&buffers.constraints.runtime)),
                 (UNIFORM, whole(&buffers.params)),
             ],
             &[],
@@ -1053,7 +1077,7 @@ impl Pipeline {
             &assemble_shader(include_str!("shaders/static_wake_clear.wgsl"), per_row),
             &[
                 (UNIFORM, whole(&buffers.params)),
-                (RW, whole(&buffers.wake_flags)),
+                (RW, whole(&buffers.islands.wake_flags)),
             ],
             &[],
         );
@@ -1069,32 +1093,32 @@ impl Pipeline {
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
-        let dispatch_args = std::array::from_fn(|batch| {
-            let entry = ["dispatch_a", "dispatch_b", "dispatch_c", "dispatch_d"][batch];
-            context.compute_pipeline(
-                "dispatch args",
-                &dispatch_shader,
-                entry,
-                &[DISPATCH_BINDINGS],
-                64,
-            )
-        });
-        let dispatch_group = std::array::from_fn(|batch| {
-            dispatch_args[batch].create_bind_group(
-                context.device(),
-                0,
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: buffers.counters.as_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: buffers.dispatch.buffer().as_binding(),
-                    },
-                ],
-            )
-        });
+        let dispatch_stages = (0..DISPATCH_BATCHES.len())
+            .map(|batch| {
+                let pipeline = context.compute_pipeline(
+                    "dispatch args",
+                    &dispatch_shader,
+                    &format!("dispatch_{batch}"),
+                    &[DISPATCH_BINDINGS],
+                    64,
+                );
+                let group = pipeline.create_bind_group(
+                    context.device(),
+                    0,
+                    &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: buffers.counters.as_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: buffers.dispatch.buffer().as_binding(),
+                        },
+                    ],
+                );
+                DispatchStage { pipeline, group }
+            })
+            .collect();
 
         let sort = RadixSort::new(context, "sim sort", plan.sort());
         #[cfg(feature = "profile")]
@@ -1148,8 +1172,7 @@ impl Pipeline {
             query,
             constraints_warm_end,
             static_wake_clear,
-            dispatch_args,
-            dispatch_group,
+            dispatch_stages,
             sort,
             #[cfg(feature = "profile")]
             timer,
@@ -1182,9 +1205,9 @@ impl Pipeline {
             keys_lo,
             keys_hi,
             values,
-            scratch_lo: &buffers.sort_scratch.keys_lo,
-            scratch_hi: &buffers.sort_scratch.keys_hi,
-            scratch_values: &buffers.sort_scratch.values,
+            scratch_lo: &buffers.sort.scratch.keys_lo,
+            scratch_hi: &buffers.sort.scratch.keys_hi,
+            scratch_values: &buffers.sort.scratch.values,
         }
     }
 
@@ -1199,11 +1222,11 @@ impl Pipeline {
         params: &FrameParams,
     ) {
         let constraint_active = params.constraint_count > 0;
-        let collider_words = key_words(buffers.colliders());
-        let joint_words = key_words(buffers.constraints().max(1));
-        let index_words = key_words(buffers.contacts().max(1));
-        let body_words = key_words(buffers.bodies().max(1));
-        let gather_words = key_words(buffers.constraints().max(1));
+        let collider_words = key_words(buffers.collider_rows());
+        let joint_words = key_words(buffers.constraint_rows().max(1));
+        let index_words = key_words(buffers.contact_rows().max(1));
+        let body_words = key_words(buffers.body_rows().max(1));
+        let gather_words = key_words(buffers.constraint_rows().max(1));
 
         let mut commands = self.open(encoder, PASS_COMMANDS);
         self.reset_counters
@@ -1233,9 +1256,9 @@ impl Pipeline {
             let channels = Self::sort_lanes(
                 buffers,
                 buffers.counter(COUNTER_JOINTS),
-                &buffers.joint_lo,
-                &buffers.joint_hi,
-                &buffers.sort_values,
+                &buffers.constraints.joint_lo,
+                &buffers.constraints.joint_hi,
+                &buffers.sort.values,
             );
             self.sort.sort(
                 &mut integrate,
@@ -1243,7 +1266,7 @@ impl Pipeline {
                 joint_words,
                 joint_words,
                 &buffers.dispatch,
-                dispatch(COUNTER_JOINTS as u32, KERNEL_TILE, SORT_JOINTS),
+                SORT_JOINTS,
             );
         }
         self.integrate.record(&mut integrate, params.dynamic_count);
@@ -1260,9 +1283,9 @@ impl Pipeline {
         let channels = Self::sort_lanes(
             buffers,
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.entries.keys_lo,
-            &buffers.entries.keys_hi,
-            &buffers.sort_values,
+            &buffers.contacts.entries.keys_lo,
+            &buffers.contacts.entries.keys_hi,
+            &buffers.sort.values,
         );
         self.sort.sort(
             &mut broadphase,
@@ -1270,7 +1293,7 @@ impl Pipeline {
             collider_words,
             4,
             &buffers.dispatch,
-            dispatch(COUNTER_ENTRIES as u32, KERNEL_TILE, SORT_ENTRIES),
+            SORT_ENTRIES,
         );
         self.broadphase_pairs
             .record_indirect(&mut broadphase, &buffers.dispatch, BROADPHASE_PAIRS);
@@ -1282,9 +1305,9 @@ impl Pipeline {
         let channels = Self::sort_lanes(
             buffers,
             buffers.counter(COUNTER_PAIRS),
-            &buffers.pairs.keys_lo,
-            &buffers.pairs.keys_hi,
-            &buffers.sort_values,
+            &buffers.contacts.pairs.keys_lo,
+            &buffers.contacts.pairs.keys_hi,
+            &buffers.sort.values,
         );
         self.sort.sort(
             &mut narrowphase,
@@ -1292,7 +1315,7 @@ impl Pipeline {
             collider_words,
             collider_words,
             &buffers.dispatch,
-            dispatch(COUNTER_PAIRS as u32, KERNEL_TILE, SORT_PAIRS),
+            SORT_PAIRS,
         );
         self.ccd_sweep
             .record_indirect(&mut narrowphase, &buffers.dispatch, CCD_SWEEP);
@@ -1330,9 +1353,9 @@ impl Pipeline {
         let channels = Self::sort_lanes(
             buffers,
             buffers.counter(COUNTER_CONTACTS),
-            &buffers.contact_b_values,
-            &buffers.contact_b_keys,
-            &buffers.sort_pad,
+            &buffers.contacts.b_values,
+            &buffers.contacts.b_keys,
+            &buffers.sort.pad,
         );
         self.sort.sort(
             &mut islands,
@@ -1340,21 +1363,21 @@ impl Pipeline {
             index_words,
             body_words,
             &buffers.dispatch,
-            dispatch(COUNTER_CONTACTS as u32, KERNEL_TILE, SORT_CONTACTS),
+            SORT_CONTACTS,
         );
         if constraint_active {
             self.gather_constraint_keys
                 .record(&mut islands, params.constraint_count);
             for (keys, values) in [
-                (&buffers.constraint_a_keys, &buffers.constraint_a_values),
-                (&buffers.constraint_b_keys, &buffers.constraint_b_values),
+                (&buffers.constraints.a_keys, &buffers.constraints.a_values),
+                (&buffers.constraints.b_keys, &buffers.constraints.b_values),
             ] {
                 let channels = Self::sort_lanes(
                     buffers,
                     buffers.counter(COUNTER_CONSTRAINTS),
                     values,
                     keys,
-                    &buffers.sort_pad,
+                    &buffers.sort.pad,
                 );
                 self.sort.sort(
                     &mut islands,
@@ -1362,7 +1385,7 @@ impl Pipeline {
                     gather_words,
                     body_words,
                     &buffers.dispatch,
-                    dispatch(COUNTER_CONSTRAINTS as u32, KERNEL_TILE, SORT_CONSTRAINTS),
+                    SORT_CONSTRAINTS,
                 );
             }
         }
@@ -1431,12 +1454,9 @@ impl Pipeline {
 
     /// Writes one batch of the dispatch table, after the counters it reads are final.
     fn encode_dispatch(&self, encoder: &mut CommandEncoder, batch: usize) {
+        let stage = &self.dispatch_stages[batch];
         let mut recorder = ComputeRecorder::begin(encoder, "dispatch", self.per_row);
-        recorder.record(
-            &self.dispatch_args[batch],
-            &[&self.dispatch_group[batch]],
-            1,
-        );
+        recorder.record(&stage.pipeline, &[&stage.group], 1);
     }
     #[cfg(feature = "profile")]
     pub(crate) fn capture_timings(
@@ -1497,13 +1517,13 @@ impl Pipeline {
         drop(recorder);
         self.encode_dispatch(encoder, 1);
         let mut recorder = ComputeRecorder::begin(encoder, "query flush", self.per_row);
-        let collider_words = key_words(buffers.colliders());
+        let collider_words = key_words(buffers.collider_rows());
         let channels = Self::sort_lanes(
             buffers,
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.entries.keys_lo,
-            &buffers.entries.keys_hi,
-            &buffers.sort_values,
+            &buffers.contacts.entries.keys_lo,
+            &buffers.contacts.entries.keys_hi,
+            &buffers.sort.values,
         );
         self.sort.sort(
             &mut recorder,
@@ -1511,7 +1531,7 @@ impl Pipeline {
             collider_words,
             4,
             &buffers.dispatch,
-            dispatch(COUNTER_ENTRIES as u32, KERNEL_TILE, SORT_ENTRIES),
+            SORT_ENTRIES,
         );
         self.query.record_workgroups(&mut recorder, query_count);
     }

@@ -1,8 +1,22 @@
 use super::Simulation;
-use crate::shape_pool::height_field_triangles;
+use crate::shape_pool::{ShapePool, height_field_triangles};
 use dynamis_layout::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_mesh::convex_hull_mesh;
 use dynamis_model::{MAX_COLLIDERS_PER_BODY, Shape, ShapeSourceHandle};
+
+pub(crate) struct Shapes {
+    pub(crate) pool: ShapePool,
+    pub(crate) dirty: bool,
+}
+
+impl Shapes {
+    pub(crate) fn new() -> Self {
+        Self {
+            pool: ShapePool::new(),
+            dirty: false,
+        }
+    }
+}
 
 impl Simulation {
     pub fn add_hull(&mut self, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> ShapeSourceHandle {
@@ -51,8 +65,8 @@ impl Simulation {
     }
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
-        self.shape_pool.remove(handle);
-        self.shapes_dirty = true;
+        self.shapes.pool.remove(handle);
+        self.shapes.dirty = true;
     }
 
     pub fn update_mesh(
@@ -61,13 +75,13 @@ impl Simulation {
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) {
-        self.shape_pool.update_mesh(handle, vertices, triangles);
-        self.shape_pool.upload_update(
-            self.gpu.queue(),
-            &self.buffers.shapes,
-            &self.buffers.shape_vertices,
-            &self.buffers.shape_triangles,
-            &self.buffers.shape_nodes,
+        self.shapes.pool.update_mesh(handle, vertices, triangles);
+        self.shapes.pool.upload_update(
+            self.device.gpu.queue(),
+            &self.device.buffers.shapes.sources,
+            &self.device.buffers.shapes.vertices,
+            &self.device.buffers.shapes.triangles,
+            &self.device.buffers.shapes.nodes,
             handle,
         );
     }
@@ -90,15 +104,15 @@ impl Simulation {
         vertices: &[[f32; 3]],
         triangles: Vec<[u32; 3]>,
     ) -> ShapeSourceHandle {
-        let handle = self.shape_pool.allocate(kind, vertices, &triangles);
-        self.shapes_dirty = true;
+        let handle = self.shapes.pool.allocate(kind, vertices, &triangles);
+        self.shapes.dirty = true;
         handle
     }
 
     pub(super) fn shape_bounds(&self, shape: &Shape) -> Option<([f32; 3], [f32; 3])> {
         match shape {
             Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => {
-                Some(self.shape_pool.record(*handle).bounds)
+                Some(self.shapes.pool.record(*handle).bounds)
             }
             _ => None,
         }

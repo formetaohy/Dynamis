@@ -20,7 +20,7 @@ pub struct QueryHit {
 }
 
 /// One query's answers, as the device left them.
-pub struct QueryOutcome {
+pub(crate) struct QueryOutcome {
     pub hits: Vec<Vec<QueryHit>>,
     pub overflow: Vec<bool>,
 }
@@ -99,7 +99,7 @@ impl QueryPool {
             .find(|batch| batch.batch == batch_id)
             .unwrap_or_else(|| panic!("no query batch is registered for batch {batch_id}"));
         let step = batch.step;
-        let records = crate::records::records::<QueryResultRecord>(bytes);
+        let records = crate::records::decode::<QueryResultRecord>(bytes);
         let mut hits = vec![Vec::new(); batch.width];
         let mut overflow = vec![false; batch.width];
         for (index, result) in records.iter().take(batch.width).enumerate() {

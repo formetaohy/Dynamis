@@ -1,4 +1,4 @@
-use dynamis_profile::{Profiler, summary_of};
+use dynamis_example_profile::{Profiler, summary_of};
 use std::time::Duration;
 
 #[test]

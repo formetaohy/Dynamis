@@ -15,7 +15,7 @@ profile = ["dynamis-gpu/profile"]
 [dependencies]
 bytemuck = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-kernel = { workspace = true }
+dynamis-sort = { workspace = true }
 dynamis-layout = { workspace = true }
 dynamis-math = { workspace = true }
 dynamis-mesh = { workspace = true }
