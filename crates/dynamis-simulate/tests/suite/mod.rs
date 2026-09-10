@@ -1,4 +1,5 @@
 pub mod capabilities;
+pub mod capacity;
 pub mod commands;
 pub mod common;
 pub mod compound;

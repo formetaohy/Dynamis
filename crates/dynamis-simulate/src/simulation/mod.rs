@@ -9,7 +9,7 @@ mod readback;
 mod shape;
 mod step;
 
-use crate::capacity::Live;
+use crate::capacity::{Live, StreamCapacity};
 use body::Bodies;
 use clock::Clock;
 use constraint::Constraints;
@@ -108,6 +108,10 @@ impl Simulation {
     /// The number of body ids this world can address.
     pub fn capacity(&self) -> usize {
         self.slots
+    }
+
+    pub fn stream_capacity(&self) -> StreamCapacity {
+        self.device.reservation.streams()
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {

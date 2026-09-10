@@ -176,12 +176,9 @@ impl Simulation {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis query flush"),
         });
-        self.device.pipeline.encode_queries(
-            &mut encoder,
-            &self.device.buffers,
-            &frame,
-            count as u32,
-        );
+        self.device
+            .pipeline
+            .encode_queries(&mut encoder, &self.device.buffers, &frame);
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
         let arrived = self.device.buffers.readback.queries.enqueue(
             &device,

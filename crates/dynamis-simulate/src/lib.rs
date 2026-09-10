@@ -1,7 +1,7 @@
 //! The GPU-resident rigid-body world.
 
 mod buffers;
-pub mod capacity;
+mod capacity;
 mod pipeline;
 mod query_pool;
 mod records;
@@ -9,6 +9,7 @@ mod shape_pool;
 mod simulation;
 mod static_aabb;
 
+pub use capacity::StreamCapacity;
 pub use dynamis_layout::{
     COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS,
     COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS,

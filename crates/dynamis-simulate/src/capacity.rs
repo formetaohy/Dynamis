@@ -21,43 +21,43 @@ const STREAM_DENSITY_EVENTS: u32 = 8;
 
 /// A stream never serves below this many lanes, even when nothing measured wants
 /// more: the first step of a plan must not spill before it has measured demand.
-pub const STREAM_FLOOR: u32 = 256;
+pub(crate) const STREAM_FLOOR: u32 = 256;
 
-pub struct Live {
-    pub bodies: u32,
-    pub constraints: u32,
-    pub body_commands: u32,
-    pub constraint_commands: u32,
-    pub queries: u32,
+pub(crate) struct Live {
+    pub(crate) bodies: u32,
+    pub(crate) constraints: u32,
+    pub(crate) body_commands: u32,
+    pub(crate) constraint_commands: u32,
+    pub(crate) queries: u32,
 }
 
 /// The lane counts the device measured a step to need; the next plan serves them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StreamDemand {
-    pub pairs: u32,
-    pub entries: u32,
-    pub events: u32,
+pub(crate) struct StreamDemand {
+    pub(crate) pairs: u32,
+    pub(crate) entries: u32,
+    pub(crate) events: u32,
 }
 
 /// One re-planning direction. `Widen` serves a measured peak, `Narrow` releases the
 /// headroom a stream has been idling on; both carry the demand the next plan must
 /// serve, so a plan is always at least what the device asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CapacityPlan {
+pub(crate) enum CapacityPlan {
     Widen(StreamDemand),
     Narrow(StreamDemand),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Reservation {
-    pub bodies: u32,
-    pub constraints: u32,
-    pub entries: u32,
-    pub pairs: u32,
-    pub events: u32,
-    pub body_commands: u32,
-    pub constraint_commands: u32,
-    pub queries: u32,
+pub(crate) struct Reservation {
+    pub(crate) bodies: u32,
+    pub(crate) constraints: u32,
+    pub(crate) entries: u32,
+    pub(crate) pairs: u32,
+    pub(crate) events: u32,
+    pub(crate) body_commands: u32,
+    pub(crate) constraint_commands: u32,
+    pub(crate) queries: u32,
 }
 
 fn product(left: u32, right: u32, name: &str) -> u32 {
@@ -94,7 +94,7 @@ fn stream_narrowed(current: u32, target: u32) -> u32 {
 
 impl Reservation {
     /// The plan a world starts on: nothing live, nothing measured, minimum streams.
-    pub fn initial() -> Self {
+    pub(crate) fn initial() -> Self {
         Self::planned(
             &Self {
                 bodies: 0,
@@ -117,7 +117,7 @@ impl Reservation {
         )
     }
 
-    pub fn planned(current: &Self, live: &Live, plan: Option<CapacityPlan>) -> Self {
+    pub(crate) fn planned(current: &Self, live: &Live, plan: Option<CapacityPlan>) -> Self {
         let widen = plan
             .as_ref()
             .is_none_or(|plan| matches!(plan, CapacityPlan::Widen(_)));
@@ -228,6 +228,14 @@ impl Reservation {
         }
     }
 
+    pub(crate) fn streams(&self) -> StreamCapacity {
+        StreamCapacity {
+            entries: self.entries,
+            pairs: self.pairs,
+            events: self.events,
+        }
+    }
+
     pub(crate) fn colliders(&self) -> u32 {
         product(self.bodies, MAX_COLLIDERS_PER_BODY as u32, "collider")
     }
@@ -237,23 +245,31 @@ impl Reservation {
     }
 }
 
+/// How many lanes each demand-sized device stream currently owns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ShapeReservation {
-    pub sources: u32,
-    pub vertices: u32,
-    pub triangles: u32,
-    pub nodes: u32,
+pub struct StreamCapacity {
+    pub entries: u32,
+    pub pairs: u32,
+    pub events: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ShapeReservation {
+    pub(crate) sources: u32,
+    pub(crate) vertices: u32,
+    pub(crate) triangles: u32,
+    pub(crate) nodes: u32,
 }
 
 impl ShapeReservation {
-    pub const EMPTY: Self = Self {
+    pub(crate) const EMPTY: Self = Self {
         sources: 0,
         vertices: 0,
         triangles: 0,
         nodes: 0,
     };
 
-    pub fn planned(current: &Self, used: &Self) -> Self {
+    pub(crate) fn planned(current: &Self, used: &Self) -> Self {
         Self {
             sources: grown(current.sources, used.sources),
             vertices: grown(current.vertices, used.vertices),
@@ -301,7 +317,7 @@ impl StreamWatch {
 }
 
 /// The control loop between what the device measured and the next plan.
-pub struct Capacity {
+pub(crate) struct Capacity {
     pairs: StreamWatch,
     entries: StreamWatch,
     events: StreamWatch,
@@ -315,7 +331,7 @@ impl Default for Capacity {
 }
 
 impl Capacity {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             pairs: StreamWatch::IDLE,
             entries: StreamWatch::IDLE,
@@ -326,7 +342,11 @@ impl Capacity {
 
     /// Takes what the device measured on a finished step and returns the plan the
     /// next step must build, or nothing while the current plan suffices.
-    pub fn observe(&mut self, measured: &Counters, plan: &Reservation) -> Option<CapacityPlan> {
+    pub(crate) fn observe(
+        &mut self,
+        measured: &Counters,
+        plan: &Reservation,
+    ) -> Option<CapacityPlan> {
         self.pairs.observe(
             measured[COUNTER_PAIRS],
             measured[COUNTER_SPILLOVER_PAIRS] > 0,
