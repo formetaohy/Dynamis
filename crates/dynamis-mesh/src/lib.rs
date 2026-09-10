@@ -1,5 +1,3 @@
-//! Convex hulls and convex decomposition of triangle meshes.
-
 mod decompose;
 mod hull;
 

@@ -21,8 +21,6 @@ pub enum MassSource {
     Density(f32),
 }
 
-/// Resolves the mass properties a body was asked for: an explicit inertia tensor
-/// wins, otherwise they are integrated from the solid colliders.
 pub fn mass_properties_of_intent(
     colliders: &[ColliderDesc],
     mass: f32,

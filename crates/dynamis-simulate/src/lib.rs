@@ -1,5 +1,3 @@
-//! The GPU-resident rigid-body world.
-
 mod buffers;
 mod capacity;
 mod pipeline;

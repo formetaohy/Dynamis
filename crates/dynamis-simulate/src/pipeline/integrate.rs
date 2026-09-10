@@ -43,7 +43,6 @@ impl Integrate {
         }
     }
 
-    /// Rebuilds the broadphase scene a query runs against, without integrating.
     pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, dynamic_count: u32) {
         self.broadphase_aabb.record(recorder, dynamic_count);
     }

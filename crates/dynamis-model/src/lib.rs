@@ -1,6 +1,3 @@
-//! Simulation vocabulary: shapes, descriptions, handles and configuration,
-//! independent of any GPU.
-
 mod body;
 mod collider;
 mod config;

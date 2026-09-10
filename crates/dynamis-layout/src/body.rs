@@ -14,8 +14,6 @@ const _: () = {
     assert!(size_of::<BodyCommandRecord>() == 144);
 };
 
-/// Kinematic state of one body slot. The device owns every field of this row;
-/// the host only ever reaches it through [`BodyCommandRecord`].
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BodyStateRecord {
@@ -61,7 +59,6 @@ impl BodyStateRecord {
         }
     }
 
-    /// The row for a pose the host already knows, used when a slot is first published.
     pub fn observed(
         position: [f32; 3],
         prev_position: [f32; 3],
@@ -93,8 +90,6 @@ impl BodyStateRecord {
     }
 }
 
-/// Invariant properties of one body slot. The host owns this row and the device
-/// reads it; it never appears as a write target in a shader.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BodyDescriptorRecord {
@@ -154,7 +149,6 @@ impl BodyDescriptorRecord {
     }
 }
 
-/// A pending mutation of [`BodyStateRecord`] at `slot`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BodyCommandRecord {

@@ -6,8 +6,6 @@ use wgpu::{
     Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
-/// Records dispatches for one compute pass, splitting a workgroup count that exceeds
-/// the device's per-dimension limit across a second dimension.
 pub struct ComputeRecorder<'a> {
     pass: wgpu::ComputePass<'a>,
     per_row: u32,
@@ -43,8 +41,6 @@ impl<'a> ComputeRecorder<'a> {
             .dispatch_workgroups(count.min(self.per_row), count.div_ceil(self.per_row), 1);
     }
 
-    /// Records a dispatch whose workgroup counts live in the table: the device decides
-    /// how much work this stage has, and the pass reads it as a direct argument.
     pub fn record_indirect(
         &mut self,
         pipeline: &ComputePipeline,

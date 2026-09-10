@@ -12,12 +12,8 @@ use wgpu::{BufferUsages, Device};
 
 pub(crate) const COMPACT_BLOCK: u32 = 256;
 
-/// Event segments: one per in-flight step slot, so a segment is always copied home
-/// before the step that would overwrite it is encoded.
 pub(crate) const EVENT_SLOTS: u32 = GpuReadback::DEPTH as u32;
 
-/// Every stream is written by the device and may be inspected from the host, so all
-/// allocations carry the same usages.
 const STREAM: BufferUsages = BufferUsages::STORAGE
     .union(BufferUsages::COPY_DST)
     .union(BufferUsages::COPY_SRC);
@@ -31,7 +27,6 @@ const QUERY_BYTES: u64 = size_of::<QueryRecord>() as u64;
 const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeader>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
-/// The three lanes a sort orders, reserved together.
 pub(crate) struct ChannelSlots {
     pub(crate) keys_hi: GpuBuffer,
     pub(crate) keys_lo: GpuBuffer,
@@ -125,7 +120,6 @@ pub(crate) struct SortBuffers {
     pub(crate) scratch: ChannelSlots,
 }
 
-/// The staging ring each readback travels home through, with the pack they carry.
 pub(crate) struct ReadbackBuffers {
     pub(crate) pack: GpuBuffer,
     pub(crate) step: GpuReadback,
@@ -133,12 +127,11 @@ pub(crate) struct ReadbackBuffers {
     pub(crate) queries: GpuReadback,
 }
 
-/// Every device allocation the world owns.
 pub(crate) struct WorldBuffers {
     pub(crate) params: GpuBuffer,
-    /// The one counter vector, laid out so any single slot can be bound alone.
+
     pub(crate) counters: GpuBuffer,
-    /// Indirect argument words, written by the device from counters each step.
+
     pub(crate) dispatch: DispatchTable,
     pub(crate) bodies: BodyBuffers,
     pub(crate) constraints: ConstraintBuffers,
@@ -319,7 +312,6 @@ impl WorldBuffers {
         }
     }
 
-    /// Binds one counter slot out of the shared vector.
     pub(crate) fn counter(&self, slot: usize) -> GpuSlot<'_> {
         GpuSlot::range(&self.counters, slot as u64 * COUNTER_STRIDE, 4)
     }

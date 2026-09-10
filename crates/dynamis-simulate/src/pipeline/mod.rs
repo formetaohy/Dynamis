@@ -38,7 +38,6 @@ use velocity_solve::VelocitySolve;
 
 pub(crate) use dispatch::DISPATCH_SLOTS;
 
-/// The step, in the order its passes read and write each other's counters.
 enum Pass {
     Commands,
     Integrate,
@@ -79,10 +78,10 @@ pub(crate) struct FrameParams {
     pub(crate) island_rounds: u32,
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
-    /// Whether structural row moves were compiled into the command stream.
+
     pub(crate) body_structural: bool,
     pub(crate) constraint_structural: bool,
-    /// Whether any per-slot body edit was compiled.
+
     pub(crate) has_body_edits: bool,
 }
 
@@ -150,10 +149,6 @@ impl Pipeline {
         ComputeRecorder::begin(encoder, Pass::LABELS[index], self.per_row)
     }
 
-    /// One step, recorded from the host-owned counts and the dispatch table alike:
-    /// stages whose work the device counted run by indirect arguments, stages whose
-    /// work the host knows run by direct counts, and a batch of arguments is written
-    /// at every point of the step where its counters become final.
     pub(crate) fn encode(
         &self,
         encoder: &mut CommandEncoder,
@@ -211,11 +206,6 @@ impl Pipeline {
         drop(tail);
     }
 
-    /// Refreshes the broadphase scene the queries run against, then runs them.
-    ///
-    /// A query outside a step must see the world as the device holds it now, so the
-    /// grid is rebuilt from the current states rather than trusting the last step's
-    /// cells: stale entries would let a moved body slip through a ray unanswered.
     pub(crate) fn encode_queries(
         &self,
         encoder: &mut CommandEncoder,

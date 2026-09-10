@@ -40,9 +40,6 @@ fn measured_counters(bytes: &[u8]) -> Counters {
 }
 
 impl Simulation {
-    /// One pack per step: the counter vector, then the constraint runtime rows. Contact
-    /// events travel in their own readback, sized by what the step actually produced, so
-    /// an idle event stream never bills its whole forecast.
     pub(crate) fn pack_step(&self, encoder: &mut wgpu::CommandEncoder) -> u64 {
         let staging = self.device.buffers.readback.pack.buffer();
         encoder.copy_buffer_to_buffer(
@@ -114,7 +111,6 @@ impl Simulation {
         }
     }
 
-    /// What the device measured on the step whose pack last arrived.
     pub fn measured(&self) -> &Counters {
         &self.device.measured
     }
@@ -158,9 +154,6 @@ impl Simulation {
             .collect()
     }
 
-    /// Reads `bytes` of a device buffer with a synchronous round trip. For inspection
-    /// only; the step path never uses it. The staging buffer is reused across calls,
-    /// so a per-frame state sync stops allocating on the hot path.
     pub(crate) fn read_range(&mut self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
         let device = self.device.gpu.device();
         let wide = bytes.max(16);
@@ -268,8 +261,6 @@ impl Simulation {
         }
     }
 
-    /// `consume_pack` marks a step's events; a later encoder (or a forced readback)
-    /// copies them home by the count the step actually produced.
     fn note_events_due(&mut self, step: u64) {
         let count = self.device.measured[COUNTER_EVENTS];
         if count > 0 {
@@ -277,8 +268,6 @@ impl Simulation {
         }
     }
 
-    /// Copies every marked event segment into the readback staging, at the head of
-    /// the encoder that will not overwrite them before the copy runs.
     pub(crate) fn copy_events(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -302,7 +291,6 @@ impl Simulation {
         }
     }
 
-    /// Blocks until every event a landed pack announced is home, then consumes them.
     pub(crate) fn sync_events(&mut self) {
         if self.events.due.is_empty() {
             return;
@@ -319,9 +307,6 @@ impl Simulation {
         }
     }
 
-    /// Records what the device measured; the capacity controller widens or narrows
-    /// the streams from this at the next step boundary, so a spill only ever degrades
-    /// the step that produced it.
     pub(crate) fn accept_measured(&mut self, step: u64, measured: &Counters) {
         self.device.measured = *measured;
         self.note_events_due(step);

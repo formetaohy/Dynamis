@@ -27,7 +27,7 @@ pub use readback::{ContactManifold, ContactPoint};
 
 pub struct Simulation {
     config: PhysicsConfig,
-    /// The host-side handle space; bounds ids, never device work.
+
     slots: usize,
     clock: Clock,
     device: Device,
@@ -38,8 +38,6 @@ pub struct Simulation {
     events: Events,
 }
 
-/// Splits a sorted, de-duplicated slot list into maximal contiguous runs, so a
-/// stripe of dirty slots uploads as one write instead of one call per row.
 fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
     let mut runs = Vec::new();
     let mut start = 0usize;
@@ -67,9 +65,6 @@ fn assert_config(config: &PhysicsConfig) {
 }
 
 impl Simulation {
-    /// A world able to address `slots` body and constraint ids. Stream lanes are
-    /// sized from what the device measures, so the first plan serves a minimum and
-    /// every step boundary widens or narrows them to the observed demand.
     pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig) -> Self {
         assert!(slots > 0, "simulation slot count must be positive");
         assert!(
@@ -105,7 +100,6 @@ impl Simulation {
         self.config.gravity = gravity;
     }
 
-    /// The number of body ids this world can address.
     pub fn capacity(&self) -> usize {
         self.slots
     }
@@ -122,8 +116,6 @@ impl Simulation {
         self.bodies.alive.len()
     }
 
-    /// Raises the id space. Device storage follows live bodies, so this alone never
-    /// reallocates anything on the card.
     pub fn grow(&mut self, slots: usize) {
         assert!(
             u32::try_from(slots).is_ok(),
@@ -158,10 +150,6 @@ impl Simulation {
         }
     }
 
-    /// Publishes every host-side row edit the world accumulated since the last step.
-    ///
-    /// Host mutations never touch the device directly, so this is the only place that
-    /// writes rows and the only place that may need to reallocate first.
     pub(crate) fn flush_rows(&mut self) {
         let queue = self.device.gpu.queue();
         if self.shapes.dirty {
@@ -237,12 +225,10 @@ impl Simulation {
         }
     }
 
-    /// The device-owned kinematic state of every live body slot.
     pub fn state_buffer(&self) -> &GpuBuffer {
         &self.device.buffers.bodies.states
     }
 
-    /// The device-owned collider rows of every live body slot.
     pub fn collider_buffer(&self) -> &GpuBuffer {
         &self.device.buffers.bodies.colliders
     }
@@ -251,7 +237,6 @@ impl Simulation {
         &self.device.gpu
     }
 
-    /// Which event ring segment the step being encoded writes into.
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
         (step % crate::buffers::EVENT_SLOTS as u64) as u32
     }

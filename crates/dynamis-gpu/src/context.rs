@@ -7,24 +7,21 @@ use wgpu::{
     Instance, InstanceDescriptor, Limits, PowerPreference, Queue,
 };
 
-/// How much adapter capability the created device requests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LimitsPolicy {
-    /// Exactly [`GpuContext::MINIMUM_LIMITS`].
     Minimum,
-    /// Everything the adapter reports.
+
     Adapter,
 }
 
-/// Device acquisition options.
 pub struct GpuRequest {
     pub backends: Backends,
     pub power_preference: PowerPreference,
-    /// Case-insensitive substring of [`AdapterInfo::name`].
+
     pub device_name: Option<String>,
-    /// Features the device must offer.
+
     pub required_features: Features,
-    /// Features used only when the adapter offers them.
+
     pub optional_features: Features,
     pub limits: LimitsPolicy,
 }
@@ -43,15 +40,12 @@ impl Default for GpuRequest {
 }
 
 impl GpuRequest {
-    /// Timestamp queries, requested from the device only when the `profile`
-    /// feature is built in.
     #[cfg(feature = "profile")]
     pub const PROFILING_FEATURES: Features =
         Features::TIMESTAMP_QUERY.union(Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
     #[cfg(not(feature = "profile"))]
     pub const PROFILING_FEATURES: Features = Features::empty();
 
-    /// The native APIs this engine runs on.
     pub const NATIVE_BACKENDS: Backends = Backends::DX12
         .union(Backends::METAL)
         .union(Backends::VULKAN);
@@ -63,7 +57,6 @@ impl GpuRequest {
         }
     }
 
-    /// Request [`GpuContext::MINIMUM_LIMITS`] rather than the hardware maximum.
     pub fn minimum_limits() -> Self {
         Self {
             limits: LimitsPolicy::Minimum,
@@ -72,7 +65,6 @@ impl GpuRequest {
     }
 }
 
-/// Why no device could be created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GpuUnavailable {
     NoAdapter {
@@ -125,7 +117,6 @@ impl Display for GpuUnavailable {
 
 impl std::error::Error for GpuUnavailable {}
 
-/// Why a device stopped working.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceLost {
     pub reason: DeviceLostReason,
@@ -187,7 +178,6 @@ impl PipelineKey {
 }
 
 impl GpuContext {
-    /// The adapter capability this engine requires.
     pub const MINIMUM_LIMITS: Limits = Limits {
         max_storage_buffers_per_shader_stage: 16,
         max_storage_textures_per_shader_stage: 0,
@@ -200,7 +190,6 @@ impl GpuContext {
         ..Limits::defaults()
     };
 
-    /// Acquire a device for `request`.
     pub async fn open(request: &GpuRequest) -> Result<Self, GpuUnavailable> {
         let adapter = select_adapter(request).await?;
         let available = adapter.features();
@@ -248,7 +237,6 @@ impl GpuContext {
         })
     }
 
-    /// Acquire a device for the default request.
     pub async fn new() -> Self {
         match Self::open(&GpuRequest::default()).await {
             Ok(context) => context,
@@ -256,7 +244,6 @@ impl GpuContext {
         }
     }
 
-    /// Every adapter reachable through `backends`.
     pub async fn available_adapters(backends: Backends) -> Vec<AdapterInfo> {
         let instance = create_instance(backends);
         instance
@@ -283,7 +270,6 @@ impl GpuContext {
         self.features
     }
 
-    /// The largest workgroup count a single dispatch dimension may carry.
     pub fn workgroups_per_row(&self) -> u32 {
         self.limits.max_compute_workgroups_per_dimension.max(1)
     }
@@ -296,12 +282,10 @@ impl GpuContext {
         self.features.contains(features)
     }
 
-    /// Nanoseconds per timestamp tick.
     pub fn timestamp_period_ns(&self) -> f32 {
         self.timestamp_period_ns
     }
 
-    /// Whether per-pass GPU timing is available.
     #[cfg(feature = "profile")]
     pub fn supports_pass_timing(&self) -> bool {
         self.supports(GpuRequest::PROFILING_FEATURES)

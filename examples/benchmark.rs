@@ -87,8 +87,6 @@ fn main() {
     );
 }
 
-/// Fold one step's resolved GPU pass durations into the profiler, returning how
-/// many pass reports were consumed.
 fn record_passes(profiler: &mut Profiler, sim: &Simulation) -> u64 {
     let timings = sim.gpu_pass_timings();
     if timings.is_empty() {

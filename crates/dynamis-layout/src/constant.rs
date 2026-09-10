@@ -14,13 +14,11 @@ pub const COMMAND_SWAP: u32 = 11;
 pub const COMMAND_CONSTRAINT_ADD: u32 = 0;
 pub const COMMAND_CONSTRAINT_SWAP: u32 = 1;
 
-/// State bits: only the GPU writes these, through the command stream.
 pub const PATCH_POSITION: u32 = 1;
 pub const PATCH_VELOCITY: u32 = 2;
 pub const PATCH_ORIENTATION: u32 = 4;
 pub const PATCH_ANGULAR_VELOCITY: u32 = 8;
 
-/// Descriptor bits: only the host writes these, straight into the buffer.
 pub const BODY_KINEMATIC: u32 = 1;
 pub const BODY_CCD: u32 = 2;
 pub const OVERRIDE_SLEEP_LINEAR: u32 = 4;

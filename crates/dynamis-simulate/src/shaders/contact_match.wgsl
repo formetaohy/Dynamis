@@ -64,9 +64,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let point = contact.points[0].position;
         emit_event(EVENT_PERSIST, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
     }
-    // Manifold points keep their order across a persisting pair, so impulses are
-    // matched by index: the row carries four point lanes and each lane's tail
-    // values are that point's own history even when this step's manifold shrank.
+
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         contact.points[point_index].accumulated_normal = prev.points[point_index].accumulated_normal;
         contact.points[point_index].accumulated_tangent_1 = prev.points[point_index].accumulated_tangent_1;

@@ -116,8 +116,6 @@ impl Commands {
         self.reset_counters.record(recorder, COUNTER_COUNT as u32);
     }
 
-    /// Structural row moves and per-slot edits, shared by the step and an out-of-step
-    /// query flush.
     pub(super) fn record_moves(&self, recorder: &mut ComputeRecorder, params: &FrameParams) {
         if params.body_structural {
             self.body_gather.record(recorder, params.body_count);

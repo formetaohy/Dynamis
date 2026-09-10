@@ -2,7 +2,6 @@ use dynamis_layout::{MAX_HITS_PER_QUERY, QueryResultHeader, QueryResultRecord};
 use dynamis_model::BodyHandle;
 use std::collections::VecDeque;
 
-/// Identifies one submitted query.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueryHandle {
     pub batch: u64,
@@ -19,7 +18,6 @@ pub struct QueryHit {
     pub step: u64,
 }
 
-/// One query's answers, as the device left them.
 pub(crate) struct QueryOutcome {
     pub hits: Vec<Vec<QueryHit>>,
     pub overflow: Vec<bool>,
@@ -32,9 +30,6 @@ struct QueryBatch {
     outcome: Option<QueryOutcome>,
 }
 
-/// The results of every query batch the device has been asked for and the host has
-/// not yet read. A batch is one contiguous run of [`QueryResultRecord`] lanes, so its
-/// size follows the number of queries submitted, nothing else.
 pub(crate) struct QueryPool {
     batches: VecDeque<QueryBatch>,
 }
@@ -46,7 +41,6 @@ impl QueryPool {
         }
     }
 
-    /// Registers a submitted batch under the id the host handed out for it.
     pub(crate) fn submit(&mut self, batch: u64, step: u64, width: usize) {
         self.batches.push_back(QueryBatch {
             batch,
@@ -74,7 +68,6 @@ impl QueryPool {
             .expect("query outcome read before it arrived")
     }
 
-    /// Whether a handle names a batch whose results have already been dropped.
     pub(crate) fn is_current(&self, handle: QueryHandle) -> bool {
         self.batch(handle).is_some()
     }
@@ -90,8 +83,6 @@ impl QueryPool {
             .find(|batch| batch.batch == handle.batch)
     }
 
-    /// Brings a landed batch's results home. The readback sequence is the batch id, so
-    /// a step that flushed queries outside the step loop cannot be confused with it.
     pub(crate) fn collect(&mut self, batch_id: u64, bytes: &[u8]) {
         let batch = self
             .batches

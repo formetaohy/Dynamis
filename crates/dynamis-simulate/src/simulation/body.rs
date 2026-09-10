@@ -250,8 +250,6 @@ impl Simulation {
         }
     }
 
-    /// The collider boxes of a slot as the host authority sees them; dynamic slots
-    /// leave their boxes for the device to compute.
     pub(super) fn aabb_block_of(&self, id: usize) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
         if self.is_static_id(id) {
             let (position, orientation) = self.observed_pose(id);
@@ -266,7 +264,6 @@ impl Simulation {
         }
     }
 
-    /// Applies a host-side edit to one descriptor row and publishes it.
     fn patch_descriptor(
         &mut self,
         handle: BodyHandle,
@@ -278,8 +275,6 @@ impl Simulation {
         self.bodies.dirty.push(self.bodies.index_of[id]);
     }
 
-    /// Republishes the mass-derived half of a descriptor after the colliders,
-    /// mass or kinematic flag changed; the rest is already in the stored row.
     fn refresh_descriptor(&mut self, handle: BodyHandle) {
         let id = handle.id as usize;
         let mass = self.mass_properties_of(id);
@@ -497,8 +492,6 @@ impl Simulation {
         self.refresh_descriptor(handle);
     }
 
-    /// Replaces the shape of a body's first collider, keeping every material and
-    /// placement field as it was.
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
         self.validate(handle);
         let id = handle.id as usize;

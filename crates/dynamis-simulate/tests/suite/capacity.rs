@@ -6,9 +6,6 @@ use dynamis_simulate::Simulation;
 const PILE: usize = 320;
 const LATTICE: usize = 7;
 
-/// Overlapping static spheres in a compact lattice: every pair is a broadphase
-/// candidate, so the demand on the pair stream is far above the row density and the
-/// stream floor alike.
 fn sphere_pile(world: &mut Simulation) -> Vec<BodyHandle> {
     (0..PILE)
         .map(|index| {
@@ -53,8 +50,6 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     );
 }
 
-/// Steps one at a time, waiting for each step so every pack is observed before the
-/// next plan is due.
 fn step_waited(world: &mut Simulation, steps: usize) {
     for _ in 0..steps {
         world.step(DT);

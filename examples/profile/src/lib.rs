@@ -1,5 +1,3 @@
-//! Aggregation of CPU and GPU timing samples.
-
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq)]

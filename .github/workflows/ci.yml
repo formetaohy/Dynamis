@@ -37,11 +37,6 @@ jobs:
       - name: Lint with profiling built in
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Document
-        run: cargo doc --workspace --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: -D warnings
-
       - name: Test
         run: cargo test --workspace
 

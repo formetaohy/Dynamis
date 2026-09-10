@@ -16,8 +16,6 @@ const _: () = {
     assert!(size_of::<ConstraintCommandRecord>() == 24);
 };
 
-/// Joint parameters of one constraint slot. The host owns this row and the
-/// device reads it; it never appears as a write target in a shader.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct ConstraintDescriptorRecord {
@@ -266,8 +264,6 @@ impl ConstraintDescriptorRecord {
     }
 }
 
-/// Accumulated impulses of one constraint slot. The device owns this row; the
-/// host only reads it back to report breaks.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct ConstraintRuntimeRecord {
@@ -290,7 +286,6 @@ impl ConstraintRuntimeRecord {
     }
 }
 
-/// A pending mutation of [`ConstraintRuntimeRecord`] at a slot.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct ConstraintCommandRecord {

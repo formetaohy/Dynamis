@@ -27,10 +27,6 @@ pub(super) const POSITION_SOLVE_EXTRACT: u32 = 16;
 pub(super) const EVENTS_END: u32 = 17;
 const KERNEL_TILE: u32 = 256;
 
-/// The dispatch table the device writes once per step, one slot per indirect stage.
-///
-/// Sort tiles cover 256 lanes, simulation workgroups 64, compaction blocks 256, so a
-/// count becomes a workgroup count of the right density for each consumer.
 struct DispatchEntry {
     slot: u32,
     counter: usize,
@@ -46,19 +42,15 @@ const fn entry(slot: u32, counter: usize, lanes: u32) -> DispatchEntry {
 }
 
 const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
-    // After commands: joints were counted, constraints and the previous contact count
-    // were already final last step.
     &[
         entry(SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
         entry(SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
         entry(EVENTS_END, COUNTER_PREV_CONTACTS, WORKGROUP_SIZE),
     ],
-    // After the grid emitted its entries.
     &[
         entry(SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
         entry(BROADPHASE_PAIRS, COUNTER_ENTRIES, WORKGROUP_SIZE),
     ],
-    // After entries were paired and the pair count is final.
     &[
         entry(SORT_PAIRS, COUNTER_PAIRS, KERNEL_TILE),
         entry(NARROWPHASE, COUNTER_PAIRS, WORKGROUP_SIZE),
@@ -66,7 +58,6 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
         entry(COMPACT_SCATTER, COUNTER_PAIRS, WORKGROUP_SIZE),
         entry(CCD_SWEEP, COUNTER_PAIRS, WORKGROUP_SIZE),
     ],
-    // After pairs were compacted into contacts and the contact count is final.
     &[
         entry(SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
         entry(CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
@@ -79,8 +70,6 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
     ],
 ];
 
-/// One more than the highest slot any batch writes, so the table always covers the
-/// whole batch list.
 pub(crate) const DISPATCH_SLOTS: u32 = dispatch_slots();
 
 const fn dispatch_slots() -> u32 {
@@ -101,8 +90,6 @@ const fn dispatch_slots() -> u32 {
     slots
 }
 
-/// The shader filling the dispatch table: one entry point per batch, one lane per
-/// table slot, a slot only written once its counter is final.
 fn dispatch_source() -> String {
     let mut source = String::from(
         "struct Args { per_row: u32, rows: u32, layers: u32, _pad: u32 }\n\
@@ -183,7 +170,6 @@ impl Dispatch {
         Self { per_row, stages }
     }
 
-    /// Writes one batch of the table, after the counters it reads are final.
     pub(super) fn write(&self, encoder: &mut CommandEncoder, batch: usize) {
         let stage = &self.stages[batch];
         let mut recorder = ComputeRecorder::begin(encoder, "dispatch", self.per_row);

@@ -1,5 +1,3 @@
-//! Byte-exact host/device records and the constants WGSL compiles in.
-
 mod body;
 mod collider;
 mod constant;

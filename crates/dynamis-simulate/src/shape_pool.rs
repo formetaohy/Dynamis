@@ -44,7 +44,6 @@ impl ShapePool {
         }
     }
 
-    /// The packed lengths the store has actually reached, in elements.
     pub fn used(&self) -> ShapeReservation {
         ShapeReservation {
             sources: self.generations.len() as u32,

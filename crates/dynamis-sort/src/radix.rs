@@ -14,15 +14,12 @@ fn shifted_shader(source: &str, shift: u32, row: u32) -> String {
         .replace("__ROW__", &row.to_string())
 }
 
-/// The number of `u32` words needed to order `elements` distinct values.
 pub fn key_words(elements: u32) -> u32 {
     let bits = 32 - elements.saturating_sub(1).leading_zeros();
     bits.div_ceil(8).clamp(1, 4)
 }
 
-/// The lanes a sort orders: a key split into two words, plus a payload.
 pub struct SortChannels<'a> {
-    /// How many leading lanes are live. A slot, so counters can share one buffer.
     pub count: GpuSlot<'a>,
     pub keys_lo: &'a GpuBuffer,
     pub keys_hi: &'a GpuBuffer,
@@ -151,10 +148,6 @@ impl SortBindGroups {
     }
 }
 
-/// A stable 8-bit radix sort over `u32` key/value lanes.
-///
-/// The bin count is fixed at 256, so neither shared memory nor per-pass work depends
-/// on how many distinct keys exist — only on how many lanes are being ordered.
 pub struct RadixSort {
     device: Device,
     histogram_pipelines: [ComputePipeline; PASSES],
@@ -181,7 +174,6 @@ const READ: BindingKind = BindingKind::ReadOnlyStorage;
 const WRITE: BindingKind = BindingKind::ReadWriteStorage;
 
 impl RadixSort {
-    /// Build a sort able to order up to `reservation` lanes.
     pub fn new(context: &GpuContext, label: &str, reservation: u32) -> Self {
         let device = context.device().clone();
         let row = context.workgroups_per_row();
@@ -318,8 +310,7 @@ impl RadixSort {
         slot: u32,
     ) {
         let mut passes = (0..lo_words).chain(4..4 + hi_words).collect::<Vec<_>>();
-        // An odd count would leave the result in the scratch lanes. Repeating the most
-        // significant pass is a stable no-op on already-ordered data and restores it.
+
         if passes.len() % 2 == 1 {
             let last = *passes.last().expect("a sort runs at least one pass");
             passes.push(last);
@@ -366,10 +357,6 @@ impl RadixSort {
         use_groups(&cache[index])
     }
 
-    /// Order `channels` by `lo_words` of the low key word then `hi_words` of the high one.
-    ///
-    /// The sorted lanes always end up back in `channels`, and dispatches run by how many
-    /// lanes the counter behind `slot` says are live, never by the reservation.
     pub fn sort(
         &self,
         recorder: &mut ComputeRecorder,

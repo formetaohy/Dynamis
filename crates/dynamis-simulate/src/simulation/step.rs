@@ -64,9 +64,6 @@ impl Simulation {
         self.bodies.states_ready = false;
     }
 
-    /// Compiles every pending command, uploads the parallel stream, and consumes
-    /// the sequence: a command applies exactly once whether the next step or a
-    /// query flush is what runs first.
     pub(crate) fn apply_pending_commands(&mut self) {
         let body_compiled = self.compile_commands();
         let constraint_compiled = self.compile_constraint_commands();
@@ -168,8 +165,7 @@ impl Simulation {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis step encoder"),
         });
-        // Event segments are copied home at the head of the very next encoder, so a
-        // segment is read before the step that would overwrite it is encoded.
+
         self.copy_events(&mut encoder, &device);
         self.device
             .pipeline
@@ -214,20 +210,17 @@ impl Simulation {
         }
     }
 
-    /// Per-pass GPU durations of the most recently drained step.
     #[cfg(feature = "profile")]
     pub fn gpu_pass_timings(&self) -> &[dynamis_gpu::GpuPassTiming] {
         &self.device.pass_timings
     }
 
-    /// Whether this device can report pass timings.
     #[cfg(feature = "profile")]
     pub fn gpu_timing_supported(&self) -> bool {
         self.device.gpu.supports_pass_timing()
     }
 }
 
-/// Queues a readback of a device buffer; an empty buffer has nothing to bring back.
 fn enqueue_readback(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,

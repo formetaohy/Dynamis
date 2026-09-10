@@ -65,7 +65,6 @@ struct BodyDescriptor {
     _pad3: array<f32, 2>,
 }
 
-/// A host-owned descriptor paired with a device-owned state row.
 struct Body {
     state: BodyState,
     desc: BodyDescriptor,
@@ -217,7 +216,6 @@ struct ConstraintDescriptor {
     _pad_ang_force: f32,
 }
 
-/// Accumulated impulses of a constraint slot, owned by the device.
 struct ConstraintRuntime {
     accumulated: array<f32, 8>,
     broken: u32,
@@ -723,7 +721,6 @@ fn simplex_closest(simplex: array<SimplexPoint, 4>, count: u32) -> SimplexResult
     }
     return result;
 }
-
 
 fn support_pair(first: WorldShape, second: WorldShape, direction: vec3f) -> SimplexPoint {
     let a = support(first, direction);

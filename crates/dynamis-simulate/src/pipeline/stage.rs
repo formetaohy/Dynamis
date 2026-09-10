@@ -90,7 +90,6 @@ impl Stage {
         }
     }
 
-    /// Dispatches one workgroup per `elements` lanes.
     pub(super) fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
         let workgroups = elements.div_ceil(WORKGROUP_SIZE);
         self.record_workgroups(recorder, workgroups);

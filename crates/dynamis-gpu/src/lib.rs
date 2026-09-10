@@ -1,5 +1,3 @@
-//! Device acquisition and the compute-only GPU primitives the engine runs on.
-
 mod buffer;
 mod compute;
 mod context;

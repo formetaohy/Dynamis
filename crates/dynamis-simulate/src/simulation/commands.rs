@@ -1,44 +1,29 @@
-//! The body and constraint command stream, compiled once per flush into parallel
-//! work: a row re-map for structural commands (add/remove/swap) and per-slot
-//! command groups for content edits (patch/force/impulse/sleep/wake).
-//!
-//! Host mutations never touch the device directly; they are recorded as a command
-//! sequence, then compiled here into the two things the device can do in parallel:
-//! a re-map of rows (which slot carries which row of body state) and one ordered
-//! run of edits per touched slot.
-
 use crate::simulation::Simulation;
 use dynamis_layout::{
     BodyCommandRecord, BodyStateRecord, COMMAND_ADD, COMMAND_CONSTRAINT_ADD, COMMAND_REMOVE,
     COMMAND_SWAP, ConstraintRuntimeRecord,
 };
 
-/// A row's identity through the structural shuffle: its own slot, a freshly
-/// recorded row, or nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RowIdentity {
-    /// The row that started life in this slot.
     Slot(u32),
-    /// A fresh row recorded by an add command.
+
     Fresh(u32),
-    /// No row; the slot is cleared.
+
     Empty,
 }
 
-/// One slot's row destination after every structural command ran.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowMove {
-    /// The row stays where it is; no read or write happens for it.
     Keep,
-    /// The final slot takes the row currently held at the source slot.
+
     MoveSource(u32),
-    /// The final slot is written from a fresh host record.
+
     Fresh(u32),
-    /// The final slot holds nothing; the row is cleared.
+
     Clear,
 }
 
-/// The device lanes a move list encodes to.
 pub(crate) struct MoveLanes {
     pub(crate) src: Vec<u32>,
     pub(crate) fresh: Vec<u32>,
@@ -60,9 +45,6 @@ impl MoveLanes {
 }
 
 impl RowMove {
-    /// The device encoding: the source slot for a plain move, the CLEAR sentinel,
-    /// or the slot itself for a keep; the fresh lane index lives in the companion
-    /// lane.
     pub(crate) fn encode(&self, slot: u32) -> (u32, u32) {
         match self {
             Self::Keep => (slot, u32::MAX),
@@ -77,8 +59,6 @@ impl RowMove {
     }
 }
 
-/// Which row every device slot holds as a command sequence is replayed, and which
-/// slots the sequence touched.
 struct RowMap {
     contents: Vec<RowIdentity>,
     moved: Vec<bool>,
@@ -110,7 +90,6 @@ impl RowMap {
         self.moved[second as usize] = true;
     }
 
-    /// The row destination of every alive slot, in slot order.
     fn moves(&self, rows: usize) -> Vec<RowMove> {
         self.contents[..rows]
             .iter()
@@ -129,9 +108,6 @@ impl RowMap {
     }
 }
 
-/// The stable identity of a row's content, used to keep edits attached to the row
-/// they were recorded for: initial rows keep their birth slot, fresh rows take the
-/// lane index after it.
 fn identity_index(identity: RowIdentity, slots: u32) -> Option<u32> {
     match identity {
         RowIdentity::Slot(slot) => Some(slot),
@@ -140,18 +116,15 @@ fn identity_index(identity: RowIdentity, slots: u32) -> Option<u32> {
     }
 }
 
-/// The compiled body command stream.
 pub(crate) struct CompiledBodyCommands {
-    /// The row destination of every alive slot, in slot order.
     pub moves: Vec<RowMove>,
-    /// Fresh row records, the `Fresh` index in `moves` points into this.
+
     pub fresh: Vec<BodyStateRecord>,
-    /// Content edits re-ordered so each slot's commands run in their original
-    /// relative order, contiguous per slot.
+
     pub edits: Vec<BodyCommandRecord>,
-    /// One-based index into `edits` of each slot's first command; 0 means none.
+
     pub edit_first: Vec<u32>,
-    /// Whether any structural work is needed at all.
+
     pub structurally_dirty: bool,
 }
 
@@ -161,13 +134,6 @@ pub(crate) struct CompiledConstraintCommands {
 }
 
 impl Simulation {
-    /// Compiles the pending body command sequence.
-    ///
-    /// A content edit belongs to the row it was recorded against, not to the slot
-    /// that row happened to occupy then: the edit follows the row through every
-    /// later move and dies with it if the row is removed. Edits are emitted on the
-    /// row's final slot, preserving their original order, so the device can run one
-    /// slot's whole edit run per lane.
     pub(crate) fn compile_commands(&self) -> CompiledBodyCommands {
         let mut map = RowMap::new(self.slots);
         let mut fresh: Vec<BodyStateRecord> = Vec::new();
@@ -220,8 +186,6 @@ impl Simulation {
         }
     }
 
-    /// Compiles the pending constraint command sequence into a re-map; constraints
-    /// only ever add or swap rows.
     pub(crate) fn compile_constraint_commands(&self) -> CompiledConstraintCommands {
         let mut map = RowMap::new(self.slots);
         let mut fresh: Vec<ConstraintRuntimeRecord> = Vec::new();

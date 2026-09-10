@@ -78,9 +78,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             spin = spin + constraint_deltas[value * 4u + 3u].xyz;
         }
     }
-    // Jacobi couples every link of a body at once; the summed impulses are
-    // tempered per link so an over-tuned step cannot blow a stacked body apart.
-    // 0 keeps the classic 1/links world, 1 removes the tempering entirely.
+
     let damping = select(1.0, (1.0 - params.tempering) / f32(links) + params.tempering, links > 1u);
     var updated = body;
     updated.velocity = body.velocity + velocity * damping;

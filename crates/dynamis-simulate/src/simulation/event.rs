@@ -31,8 +31,6 @@ impl Simulation {
         self.events.sink = sink;
     }
 
-    /// The count travels with the bytes: the segment was copied home by exactly the
-    /// number of records the step produced, so the two can never be paired wrong.
     pub(crate) fn consume_events(&mut self, bytes: &[u8]) {
         let records = crate::records::decode::<ContactEventRecord>(bytes);
         let count = records.len();

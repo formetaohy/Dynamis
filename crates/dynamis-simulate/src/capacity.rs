@@ -1,11 +1,3 @@
-//! Stream lane planning: what the device measured turns into the lane counts the next
-//! step allocates.
-//!
-//! Stream lanes are sized by demand, never declared by host code. A step that spilled
-//! or ran near its ceiling latches pressure, and the next step boundary serves it with
-//! a wider plan. Sustained idleness narrows a stream back toward what it actually
-//! needs, so a one-frame pile-up does not bill its peak forever.
-
 use dynamis_layout::{
     COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES,
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER,
@@ -19,8 +11,6 @@ const MIN_SLOTS: u32 = 64;
 const STREAM_DENSITY_PAIRS: u32 = 128;
 const STREAM_DENSITY_EVENTS: u32 = 8;
 
-/// A stream never serves below this many lanes, even when nothing measured wants
-/// more: the first step of a plan must not spill before it has measured demand.
 pub(crate) const STREAM_FLOOR: u32 = 256;
 
 pub(crate) struct Live {
@@ -31,7 +21,6 @@ pub(crate) struct Live {
     pub(crate) queries: u32,
 }
 
-/// The lane counts the device measured a step to need; the next plan serves them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StreamDemand {
     pub(crate) pairs: u32,
@@ -39,9 +28,6 @@ pub(crate) struct StreamDemand {
     pub(crate) events: u32,
 }
 
-/// One re-planning direction. `Widen` serves a measured peak, `Narrow` releases the
-/// headroom a stream has been idling on; both carry the demand the next plan must
-/// serve, so a plan is always at least what the device asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CapacityPlan {
     Widen(StreamDemand),
@@ -65,8 +51,6 @@ fn product(left: u32, right: u32, name: &str) -> u32 {
         .unwrap_or_else(|| panic!("{name} capacity exceeds the device index space"))
 }
 
-/// Serves a live count: reach it now, and keep room for the next batch at the
-/// boundary; a shrinking live count is served by the narrow path, never here.
 fn grown(current: u32, live: u32) -> u32 {
     if live <= current {
         return current.max(MIN_SLOTS);
@@ -80,20 +64,16 @@ fn narrowed(current: u32, live: u32) -> u32 {
     current.min(current.saturating_div(2).max(target))
 }
 
-/// Grows a stream to `required`, then to measured demand, never below the floor.
 fn stream_grown(current: u32, required: u32, demand: u32) -> u32 {
     current.max(required).max(demand).max(STREAM_FLOOR)
 }
 
-/// Releases stream headroom toward `target`, one halving per plan at most, never
-/// below the target or the floor.
 fn stream_narrowed(current: u32, target: u32) -> u32 {
     let half = current.saturating_div(2);
     current.min(target.max(half).max(STREAM_FLOOR))
 }
 
 impl Reservation {
-    /// The plan a world starts on: nothing live, nothing measured, minimum streams.
     pub(crate) fn initial() -> Self {
         Self::planned(
             &Self {
@@ -140,9 +120,7 @@ impl Reservation {
                 events: 0,
             },
         };
-        // Measured streams release headroom toward what the device actually asked
-        // for; the density baselines only serve widening, so a measured peak never
-        // bills its own forecast for the life of the world.
+
         let entries = if widen {
             stream_grown(
                 current.entries,
@@ -245,7 +223,6 @@ impl Reservation {
     }
 }
 
-/// How many lanes each demand-sized device stream currently owns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StreamCapacity {
     pub entries: u32,
@@ -279,16 +256,14 @@ impl ShapeReservation {
     }
 }
 
-/// The fraction of lanes a stream must keep free; less latches pressure ahead of a
-/// spill.
 const PRESSURE_HEADROOM: u32 = 8;
-/// A stream only counts as idle while demand stays under this fraction of its lanes.
+
 const IDLE_FRACTION: u32 = 4;
-/// Steps of idleness required before a stream narrows.
+
 const IDLE_DELAY: u32 = 120;
-/// Steps between two plans, so a spike cannot oscillate reallocations.
+
 const PLAN_COOLDOWN: u32 = 10;
-/// What a plan serves a stream: twice what the device measured it to need.
+
 const STREAM_HEADROOM: u32 = 2;
 
 #[derive(Clone, Copy)]
@@ -316,7 +291,6 @@ impl StreamWatch {
     }
 }
 
-/// The control loop between what the device measured and the next plan.
 pub(crate) struct Capacity {
     pairs: StreamWatch,
     entries: StreamWatch,
@@ -340,8 +314,6 @@ impl Capacity {
         }
     }
 
-    /// Takes what the device measured on a finished step and returns the plan the
-    /// next step must build, or nothing while the current plan suffices.
     pub(crate) fn observe(
         &mut self,
         measured: &Counters,

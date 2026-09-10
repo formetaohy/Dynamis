@@ -123,11 +123,6 @@ impl Simulation {
         self.queries.pool.overflow(handle)
     }
 
-    /// Runs the pending query batch without advancing the world.
-    ///
-    /// The capacity plan is applied only after this flush's reads have landed: a
-    /// reallocation may not touch device resources while a staging mapping is in
-    /// flight, so the rebuild waits for the last batch to arrive.
     pub fn flush_queries(&mut self) {
         if self.queries.pending.is_empty() {
             self.apply_plan();

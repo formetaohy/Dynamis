@@ -207,8 +207,6 @@ pub struct QueryResultHeader {
     pub _pad1: u32,
 }
 
-/// One query's header followed by its hit lanes, so a batch of queries is one
-/// contiguous, exactly-sized readback.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct QueryResultRecord {

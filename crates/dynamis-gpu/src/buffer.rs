@@ -85,8 +85,6 @@ impl GpuBuffer {
         })
     }
 
-    /// A binding over `size` bytes at `offset`, so one buffer can back many disjoint
-    /// shader bindings without overlapping ranges.
     pub fn as_binding_at(&self, offset: u64, size: u64) -> wgpu::BindingResource<'_> {
         let length = core::num::NonZeroU64::new(size).expect("binding size must be non-zero");
         wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -105,10 +103,6 @@ impl GpuBuffer {
     }
 }
 
-/// A fixed byte range of a [`GpuBuffer`], bound as a resource in its own right.
-///
-/// Counters share one buffer yet every stage wants exactly one of them, so a range
-/// is the unit that gets passed around.
 #[derive(Clone, Copy)]
 pub struct GpuSlot<'a> {
     buffer: &'a GpuBuffer,
@@ -117,7 +111,6 @@ pub struct GpuSlot<'a> {
 }
 
 impl<'a> GpuSlot<'a> {
-    /// The whole buffer.
     pub fn whole(buffer: &'a GpuBuffer) -> Self {
         Self {
             buffer,
@@ -126,7 +119,6 @@ impl<'a> GpuSlot<'a> {
         }
     }
 
-    /// `size` bytes at `offset`; both must be word aligned.
     pub fn range(buffer: &'a GpuBuffer, offset: BufferAddress, size: BufferAddress) -> Self {
         assert!(size > 0, "binding range must be non-empty");
         assert_eq!(offset % 4, 0, "binding offset must be word aligned");
@@ -142,7 +134,6 @@ impl<'a> GpuSlot<'a> {
         self.buffer.as_binding_at(self.offset, self.size)
     }
 
-    /// Everything that identifies this exact view, for bind-group caching.
     pub fn identity(&self) -> (u64, BufferAddress, BufferAddress) {
         (self.buffer.token(), self.offset, self.size)
     }
@@ -164,9 +155,6 @@ pub struct GpuReadback {
 }
 
 impl GpuReadback {
-    /// Staging slots: how many steps may be in flight before the host must wait.
-    /// The event ring in the world uses the same count for its segments, so an event
-    /// segment is always copied home before the step that would overwrite it.
     pub const DEPTH: usize = 4;
 
     pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
@@ -192,11 +180,6 @@ impl GpuReadback {
         }
     }
 
-    /// Copy `bytes` of `source` at `source_offset` into a staging slot and return
-    /// the read this displaces.
-    ///
-    /// The staging buffer is as wide as the stream ever gets; a step only asks for the
-    /// prefix it actually fills.
     pub fn enqueue(
         &mut self,
         device: &Device,
@@ -256,9 +239,6 @@ impl GpuReadback {
         completed
     }
 
-    /// Brings every in-flight read home, blocking until nothing is pending. Dropping a
-    /// staging buffer with a mapping still in flight fails the mapping, so anything
-    /// about to be reallocated must drain first.
     pub fn drain(&mut self, device: &Device) -> Vec<(u64, Vec<u8>)> {
         let mut arrived = Vec::new();
         while self.pending.iter().any(Option::is_some) {

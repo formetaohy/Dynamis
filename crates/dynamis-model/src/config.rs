@@ -24,8 +24,7 @@ pub struct PhysicsConfig {
     pub wake_velocity: f32,
     pub friction_combine: MaterialCombine,
     pub restitution_combine: MaterialCombine,
-    /// How much velocity-solver impulses are tempered per linked constraint:
-    /// 0 keeps the classic 1/links scaling, 1 removes the tempering.
+
     pub tempering: f32,
 }
 

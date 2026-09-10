@@ -6,7 +6,6 @@ use crate::common::shared;
 use dynamis_gpu::{BindingKind, BindingSpec, ComputeRecorder, GpuPassTiming, GpuRequest, GpuTimer};
 use wgpu::{BindGroupEntry, BufferUsages, PollType};
 
-/// Enough integer churn that even a software rasteriser measures a nonzero span.
 const BURN_KERNEL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> sink: array<u32>;
 @compute @workgroup_size(64)

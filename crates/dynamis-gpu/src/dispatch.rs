@@ -1,9 +1,5 @@
 use wgpu::{BufferAddress, BufferUsages, Device};
 
-/// One indirect dispatch: workgroups per row, rows, depth, and a pad word.
-///
-/// The words are packed exactly as the compute API expects them, so the table binds
-/// as storage and dispatches from at the same time.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct DispatchArgs {
@@ -13,12 +9,10 @@ struct DispatchArgs {
     _pad: u32,
 }
 
-/// Bytes one argument occupies, also the stride between table slots.
 pub const DISPATCH_ARGS_BYTES: BufferAddress = size_of::<DispatchArgs>() as BufferAddress;
 
 const _: () = assert!(DISPATCH_ARGS_BYTES == 16);
 
-/// The table the device fills with indirect arguments, one slot per stage.
 pub struct DispatchTable {
     buffer: crate::GpuBuffer,
     slots: u32,

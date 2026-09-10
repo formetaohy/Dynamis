@@ -44,8 +44,6 @@ impl Device {
 }
 
 impl Simulation {
-    /// A reallocation destroys the buffers holding in-flight reads, so every pending
-    /// result is brought home first.
     pub(crate) fn apply_plan(&mut self) {
         let demand = self
             .device
@@ -87,7 +85,6 @@ impl Simulation {
         self.device.buffers = buffers;
     }
 
-    /// Device-owned rows survive a reallocation untouched; only their storage moves.
     fn transfer_device_state(&self, next: &WorldBuffers) {
         let previous = &self.device.buffers;
         let bodies = previous.bodies.states.size().min(next.bodies.states.size());
@@ -153,7 +150,6 @@ impl Simulation {
         self.device.gpu.queue().submit([encoder.finish()]);
     }
 
-    /// Host-owned rows are re-emitted in slot order from the host authority.
     fn upload_host_state(&self, next: &WorldBuffers) {
         let queue = self.device.gpu.queue();
         let mut descriptors = Vec::with_capacity(self.bodies.alive.len());

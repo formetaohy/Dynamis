@@ -1,5 +1,3 @@
-//! Reinterprets a byte readback as records without assuming the byte buffer is aligned.
-
 use bytemuck::{Pod, pod_read_unaligned};
 use std::mem::size_of;
 

@@ -11,9 +11,6 @@
 @group(0) @binding(10) var<storage, read_write> large_count: array<atomic<u32>>;
 @group(0) @binding(11) var<uniform> params: SimParams;
 
-/// Workgroup memory budget: 4096 u32 lanes at four bytes each saturates the
-/// guaranteed 16 KiB, so a dense query never silently drops candidates; the
-/// overflow flag reports when even this is exceeded.
 const CANDIDATES_PER_QUERY: u32 = 4096u;
 
 fn load_body(slot: u32) -> Body {

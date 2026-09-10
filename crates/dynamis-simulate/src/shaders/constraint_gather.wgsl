@@ -8,8 +8,6 @@
 const CLEAR_ROW: u32 = 0xFFFFFFFFu;
 const NO_FRESH: u32 = 0xFFFFFFFFu;
 
-/// The final runtime row layout lands in the scratch lanes first, so no gather ever
-/// reads a row another lane is writing.
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;

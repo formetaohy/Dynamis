@@ -1,12 +1,9 @@
-//! Per-pass GPU durations, built in by the `profile` feature.
-
 use crate::GpuReadback;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoder, ComputePassTimestampWrites, Device,
     QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType,
 };
 
-/// Duration of one compute pass, measured on the GPU.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GpuPassTiming {
     pub label: &'static str,
@@ -19,7 +16,6 @@ impl GpuPassTiming {
     }
 }
 
-/// Begin/end timestamp pairs for a fixed set of compute passes.
 pub struct GpuTimer {
     device: Device,
     query_set: QuerySet,

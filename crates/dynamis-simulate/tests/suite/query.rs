@@ -664,8 +664,7 @@ fn capsule_sweep_stops_before_wall_face() {
 fn query_after_teleport_sees_the_new_position() {
     let mut world = sim(8, static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
-    // Move the body without stepping, then flush the query outside the step loop:
-    // the grid must be rebuilt from the current state or the ray slips past it.
+
     world.set_position(body, [0.0, 0.0, 2.0]);
     let query = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -680,7 +679,7 @@ fn query_after_teleport_sees_the_new_position() {
     assert_eq!(hit.body, body);
     assert!((hit.distance - 1.5).abs() < 1e-3, "got {}", hit.distance);
     assert!(!world.query_overflow(query));
-    // A point that only the old position covers must no longer be answered.
+
     let stale = world.point_query([0.0, 0.0, 10.0], &QueryFilter::default());
     world.flush_queries();
     assert!(
