@@ -4,7 +4,7 @@ use crate::reservation::Reservation;
 use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
-    GpuContext, GpuSlot,
+    GpuContext, GpuReadback, GpuSlot,
 };
 use dynamis_kernel::{RadixSort, SortChannels, key_words};
 use dynamis_layout::{
@@ -16,17 +16,16 @@ use dynamis_layout::{
     CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
     CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
     CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START,
-    CONTACT_MAX_POINTS, COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS, COUNTER_LARGE,
-    COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS,
-    COUNTER_SPILLOVER_PAIRS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED, EVENT_BEGIN, EVENT_END,
-    EVENT_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
-    FILTER_IGNORE_STATIC, ISLAND_ACTIVE, ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY,
-    NO_BODY, NO_COLLISION_FILTER, NO_HIT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
-    PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, QUERY_CONVEX,
-    QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID,
-    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE,
-    SHAPE_SPHERE, SHAPE_TRIANGLE, dispatch,
+    CONTACT_MAX_POINTS, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS,
+    COUNTER_JOINTS, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_SPILLOVER_ENTRIES,
+    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, DOF_DRIVEN, DOF_FREE, DOF_LIMITED,
+    DOF_LOCKED, EVENT_BEGIN, EVENT_END, EVENT_PERSIST, FILTER_IGNORE_KINEMATIC,
+    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, ISLAND_ACTIVE,
+    ISLAND_WAKE, MAX_CELLS_PER_COLLIDER, MAX_HITS_PER_QUERY, NO_BODY, NO_COLLISION_FILTER, NO_HIT,
+    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
+    PATCH_POSITION, PATCH_VELOCITY, QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY,
+    QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
+    SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE, dispatch,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
@@ -143,6 +142,7 @@ fn shader_constants(per_row: u32) -> String {
     emit("MAX_CELLS_PER_COLLIDER", MAX_CELLS_PER_COLLIDER);
     emit("MAX_COLLIDERS_PER_BODY", MAX_COLLIDERS_PER_BODY as u32);
     emit("MAX_HITS_PER_QUERY", MAX_HITS_PER_QUERY);
+    emit("EVENT_SLOTS", GpuReadback::DEPTH as u32);
     emit("COMPACT_BLOCK", COMPACT_BLOCK);
     emit(
         "COUNTER_STRIDE_WORDS",
@@ -387,13 +387,21 @@ pub(crate) struct FrameParams {
     pub(crate) island_rounds: u32,
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
+    /// Whether structural row moves were compiled into the command stream.
+    pub(crate) body_structural: bool,
+    pub(crate) constraint_structural: bool,
+    /// Whether any per-slot body edit was compiled.
+    pub(crate) has_body_edits: bool,
 }
 
 pub(crate) struct Pipeline {
     per_row: u32,
     reset_counters: Stage,
-    apply_commands: Stage,
-    apply_constraint_commands: Stage,
+    body_edits: Stage,
+    body_gather: Stage,
+    body_scatter: Stage,
+    constraint_gather: Stage,
+    constraint_scatter: Stage,
     joint_filter: Stage,
     integrate: Stage,
     broadphase_aabb: Stage,
@@ -452,31 +460,68 @@ impl Pipeline {
             &[],
         );
 
-        let apply_commands = Stage::build(
+        let body_edits = Stage::build(
             context,
-            "apply_commands",
-            &assemble_shader(include_str!("shaders/apply_commands.wgsl"), per_row),
+            "body_edits",
+            &assemble_shader(include_str!("shaders/body_edits.wgsl"), per_row),
             &[
                 (RO, whole(&buffers.commands)),
+                (RO, whole(&buffers.command_first)),
                 (RW, whole(&buffers.body_states)),
                 (RO, whole(&buffers.body_descs)),
-                (RW, buffers.counter(COUNTER_BODY_COMMANDS)),
                 (RW, whole(&buffers.wake_flags)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &[],
         );
 
-        let apply_constraint_commands = Stage::build(
+        let body_gather = Stage::build(
             context,
-            "apply_constraint_commands",
-            &assemble_shader(
-                include_str!("shaders/apply_constraint_commands.wgsl"),
-                per_row,
-            ),
+            "body_gather",
+            &assemble_shader(include_str!("shaders/body_gather.wgsl"), per_row),
             &[
-                (RO, whole(&buffers.constraint_commands)),
+                (RO, whole(&buffers.body_states)),
+                (RW, whole(&buffers.state_scratch)),
+                (RO, whole(&buffers.row_src)),
+                (RO, whole(&buffers.row_fresh)),
+                (RO, whole(&buffers.fresh_states)),
+                (UNIFORM, whole(&buffers.params)),
+            ],
+            &[],
+        );
+        let body_scatter = Stage::build(
+            context,
+            "body_scatter",
+            &assemble_shader(include_str!("shaders/body_scatter.wgsl"), per_row),
+            &[
+                (RW, whole(&buffers.body_states)),
+                (RO, whole(&buffers.state_scratch)),
+                (UNIFORM, whole(&buffers.params)),
+            ],
+            &[],
+        );
+        let constraint_gather = Stage::build(
+            context,
+            "constraint_gather",
+            &assemble_shader(include_str!("shaders/constraint_gather.wgsl"), per_row),
+            &[
+                (RO, whole(&buffers.constraint_runtime)),
+                (RW, whole(&buffers.constraint_scratch)),
+                (RO, whole(&buffers.constraint_row_src)),
+                (RO, whole(&buffers.constraint_row_fresh)),
+                (RO, whole(&buffers.constraint_fresh)),
+                (UNIFORM, whole(&buffers.params)),
+            ],
+            &[],
+        );
+        let constraint_scatter = Stage::build(
+            context,
+            "constraint_scatter",
+            &assemble_shader(include_str!("shaders/constraint_scatter.wgsl"), per_row),
+            &[
                 (RW, whole(&buffers.constraint_runtime)),
-                (RW, buffers.counter(COUNTER_CONSTRAINT_COMMANDS)),
+                (RO, whole(&buffers.constraint_scratch)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &[],
         );
@@ -647,6 +692,7 @@ impl Pipeline {
                 (RW, whole(&buffers.events)),
                 (RW, buffers.counter(COUNTER_EVENTS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &[],
         );
@@ -870,6 +916,7 @@ impl Pipeline {
                 (RW, whole(&buffers.events)),
                 (RW, buffers.counter(COUNTER_EVENTS)),
                 (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
+                (UNIFORM, whole(&buffers.params)),
             ],
             &[],
         );
@@ -1062,8 +1109,11 @@ impl Pipeline {
         Self {
             per_row,
             reset_counters,
-            apply_commands,
-            apply_constraint_commands,
+            body_edits,
+            body_gather,
+            body_scatter,
+            constraint_gather,
+            constraint_scatter,
             joint_filter,
             integrate,
             broadphase_aabb,
@@ -1158,9 +1208,19 @@ impl Pipeline {
         let mut commands = self.open(encoder, PASS_COMMANDS);
         self.reset_counters
             .record(&mut commands, dynamis_layout::COUNTER_COUNT as u32);
-        self.apply_commands.record_workgroups(&mut commands, 1);
-        self.apply_constraint_commands
-            .record_workgroups(&mut commands, 1);
+        if params.body_structural {
+            self.body_gather.record(&mut commands, params.body_count);
+            self.body_scatter.record(&mut commands, params.body_count);
+        }
+        if params.has_body_edits {
+            self.body_edits.record(&mut commands, params.body_count);
+        }
+        if params.constraint_structural {
+            self.constraint_gather
+                .record(&mut commands, params.constraint_count);
+            self.constraint_scatter
+                .record(&mut commands, params.constraint_count);
+        }
         if constraint_active {
             self.joint_filter
                 .record(&mut commands, params.constraint_count);
@@ -1404,8 +1464,55 @@ impl Pipeline {
         }
     }
 
-    pub(crate) fn encode_queries(&self, encoder: &mut CommandEncoder, query_count: u32) {
+    /// Refreshes the broadphase scene the queries run against, then runs them.
+    ///
+    /// A query outside a step must see the world as the device holds it now, so the
+    /// grid is rebuilt from the current states rather than trusting the last step's
+    /// cells: stale entries would let a moved body slip through a ray unanswered.
+    pub(crate) fn encode_queries(
+        &self,
+        encoder: &mut CommandEncoder,
+        buffers: &WorldBuffers,
+        frame: &FrameParams,
+        query_count: u32,
+    ) {
+        let mut recorder = ComputeRecorder::begin(encoder, "query commands", self.per_row);
+        if frame.body_structural {
+            self.body_gather.record(&mut recorder, frame.body_count);
+            self.body_scatter.record(&mut recorder, frame.body_count);
+        }
+        if frame.has_body_edits {
+            self.body_edits.record(&mut recorder, frame.body_count);
+        }
+        if frame.constraint_structural {
+            self.constraint_gather
+                .record(&mut recorder, frame.constraint_count);
+            self.constraint_scatter
+                .record(&mut recorder, frame.constraint_count);
+        }
+        self.reset_counters.record_workgroups(&mut recorder, 1);
+        self.broadphase_aabb
+            .record(&mut recorder, frame.dynamic_count);
+        self.grid_entries.record(&mut recorder, frame.body_count);
+        drop(recorder);
+        self.encode_dispatch(encoder, 1);
         let mut recorder = ComputeRecorder::begin(encoder, "query flush", self.per_row);
+        let collider_words = key_words(buffers.colliders());
+        let channels = Self::sort_lanes(
+            buffers,
+            buffers.counter(COUNTER_ENTRIES),
+            &buffers.entries.keys_lo,
+            &buffers.entries.keys_hi,
+            &buffers.sort_values,
+        );
+        self.sort.sort(
+            &mut recorder,
+            &channels,
+            collider_words,
+            4,
+            &buffers.dispatch,
+            dispatch(COUNTER_ENTRIES as u32, KERNEL_TILE, SORT_ENTRIES),
+        );
         self.query.record_workgroups(&mut recorder, query_count);
     }
 }

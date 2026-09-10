@@ -20,3 +20,13 @@ pub use dynamis_layout::{
 pub use dynamis_mesh::HullDecomposeSettings;
 pub use query_pool::{QueryHandle, QueryHit};
 pub use simulation::{ContactManifold, ContactPoint, DebugBuffer, Simulation};
+
+/// The stream planning loop, exposed for integration tests that exercise capacity
+/// behaviour without owning a device.
+#[doc(hidden)]
+pub mod planning {
+    pub use crate::capacity::Capacity;
+    pub use crate::reservation::{
+        Live, Reservation, STREAM_FLOOR, ShapeReservation, StreamDemand, StreamPlan,
+    };
+}

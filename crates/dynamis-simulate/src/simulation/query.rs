@@ -118,25 +118,51 @@ impl Simulation {
         self.gpu.assert_alive();
         self.collect_readbacks();
         self.flush_rows();
+        self.apply_pending_commands();
         let step = self.step_index;
         let queue = self.gpu.queue().clone();
         let device = self.gpu.device().clone();
         self.buffers
             .queries
             .write(&queue, bytemuck::cast_slice(&self.queries));
+        let params = dynamis_layout::SimParamsRecord::new(
+            &self.config,
+            self.sub_dt,
+            self.dynamic_count as u32,
+            self.alive.len() as u32,
+            self.constraint_alive.len() as u32,
+            self.event_slot_of(step),
+        );
+        self.buffers
+            .params
+            .write(&queue, bytemuck::cast_slice(&[params]));
         let count = self.queries.len();
         let batch = self.next_batch;
         self.query_pool.submit(batch, step, count);
         self.next_batch += 1;
+        let frame = crate::pipeline::FrameParams {
+            dynamic_count: self.dynamic_count as u32,
+            body_count: self.alive.len() as u32,
+            solve_iterations: self.config.solve_iterations,
+            position_iterations: self.config.position_iterations,
+            island_rounds: self.island_rounds(),
+            query_count: count as u32,
+            constraint_count: self.constraint_alive.len() as u32,
+            body_structural: self.body_structural,
+            constraint_structural: self.constraint_structural,
+            has_body_edits: self.has_body_edits,
+        };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis query flush"),
         });
-        self.pipeline.encode_queries(&mut encoder, count as u32);
+        self.pipeline
+            .encode_queries(&mut encoder, &self.buffers, &frame, count as u32);
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
         let arrived = self.buffers.queries_readback.enqueue(
             &device,
             &mut encoder,
             self.buffers.query_results.buffer(),
+            0,
             bytes,
             batch,
         );

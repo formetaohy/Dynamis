@@ -163,8 +163,10 @@ pub struct GpuReadback {
 }
 
 impl GpuReadback {
-    /// Two staging slots: one is being mapped while the next is written.
-    const DEPTH: usize = 2;
+    /// Staging slots: how many steps may be in flight before the host must wait.
+    /// The event ring in the world uses the same count for its segments, so an event
+    /// segment is always copied home before the step that would overwrite it.
+    pub const DEPTH: usize = 4;
 
     pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
         assert!(size > 0, "readback size must be positive");
@@ -189,7 +191,8 @@ impl GpuReadback {
         }
     }
 
-    /// Copy `bytes` of `source` into a staging slot and return the read this displaces.
+    /// Copy `bytes` of `source` at `source_offset` into a staging slot and return
+    /// the read this displaces.
     ///
     /// The staging buffer is as wide as the stream ever gets; a step only asks for the
     /// prefix it actually fills.
@@ -198,6 +201,7 @@ impl GpuReadback {
         device: &Device,
         encoder: &mut wgpu::CommandEncoder,
         source: &Buffer,
+        source_offset: BufferAddress,
         bytes: BufferAddress,
         sequence: u64,
     ) -> Option<(u64, Vec<u8>)> {
@@ -210,7 +214,7 @@ impl GpuReadback {
         } else {
             None
         };
-        encoder.copy_buffer_to_buffer(source, 0, &self.staging[slot], 0, bytes);
+        encoder.copy_buffer_to_buffer(source, source_offset, &self.staging[slot], 0, bytes);
         self.pending[slot] = Some(PendingRead {
             sequence,
             bytes,

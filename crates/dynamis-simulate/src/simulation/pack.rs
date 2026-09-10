@@ -8,22 +8,20 @@ use std::mem::size_of;
 pub(crate) struct PackLayout {
     pub(crate) counters: u64,
     pub(crate) constraints: u64,
-    pub(crate) events: u64,
 }
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_COUNT as u64;
 
 impl PackLayout {
-    pub(crate) fn for_constraints(constraints: u32) -> Self {
-        let counters = 0;
-        let constraints_offset = COUNTER_BYTES;
-        let events =
-            constraints_offset + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64;
+    pub(crate) fn for_constraints(_constraints: u32) -> Self {
         Self {
-            counters,
-            constraints: constraints_offset,
-            events,
+            counters: 0,
+            constraints: COUNTER_BYTES,
         }
+    }
+
+    pub(crate) fn size(constraints: u32) -> u64 {
+        COUNTER_BYTES + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
     }
 
     fn measured(&self, bytes: &[u8]) -> Counters {
@@ -39,9 +37,11 @@ impl PackLayout {
 }
 
 impl Simulation {
+    /// One fixed-size pack per step: the counter vector, then the constraint runtime
+    /// rows. Contact events travel in their own readback, sized by what the step
+    /// actually produced, so an idle event stream never bills its whole forecast.
     pub(crate) fn pack_step(&self, encoder: &mut wgpu::CommandEncoder) -> u64 {
-        let constraints = self.constraint_alive.len() as u32;
-        let pack = PackLayout::for_constraints(constraints);
+        let pack = PackLayout::for_constraints(self.constraint_alive.len() as u32);
         let staging = self.buffers.readback_pack.buffer();
         encoder.copy_buffer_to_buffer(
             self.buffers.counters.buffer(),
@@ -50,6 +50,7 @@ impl Simulation {
             pack.counters,
             COUNTER_BYTES,
         );
+        let constraints = self.constraint_alive.len() as u32;
         if constraints > 0 {
             encoder.copy_buffer_to_buffer(
                 self.buffers.constraint_runtime.buffer(),
@@ -59,14 +60,7 @@ impl Simulation {
                 constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64,
             );
         }
-        encoder.copy_buffer_to_buffer(
-            self.buffers.events.buffer(),
-            0,
-            staging,
-            pack.events,
-            self.buffers.events.size(),
-        );
-        pack.events + self.buffers.events.size()
+        PackLayout::size(constraints)
     }
 
     pub(crate) fn consume_pack(&mut self, step: u64, bytes: &[u8]) {
@@ -83,7 +77,6 @@ impl Simulation {
         )) {
             self.accept_constraint_break(step, record);
         }
-        self.consume_events(step, slice(bytes, pack.events, self.buffers.events.size()));
     }
 }
 

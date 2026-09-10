@@ -1,9 +1,12 @@
 use super::Simulation;
-use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
+use dynamis_layout::ContactEventRecord;
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 
 impl Simulation {
     pub fn drain_events(&mut self) -> Vec<ContactEvent> {
+        self.gpu.assert_alive();
+        self.collect_readbacks();
+        self.sync_events();
         std::mem::take(&mut self.events)
     }
 
@@ -11,15 +14,11 @@ impl Simulation {
         self.event_sink = sink;
     }
 
-    /// The count travels in the same pack as the records it describes, so the two can
-    /// never be paired with different steps.
+    /// The count travels with the bytes: the segment was copied home by exactly the
+    /// number of records the step produced, so the two can never be paired wrong.
     pub(crate) fn consume_events(&mut self, _step: u64, bytes: &[u8]) {
-        let count = self.observed[COUNTER_EVENTS] as usize;
         let records = crate::records::records::<ContactEventRecord>(bytes);
-        assert!(
-            count <= records.len(),
-            "GPU event count exceeds the event stream"
-        );
+        let count = records.len();
         let mut fresh = Vec::with_capacity(count);
         for record in &records[..count] {
             let kind = match record.kind {

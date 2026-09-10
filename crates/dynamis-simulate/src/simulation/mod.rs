@@ -1,4 +1,5 @@
 mod body;
+mod commands;
 mod constraint;
 mod event;
 mod pack;
@@ -7,11 +8,11 @@ mod readback;
 mod shape;
 mod step;
 
-use crate::buffers::WorldBuffers;
+use crate::buffers::{EVENT_SLOTS, WorldBuffers};
 use crate::capacity::Capacity;
 use crate::pipeline::Pipeline;
 use crate::query_pool::QueryPool;
-use crate::reservation::{Live, Reservation, ShapeReservation, StreamLevel};
+use crate::reservation::{Live, Reservation, ShapeReservation};
 use crate::shape_pool::ShapePool;
 use bytemuck::Zeroable;
 use dynamis_gpu::GpuContext;
@@ -26,6 +27,35 @@ use dynamis_model::{
     BodyHandle, BodyState, ColliderDesc, ConstraintHandle, ContactEvent, MAX_COLLIDERS_PER_BODY,
     MassProperties, PhysicsConfig, Shape,
 };
+use std::collections::VecDeque;
+
+/// Splits a sorted, de-duplicated slot list into maximal contiguous runs, so a
+/// stripe of dirty slots uploads as one write instead of one call per row.
+fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
+    let mut runs = Vec::new();
+    let mut start = 0usize;
+    for index in 1..=slots.len() {
+        let breaks = index == slots.len() || slots[index] != slots[index - 1] + 1;
+        if breaks {
+            if index > start {
+                runs.push(&slots[start..index]);
+            }
+            start = index;
+        }
+    }
+    runs
+}
+
+fn assert_config(config: &PhysicsConfig) {
+    assert!(
+        (0.0..=1.0).contains(&config.relaxation),
+        "position relaxation must be within (0, 1]"
+    );
+    assert!(
+        (0.0..=1.0).contains(&config.tempering),
+        "solver tempering must be within (0, 1]"
+    );
+}
 
 pub struct ContactPoint {
     pub position: [f32; 3],
@@ -108,6 +138,9 @@ pub struct Simulation {
     query_pool: QueryPool,
     shape_pool: ShapePool,
     events: Vec<ContactEvent>,
+    /// Event segments whose pack has landed but whose bytes have not been copied
+    /// home; the head of the next encoder takes them.
+    events_due: VecDeque<(u64, u32)>,
     event_sink: Option<Box<dyn FnMut(ContactEvent)>>,
     broken_constraints: Vec<ConstraintHandle>,
     dirty_bodies: Vec<u32>,
@@ -125,6 +158,15 @@ pub struct Simulation {
     states_synchronized: bool,
     kinematic: Vec<bool>,
     constraint_records: Vec<ConstraintDescriptorRecord>,
+    /// Whether the compiled command stream carried structural work this step.
+    body_structural: bool,
+    constraint_structural: bool,
+    has_body_edits: bool,
+    /// A reusable staging buffer for synchronous inspection reads.
+    sync_staging: Option<(wgpu::Buffer, u64)>,
+    /// The command counts the last flush compiled, declared to the device each step.
+    last_body_commands: u32,
+    last_constraint_commands: u32,
 }
 
 impl Simulation {
@@ -137,6 +179,7 @@ impl Simulation {
             u32::try_from(slots).is_ok(),
             "simulation slot count exceeds the handle space"
         );
+        assert_config(&config);
         let reservation = Reservation::initial();
         let shape_pool = ShapePool::new();
         let shape_reservation =
@@ -173,6 +216,7 @@ impl Simulation {
             query_pool: QueryPool::new(),
             shape_pool,
             events: Vec::new(),
+            events_due: VecDeque::new(),
             event_sink: None,
             broken_constraints: Vec::new(),
             dirty_bodies: Vec::new(),
@@ -190,6 +234,12 @@ impl Simulation {
             states_synchronized: true,
             kinematic: vec![false; slots],
             constraint_records: Vec::new(),
+            body_structural: false,
+            constraint_structural: false,
+            has_body_edits: false,
+            sync_staging: None,
+            last_body_commands: 0,
+            last_constraint_commands: 0,
         }
     }
 
@@ -198,6 +248,7 @@ impl Simulation {
     }
 
     pub fn set_config(&mut self, config: PhysicsConfig) {
+        assert_config(&config);
         self.config = config;
     }
 
@@ -282,43 +333,53 @@ impl Simulation {
         }
         self.dirty_bodies.sort_unstable();
         self.dirty_bodies.dedup();
-        for slot in std::mem::take(&mut self.dirty_bodies) {
-            let id = self.alive[slot as usize].id as usize;
-            let colliders = self.collider_block_of(id);
-            let descriptor = self.descriptors[id];
-            let aabbs = self.aabb_block_of(id);
+        for run in contiguous_runs(&std::mem::take(&mut self.dirty_bodies)) {
+            let mut colliders = Vec::new();
+            let mut descriptors = Vec::new();
+            let mut aabbs = Vec::new();
+            for slot in run {
+                let id = self.alive[*slot as usize].id as usize;
+                colliders.extend_from_slice(&self.collider_block_of(id));
+                descriptors.push(self.descriptors[id]);
+                aabbs.extend_from_slice(&self.aabb_block_of(id));
+            }
+            let first = run[0];
+
             self.buffers.colliders.write_at(
                 queue,
-                slot as u64 * self.buffers.collider_row(),
+                first as u64 * self.buffers.collider_row(),
                 bytemuck::cast_slice(&colliders),
             );
             self.buffers.body_descs.write_at(
                 queue,
-                slot as u64 * self.buffers.descriptor_row(),
-                bytemuck::cast_slice(&[descriptor]),
+                first as u64 * self.buffers.descriptor_row(),
+                bytemuck::cast_slice(&descriptors),
             );
             self.buffers.aabbs.write_at(
                 queue,
-                slot as u64 * self.buffers.aabb_row(),
+                first as u64 * self.buffers.aabb_row(),
                 bytemuck::cast_slice(&aabbs),
             );
         }
         self.dirty_constraints.sort_unstable();
         self.dirty_constraints.dedup();
-        for slot in std::mem::take(&mut self.dirty_constraints) {
-            let record = self.constraint_records[slot as usize];
+        for run in contiguous_runs(&std::mem::take(&mut self.dirty_constraints)) {
+            let first = run[0];
+            let records = run
+                .iter()
+                .map(|slot| self.constraint_records[*slot as usize])
+                .collect::<Vec<_>>();
             self.buffers.constraint_descs.write_at(
                 queue,
-                slot as u64 * self.buffers.constraint_row(),
-                bytemuck::cast_slice(&[record]),
+                first as u64 * self.buffers.constraint_row(),
+                bytemuck::cast_slice(&records),
             );
         }
     }
 
     pub(crate) fn apply_plan(&mut self) {
         let demand = self.capacity.observe(&self.observed, &self.reservation);
-        let level = demand.map_or(StreamLevel::MIN, StreamLevel::Served);
-        let next = Reservation::planned(&self.reservation, &self.live(), level);
+        let next = Reservation::planned(&self.reservation, &self.live(), demand);
         let shapes = ShapeReservation::planned(&self.shape_reservation, &self.shape_pool.used());
         if next == self.reservation && shapes == self.shape_reservation {
             return;
@@ -436,11 +497,8 @@ impl Simulation {
         let declared = [
             (COUNTER_BODIES, self.alive.len() as u32),
             (COUNTER_CONSTRAINTS, self.constraint_alive.len() as u32),
-            (COUNTER_BODY_COMMANDS, self.commands.len() as u32),
-            (
-                COUNTER_CONSTRAINT_COMMANDS,
-                self.constraint_commands.len() as u32,
-            ),
+            (COUNTER_BODY_COMMANDS, self.last_body_commands),
+            (COUNTER_CONSTRAINT_COMMANDS, self.last_constraint_commands),
         ];
         for (slot, value) in declared {
             self.buffers.counters.write_at(
@@ -536,6 +594,11 @@ impl Simulation {
 
     pub fn device(&self) -> &wgpu::Device {
         self.gpu.device()
+    }
+
+    /// Which event ring segment the step being encoded writes into.
+    pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
+        (step % EVENT_SLOTS as u64) as u32
     }
 }
 

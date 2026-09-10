@@ -5,7 +5,7 @@
 //! a wider plan. Sustained idleness narrows a stream back toward what it actually
 //! needs, so a one-frame pile-up does not bill its peak forever.
 
-use crate::reservation::{Reservation, StreamDemand};
+use crate::reservation::{Reservation, STREAM_FLOOR, StreamDemand, StreamPlan};
 use dynamis_layout::{
     COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES,
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, Counters,
@@ -22,8 +22,6 @@ const IDLE_DELAY: u32 = 120;
 const PLAN_COOLDOWN: u32 = 10;
 /// What a plan serves a stream: twice what the device measured it to need.
 const STREAM_HEADROOM: u32 = 2;
-/// Streams never drop below this lane count.
-const MIN_STREAM_LANES: u32 = 256;
 
 #[derive(Clone, Copy)]
 struct StreamWatch {
@@ -51,15 +49,21 @@ impl StreamWatch {
 }
 
 /// The control loop between what the device measured and the next plan.
-pub(crate) struct Capacity {
+pub struct Capacity {
     pairs: StreamWatch,
     entries: StreamWatch,
     events: StreamWatch,
     cooldown: u32,
 }
 
+impl Default for Capacity {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Capacity {
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             pairs: StreamWatch::IDLE,
             entries: StreamWatch::IDLE,
@@ -68,13 +72,9 @@ impl Capacity {
         }
     }
 
-    /// Takes what the device measured on a finished step and returns the demand the
-    /// next plan must serve, or nothing while the current plan suffices.
-    pub(crate) fn observe(
-        &mut self,
-        measured: &Counters,
-        plan: &Reservation,
-    ) -> Option<StreamDemand> {
+    /// Takes what the device measured on a finished step and returns the plan the
+    /// next step must build, or nothing while the current plan suffices.
+    pub fn observe(&mut self, measured: &Counters, plan: &Reservation) -> Option<StreamPlan> {
         self.pairs.observe(
             measured[COUNTER_PAIRS],
             measured[COUNTER_SPILLOVER_PAIRS] > 0,
@@ -91,27 +91,32 @@ impl Capacity {
             plan.events,
         );
         self.cooldown = self.cooldown.saturating_sub(1);
-        let pressed = (self.pairs.pressure || self.entries.pressure || self.events.pressure)
+        let under_pressure = (self.pairs.pressure || self.entries.pressure || self.events.pressure)
             && self.cooldown == 0;
         let idle = self.cooldown == 0
             && self.pairs.idle_steps >= IDLE_DELAY
             && self.entries.idle_steps >= IDLE_DELAY
             && self.events.idle_steps >= IDLE_DELAY;
-        if !pressed && !idle {
+        if !under_pressure && !idle {
             return None;
         }
         self.pairs = StreamWatch::IDLE;
         self.entries = StreamWatch::IDLE;
         self.events = StreamWatch::IDLE;
         self.cooldown = PLAN_COOLDOWN;
-        Some(StreamDemand {
+        let demand = StreamDemand {
             pairs: serve(measured[COUNTER_PAIRS]),
             entries: serve(measured[COUNTER_ENTRIES]),
             events: serve(measured[COUNTER_EVENTS]),
-        })
+        };
+        if under_pressure {
+            Some(StreamPlan::Widen(demand))
+        } else {
+            Some(StreamPlan::Narrow(demand))
+        }
     }
 }
 
 fn serve(demand: u32) -> u32 {
-    demand.saturating_mul(STREAM_HEADROOM).max(MIN_STREAM_LANES)
+    demand.saturating_mul(STREAM_HEADROOM).max(STREAM_FLOOR)
 }

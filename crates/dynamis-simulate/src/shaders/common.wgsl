@@ -21,9 +21,9 @@ struct SimParams {
     wake_velocity: f32,
     friction_combine: u32,
     restitution_combine: u32,
-    _pad5: f32,
+    tempering: f32,
     _pad6: f32,
-    _pad7: f32,
+    event_slot: u32,
 }
 
 struct BodyState {

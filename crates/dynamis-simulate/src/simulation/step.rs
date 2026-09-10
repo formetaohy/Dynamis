@@ -1,5 +1,8 @@
 use super::Simulation;
 use crate::pipeline::FrameParams;
+use crate::simulation::commands::{
+    CompiledBodyCommands, CompiledConstraintCommands, encode_constraint_move, encode_move,
+};
 use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{QueryResultRecord, SimParamsRecord};
 use std::mem::size_of;
@@ -38,6 +41,7 @@ impl Simulation {
         self.collect_readbacks();
         self.apply_plan();
         self.flush_rows();
+        self.apply_pending_commands();
         self.write_step_records(dt);
         let query_count = self.queries.len() as u32;
         let batch = self.submit_queries(step, query_count);
@@ -49,24 +53,33 @@ impl Simulation {
             island_rounds: self.island_rounds(),
             query_count,
             constraint_count: self.constraint_alive.len() as u32,
+            body_structural: self.body_structural,
+            constraint_structural: self.constraint_structural,
+            has_body_edits: self.has_body_edits,
         };
         self.encode_step(&frame, batch, step);
         self.device_body_count = frame.body_count;
-        self.commands.clear();
-        self.constraint_commands.clear();
         self.queries.clear();
         self.step_index += 1;
         self.states_synchronized = false;
     }
 
+    /// Compiles every pending command, uploads the parallel stream, and consumes
+    /// the sequence: a command applies exactly once whether the next step or a
+    /// query flush is what runs first.
+    pub(crate) fn apply_pending_commands(&mut self) {
+        let body_compiled = self.compile_commands();
+        let constraint_compiled = self.compile_constraint_commands();
+        self.upload_body_compile(&body_compiled);
+        self.upload_constraint_compile(&constraint_compiled);
+        self.last_body_commands = self.commands.len() as u32;
+        self.last_constraint_commands = self.constraint_commands.len() as u32;
+        self.commands.clear();
+        self.constraint_commands.clear();
+    }
+
     fn write_step_records(&mut self, dt: f32) {
         let queue = self.gpu.queue();
-        self.buffers
-            .commands
-            .write(queue, bytemuck::cast_slice(&self.commands));
-        self.buffers
-            .constraint_commands
-            .write(queue, bytemuck::cast_slice(&self.constraint_commands));
         self.write_declared_counters(queue);
         let params = SimParamsRecord::new(
             &self.config,
@@ -74,10 +87,61 @@ impl Simulation {
             self.dynamic_count as u32,
             self.alive.len() as u32,
             self.constraint_alive.len() as u32,
+            self.event_slot_of(self.step_index),
         );
         self.buffers
             .params
             .write(queue, bytemuck::cast_slice(&[params]));
+    }
+
+    fn upload_body_compile(&mut self, compiled: &CompiledBodyCommands) {
+        let queue = self.gpu.queue();
+        let bodies = compiled.moves.len();
+        let mut src = Vec::with_capacity(bodies);
+        let mut fresh_lane = Vec::with_capacity(bodies);
+        for (slot, move_) in compiled.moves.iter().enumerate() {
+            let (source, fresh) = encode_move(move_, slot as u32);
+            src.push(source);
+            fresh_lane.push(fresh);
+        }
+        self.buffers
+            .row_src
+            .write(queue, bytemuck::cast_slice(&src));
+        self.buffers
+            .row_fresh
+            .write(queue, bytemuck::cast_slice(&fresh_lane));
+        self.buffers
+            .fresh_states
+            .write(queue, bytemuck::cast_slice(&compiled.fresh));
+        self.buffers
+            .commands
+            .write(queue, bytemuck::cast_slice(&compiled.edits));
+        self.buffers
+            .command_first
+            .write(queue, bytemuck::cast_slice(&compiled.edit_first));
+        self.body_structural = compiled.structurally_dirty;
+        self.has_body_edits = !compiled.edits.is_empty();
+    }
+
+    fn upload_constraint_compile(&mut self, compiled: &CompiledConstraintCommands) {
+        let queue = self.gpu.queue();
+        let mut src = Vec::with_capacity(compiled.moves.len());
+        let mut fresh_lane = Vec::with_capacity(compiled.moves.len());
+        for (slot, move_) in compiled.moves.iter().enumerate() {
+            let (source, fresh) = encode_constraint_move(move_, slot as u32);
+            src.push(source);
+            fresh_lane.push(fresh);
+        }
+        self.buffers
+            .constraint_row_src
+            .write(queue, bytemuck::cast_slice(&src));
+        self.buffers
+            .constraint_row_fresh
+            .write(queue, bytemuck::cast_slice(&fresh_lane));
+        self.buffers
+            .constraint_fresh
+            .write(queue, bytemuck::cast_slice(&compiled.fresh));
+        self.constraint_structural = compiled.moves.iter().any(|move_| move_.is_structural());
     }
 
     fn submit_queries(&mut self, step: u64, query_count: u32) -> Option<u64> {
@@ -99,6 +163,9 @@ impl Simulation {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis step encoder"),
         });
+        // Event segments are copied home at the head of the very next encoder, so a
+        // segment is read before the step that would overwrite it is encoded.
+        self.copy_events(&mut encoder, &device);
         self.pipeline.encode(&mut encoder, &self.buffers, frame);
         #[cfg(feature = "profile")]
         let timings = self.pipeline.capture_timings(&mut encoder, step);
@@ -107,6 +174,7 @@ impl Simulation {
             &device,
             &mut encoder,
             self.buffers.readback_pack.buffer(),
+            0,
             pack_bytes,
             step,
         );
@@ -123,6 +191,7 @@ impl Simulation {
         };
         queue.submit([encoder.finish()]);
         self.buffers.readback.arm();
+        self.buffers.events_readback.arm();
         self.buffers.queries_readback.arm();
         #[cfg(feature = "profile")]
         self.pipeline.arm_timings();
@@ -163,5 +232,5 @@ fn readback(
     if bytes == 0 {
         return None;
     }
-    slot.enqueue(device, encoder, source.buffer(), bytes, sequence)
+    slot.enqueue(device, encoder, source.buffer(), 0, bytes, sequence)
 }

@@ -1,6 +1,8 @@
 use super::{ContactManifold, ContactPoint, Simulation};
+use crate::buffers::EVENT_SLOTS;
 use dynamis_layout::{
-    BodyStateRecord, COUNTER_CONTACTS, ConstraintRuntimeRecord, ContactRecord, Counters,
+    BodyStateRecord, COUNTER_CONTACTS, COUNTER_EVENTS, ConstraintRuntimeRecord, ContactEventRecord,
+    ContactRecord, Counters,
 };
 use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
 use std::mem::size_of;
@@ -34,7 +36,8 @@ impl Simulation {
         if bytes == 0 {
             return;
         }
-        let records = self.read_range(self.buffers.body_states.buffer(), bytes);
+        let buffer = self.buffers.body_states.buffer().clone();
+        let records = self.read_range(&buffer, bytes);
         let step = self.step_index.saturating_sub(1);
         for record in crate::records::records::<BodyStateRecord>(&records) {
             self.accept_body(step, record);
@@ -53,7 +56,8 @@ impl Simulation {
             return Vec::new();
         }
         let bytes = (count * size_of::<ContactRecord>()) as u64;
-        let records = self.read_range(self.buffers.contacts.buffer(), bytes);
+        let buffer = self.buffers.contacts.buffer().clone();
+        let records = self.read_range(&buffer, bytes);
         crate::records::records::<ContactRecord>(&records)
             .into_iter()
             .map(|record| ContactManifold {
@@ -85,34 +89,47 @@ impl Simulation {
     }
 
     /// Reads `bytes` of a device buffer with a synchronous round trip. For inspection
-    /// only; the step path never uses it.
-    pub(crate) fn read_range(&self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
-        let staging = self.device().create_buffer(&wgpu::BufferDescriptor {
-            label: Some("dynamis sync readback"),
-            size: bytes.max(16),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, bytes);
-        self.queue().submit([encoder.finish()]);
-        let _ = self.device().poll(wgpu::PollType::wait_indefinitely());
+    /// only; the step path never uses it. The staging buffer is reused across calls,
+    /// so a per-frame state sync stops allocating on the hot path.
+    pub(crate) fn read_range(&mut self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
+        let device = self.gpu.device();
+        let wide = bytes.max(16);
+        if self.sync_staging.as_ref().is_none_or(|(staging, size)| {
+            *size < wide || !staging.usage().contains(wgpu::BufferUsages::MAP_READ)
+        }) {
+            let staging = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("dynamis sync readback"),
+                size: wide,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            self.sync_staging = Some((staging, wide));
+        }
+        let staging = &self.sync_staging.as_ref().expect("staging just ensured").0;
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encoder.copy_buffer_to_buffer(buffer, 0, staging, 0, bytes);
+        self.gpu.queue().submit([encoder.finish()]);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         let slice = staging.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        let _ = self.device().poll(wgpu::PollType::wait_indefinitely());
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         receiver.recv().expect("map").expect("map error");
         let mapped = slice.get_mapped_range().unwrap();
-        mapped[..bytes as usize].to_vec()
+        let data = mapped[..bytes as usize].to_vec();
+        drop(mapped);
+        staging.unmap();
+        data
     }
 
     pub(crate) fn collect_readbacks(&mut self) {
         for (step, bytes) in self.buffers.readback.poll(self.gpu.device()) {
             self.consume_pack(step, &bytes);
+        }
+        for (step, bytes) in self.buffers.events_readback.poll(self.gpu.device()) {
+            self.consume_events(step, &bytes);
         }
         for (batch, bytes) in self.buffers.queries_readback.poll(self.gpu.device()) {
             self.query_pool.collect(batch, &bytes);
@@ -127,9 +144,63 @@ impl Simulation {
         for (step, bytes) in self.buffers.readback.drain(self.gpu.device()) {
             self.consume_pack(step, &bytes);
         }
+        for (step, bytes) in self.buffers.events_readback.drain(self.gpu.device()) {
+            self.consume_events(step, &bytes);
+        }
         let device = self.gpu.device();
         for (batch, bytes) in self.buffers.queries_readback.drain(device) {
             self.query_pool.collect(batch, &bytes);
+        }
+    }
+
+    /// `consume_pack` marks a step's events; a later encoder (or a forced readback)
+    /// copies them home by the count the step actually produced.
+    fn note_events_due(&mut self, step: u64) {
+        let count = self.observed[COUNTER_EVENTS];
+        if count > 0 {
+            self.events_due.push_back((step, count));
+        }
+    }
+
+    /// Copies every marked event segment into the readback staging, at the head of
+    /// the encoder that will not overwrite them before the copy runs.
+    pub(crate) fn copy_events(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+    ) {
+        while let Some((step, count)) = self.events_due.pop_front() {
+            let segment = self.buffers.events.size() / EVENT_SLOTS as u64;
+            let offset = (step % EVENT_SLOTS as u64) * segment;
+            let bytes = count as u64 * size_of::<ContactEventRecord>() as u64;
+            let displaced = self.buffers.events_readback.enqueue(
+                device,
+                encoder,
+                self.buffers.events.buffer(),
+                offset,
+                bytes,
+                step,
+            );
+            if let Some((step, bytes)) = displaced {
+                self.consume_events(step, &bytes);
+            }
+        }
+    }
+
+    /// Blocks until every event a landed pack announced is home, then consumes them.
+    pub(crate) fn sync_events(&mut self) {
+        if self.events_due.is_empty() {
+            return;
+        }
+        let device = self.gpu.device().clone();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dynamis event readback"),
+        });
+        self.copy_events(&mut encoder, &device);
+        self.gpu.queue().submit([encoder.finish()]);
+        self.buffers.events_readback.arm();
+        for (step, bytes) in self.buffers.events_readback.drain(&device) {
+            self.consume_events(step, &bytes);
         }
     }
 
@@ -138,6 +209,7 @@ impl Simulation {
     /// the step that produced it.
     pub(crate) fn accept_measured(&mut self, _step: u64, measured: &Counters) {
         self.observed = *measured;
+        self.note_events_due(_step);
     }
 
     pub(crate) fn accept_body(&mut self, step: u64, record: BodyStateRecord) {

@@ -100,6 +100,7 @@ impl GpuTimer {
             &self.device,
             encoder,
             &self.resolved,
+            0,
             self.resolved.size(),
             sequence,
         );

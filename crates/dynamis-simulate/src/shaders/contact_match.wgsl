@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> events: array<ContactEvent>;
 @group(0) @binding(5) var<storage, read_write> event_count: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read_write> spillover: array<atomic<u32>>;
+@group(0) @binding(7) var<uniform> params: SimParams;
 
 const NORMAL_MATCH: f32 = 0.7;
 
@@ -31,8 +32,10 @@ fn prev_find(key_hi: u32, key_lo: u32) -> u32 {
 
 fn emit_event(kind: u32, sensor: u32, first_id: u32, first_generation: u32, second_id: u32, second_generation: u32, point: vec3f, normal: vec3f) {
     let slot = atomicAdd(&event_count[0], 1u);
-    if (slot < arrayLength(&events)) {
-        events[slot] = ContactEvent(kind, sensor, first_id, first_generation, second_id, second_generation, point, 0.0, normal, 0.0);
+    let segment = arrayLength(&events) / EVENT_SLOTS;
+    let base = params.event_slot * segment;
+    if (slot < segment) {
+        events[base + slot] = ContactEvent(kind, sensor, first_id, first_generation, second_id, second_generation, point, 0.0, normal, 0.0);
     } else {
         atomicAdd(&spillover[0], 1u);
     }
@@ -61,6 +64,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let point = contact.points[0].position;
         emit_event(EVENT_PERSIST, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, point, contact.normal);
     }
+    // Manifold points keep their order across a persisting pair, so impulses are
+    // matched by index: the row carries four point lanes and each lane's tail
+    // values are that point's own history even when this step's manifold shrank.
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         contact.points[point_index].accumulated_normal = prev.points[point_index].accumulated_normal;
         contact.points[point_index].accumulated_tangent_1 = prev.points[point_index].accumulated_tangent_1;

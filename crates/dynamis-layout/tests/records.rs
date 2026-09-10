@@ -220,6 +220,7 @@ fn sim_params_record_maps_config() {
         solve_iterations: 7,
         position_iterations: 3,
         relaxation: 0.4,
+        tempering: 0.5,
         slop: 0.01,
         restitution_threshold: 2.0,
         max_velocity: 50.0,
@@ -232,12 +233,14 @@ fn sim_params_record_maps_config() {
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
-    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2);
+    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2, 3);
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
     assert_eq!(record.damping, 0.5);
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);
+    assert_eq!(record.tempering, 0.5);
+    assert_eq!(record.event_slot, 3);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.solve_iterations, 7);

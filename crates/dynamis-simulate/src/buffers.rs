@@ -1,11 +1,14 @@
 use crate::reservation::{Reservation, ShapeReservation};
 use dynamis_gpu::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
+
+/// Event segments: one per in-flight step slot, so a segment is always copied home
+/// before the step that would overwrite it is encoded.
+pub(crate) const EVENT_SLOTS: u32 = GpuReadback::DEPTH as u32;
 use dynamis_layout::{
     AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, BvhNodeRecord,
-    COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintCommandRecord,
-    ConstraintDescriptorRecord, ConstraintRuntimeRecord, ContactEventRecord, ContactRecord,
-    MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeader, ShapeSourceRecord,
-    SimParamsRecord,
+    COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
+    ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
+    QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use std::mem::size_of;
@@ -94,8 +97,21 @@ pub(crate) struct WorldBuffers {
     pub(crate) shape_triangles: GpuBuffer,
     pub(crate) shape_nodes: GpuBuffer,
     pub(crate) events: GpuBuffer,
+    /// Content edits, one per touched slot run, separated by slot.
     pub(crate) commands: GpuBuffer,
-    pub(crate) constraint_commands: GpuBuffer,
+    /// One-based index of a slot's first edit; 0 means none.
+    pub(crate) command_first: GpuBuffer,
+    /// Per-slot structural move: source slot, CLEAR sentinel, or fresh lane index.
+    pub(crate) row_src: GpuBuffer,
+    pub(crate) row_fresh: GpuBuffer,
+    /// Fresh row records for structural moves.
+    pub(crate) fresh_states: GpuBuffer,
+    /// The row layout lands here before it is scattered home.
+    pub(crate) state_scratch: GpuBuffer,
+    pub(crate) constraint_row_src: GpuBuffer,
+    pub(crate) constraint_row_fresh: GpuBuffer,
+    pub(crate) constraint_fresh: GpuBuffer,
+    pub(crate) constraint_scratch: GpuBuffer,
     pub(crate) queries: GpuBuffer,
     pub(crate) query_results: GpuBuffer,
     /// Payload lane for the sorts that carry no payload of their own.
@@ -104,6 +120,8 @@ pub(crate) struct WorldBuffers {
     /// One mirrored copy of everything the host tracks, read back once per step.
     pub(crate) readback_pack: GpuBuffer,
     pub(crate) readback: GpuReadback,
+    /// Contact events, read back by the effective count once its pack has landed.
+    pub(crate) events_readback: GpuReadback,
     pub(crate) queries_readback: GpuReadback,
     pub(crate) sort_scratch: ChannelSlots,
 }
@@ -133,12 +151,14 @@ impl WorldBuffers {
             GpuBuffer::new(device, label, checked_size(label, count, stride), STREAM)
         };
         let queries = plan.queries;
-        let readback_bytes = COUNTER_BYTES
-            + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
-            + plan.events as u64 * size_of::<ContactEventRecord>() as u64;
+        let readback_bytes =
+            COUNTER_BYTES + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64;
+        let event_segment_bytes = plan.events as u64 * size_of::<ContactEventRecord>() as u64;
+        let event_readback_bytes = event_segment_bytes;
+        let event_bytes = event_segment_bytes * EVENT_SLOTS as u64;
         assert!(
-            readback_bytes <= buffer_limit,
-            "simulation readback requires {readback_bytes} bytes but the device buffer limit is {buffer_limit}"
+            event_readback_bytes <= buffer_limit,
+            "event readback requires {event_readback_bytes} bytes but the device buffer limit is {buffer_limit}"
         );
         let query_readback_bytes = queries as u64 * QUERY_RESULT_BYTES;
         assert!(
@@ -227,20 +247,28 @@ impl WorldBuffers {
                 shapes.nodes,
                 size_of::<BvhNodeRecord>() as u64,
             ),
-            events: rows(
-                "contact events",
-                plan.events,
-                size_of::<ContactEventRecord>() as u64,
-            ),
+            events: GpuBuffer::new(device, "contact events", event_bytes, STREAM),
             commands: rows(
-                "body commands",
+                "body edits",
                 plan.body_commands,
                 size_of::<BodyCommandRecord>() as u64,
             ),
-            constraint_commands: rows(
-                "constraint commands",
+            command_first: lanes("body edit first", bodies),
+            row_src: lanes("body row src", bodies),
+            row_fresh: lanes("body row fresh", bodies),
+            fresh_states: rows("fresh body rows", plan.body_commands, 128),
+            state_scratch: rows("body state scratch", bodies, 128),
+            constraint_row_src: lanes("constraint row src", constraints),
+            constraint_row_fresh: lanes("constraint row fresh", constraints),
+            constraint_fresh: rows(
+                "fresh constraint rows",
                 plan.constraint_commands,
-                size_of::<ConstraintCommandRecord>() as u64,
+                size_of::<ConstraintRuntimeRecord>() as u64,
+            ),
+            constraint_scratch: rows(
+                "constraint state scratch",
+                constraints,
+                size_of::<ConstraintRuntimeRecord>() as u64,
             ),
             queries: rows("queries", queries, QUERY_BYTES),
             query_results: rows("query results", queries, QUERY_RESULT_BYTES),
@@ -248,6 +276,7 @@ impl WorldBuffers {
             sort_pad: lanes("sort pad", plan.sort()),
             readback_pack: GpuBuffer::new(device, "sim readback pack", readback_bytes, PACK),
             readback: GpuReadback::new(device, "sim readback", readback_bytes),
+            events_readback: GpuReadback::new(device, "sim events readback", event_readback_bytes),
             queries_readback: GpuReadback::new(
                 device,
                 "query results readback",

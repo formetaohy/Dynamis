@@ -32,9 +32,9 @@ pub struct SimParamsRecord {
     pub wake_velocity: f32,
     pub friction_combine: u32,
     pub restitution_combine: u32,
-    pub _pad5: f32,
+    pub tempering: f32,
     pub _pad6: f32,
-    pub _pad7: f32,
+    pub event_slot: u32,
 }
 
 impl SimParamsRecord {
@@ -44,6 +44,7 @@ impl SimParamsRecord {
         dynamic_count: u32,
         body_count: u32,
         constraint_count: u32,
+        event_slot: u32,
     ) -> Self {
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
@@ -68,9 +69,9 @@ impl SimParamsRecord {
             wake_velocity: config.wake_velocity,
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
-            _pad5: 0.0,
+            tempering: config.tempering,
             _pad6: 0.0,
-            _pad7: 0.0,
+            event_slot,
         }
     }
 }
