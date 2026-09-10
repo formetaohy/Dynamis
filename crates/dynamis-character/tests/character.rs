@@ -14,8 +14,8 @@ fn walk_and_settle(
     for _ in 0..frames {
         world.step(DT);
         character.step(world, DT, direction, false);
-        world.wait();
     }
+    world.wait();
 }
 
 #[test]
@@ -118,15 +118,14 @@ fn character_lands_after_jump() {
     for _ in 0..10 {
         world.step(DT);
         character.step(&mut world, DT, [0.0, 0.0, 0.0], false);
-        world.wait();
         apex = apex.max(character.position()[1]);
     }
     assert!(apex > 1.35, "jump must lift the character, got apex {apex}");
     for _ in 0..60 {
         world.step(DT);
         character.step(&mut world, DT, [0.0, 0.0, 0.0], false);
-        world.wait();
     }
+    world.wait();
     assert!(
         character.grounded(),
         "character must land back on the ground"

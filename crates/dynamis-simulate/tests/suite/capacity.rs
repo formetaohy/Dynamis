@@ -50,24 +50,17 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     );
 }
 
-fn step_waited(world: &mut Simulation, steps: usize) {
-    for _ in 0..steps {
-        world.step(DT);
-        world.wait();
-    }
-}
-
 #[test]
 fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_scene() {
     let mut world = sim(PILE, static_config());
     let bodies = sphere_pile(&mut world);
-    step_waited(&mut world, 4);
+    settle(&mut world, 4);
     let widened = world.stream_capacity();
 
     for body in bodies {
         world.remove(body);
     }
-    step_waited(&mut world, 140);
+    settle(&mut world, 140);
     let released = world.stream_capacity();
     assert!(
         released.pairs < widened.pairs,

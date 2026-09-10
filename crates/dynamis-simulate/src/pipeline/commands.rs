@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
@@ -23,6 +23,7 @@ impl Commands {
                 "reset_counters",
                 include_str!("../shaders/reset_counters.wgsl"),
                 per_row,
+                CORE,
                 &[(RW, whole(&buffers.counters))],
                 &[],
             ),
@@ -31,6 +32,7 @@ impl Commands {
                 "body_gather",
                 include_str!("../shaders/body_gather.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.bodies.states)),
                     (RW, whole(&buffers.bodies.state_scratch)),
@@ -46,6 +48,7 @@ impl Commands {
                 "body_scatter",
                 include_str!("../shaders/body_scatter.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RW, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.state_scratch)),
@@ -58,9 +61,10 @@ impl Commands {
                 "body_edits",
                 include_str!("../shaders/body_edits.wgsl"),
                 per_row,
+                CORE,
                 &[
-                    (RO, whole(&buffers.bodies.commands)),
-                    (RO, whole(&buffers.bodies.command_first)),
+                    (RO, whole(&buffers.bodies.edits)),
+                    (RO, whole(&buffers.bodies.edit_runs)),
                     (RW, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
                     (RW, whole(&buffers.islands.wake_flags)),
@@ -75,6 +79,7 @@ impl Commands {
                 "constraint_gather",
                 include_str!("../shaders/constraint_gather.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.constraints.runtime)),
                     (RW, whole(&buffers.constraints.scratch)),
@@ -90,6 +95,7 @@ impl Commands {
                 "constraint_scatter",
                 include_str!("../shaders/constraint_scatter.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RW, whole(&buffers.constraints.runtime)),
                     (RO, whole(&buffers.constraints.scratch)),
@@ -102,6 +108,7 @@ impl Commands {
                 "activity",
                 include_str!("../shaders/activity.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -116,6 +123,7 @@ impl Commands {
                 "joint_filter",
                 include_str!("../shaders/joint_filter.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.constraints.descriptors)),
@@ -138,9 +146,6 @@ impl Commands {
             self.body_gather.record(recorder, params.body_count);
             self.body_scatter.record(recorder, params.body_count);
         }
-        if params.has_body_edits {
-            self.body_edits.record(recorder, params.body_count);
-        }
         if params.constraint_structural {
             self.constraint_gather
                 .record(recorder, params.constraint_count);
@@ -149,9 +154,14 @@ impl Commands {
         }
     }
 
+    pub(super) fn record_edits(&self, recorder: &mut ComputeRecorder, edit_run_count: u32) {
+        self.body_edits.record(recorder, edit_run_count);
+    }
+
     pub(super) fn record(&self, recorder: &mut ComputeRecorder, params: &FrameParams) {
         self.reset(recorder);
         self.record_moves(recorder, params);
+        self.record_edits(recorder, params.edit_run_count);
         if params.constraint_count > 0 {
             self.joint_filter.record(recorder, params.constraint_count);
         }

@@ -14,7 +14,7 @@ pub const COUNTER_CONSTRAINTS: usize = 6;
 
 pub const COUNTER_EVENTS: usize = 7;
 
-pub const COUNTER_BODY_COMMANDS: usize = 8;
+pub const COUNTER_BODY_EDITS: usize = 8;
 
 pub const COUNTER_CONSTRAINT_COMMANDS: usize = 9;
 

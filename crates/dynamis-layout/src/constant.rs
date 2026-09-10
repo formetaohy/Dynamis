@@ -1,15 +1,12 @@
-pub const COMMAND_ADD: u32 = 0;
-pub const COMMAND_REMOVE: u32 = 1;
-pub const COMMAND_PATCH: u32 = 2;
-pub const COMMAND_FORCE: u32 = 3;
-pub const COMMAND_TORQUE: u32 = 4;
-pub const COMMAND_IMPULSE: u32 = 5;
-pub const COMMAND_SLEEP: u32 = 6;
-pub const COMMAND_WAKE: u32 = 7;
-pub const COMMAND_FORCE_AT_POINT: u32 = 8;
-pub const COMMAND_IMPULSE_AT_POINT: u32 = 9;
-pub const COMMAND_ANGULAR_IMPULSE: u32 = 10;
-pub const COMMAND_SWAP: u32 = 11;
+pub const EDIT_PATCH: u32 = 0;
+pub const EDIT_FORCE: u32 = 1;
+pub const EDIT_TORQUE: u32 = 2;
+pub const EDIT_IMPULSE: u32 = 3;
+pub const EDIT_SLEEP: u32 = 4;
+pub const EDIT_WAKE: u32 = 5;
+pub const EDIT_FORCE_AT_POINT: u32 = 6;
+pub const EDIT_IMPULSE_AT_POINT: u32 = 7;
+pub const EDIT_ANGULAR_IMPULSE: u32 = 8;
 
 pub const COMMAND_CONSTRAINT_ADD: u32 = 0;
 pub const COMMAND_CONSTRAINT_SWAP: u32 = 1;

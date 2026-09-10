@@ -1,17 +1,16 @@
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord,
-    COLLIDER_SENSOR, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_CONSTRAINT_ADD,
-    COMMAND_CONSTRAINT_SWAP, COMMAND_FORCE, COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE,
-    COMMAND_IMPULSE_AT_POINT, COMMAND_PATCH, COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP,
-    COMMAND_TORQUE, COMMAND_WAKE, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
-    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
-    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
-    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
-    ConstraintCommandRecord, ConstraintDescriptorRecord, FILTER_IGNORE_KINEMATIC,
-    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR,
-    OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
-    QUERY_SWEEP, QueryRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD,
-    SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SimParamsRecord,
+    BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord,
+    COLLIDER_SENSOR, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP, CONSTRAINT_BALL,
+    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
+    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
+    CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
+    ColliderRecord, ConstraintCommandRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE,
+    EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP,
+    EDIT_TORQUE, EDIT_WAKE, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
+    FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
+    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, SHAPE_CAPSULE,
+    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
+    SHAPE_SPHERE, SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
@@ -233,13 +232,14 @@ fn sim_params_record_maps_config() {
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
-    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2, 3);
+    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2, 5, 3);
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
     assert_eq!(record.damping, 0.5);
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);
     assert_eq!(record.tempering, 0.5);
+    assert_eq!(record.edit_run_count, 5);
     assert_eq!(record.event_slot, 3);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
@@ -337,49 +337,50 @@ fn query_record_encodes_kinds_and_filters() {
 }
 
 #[test]
-fn body_commands_encode_their_payloads() {
+fn body_edits_encode_their_payloads() {
     let state = BodyStateRecord::initial(&BodyDesc::sphere(0.5), 1, 1);
-    let add = BodyCommandRecord::add(2, state);
-    assert_eq!(add.kind, COMMAND_ADD);
-    assert_eq!(add.slot, 2);
-    assert_eq!(add.state.position, state.position);
-
-    let remove = BodyCommandRecord::remove(3, 7);
-    assert_eq!(remove.kind, COMMAND_REMOVE);
-    assert_eq!(remove.slot, 3);
-    assert_eq!(remove.mask, 7);
-
-    let patch = BodyCommandRecord::patch(1, PATCH_POSITION | PATCH_VELOCITY, state);
-    assert_eq!(patch.kind, COMMAND_PATCH);
+    let patch = BodyEditRecord::patch(PATCH_POSITION | PATCH_VELOCITY, state);
+    assert_eq!(patch.kind, EDIT_PATCH);
     assert_eq!(patch.mask, PATCH_POSITION | PATCH_VELOCITY);
+    assert_eq!(patch.state.position, state.position);
+    assert_eq!(patch.state.velocity, state.velocity);
 
-    let force = BodyCommandRecord::force(4, [1.0, 2.0, 3.0]);
-    assert_eq!(force.kind, COMMAND_FORCE);
+    let force = BodyEditRecord::force([1.0, 2.0, 3.0]);
+    assert_eq!(force.kind, EDIT_FORCE);
     assert_eq!(force.state.force, [1.0, 2.0, 3.0]);
 
-    let force_at = BodyCommandRecord::force_at_point(4, [0.0, 0.0, 1.0], [5.0, 0.0, 0.0]);
-    assert_eq!(force_at.kind, COMMAND_FORCE_AT_POINT);
+    let force_at = BodyEditRecord::force_at_point([0.0, 0.0, 1.0], [5.0, 0.0, 0.0]);
+    assert_eq!(force_at.kind, EDIT_FORCE_AT_POINT);
+    assert_eq!(force_at.state.force, [0.0, 0.0, 1.0]);
     assert_eq!(force_at.state.position, [5.0, 0.0, 0.0]);
 
-    let torque = BodyCommandRecord::torque(4, [0.0, 0.0, 1.0]);
-    assert_eq!(torque.kind, COMMAND_TORQUE);
+    let torque = BodyEditRecord::torque([0.0, 0.0, 1.0]);
+    assert_eq!(torque.kind, EDIT_TORQUE);
     assert_eq!(torque.state.torque, [0.0, 0.0, 1.0]);
 
-    let impulse = BodyCommandRecord::impulse(4, [1.0, 0.0, 0.0]);
-    assert_eq!(impulse.kind, COMMAND_IMPULSE);
+    let impulse = BodyEditRecord::impulse([1.0, 0.0, 0.0]);
+    assert_eq!(impulse.kind, EDIT_IMPULSE);
     assert_eq!(impulse.state.velocity, [1.0, 0.0, 0.0]);
 
-    let impulse_at = BodyCommandRecord::impulse_at_point(4, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
-    assert_eq!(impulse_at.kind, COMMAND_IMPULSE_AT_POINT);
+    let impulse_at = BodyEditRecord::impulse_at_point([0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
+    assert_eq!(impulse_at.kind, EDIT_IMPULSE_AT_POINT);
+    assert_eq!(impulse_at.state.velocity, [0.0, 1.0, 0.0]);
     assert_eq!(impulse_at.state.position, [1.0, 0.0, 0.0]);
 
-    let angular = BodyCommandRecord::angular_impulse(4, [0.0, 0.0, 1.0]);
-    assert_eq!(angular.kind, COMMAND_ANGULAR_IMPULSE);
+    let angular = BodyEditRecord::angular_impulse([0.0, 0.0, 1.0]);
+    assert_eq!(angular.kind, EDIT_ANGULAR_IMPULSE);
     assert_eq!(angular.state.angular_velocity, [0.0, 0.0, 1.0]);
 
-    assert_eq!(BodyCommandRecord::sleep(4).kind, COMMAND_SLEEP);
-    assert_eq!(BodyCommandRecord::wake(4).kind, COMMAND_WAKE);
-    assert_eq!(BodyCommandRecord::swap(4, 9).kind, COMMAND_SWAP);
+    assert_eq!(BodyEditRecord::sleep().kind, EDIT_SLEEP);
+    assert_eq!(BodyEditRecord::wake().kind, EDIT_WAKE);
+}
+
+#[test]
+fn body_edit_runs_address_their_rows() {
+    let run = BodyEditRun::new(7, 3, 2);
+    assert_eq!(run.row, 7);
+    assert_eq!(run.first, 3);
+    assert_eq!(run.len, 2);
 }
 
 #[test]

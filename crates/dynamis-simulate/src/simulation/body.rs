@@ -1,10 +1,11 @@
 use super::Simulation;
+use super::commands::BodyCommand;
 use crate::static_aabb;
 use bytemuck::Zeroable;
 use dynamis_layout::{
-    AabbRecord, BODY_CCD, BODY_KINEMATIC, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord,
-    ColliderRecord, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY,
+    AabbRecord, BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
+    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
+    PATCH_POSITION, PATCH_VELOCITY,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MAX_COLLIDERS_PER_BODY,
@@ -26,11 +27,10 @@ pub(crate) struct Bodies {
     pub(crate) states: Vec<Option<BodyState>>,
     pub(crate) states_ready: bool,
     pub(crate) device_count: u32,
-    pub(crate) commands: Vec<BodyCommandRecord>,
+    pub(crate) commands: Vec<BodyCommand>,
     pub(crate) dirty: Vec<u32>,
     pub(crate) structural: bool,
-    pub(crate) has_edits: bool,
-    pub(crate) last_commands: u32,
+    pub(crate) last_edits: u32,
 }
 
 impl Bodies {
@@ -53,8 +53,7 @@ impl Bodies {
             commands: Vec::new(),
             dirty: Vec::new(),
             structural: false,
-            has_edits: false,
-            last_commands: 0,
+            last_edits: 0,
         }
     }
 
@@ -108,7 +107,7 @@ impl Simulation {
         self.bodies.dirty.push(slot);
         self.bodies
             .commands
-            .push(BodyCommandRecord::add(slot, state));
+            .push(BodyCommand::Add { row: slot, state });
         if mass > 0.0 || desc.kinematic {
             if (self.bodies.dynamic_count as u32) < slot {
                 self.swap_slots(self.bodies.dynamic_count as u32, slot);
@@ -157,9 +156,10 @@ impl Simulation {
         self.bodies.states[id] = None;
         self.bodies.kinematic[id] = false;
         self.bodies.descriptors[id] = BodyDescriptorRecord::zeroed();
-        self.bodies
-            .commands
-            .push(BodyCommandRecord::remove(last, last));
+        self.bodies.commands.push(BodyCommand::Remove {
+            hole: last,
+            tail: last,
+        });
     }
 
     fn swap_slots(&mut self, first: u32, second: u32) {
@@ -169,7 +169,7 @@ impl Simulation {
         self.remap_constraint_slots(first, second);
         self.bodies
             .commands
-            .push(BodyCommandRecord::swap(first, second));
+            .push(BodyCommand::Swap { first, second });
         self.bodies.dirty.push(first);
         self.bodies.dirty.push(second);
     }
@@ -188,11 +188,11 @@ impl Simulation {
                 self.swap_slots(slot, tail);
             }
             self.bodies.dynamic_count -= 1;
-            self.bodies.commands.push(BodyCommandRecord::patch(
-                tail,
-                PATCH_VELOCITY,
-                BodyStateRecord::zeroed(),
-            ));
+            self.bodies.commands.push(BodyCommand::Patch {
+                row: tail,
+                mask: PATCH_VELOCITY,
+                state: BodyStateRecord::zeroed(),
+            });
             if let Some(state) = self.bodies.states[id].as_mut() {
                 state.velocity = [0.0; 3];
                 state.angular_velocity = [0.0; 3];
@@ -310,9 +310,11 @@ impl Simulation {
 
     fn schedule_patch(&mut self, handle: BodyHandle, mask: u32, state: BodyStateRecord) {
         let slot = self.command_slot(handle);
-        self.bodies
-            .commands
-            .push(BodyCommandRecord::patch(slot, mask, state));
+        self.bodies.commands.push(BodyCommand::Patch {
+            row: slot,
+            mask,
+            state,
+        });
     }
 
     pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
@@ -538,28 +540,30 @@ impl Simulation {
         let slot = self.command_slot(handle);
         self.bodies
             .commands
-            .push(BodyCommandRecord::force(slot, force));
+            .push(BodyCommand::Force { row: slot, force });
     }
 
     pub fn apply_force_at_point(&mut self, handle: BodyHandle, force: [f32; 3], point: [f32; 3]) {
         let slot = self.command_slot(handle);
-        self.bodies
-            .commands
-            .push(BodyCommandRecord::force_at_point(slot, force, point));
+        self.bodies.commands.push(BodyCommand::ForceAtPoint {
+            row: slot,
+            force,
+            point,
+        });
     }
 
     pub fn apply_torque(&mut self, handle: BodyHandle, torque: [f32; 3]) {
         let slot = self.command_slot(handle);
         self.bodies
             .commands
-            .push(BodyCommandRecord::torque(slot, torque));
+            .push(BodyCommand::Torque { row: slot, torque });
     }
 
     pub fn apply_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
         let slot = self.command_slot(handle);
         self.bodies
             .commands
-            .push(BodyCommandRecord::impulse(slot, impulse));
+            .push(BodyCommand::Impulse { row: slot, impulse });
     }
 
     pub fn apply_impulse_at_point(
@@ -569,26 +573,28 @@ impl Simulation {
         point: [f32; 3],
     ) {
         let slot = self.command_slot(handle);
-        self.bodies
-            .commands
-            .push(BodyCommandRecord::impulse_at_point(slot, impulse, point));
+        self.bodies.commands.push(BodyCommand::ImpulseAtPoint {
+            row: slot,
+            impulse,
+            point,
+        });
     }
 
     pub fn apply_angular_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
         let slot = self.command_slot(handle);
         self.bodies
             .commands
-            .push(BodyCommandRecord::angular_impulse(slot, impulse));
+            .push(BodyCommand::AngularImpulse { row: slot, impulse });
     }
 
     pub fn wake(&mut self, handle: BodyHandle) {
         let slot = self.command_slot(handle);
-        self.bodies.commands.push(BodyCommandRecord::wake(slot));
+        self.bodies.commands.push(BodyCommand::Wake { row: slot });
     }
 
     pub fn sleep(&mut self, handle: BodyHandle) {
         let slot = self.command_slot(handle);
-        self.bodies.commands.push(BodyCommandRecord::sleep(slot));
+        self.bodies.commands.push(BodyCommand::Sleep { row: slot });
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> [ColliderRecord; MAX_COLLIDERS_PER_BODY] {

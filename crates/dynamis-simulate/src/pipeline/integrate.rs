@@ -1,6 +1,6 @@
 use super::FrameParams;
 use super::dispatch::SORT_JOINTS;
-use super::stage::{RO, RW, Stage, UNIFORM, shape_resources, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
@@ -19,6 +19,7 @@ impl Integrate {
                 "integrate",
                 include_str!("../shaders/integrate.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.bodies.states)),
@@ -31,6 +32,7 @@ impl Integrate {
                 "broadphase_aabb",
                 include_str!("../shaders/broadphase_aabb.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),

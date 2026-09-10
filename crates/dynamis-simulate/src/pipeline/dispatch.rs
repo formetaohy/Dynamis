@@ -1,4 +1,5 @@
 use super::shader::{WORKGROUP_SIZE, assemble_shader};
+use super::stage::CORE;
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -175,7 +176,7 @@ impl Dispatch {
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
-        let shader = assemble_shader(&dispatch_source(), per_row);
+        let shader = assemble_shader(&dispatch_source(), per_row, CORE);
         let stages = (0..DISPATCH_BATCHES.len())
             .map(|batch| {
                 let pipeline = context.compute_pipeline(

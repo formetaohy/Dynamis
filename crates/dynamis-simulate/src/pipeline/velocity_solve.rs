@@ -1,6 +1,6 @@
 use super::FrameParams;
 use super::dispatch::CONTACT_SOLVE_EXTRACT;
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_CONTACTS;
@@ -19,6 +19,7 @@ impl VelocitySolve {
                 "contact_solve_extract",
                 include_str!("../shaders/contact_solve_extract.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -35,6 +36,7 @@ impl VelocitySolve {
                 "constraint_solve_extract",
                 include_str!("../shaders/constraint_solve_extract.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -51,6 +53,7 @@ impl VelocitySolve {
                 "body_apply_solver",
                 include_str!("../shaders/body_apply_solver.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.bodies.states)),

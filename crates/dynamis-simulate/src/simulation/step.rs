@@ -1,8 +1,6 @@
 use super::Simulation;
 use crate::pipeline::FrameParams;
-use crate::simulation::commands::{
-    CompiledBodyCommands, CompiledConstraintCommands, MoveLanes, RowMove,
-};
+use crate::simulation::commands::{CompiledBodyEdits, CompiledConstraintEdits, MoveLanes, RowMove};
 use dynamis_gpu::{GpuBuffer, GpuReadback};
 use dynamis_layout::{COUNTER_ACTIVE, QueryResultRecord, SimParamsRecord};
 use std::mem::size_of;
@@ -61,9 +59,9 @@ impl Simulation {
             island_rounds: self.island_rounds(),
             query_count,
             constraint_count: self.constraints.alive.len() as u32,
+            edit_run_count: self.bodies.last_edits,
             body_structural: self.bodies.structural,
             constraint_structural: self.constraints.structural,
-            has_body_edits: self.bodies.has_edits,
         };
         self.encode_step(&frame, batch, step, idle);
         self.bodies.device_count = frame.body_count;
@@ -73,14 +71,19 @@ impl Simulation {
     }
 
     pub(crate) fn apply_pending_commands(&mut self) {
-        if !self.bodies.commands.is_empty() || !self.constraints.commands.is_empty() {
-            self.device.commanded_step = Some(self.clock.step);
+        if self.bodies.commands.is_empty() && self.constraints.commands.is_empty() {
+            self.bodies.last_edits = 0;
+            self.constraints.last_commands = 0;
+            self.bodies.structural = false;
+            self.constraints.structural = false;
+            return;
         }
-        let body_compiled = self.compile_commands();
-        let constraint_compiled = self.compile_constraint_commands();
-        self.upload_body_compile(&body_compiled);
-        self.upload_constraint_compile(&constraint_compiled);
-        self.bodies.last_commands = self.bodies.commands.len() as u32;
+        self.device.commanded_step = Some(self.clock.step);
+        let body_edits = self.compile_body_edits();
+        let constraint_edits = self.compile_constraint_edits();
+        self.upload_body_edits(&body_edits);
+        self.upload_constraint_edits(&constraint_edits);
+        self.bodies.last_edits = body_edits.runs.len() as u32;
         self.constraints.last_commands = self.constraints.commands.len() as u32;
         self.bodies.commands.clear();
         self.constraints.commands.clear();
@@ -95,6 +98,7 @@ impl Simulation {
             self.bodies.dynamic_count as u32,
             self.bodies.alive.len() as u32,
             self.constraints.alive.len() as u32,
+            self.bodies.last_edits,
             self.event_slot_of(self.clock.step),
         );
         self.device
@@ -103,7 +107,7 @@ impl Simulation {
             .write(queue, bytemuck::cast_slice(&[params]));
     }
 
-    fn upload_body_compile(&mut self, compiled: &CompiledBodyCommands) {
+    fn upload_body_edits(&mut self, compiled: &CompiledBodyEdits) {
         let queue = self.device.gpu.queue();
         let lanes = MoveLanes::of(&compiled.moves);
         self.device
@@ -124,18 +128,17 @@ impl Simulation {
         self.device
             .buffers
             .bodies
-            .commands
+            .edits
             .write(queue, bytemuck::cast_slice(&compiled.edits));
         self.device
             .buffers
             .bodies
-            .command_first
-            .write(queue, bytemuck::cast_slice(&compiled.edit_first));
+            .edit_runs
+            .write(queue, bytemuck::cast_slice(&compiled.runs));
         self.bodies.structural = compiled.structurally_dirty;
-        self.bodies.has_edits = !compiled.edits.is_empty();
     }
 
-    fn upload_constraint_compile(&mut self, compiled: &CompiledConstraintCommands) {
+    fn upload_constraint_edits(&mut self, compiled: &CompiledConstraintEdits) {
         let queue = self.device.gpu.queue();
         let lanes = MoveLanes::of(&compiled.moves);
         self.device

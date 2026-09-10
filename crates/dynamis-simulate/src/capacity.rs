@@ -6,10 +6,11 @@ use dynamis_layout::{
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 const SLOTS_HEADROOM: u32 = 2;
-const COMMANDS_PER_BODY: u32 = 4;
+const EDITS_PER_BODY: u32 = 4;
+const CONSTRAINT_COMMANDS_PER_CONSTRAINT: u32 = 4;
 const QUERIES_PER_BODY: u32 = 2;
 const MIN_SLOTS: u32 = 64;
-const STREAM_DENSITY_PAIRS: u32 = 128;
+const STREAM_DENSITY_PAIRS: u32 = 16;
 const STREAM_DENSITY_EVENTS: u32 = 8;
 
 pub(crate) const STREAM_FLOOR: u32 = 256;
@@ -17,7 +18,7 @@ pub(crate) const STREAM_FLOOR: u32 = 256;
 pub(crate) struct Live {
     pub(crate) bodies: u32,
     pub(crate) constraints: u32,
-    pub(crate) body_commands: u32,
+    pub(crate) body_edits: u32,
     pub(crate) constraint_commands: u32,
     pub(crate) queries: u32,
 }
@@ -42,7 +43,7 @@ pub(crate) struct Reservation {
     pub(crate) entries: u32,
     pub(crate) pairs: u32,
     pub(crate) events: u32,
-    pub(crate) body_commands: u32,
+    pub(crate) body_edits: u32,
     pub(crate) constraint_commands: u32,
     pub(crate) queries: u32,
 }
@@ -83,14 +84,14 @@ impl Reservation {
                 entries: 0,
                 pairs: 0,
                 events: 0,
-                body_commands: 0,
+                body_edits: 0,
                 constraint_commands: 0,
                 queries: 0,
             },
             &Live {
                 bodies: 0,
                 constraints: 0,
-                body_commands: 0,
+                body_edits: 0,
                 constraint_commands: 0,
                 queries: 0,
             },
@@ -112,7 +113,6 @@ impl Reservation {
         } else {
             narrowed(current.constraints, live.constraints)
         };
-        let colliders = product(bodies, MAX_COLLIDERS_PER_BODY as u32, "collider");
         let demand = match plan {
             Some(CapacityPlan::Widen(demand)) | Some(CapacityPlan::Narrow(demand)) => demand,
             None => StreamDemand {
@@ -122,45 +122,38 @@ impl Reservation {
             },
         };
 
+        let collider_rows = product(live.bodies, MAX_COLLIDERS_PER_BODY as u32, "collider");
+        let entry_budget = product(collider_rows, MAX_CELLS_PER_COLLIDER, "grid entry");
+        let pair_budget = product(live.bodies, STREAM_DENSITY_PAIRS, "pair");
+        let event_budget = product(live.bodies, STREAM_DENSITY_EVENTS, "event");
+
         let entries = if widen {
-            stream_grown(
-                current.entries,
-                product(colliders, MAX_CELLS_PER_COLLIDER, "grid entry"),
-                demand.entries,
-            )
+            stream_grown(current.entries, entry_budget, demand.entries)
         } else {
-            stream_narrowed(current.entries, demand.entries)
+            stream_narrowed(current.entries, entry_budget.max(demand.entries))
         };
         let pairs = if widen {
-            stream_grown(
-                current.pairs,
-                product(bodies, STREAM_DENSITY_PAIRS, "pair"),
-                demand.pairs,
-            )
+            stream_grown(current.pairs, pair_budget, demand.pairs)
         } else {
-            stream_narrowed(current.pairs, demand.pairs)
+            stream_narrowed(current.pairs, pair_budget.max(demand.pairs))
         };
         let events = if widen {
-            stream_grown(
-                current.events,
-                product(bodies, STREAM_DENSITY_EVENTS, "event"),
-                demand.events,
-            )
+            stream_grown(current.events, event_budget, demand.events)
         } else {
-            stream_narrowed(current.events, demand.events)
+            stream_narrowed(current.events, event_budget.max(demand.events))
         };
-        let body_commands = if widen {
+        let body_edits = if widen {
             stream_grown(
-                current.body_commands,
-                live.body_commands
-                    .max(product(bodies, COMMANDS_PER_BODY, "body command")),
+                current.body_edits,
+                live.body_edits
+                    .max(product(bodies, EDITS_PER_BODY, "body edit")),
                 0,
             )
         } else {
             stream_narrowed(
-                current.body_commands,
-                live.body_commands
-                    .max(product(bodies, COMMANDS_PER_BODY, "body command")),
+                current.body_edits,
+                live.body_edits
+                    .max(product(bodies, EDITS_PER_BODY, "body edit")),
             )
         };
         let constraint_commands = if widen {
@@ -168,7 +161,7 @@ impl Reservation {
                 current.constraint_commands,
                 live.constraint_commands.max(product(
                     constraints,
-                    COMMANDS_PER_BODY,
+                    CONSTRAINT_COMMANDS_PER_CONSTRAINT,
                     "constraint command",
                 )),
                 0,
@@ -178,7 +171,7 @@ impl Reservation {
                 current.constraint_commands,
                 live.constraint_commands.max(product(
                     constraints,
-                    COMMANDS_PER_BODY,
+                    CONSTRAINT_COMMANDS_PER_CONSTRAINT,
                     "constraint command",
                 )),
             )
@@ -201,7 +194,7 @@ impl Reservation {
             entries,
             pairs,
             events,
-            body_commands,
+            body_edits,
             constraint_commands,
             queries,
         }

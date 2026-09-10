@@ -1,10 +1,13 @@
-use super::shader::{WORKGROUP_SIZE, assemble_shader};
+use super::shader::{CONVEX_FRAGMENT, SCENE_FRAGMENT, WORKGROUP_SIZE, assemble_shader};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
     GpuContext, GpuSlot,
 };
 use wgpu::{BindGroup, BindGroupEntry};
+
+pub(super) const CORE: &[&str] = &[];
+pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 
 pub(super) const RO: BindingKind = BindingKind::ReadOnlyStorage;
 pub(super) const RW: BindingKind = BindingKind::ReadWriteStorage;
@@ -35,10 +38,11 @@ impl Stage {
         label: &str,
         body: &str,
         per_row: u32,
+        fragments: &[&str],
         bindings: &[(BindingKind, GpuSlot)],
         shape_resources: &[&GpuBuffer],
     ) -> Self {
-        let shader = assemble_shader(body, per_row);
+        let shader = assemble_shader(body, per_row, fragments);
         let shape_specs = shape_resources
             .iter()
             .enumerate()

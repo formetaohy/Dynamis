@@ -1,6 +1,6 @@
 use super::FrameParams;
 use super::dispatch::{CONTACT_ARCHIVE, EVENTS_END, FREEZE_CONTACTS, THAW_CONTACTS};
-use super::stage::{RO, RW, Stage, UNIFORM, shape_resources, whole};
+use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -27,6 +27,7 @@ impl Tail {
                 "events_end",
                 include_str!("../shaders/events_end.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.previous)),
                     (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
@@ -46,6 +47,7 @@ impl Tail {
                 "thaw_contacts",
                 include_str!("../shaders/thaw_contacts.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.contacts.resting)),
@@ -62,6 +64,7 @@ impl Tail {
                 "freeze_contacts",
                 include_str!("../shaders/freeze_contacts.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.manifolds)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),
@@ -81,6 +84,7 @@ impl Tail {
                 "contact_archive",
                 include_str!("../shaders/contact_archive.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.manifolds)),
                     (RW, whole(&buffers.contacts.previous)),
@@ -93,6 +97,7 @@ impl Tail {
                 "prev_count_sync",
                 include_str!("../shaders/prev_count_sync.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RW, buffers.counter(COUNTER_CONTACTS)),
                     (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
@@ -105,6 +110,7 @@ impl Tail {
                 "constraints_warm_end",
                 include_str!("../shaders/constraints_warm_end.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.constraints.descriptors)),
                     (RW, whole(&buffers.constraints.runtime)),
@@ -117,6 +123,7 @@ impl Tail {
                 "static_wake_clear",
                 include_str!("../shaders/static_wake_clear.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.islands.wake_flags)),
@@ -128,6 +135,7 @@ impl Tail {
                 "query",
                 include_str!("../shaders/queries.wgsl"),
                 per_row,
+                GEOMETRY,
                 &[
                     (RO, whole(&buffers.queries.records)),
                     (RO, whole(&buffers.bodies.states)),

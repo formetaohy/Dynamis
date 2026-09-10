@@ -146,6 +146,7 @@ impl Simulation {
             self.bodies.dynamic_count as u32,
             self.bodies.alive.len() as u32,
             self.constraints.alive.len() as u32,
+            self.bodies.last_edits,
             self.event_slot_of(step),
         );
         self.device
@@ -166,7 +167,7 @@ impl Simulation {
             constraint_count: self.constraints.alive.len() as u32,
             body_structural: self.bodies.structural,
             constraint_structural: self.constraints.structural,
-            has_body_edits: self.bodies.has_edits,
+            edit_run_count: self.bodies.last_edits,
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("dynamis query flush"),

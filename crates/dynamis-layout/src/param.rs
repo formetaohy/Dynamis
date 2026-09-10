@@ -33,7 +33,7 @@ pub struct SimParamsRecord {
     pub friction_combine: u32,
     pub restitution_combine: u32,
     pub tempering: f32,
-    pub _pad6: f32,
+    pub edit_run_count: u32,
     pub event_slot: u32,
 }
 
@@ -44,6 +44,7 @@ impl SimParamsRecord {
         dynamic_count: u32,
         body_count: u32,
         constraint_count: u32,
+        edit_run_count: u32,
         event_slot: u32,
     ) -> Self {
         Self {
@@ -70,7 +71,7 @@ impl SimParamsRecord {
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
             tempering: config.tempering,
-            _pad6: 0.0,
+            edit_run_count,
             event_slot,
         }
     }

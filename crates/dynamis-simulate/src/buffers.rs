@@ -1,7 +1,7 @@
 use crate::capacity::{Reservation, ShapeReservation};
 use dynamis_gpu::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
 use dynamis_layout::{
-    AabbRecord, BodyCommandRecord, BodyDescriptorRecord, BodyStateRecord, BvhNodeRecord,
+    AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
     ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, NO_SLOT,
     QueryHitRecord, QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
@@ -85,8 +85,8 @@ pub(crate) struct BodyBuffers {
     pub(crate) descriptors: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
-    pub(crate) commands: GpuBuffer,
-    pub(crate) command_first: GpuBuffer,
+    pub(crate) edits: GpuBuffer,
+    pub(crate) edit_runs: GpuBuffer,
     pub(crate) row_src: GpuBuffer,
     pub(crate) row_fresh: GpuBuffer,
     pub(crate) fresh_states: GpuBuffer,
@@ -249,15 +249,19 @@ impl WorldBuffers {
                     colliders,
                     size_of::<AabbRecord>() as u64,
                 ),
-                commands: rows(
+                edits: rows(
                     "body edits",
-                    plan.body_commands,
-                    size_of::<BodyCommandRecord>() as u64,
+                    plan.body_edits,
+                    size_of::<BodyEditRecord>() as u64,
                 ),
-                command_first: lanes("body edit first", bodies),
+                edit_runs: rows(
+                    "body edit runs",
+                    plan.body_edits,
+                    size_of::<BodyEditRun>() as u64,
+                ),
                 row_src: lanes("body row src", bodies),
                 row_fresh: lanes("body row fresh", bodies),
-                fresh_states: rows("fresh body rows", plan.body_commands, 128),
+                fresh_states: rows("fresh body rows", plan.body_edits, 128),
                 state_scratch: rows("body state scratch", bodies, 128),
             },
             constraints: ConstraintBuffers {

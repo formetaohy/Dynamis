@@ -3,7 +3,7 @@ use super::dispatch::{
     CONTACT_MATCH, GATHER_CONTACT_KEYS_B, ISLAND_LINK_CONTACTS, MARK_CONTACT_BOUNDARIES,
     SORT_CONSTRAINTS, SORT_CONTACTS,
 };
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -33,6 +33,7 @@ impl Islands {
                 "contact_match",
                 include_str!("../shaders/contact_match.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RW, whole(&buffers.contacts.manifolds)),
                     (RO, whole(&buffers.contacts.previous)),
@@ -50,6 +51,7 @@ impl Islands {
                 "island_init",
                 include_str!("../shaders/island_init.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.islands.parents)),
@@ -62,6 +64,7 @@ impl Islands {
                 "island_link_contacts",
                 include_str!("../shaders/island_link_contacts.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
@@ -77,6 +80,7 @@ impl Islands {
                 "island_link_constraints",
                 include_str!("../shaders/island_link_constraints.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -93,6 +97,7 @@ impl Islands {
                 "island_jump",
                 include_str!("../shaders/island_jump.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.islands.parents)),
@@ -104,6 +109,7 @@ impl Islands {
                 "gather_contact_keys_b",
                 include_str!("../shaders/gather_contact_keys_b.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.manifolds)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),
@@ -117,6 +123,7 @@ impl Islands {
                 "gather_constraint_keys",
                 include_str!("../shaders/gather_constraint_keys.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.constraints.runtime)),
@@ -133,6 +140,7 @@ impl Islands {
                 "reset_gather_boundaries",
                 include_str!("../shaders/reset_gather_boundaries.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.contacts.first_a)),
@@ -147,6 +155,7 @@ impl Islands {
                 "mark_contact_boundaries",
                 include_str!("../shaders/mark_contact_boundaries.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.a_body)),
                     (RO, whole(&buffers.contacts.b_bodies)),
@@ -161,6 +170,7 @@ impl Islands {
                 "mark_constraint_boundaries",
                 include_str!("../shaders/mark_constraint_boundaries.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.constraints.a_bodies)),

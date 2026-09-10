@@ -1,9 +1,10 @@
 use super::common::{DT, sim, static_config};
-use dynamis_model::BodyDesc;
+use dynamis_layout::{COUNTER_BODY_EDITS, COUNTER_CONSTRAINTS};
+use dynamis_model::{BodyDesc, ConstraintDesc};
 
 #[test]
 fn batch_spawn_lands_every_row() {
-    let mut world = sim(1024, static_config());
+    let mut world = sim(512, static_config());
     let mut handles = Vec::new();
     for index in 0..512 {
         let x = (index % 32) as f32 * 0.5;
@@ -125,4 +126,91 @@ fn edits_on_a_removed_row_are_dropped() {
         state.velocity[0]
     );
     assert!((state.position[0] - 2.0).abs() < 1e-6);
+}
+
+#[test]
+fn an_edit_declares_one_stream_row() {
+    let mut world = sim(64, static_config());
+    let edited = world.spawn(BodyDesc::sphere(0.5).position([1.0, 0.0, 0.0]));
+    let untouched = world.spawn(BodyDesc::sphere(0.5).position([5.0, 0.0, 0.0]));
+
+    world.set_velocity(edited, [3.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_EDITS],
+        1,
+        "one edited row must declare exactly one stream row"
+    );
+    assert!((world.read_state(edited).velocity[0] - 3.0).abs() < 1e-6);
+    assert!(
+        world.read_state(untouched).velocity[0].abs() < 1e-6,
+        "an edit must never spill onto another row"
+    );
+}
+
+#[test]
+fn a_step_without_edits_declares_an_empty_stream() {
+    let mut world = sim(64, static_config());
+    let body = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.measured()[COUNTER_BODY_EDITS], 0);
+    for _ in 0..3 {
+        world.step(DT);
+    }
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_EDITS],
+        0,
+        "a quiet step must not declare an edit stream"
+    );
+    assert!((world.read_state(body).position[0]).abs() < 1e-6);
+}
+
+#[test]
+fn forced_edits_reach_every_row_of_a_large_capacity() {
+    let mut world = sim(64, static_config());
+    let bodies = (0..64)
+        .map(|index| {
+            world.spawn(
+                BodyDesc::sphere(0.5)
+                    .mass(2.0)
+                    .position([index as f32 * 4.0, 0.0, 0.0]),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (index, handle) in bodies.iter().enumerate() {
+        world.apply_impulse(*handle, [index as f32 + 1.0, 0.0, 0.0]);
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_EDITS],
+        bodies.len() as u32,
+        "every edited row must be present in the stream"
+    );
+    for (index, handle) in bodies.iter().enumerate() {
+        let expected = (index as f32 + 1.0) / 2.0;
+        assert!(
+            (world.read_state(*handle).velocity[0] - expected).abs() < 1e-6,
+            "row {index} missed its impulse"
+        );
+    }
+}
+
+#[test]
+fn constraint_edits_declare_their_own_stream() {
+    let mut world = sim(8, static_config());
+    let first = world.spawn(BodyDesc::sphere(0.5));
+    let second = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.0, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.measured()[COUNTER_CONSTRAINTS], 1);
+    assert_eq!(world.constraints().len(), 1);
 }

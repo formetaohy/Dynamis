@@ -1,8 +1,7 @@
 use crate::constant::{
-    BODY_CCD, BODY_KINEMATIC, COMMAND_ADD, COMMAND_ANGULAR_IMPULSE, COMMAND_FORCE,
-    COMMAND_FORCE_AT_POINT, COMMAND_IMPULSE, COMMAND_IMPULSE_AT_POINT, COMMAND_PATCH,
-    COMMAND_REMOVE, COMMAND_SLEEP, COMMAND_SWAP, COMMAND_TORQUE, COMMAND_WAKE,
-    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
+    BODY_CCD, BODY_KINEMATIC, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE,
+    EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE, OVERRIDE_SLEEP_ANGULAR,
+    OVERRIDE_SLEEP_LINEAR,
 };
 use bytemuck::{Pod, Zeroable};
 use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
@@ -11,7 +10,8 @@ const _: () = {
     use std::mem::size_of;
     assert!(size_of::<BodyStateRecord>() == 128);
     assert!(size_of::<BodyDescriptorRecord>() == 96);
-    assert!(size_of::<BodyCommandRecord>() == 144);
+    assert!(size_of::<BodyEditRecord>() == 144);
+    assert!(size_of::<BodyEditRun>() == 16);
 };
 
 #[repr(C)]
@@ -151,88 +151,92 @@ impl BodyDescriptorRecord {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct BodyCommandRecord {
+pub struct BodyEditRecord {
     pub kind: u32,
-    pub slot: u32,
     pub mask: u32,
     pub _pad0: u32,
+    pub _pad1: u32,
     pub state: BodyStateRecord,
 }
 
-impl BodyCommandRecord {
-    fn command(kind: u32, slot: u32, mask: u32, state: BodyStateRecord) -> Self {
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct BodyEditRun {
+    pub row: u32,
+    pub first: u32,
+    pub len: u32,
+    pub _pad: u32,
+}
+
+impl BodyEditRun {
+    pub fn new(row: usize, first: usize, len: usize) -> Self {
+        Self {
+            row: row as u32,
+            first: first as u32,
+            len: len as u32,
+            _pad: 0,
+        }
+    }
+}
+
+impl BodyEditRecord {
+    fn edit(kind: u32, mask: u32, state: BodyStateRecord) -> Self {
         Self {
             kind,
-            slot,
             mask,
             _pad0: 0,
+            _pad1: 0,
             state,
         }
     }
 
-    pub fn add(slot: u32, state: BodyStateRecord) -> Self {
-        Self::command(COMMAND_ADD, slot, 0, state)
+    pub fn patch(mask: u32, state: BodyStateRecord) -> Self {
+        Self::edit(EDIT_PATCH, mask, state)
     }
 
-    pub fn remove(hole: u32, tail: u32) -> Self {
-        Self::command(COMMAND_REMOVE, hole, tail, BodyStateRecord::zeroed())
-    }
-
-    pub fn swap(first: u32, second: u32) -> Self {
-        Self::command(COMMAND_SWAP, first, second, BodyStateRecord::zeroed())
-    }
-
-    pub fn patch(slot: u32, mask: u32, state: BodyStateRecord) -> Self {
-        Self::command(COMMAND_PATCH, slot, mask, state)
-    }
-
-    fn payload(kind: u32, slot: u32, state: BodyStateRecord) -> Self {
-        Self::command(kind, slot, 0, state)
-    }
-
-    pub fn force(slot: u32, force: [f32; 3]) -> Self {
+    pub fn force(force: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.force = force;
-        Self::payload(COMMAND_FORCE, slot, state)
+        Self::edit(EDIT_FORCE, 0, state)
     }
 
-    pub fn force_at_point(slot: u32, force: [f32; 3], point: [f32; 3]) -> Self {
+    pub fn force_at_point(force: [f32; 3], point: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.force = force;
         state.position = point;
-        Self::payload(COMMAND_FORCE_AT_POINT, slot, state)
+        Self::edit(EDIT_FORCE_AT_POINT, 0, state)
     }
 
-    pub fn torque(slot: u32, torque: [f32; 3]) -> Self {
+    pub fn torque(torque: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.torque = torque;
-        Self::payload(COMMAND_TORQUE, slot, state)
+        Self::edit(EDIT_TORQUE, 0, state)
     }
 
-    pub fn impulse(slot: u32, impulse: [f32; 3]) -> Self {
+    pub fn impulse(impulse: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.velocity = impulse;
-        Self::payload(COMMAND_IMPULSE, slot, state)
+        Self::edit(EDIT_IMPULSE, 0, state)
     }
 
-    pub fn impulse_at_point(slot: u32, impulse: [f32; 3], point: [f32; 3]) -> Self {
+    pub fn impulse_at_point(impulse: [f32; 3], point: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.velocity = impulse;
         state.position = point;
-        Self::payload(COMMAND_IMPULSE_AT_POINT, slot, state)
+        Self::edit(EDIT_IMPULSE_AT_POINT, 0, state)
     }
 
-    pub fn angular_impulse(slot: u32, impulse: [f32; 3]) -> Self {
+    pub fn angular_impulse(impulse: [f32; 3]) -> Self {
         let mut state = BodyStateRecord::zeroed();
         state.angular_velocity = impulse;
-        Self::payload(COMMAND_ANGULAR_IMPULSE, slot, state)
+        Self::edit(EDIT_ANGULAR_IMPULSE, 0, state)
     }
 
-    pub fn sleep(slot: u32) -> Self {
-        Self::command(COMMAND_SLEEP, slot, 0, BodyStateRecord::zeroed())
+    pub fn sleep() -> Self {
+        Self::edit(EDIT_SLEEP, 0, BodyStateRecord::zeroed())
     }
 
-    pub fn wake(slot: u32) -> Self {
-        Self::command(COMMAND_WAKE, slot, 0, BodyStateRecord::zeroed())
+    pub fn wake() -> Self {
+        Self::edit(EDIT_WAKE, 0, BodyStateRecord::zeroed())
     }
 }

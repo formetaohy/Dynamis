@@ -1,6 +1,6 @@
 use super::FrameParams;
 use super::dispatch::{BROADPHASE_PAIRS, SORT_ENTRIES};
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_SPILLOVER_PAIRS};
@@ -19,6 +19,7 @@ impl Broadphase {
                 "broadphase_pairs",
                 include_str!("../shaders/broadphase_pairs.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.contacts.entries.cells)),
@@ -37,6 +38,7 @@ impl Broadphase {
                 "large_pairs",
                 include_str!("../shaders/large_pairs.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.contacts.large_bodies)),

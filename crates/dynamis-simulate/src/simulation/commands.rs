@@ -1,26 +1,107 @@
 use crate::simulation::Simulation;
-use dynamis_layout::{
-    BodyCommandRecord, BodyStateRecord, COMMAND_ADD, COMMAND_CONSTRAINT_ADD, COMMAND_REMOVE,
-    COMMAND_SWAP, ConstraintRuntimeRecord,
-};
+use dynamis_layout::{BodyEditRecord, BodyEditRun, BodyStateRecord};
+
+#[derive(Clone, Copy)]
+pub(crate) enum BodyCommand {
+    Add {
+        row: u32,
+        state: BodyStateRecord,
+    },
+    Remove {
+        hole: u32,
+        tail: u32,
+    },
+    Swap {
+        first: u32,
+        second: u32,
+    },
+    Patch {
+        row: u32,
+        mask: u32,
+        state: BodyStateRecord,
+    },
+    Force {
+        row: u32,
+        force: [f32; 3],
+    },
+    ForceAtPoint {
+        row: u32,
+        force: [f32; 3],
+        point: [f32; 3],
+    },
+    Torque {
+        row: u32,
+        torque: [f32; 3],
+    },
+    Impulse {
+        row: u32,
+        impulse: [f32; 3],
+    },
+    ImpulseAtPoint {
+        row: u32,
+        impulse: [f32; 3],
+        point: [f32; 3],
+    },
+    AngularImpulse {
+        row: u32,
+        impulse: [f32; 3],
+    },
+    Sleep {
+        row: u32,
+    },
+    Wake {
+        row: u32,
+    },
+}
+
+impl BodyCommand {
+    pub(crate) fn row(&self) -> u32 {
+        match *self {
+            Self::Add { row, .. }
+            | Self::Patch { row, .. }
+            | Self::Force { row, .. }
+            | Self::ForceAtPoint { row, .. }
+            | Self::Torque { row, .. }
+            | Self::Impulse { row, .. }
+            | Self::ImpulseAtPoint { row, .. }
+            | Self::AngularImpulse { row, .. }
+            | Self::Sleep { row }
+            | Self::Wake { row } => row,
+            Self::Remove { hole, .. } => hole,
+            Self::Swap { first, .. } => first,
+        }
+    }
+
+    fn edit(&self) -> Option<BodyEditRecord> {
+        Some(match *self {
+            Self::Patch { mask, state, .. } => BodyEditRecord::patch(mask, state),
+            Self::Force { force, .. } => BodyEditRecord::force(force),
+            Self::ForceAtPoint { force, point, .. } => BodyEditRecord::force_at_point(force, point),
+            Self::Torque { torque, .. } => BodyEditRecord::torque(torque),
+            Self::Impulse { impulse, .. } => BodyEditRecord::impulse(impulse),
+            Self::ImpulseAtPoint { impulse, point, .. } => {
+                BodyEditRecord::impulse_at_point(impulse, point)
+            }
+            Self::AngularImpulse { impulse, .. } => BodyEditRecord::angular_impulse(impulse),
+            Self::Sleep { .. } => BodyEditRecord::sleep(),
+            Self::Wake { .. } => BodyEditRecord::wake(),
+            Self::Add { .. } | Self::Remove { .. } | Self::Swap { .. } => return None,
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RowIdentity {
     Slot(u32),
-
     Fresh(u32),
-
     Empty,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowMove {
     Keep,
-
     MoveSource(u32),
-
     Fresh(u32),
-
     Clear,
 }
 
@@ -116,84 +197,83 @@ fn identity_index(identity: RowIdentity, slots: u32) -> Option<u32> {
     }
 }
 
-pub(crate) struct CompiledBodyCommands {
+pub(crate) struct CompiledBodyEdits {
     pub moves: Vec<RowMove>,
-
     pub fresh: Vec<BodyStateRecord>,
-
-    pub edits: Vec<BodyCommandRecord>,
-
-    pub edit_first: Vec<u32>,
-
+    pub edits: Vec<BodyEditRecord>,
+    pub runs: Vec<BodyEditRun>,
     pub structurally_dirty: bool,
 }
 
-pub(crate) struct CompiledConstraintCommands {
+pub(crate) struct CompiledConstraintEdits {
     pub moves: Vec<RowMove>,
-    pub fresh: Vec<ConstraintRuntimeRecord>,
+    pub fresh: Vec<dynamis_layout::ConstraintRuntimeRecord>,
 }
 
 impl Simulation {
-    pub(crate) fn compile_commands(&self) -> CompiledBodyCommands {
+    pub(crate) fn compile_body_edits(&self) -> CompiledBodyEdits {
         let mut map = RowMap::new(self.slots);
         let mut fresh: Vec<BodyStateRecord> = Vec::new();
-        let mut content_edits: Vec<Vec<BodyCommandRecord>> = Vec::new();
+        let mut journaled: Vec<Vec<BodyCommand>> = Vec::new();
         for command in &self.bodies.commands {
-            match command.kind {
-                COMMAND_ADD => {
-                    map.add(command.slot, fresh.len() as u32);
-                    fresh.push(command.state);
+            match command {
+                BodyCommand::Add { row, state } => {
+                    map.add(*row, fresh.len() as u32);
+                    fresh.push(*state);
                 }
-                COMMAND_REMOVE => map.remove(command.slot, command.mask),
-                COMMAND_SWAP => map.swap(command.slot, command.mask),
+                BodyCommand::Remove { hole, tail } => map.remove(*hole, *tail),
+                BodyCommand::Swap { first, second } => map.swap(*first, *second),
                 _ => {
-                    let identity = map.identity_of(command.slot);
-                    if let Some(id) = identity_index(identity, self.slots as u32) {
-                        if content_edits.len() <= id as usize {
-                            content_edits.resize_with(id as usize + 1, Vec::new);
-                        }
-                        content_edits[id as usize].push(*command);
+                    let Some(id) =
+                        identity_index(map.identity_of(command.row()), self.slots as u32)
+                    else {
+                        continue;
+                    };
+                    if journaled.len() <= id as usize {
+                        journaled.resize_with(id as usize + 1, Vec::new);
                     }
+                    journaled[id as usize].push(*command);
                 }
             }
         }
         let moves = map.moves(self.bodies.alive.len());
-        let mut ordered = Vec::new();
-        let mut edit_first = vec![0u32; self.bodies.alive.len()];
-        for (slot, identity) in map.contents[..self.bodies.alive.len()].iter().enumerate() {
+        let mut edits = Vec::new();
+        let mut runs = Vec::new();
+        for (row, identity) in map.contents[..self.bodies.alive.len()].iter().enumerate() {
             let Some(id) = identity_index(*identity, self.slots as u32) else {
                 continue;
             };
-            let Some(group) = content_edits.get(id as usize) else {
+            let Some(commands) = journaled.get(id as usize) else {
                 continue;
             };
-            if group.is_empty() {
-                continue;
+            let first = edits.len();
+            for command in commands {
+                if let Some(edit) = command.edit() {
+                    edits.push(edit);
+                }
             }
-            edit_first[slot] = ordered.len() as u32 + 1;
-            ordered.extend(group.iter().map(|command| BodyCommandRecord {
-                slot: slot as u32,
-                ..*command
-            }));
+            if edits.len() > first {
+                runs.push(BodyEditRun::new(row, first, edits.len() - first));
+            }
         }
         let structurally_dirty = moves.iter().any(RowMove::is_structural);
-        CompiledBodyCommands {
+        CompiledBodyEdits {
             moves,
             fresh,
-            edits: ordered,
-            edit_first,
+            edits,
+            runs,
             structurally_dirty,
         }
     }
 
-    pub(crate) fn compile_constraint_commands(&self) -> CompiledConstraintCommands {
+    pub(crate) fn compile_constraint_edits(&self) -> CompiledConstraintEdits {
         let mut map = RowMap::new(self.slots);
-        let mut fresh: Vec<ConstraintRuntimeRecord> = Vec::new();
+        let mut fresh: Vec<dynamis_layout::ConstraintRuntimeRecord> = Vec::new();
         for command in &self.constraints.commands {
             match command.kind {
-                COMMAND_CONSTRAINT_ADD => {
+                dynamis_layout::COMMAND_CONSTRAINT_ADD => {
                     map.add(command.slot, fresh.len() as u32);
-                    fresh.push(ConstraintRuntimeRecord::fresh(
+                    fresh.push(dynamis_layout::ConstraintRuntimeRecord::fresh(
                         command.constraint_id,
                         command.generation,
                     ));
@@ -201,7 +281,7 @@ impl Simulation {
                 _ => map.swap(command.slot, command.tail),
             }
         }
-        CompiledConstraintCommands {
+        CompiledConstraintEdits {
             moves: map.moves(self.constraints.alive.len()),
             fresh,
         }

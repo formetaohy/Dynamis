@@ -1,4 +1,4 @@
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_SPILLOVER_ENTRIES};
@@ -15,6 +15,7 @@ impl Grid {
                 "grid_entries",
                 include_str!("../shaders/grid_entries.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.aabbs)),

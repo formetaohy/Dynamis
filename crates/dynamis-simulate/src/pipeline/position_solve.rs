@@ -1,6 +1,6 @@
 use super::FrameParams;
 use super::dispatch::POSITION_SOLVE_EXTRACT;
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_CONTACTS;
@@ -18,6 +18,7 @@ impl PositionSolve {
                 "position_solve_extract",
                 include_str!("../shaders/position_solve_extract.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -33,6 +34,7 @@ impl PositionSolve {
                 "body_apply_positions",
                 include_str!("../shaders/body_apply_positions.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.bodies.states)),

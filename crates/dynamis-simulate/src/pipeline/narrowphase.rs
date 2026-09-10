@@ -1,5 +1,5 @@
 use super::dispatch::{CCD_SWEEP, COMPACT_SCAN, COMPACT_SCATTER, NARROWPHASE, SORT_PAIRS};
-use super::stage::{RO, RW, Stage, UNIFORM, shape_resources, whole};
+use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
@@ -21,6 +21,7 @@ impl Narrowphase {
                 "narrowphase",
                 include_str!("../shaders/narrowphase.wgsl"),
                 per_row,
+                GEOMETRY,
                 &[
                     (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
@@ -42,6 +43,7 @@ impl Narrowphase {
                 "compact_scan",
                 include_str!("../shaders/compact_scan.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.valid)),
                     (RW, whole(&buffers.contacts.compact_ranks)),
@@ -55,6 +57,7 @@ impl Narrowphase {
                 "compact_offsets",
                 include_str!("../shaders/compact_offsets.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.compact_sums)),
                     (RW, whole(&buffers.contacts.compact_offsets)),
@@ -68,6 +71,7 @@ impl Narrowphase {
                 "compact_scatter",
                 include_str!("../shaders/compact_scatter.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (RO, whole(&buffers.contacts.raw)),
                     (RO, whole(&buffers.contacts.valid)),
@@ -84,6 +88,7 @@ impl Narrowphase {
                 "ccd_sweep",
                 include_str!("../shaders/ccd_sweep.wgsl"),
                 per_row,
+                GEOMETRY,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.bodies.states)),

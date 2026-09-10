@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, sim, static_config};
+use super::common::{DT, gravity_config, settle, sim, static_config};
 use dynamis_layout::{
     COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING,
     COUNTER_SLEPT, COUNTER_WOKE,
@@ -6,13 +6,6 @@ use dynamis_layout::{
 use dynamis_model::{
     BodyDesc, BodyHandle, ColliderDesc, ContactEventKind, ContactEventMode, PhysicsConfig, Shape,
 };
-
-fn settle(world: &mut dynamis_simulate::Simulation, steps: usize) {
-    for _ in 0..steps {
-        world.step(DT);
-        world.wait();
-    }
-}
 
 fn rest_scene() -> (dynamis_simulate::Simulation, BodyHandle) {
     let mut world = sim(64, gravity_config());

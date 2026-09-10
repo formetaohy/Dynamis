@@ -16,7 +16,7 @@ use constraint::Constraints;
 use device::Device;
 use dynamis_gpu::{GpuBuffer, GpuContext};
 use dynamis_layout::{
-    COUNTER_BODIES, COUNTER_BODY_COMMANDS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
+    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
 };
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
@@ -144,7 +144,7 @@ impl Simulation {
         Live {
             bodies: self.bodies.alive.len() as u32,
             constraints: self.constraints.alive.len() as u32,
-            body_commands: self.bodies.commands.len() as u32,
+            body_edits: self.bodies.commands.len() as u32,
             constraint_commands: self.constraints.commands.len() as u32,
             queries: self.queries.pending.len() as u32,
         }
@@ -213,7 +213,7 @@ impl Simulation {
         let declared = [
             (COUNTER_BODIES, self.bodies.alive.len() as u32),
             (COUNTER_CONSTRAINTS, self.constraints.alive.len() as u32),
-            (COUNTER_BODY_COMMANDS, self.bodies.last_commands),
+            (COUNTER_BODY_EDITS, self.bodies.last_edits),
             (COUNTER_CONSTRAINT_COMMANDS, self.constraints.last_commands),
         ];
         for (slot, value) in declared {

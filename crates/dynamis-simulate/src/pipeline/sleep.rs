@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE};
@@ -17,6 +17,7 @@ impl Sleep {
                 "island_aggregate",
                 include_str!("../shaders/island_aggregate.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RO, whole(&buffers.bodies.states)),
@@ -32,6 +33,7 @@ impl Sleep {
                 "island_broadcast",
                 include_str!("../shaders/island_broadcast.wgsl"),
                 per_row,
+                CORE,
                 &[
                     (UNIFORM, whole(&buffers.params)),
                     (RW, whole(&buffers.bodies.states)),

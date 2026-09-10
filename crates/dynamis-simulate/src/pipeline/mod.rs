@@ -78,11 +78,10 @@ pub(crate) struct FrameParams {
     pub(crate) island_rounds: u32,
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
+    pub(crate) edit_run_count: u32,
 
     pub(crate) body_structural: bool,
     pub(crate) constraint_structural: bool,
-
-    pub(crate) has_body_edits: bool,
 }
 
 pub(crate) struct Pipeline {
@@ -220,6 +219,8 @@ impl Pipeline {
     ) {
         let mut commands = ComputeRecorder::begin(encoder, "query commands", self.per_row);
         self.commands.record_moves(&mut commands, frame);
+        self.commands
+            .record_edits(&mut commands, frame.edit_run_count);
         self.commands.reset(&mut commands);
         self.integrate
             .record_broadphase(&mut commands, frame.dynamic_count);
