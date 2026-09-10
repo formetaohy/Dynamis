@@ -1,5 +1,7 @@
 use super::common::{DT, sim, static_config};
-use dynamis_layout::{COUNTER_BODY_EDITS, COUNTER_CONSTRAINTS};
+use dynamis_layout::{
+    COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
+};
 use dynamis_model::{BodyDesc, ConstraintDesc};
 
 #[test]
@@ -213,4 +215,82 @@ fn constraint_edits_declare_their_own_stream() {
     world.wait();
     assert_eq!(world.measured()[COUNTER_CONSTRAINTS], 1);
     assert_eq!(world.constraints().len(), 1);
+}
+
+#[test]
+fn a_row_move_stream_declares_only_touched_rows() {
+    let mut world = sim(65_536, static_config());
+    let _ground = world.spawn(BodyDesc::static_sphere(0.5));
+    let first = world.spawn(BodyDesc::sphere(0.25).position([1.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.25).position([2.0, 0.0, 0.0]));
+    world.set_velocity(second, [3.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_MOVES],
+        3,
+        "spawning into the dynamic partition must declare only the shuffled rows"
+    );
+    assert_eq!(world.measured()[COUNTER_BODY_EDITS], 1);
+    assert!((world.read_state(second).velocity[0] - 3.0).abs() < 1e-6);
+
+    world.remove(first);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_MOVES],
+        2,
+        "removing a row must declare the surviving tail rows only"
+    );
+    assert!((world.read_state(second).velocity[0] - 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_row_move_stream_never_scales_with_capacity() {
+    let mut small = sim(64, static_config());
+    let mut large = sim(65_536, static_config());
+    for world in [&mut small, &mut large] {
+        world.spawn(BodyDesc::static_sphere(0.5));
+        let ball = world.spawn(BodyDesc::sphere(0.25).position([1.0, 0.0, 0.0]));
+        world.spawn(BodyDesc::sphere(0.25).position([2.0, 0.0, 0.0]));
+        let anchor = world.spawn(BodyDesc::static_sphere(0.25).position([0.0, 3.0, 0.0]));
+        let joint = world.add_constraint(
+            anchor,
+            ball,
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+        );
+        world.remove_constraint(joint);
+        world.remove(ball);
+        world.set_velocity(world.bodies()[0], [1.0, 0.0, 0.0]);
+        world.step(DT);
+        world.wait();
+    }
+    assert_eq!(
+        small.measured()[COUNTER_BODY_MOVES],
+        large.measured()[COUNTER_BODY_MOVES],
+        "reserved capacity must not widen the row move stream"
+    );
+    assert_eq!(
+        small.measured()[COUNTER_CONSTRAINT_MOVES],
+        large.measured()[COUNTER_CONSTRAINT_MOVES],
+        "reserved capacity must not widen the constraint move stream"
+    );
+}
+
+#[test]
+fn a_quiet_step_declares_no_row_moves() {
+    let mut world = sim(64, static_config());
+    world.spawn(BodyDesc::sphere(0.25));
+    world.step(DT);
+    world.wait();
+    assert!(world.measured()[COUNTER_BODY_MOVES] > 0);
+    for _ in 0..3 {
+        world.step(DT);
+    }
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_MOVES],
+        0,
+        "a step without structural commands must not declare row moves"
+    );
 }

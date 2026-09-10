@@ -6,6 +6,7 @@ mod device;
 mod event;
 mod query;
 mod readback;
+mod rows;
 mod shape;
 mod step;
 
@@ -16,7 +17,8 @@ use constraint::Constraints;
 use device::Device;
 use dynamis_gpu::{GpuBuffer, GpuContext};
 use dynamis_layout::{
-    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINTS,
+    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_COMMANDS,
+    COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
 };
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
@@ -144,7 +146,7 @@ impl Simulation {
         Live {
             bodies: self.bodies.alive.len() as u32,
             constraints: self.constraints.alive.len() as u32,
-            body_edits: self.bodies.commands.len() as u32,
+            body_commands: self.bodies.commands.len() as u32,
             constraint_commands: self.constraints.commands.len() as u32,
             queries: self.queries.pending.len() as u32,
         }
@@ -214,7 +216,9 @@ impl Simulation {
             (COUNTER_BODIES, self.bodies.alive.len() as u32),
             (COUNTER_CONSTRAINTS, self.constraints.alive.len() as u32),
             (COUNTER_BODY_EDITS, self.bodies.last_edits),
+            (COUNTER_BODY_MOVES, self.bodies.last_moves),
             (COUNTER_CONSTRAINT_COMMANDS, self.constraints.last_commands),
+            (COUNTER_CONSTRAINT_MOVES, self.constraints.last_moves),
         ];
         for (slot, value) in declared {
             self.device.buffers.counters.write_at(

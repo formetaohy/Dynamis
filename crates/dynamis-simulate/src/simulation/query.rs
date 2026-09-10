@@ -130,6 +130,7 @@ impl Simulation {
         }
         self.device.gpu.assert_alive();
         self.collect_readbacks();
+        self.apply_plan();
         self.flush_rows();
         self.apply_pending_commands();
         let step = self.clock.step;
@@ -146,7 +147,11 @@ impl Simulation {
             self.bodies.dynamic_count as u32,
             self.bodies.alive.len() as u32,
             self.constraints.alive.len() as u32,
-            self.bodies.last_edits,
+            dynamis_layout::RowStreams {
+                edit_runs: self.bodies.last_edits,
+                body_moves: self.bodies.last_moves,
+                constraint_moves: self.constraints.last_moves,
+            },
             self.event_slot_of(step),
         );
         self.device
@@ -165,8 +170,8 @@ impl Simulation {
             island_rounds: self.island_rounds(),
             query_count: count as u32,
             constraint_count: self.constraints.alive.len() as u32,
-            body_structural: self.bodies.structural,
-            constraint_structural: self.constraints.structural,
+            body_move_count: self.bodies.last_moves,
+            constraint_move_count: self.constraints.last_moves,
             edit_run_count: self.bodies.last_edits,
         };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

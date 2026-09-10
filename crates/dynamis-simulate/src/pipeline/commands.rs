@@ -6,11 +6,11 @@ use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEP
 
 pub(super) struct Commands {
     reset_counters: Stage,
-    body_gather: Stage,
-    body_scatter: Stage,
+    body_move_gather: Stage,
+    body_move_scatter: Stage,
     body_edits: Stage,
-    constraint_gather: Stage,
-    constraint_scatter: Stage,
+    constraint_move_gather: Stage,
+    constraint_move_scatter: Stage,
     joint_filter: Stage,
     activity: Stage,
 }
@@ -27,31 +27,31 @@ impl Commands {
                 &[(RW, whole(&buffers.counters))],
                 &[],
             ),
-            body_gather: Stage::build(
+            body_move_gather: Stage::build(
                 context,
-                "body_gather",
-                include_str!("../shaders/body_gather.wgsl"),
+                "body_move_gather",
+                include_str!("../shaders/body_move_gather.wgsl"),
                 per_row,
                 CORE,
                 &[
                     (RO, whole(&buffers.bodies.states)),
                     (RW, whole(&buffers.bodies.state_scratch)),
-                    (RO, whole(&buffers.bodies.row_src)),
-                    (RO, whole(&buffers.bodies.row_fresh)),
-                    (RO, whole(&buffers.bodies.fresh_states)),
+                    (RO, whole(&buffers.bodies.row_moves)),
+                    (RO, whole(&buffers.bodies.fresh_rows)),
                     (UNIFORM, whole(&buffers.params)),
                 ],
                 &[],
             ),
-            body_scatter: Stage::build(
+            body_move_scatter: Stage::build(
                 context,
-                "body_scatter",
-                include_str!("../shaders/body_scatter.wgsl"),
+                "body_move_scatter",
+                include_str!("../shaders/body_move_scatter.wgsl"),
                 per_row,
                 CORE,
                 &[
                     (RW, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.state_scratch)),
+                    (RO, whole(&buffers.bodies.row_moves)),
                     (UNIFORM, whole(&buffers.params)),
                 ],
                 &[],
@@ -74,31 +74,31 @@ impl Commands {
                 ],
                 &[],
             ),
-            constraint_gather: Stage::build(
+            constraint_move_gather: Stage::build(
                 context,
-                "constraint_gather",
-                include_str!("../shaders/constraint_gather.wgsl"),
+                "constraint_move_gather",
+                include_str!("../shaders/constraint_move_gather.wgsl"),
                 per_row,
                 CORE,
                 &[
                     (RO, whole(&buffers.constraints.runtime)),
                     (RW, whole(&buffers.constraints.scratch)),
-                    (RO, whole(&buffers.constraints.row_src)),
-                    (RO, whole(&buffers.constraints.row_fresh)),
-                    (RO, whole(&buffers.constraints.fresh)),
+                    (RO, whole(&buffers.constraints.row_moves)),
+                    (RO, whole(&buffers.constraints.fresh_rows)),
                     (UNIFORM, whole(&buffers.params)),
                 ],
                 &[],
             ),
-            constraint_scatter: Stage::build(
+            constraint_move_scatter: Stage::build(
                 context,
-                "constraint_scatter",
-                include_str!("../shaders/constraint_scatter.wgsl"),
+                "constraint_move_scatter",
+                include_str!("../shaders/constraint_move_scatter.wgsl"),
                 per_row,
                 CORE,
                 &[
                     (RW, whole(&buffers.constraints.runtime)),
                     (RO, whole(&buffers.constraints.scratch)),
+                    (RO, whole(&buffers.constraints.row_moves)),
                     (UNIFORM, whole(&buffers.params)),
                 ],
                 &[],
@@ -142,15 +142,17 @@ impl Commands {
     }
 
     pub(super) fn record_moves(&self, recorder: &mut ComputeRecorder, params: &FrameParams) {
-        if params.body_structural {
-            self.body_gather.record(recorder, params.body_count);
-            self.body_scatter.record(recorder, params.body_count);
+        if params.body_move_count > 0 {
+            self.body_move_gather
+                .record(recorder, params.body_move_count);
+            self.body_move_scatter
+                .record(recorder, params.body_move_count);
         }
-        if params.constraint_structural {
-            self.constraint_gather
-                .record(recorder, params.constraint_count);
-            self.constraint_scatter
-                .record(recorder, params.constraint_count);
+        if params.constraint_move_count > 0 {
+            self.constraint_move_gather
+                .record(recorder, params.constraint_move_count);
+            self.constraint_move_scatter
+                .record(recorder, params.constraint_move_count);
         }
     }
 

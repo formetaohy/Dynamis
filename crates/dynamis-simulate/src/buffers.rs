@@ -4,7 +4,8 @@ use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
     ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, NO_SLOT,
-    QueryHitRecord, QueryRecord, QueryResultHeader, ShapeSourceRecord, SimParamsRecord,
+    QueryHitRecord, QueryRecord, QueryResultHeader, RowMoveRecord, ShapeSourceRecord,
+    SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use std::mem::size_of;
@@ -87,9 +88,8 @@ pub(crate) struct BodyBuffers {
     pub(crate) aabbs: GpuBuffer,
     pub(crate) edits: GpuBuffer,
     pub(crate) edit_runs: GpuBuffer,
-    pub(crate) row_src: GpuBuffer,
-    pub(crate) row_fresh: GpuBuffer,
-    pub(crate) fresh_states: GpuBuffer,
+    pub(crate) row_moves: GpuBuffer,
+    pub(crate) fresh_rows: GpuBuffer,
     pub(crate) state_scratch: GpuBuffer,
 }
 
@@ -105,9 +105,8 @@ pub(crate) struct ConstraintBuffers {
     pub(crate) deltas: GpuBuffer,
     pub(crate) joint_major: GpuBuffer,
     pub(crate) joint_minor: GpuBuffer,
-    pub(crate) row_src: GpuBuffer,
-    pub(crate) row_fresh: GpuBuffer,
-    pub(crate) fresh: GpuBuffer,
+    pub(crate) row_moves: GpuBuffer,
+    pub(crate) fresh_rows: GpuBuffer,
     pub(crate) scratch: GpuBuffer,
 }
 
@@ -251,17 +250,20 @@ impl WorldBuffers {
                 ),
                 edits: rows(
                     "body edits",
-                    plan.body_edits,
+                    plan.body_commands,
                     size_of::<BodyEditRecord>() as u64,
                 ),
                 edit_runs: rows(
                     "body edit runs",
-                    plan.body_edits,
+                    plan.body_commands,
                     size_of::<BodyEditRun>() as u64,
                 ),
-                row_src: lanes("body row src", bodies),
-                row_fresh: lanes("body row fresh", bodies),
-                fresh_states: rows("fresh body rows", plan.body_edits, 128),
+                row_moves: rows(
+                    "body row moves",
+                    plan.body_moves(),
+                    size_of::<RowMoveRecord>() as u64,
+                ),
+                fresh_rows: rows("fresh body rows", plan.body_commands, 128),
                 state_scratch: rows("body state scratch", bodies, 128),
             },
             constraints: ConstraintBuffers {
@@ -284,9 +286,12 @@ impl WorldBuffers {
                 deltas: rows("constraint solver deltas", constraints, DELTA_BYTES),
                 joint_major: lanes("joint filter major", constraints),
                 joint_minor: lanes("joint filter minor", constraints),
-                row_src: lanes("constraint row src", constraints),
-                row_fresh: lanes("constraint row fresh", constraints),
-                fresh: rows(
+                row_moves: rows(
+                    "constraint row moves",
+                    plan.constraint_moves(),
+                    size_of::<RowMoveRecord>() as u64,
+                ),
+                fresh_rows: rows(
                     "fresh constraint rows",
                     plan.constraint_commands,
                     size_of::<ConstraintRuntimeRecord>() as u64,

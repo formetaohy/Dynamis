@@ -13,7 +13,7 @@ pub(crate) struct Constraints {
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
     pub(crate) commands: Vec<ConstraintCommandRecord>,
     pub(crate) dirty: Vec<u32>,
-    pub(crate) structural: bool,
+    pub(crate) last_moves: u32,
     pub(crate) last_commands: u32,
     pub(crate) broken: Vec<ConstraintHandle>,
 }
@@ -28,7 +28,7 @@ impl Constraints {
             records: Vec::new(),
             commands: Vec::new(),
             dirty: Vec::new(),
-            structural: false,
+            last_moves: 0,
             last_commands: 0,
             broken: Vec::new(),
         }

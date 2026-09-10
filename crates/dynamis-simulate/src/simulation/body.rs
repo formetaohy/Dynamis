@@ -29,7 +29,7 @@ pub(crate) struct Bodies {
     pub(crate) device_count: u32,
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) dirty: Vec<u32>,
-    pub(crate) structural: bool,
+    pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
 }
 
@@ -52,7 +52,7 @@ impl Bodies {
             device_count: 0,
             commands: Vec::new(),
             dirty: Vec::new(),
-            structural: false,
+            last_moves: 0,
             last_edits: 0,
         }
     }

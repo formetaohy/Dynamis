@@ -8,9 +8,9 @@ use dynamis_layout::{
     EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP,
     EDIT_TORQUE, EDIT_WAKE, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
     FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
-    SHAPE_SPHERE, SimParamsRecord,
+    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
+    RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SimParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
@@ -232,7 +232,19 @@ fn sim_params_record_maps_config() {
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
-    let record = SimParamsRecord::new(&config, 1.0 / 60.0, 9, 11, 2, 5, 3);
+    let record = SimParamsRecord::new(
+        &config,
+        1.0 / 60.0,
+        9,
+        11,
+        2,
+        RowStreams {
+            edit_runs: 5,
+            body_moves: 4,
+            constraint_moves: 1,
+        },
+        3,
+    );
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
     assert_eq!(record.damping, 0.5);
@@ -240,6 +252,8 @@ fn sim_params_record_maps_config() {
     assert_eq!(record.dynamic_count, 9);
     assert_eq!(record.tempering, 0.5);
     assert_eq!(record.edit_run_count, 5);
+    assert_eq!(record.body_move_count, 4);
+    assert_eq!(record.constraint_move_count, 1);
     assert_eq!(record.event_slot, 3);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
@@ -373,6 +387,19 @@ fn body_edits_encode_their_payloads() {
 
     assert_eq!(BodyEditRecord::sleep().kind, EDIT_SLEEP);
     assert_eq!(BodyEditRecord::wake().kind, EDIT_WAKE);
+}
+
+#[test]
+fn row_moves_encode_their_source() {
+    let moved = RowMoveRecord::source(7, 3);
+    assert_eq!((moved.row, moved.source, moved.fresh), (7, 3, u32::MAX));
+    let fresh = RowMoveRecord::fresh(7, 2);
+    assert_eq!((fresh.row, fresh.source, fresh.fresh), (7, u32::MAX, 2));
+    let cleared = RowMoveRecord::clear(7);
+    assert_eq!(
+        (cleared.row, cleared.source, cleared.fresh),
+        (7, u32::MAX, u32::MAX)
+    );
 }
 
 #[test]

@@ -23,7 +23,11 @@ struct SimParams {
     restitution_combine: u32,
     tempering: f32,
     edit_run_count: u32,
+    body_move_count: u32,
+    constraint_move_count: u32,
     event_slot: u32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
 struct BodyState {
@@ -68,6 +72,13 @@ struct BodyDescriptor {
 struct Body {
     state: BodyState,
     desc: BodyDescriptor,
+}
+
+struct RowMove {
+    row: u32,
+    source: u32,
+    fresh: u32,
+    _pad: u32,
 }
 
 struct Collider {

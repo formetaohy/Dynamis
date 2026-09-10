@@ -79,9 +79,8 @@ pub(crate) struct FrameParams {
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
     pub(crate) edit_run_count: u32,
-
-    pub(crate) body_structural: bool,
-    pub(crate) constraint_structural: bool,
+    pub(crate) body_move_count: u32,
+    pub(crate) constraint_move_count: u32,
 }
 
 pub(crate) struct Pipeline {

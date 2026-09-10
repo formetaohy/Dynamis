@@ -4,7 +4,7 @@ use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<SimParamsRecord>() == 112);
+    assert!(size_of::<SimParamsRecord>() == 128);
 };
 
 #[repr(C)]
@@ -34,7 +34,10 @@ pub struct SimParamsRecord {
     pub restitution_combine: u32,
     pub tempering: f32,
     pub edit_run_count: u32,
+    pub body_move_count: u32,
+    pub constraint_move_count: u32,
     pub event_slot: u32,
+    pub _pad: [u32; 2],
 }
 
 impl SimParamsRecord {
@@ -44,7 +47,7 @@ impl SimParamsRecord {
         dynamic_count: u32,
         body_count: u32,
         constraint_count: u32,
-        edit_run_count: u32,
+        streams: RowStreams,
         event_slot: u32,
     ) -> Self {
         Self {
@@ -71,10 +74,20 @@ impl SimParamsRecord {
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
             tempering: config.tempering,
-            edit_run_count,
+            edit_run_count: streams.edit_runs,
+            body_move_count: streams.body_moves,
+            constraint_move_count: streams.constraint_moves,
             event_slot,
+            _pad: [0; 2],
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RowStreams {
+    pub edit_runs: u32,
+    pub body_moves: u32,
+    pub constraint_moves: u32,
 }
 
 fn combine_code(combine: MaterialCombine) -> u32 {

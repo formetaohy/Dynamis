@@ -36,7 +36,11 @@ pub const COUNTER_WOKE: usize = 17;
 
 pub const COUNTER_ACTIVE: usize = 18;
 
-pub const COUNTER_COUNT: usize = 19;
+pub const COUNTER_BODY_MOVES: usize = 19;
+
+pub const COUNTER_CONSTRAINT_MOVES: usize = 20;
+
+pub const COUNTER_COUNT: usize = 21;
 
 pub const COUNTER_STRIDE: u64 = 256;
 
