@@ -21,7 +21,7 @@ fn a_stepped_world_reports_one_duration_per_pass() {
         !timings.is_empty(),
         "a drained step must leave per-pass timings behind"
     );
-    for label in ["integrate", "broadphase", "narrowphase", "tail"] {
+    for label in ["integrate", "broadphase", "narrowphase", "commit"] {
         assert!(
             timings.iter().any(|timing| timing.label == label),
             "pass {label} must be attributed"

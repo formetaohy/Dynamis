@@ -8,6 +8,7 @@ use dynamis_layout::{
     SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
+use dynamis_sort::{SortChannels, key_words};
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device};
 
@@ -123,7 +124,8 @@ pub(crate) struct ContactBuffers {
     pub(crate) compact_sums: GpuBuffer,
     pub(crate) compact_offsets: GpuBuffer,
     pub(crate) manifolds: GpuBuffer,
-    pub(crate) previous: GpuBuffer,
+    pub(crate) contact_matched: GpuBuffer,
+    pub(crate) archive: GpuBuffer,
     pub(crate) resting: GpuBuffer,
     pub(crate) resting_live: GpuBuffer,
     pub(crate) resting_next: GpuBuffer,
@@ -321,8 +323,9 @@ impl WorldBuffers {
                 compact_sums: lanes("compact block sums", plan.pairs.div_ceil(COMPACT_BLOCK)),
                 compact_offsets: lanes("compact block offsets", plan.pairs.div_ceil(COMPACT_BLOCK)),
                 manifolds: rows("contacts", plan.pairs, size_of::<ContactRecord>() as u64),
-                previous: rows(
-                    "previous contacts",
+                contact_matched: lanes("contact matched", plan.pairs),
+                archive: rows(
+                    "contact archive",
                     plan.pairs,
                     size_of::<ContactRecord>() as u64,
                 ),
@@ -403,5 +406,65 @@ impl WorldBuffers {
 
     pub(crate) fn collider_rows(&self) -> u32 {
         (self.bodies.colliders.size() / size_of::<ColliderRecord>() as u64) as u32
+    }
+
+    pub(crate) fn body_words(&self) -> u32 {
+        key_words(self.body_rows().max(1))
+    }
+
+    pub(crate) fn collider_words(&self) -> u32 {
+        key_words(self.collider_rows().max(1))
+    }
+
+    pub(crate) fn sort_lanes<'a>(
+        &'a self,
+        count: GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        payload: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor: payload,
+            payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.payload,
+            scratch_payload: &self.sort.scratch.payload,
+        }
+    }
+
+    pub(crate) fn sort_keyed<'a>(
+        &'a self,
+        count: GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        minor: &'a GpuBuffer,
+        payload: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor,
+            payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.minor,
+            scratch_payload: &self.sort.scratch.payload,
+        }
+    }
+
+    pub(crate) fn sort_lanes_dual<'a>(
+        &'a self,
+        count: GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        minor: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor,
+            payload: &self.sort.dummy.payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.minor,
+            scratch_payload: &self.sort.scratch.payload,
+        }
     }
 }

@@ -118,3 +118,54 @@ fn sensor_and_solid_events_carry_distinct_flags() {
     assert!(seen_sensor, "sensor contact must be reported");
     assert!(seen_solid, "solid contact must be reported");
 }
+
+#[test]
+fn live_contacts_survive_row_moves() {
+    let mut world = sim(8, super::common::gravity_config());
+    let ground = world.spawn(BodyDesc::static_sphere(10.0).position([0.0, -2.0, 0.0]));
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
+    let touches = |event: &dynamis_model::ContactEvent| {
+        [event.first, event.second].contains(&ball) && [event.first, event.second].contains(&ground)
+    };
+    let mut landed = false;
+    for _ in 0..90 {
+        world.step(DT);
+        world.wait();
+        for event in world.drain_events() {
+            landed |= event.kind == ContactEventKind::Begin && touches(&event);
+        }
+        if landed {
+            break;
+        }
+    }
+    assert!(landed, "the falling ball must land on the ground");
+
+    let mut restarts = 0;
+    let mut tally = |world: &mut dynamis_simulate::Simulation| {
+        for event in world.drain_events() {
+            if event.kind != ContactEventKind::Persist && touches(&event) {
+                restarts += 1;
+            }
+        }
+    };
+
+    let stranger = world.spawn(BodyDesc::sphere(0.5).position([40.0, 40.0, 40.0]));
+    world.spawn(BodyDesc::sphere(0.5).position([-40.0, 40.0, 40.0]));
+    for _ in 0..6 {
+        world.step(DT);
+        world.wait();
+        tally(&mut world);
+    }
+
+    world.remove(stranger);
+    for _ in 0..6 {
+        world.step(DT);
+        world.wait();
+        tally(&mut world);
+    }
+
+    assert_eq!(
+        restarts, 0,
+        "moving body rows must neither restart nor end a live contact"
+    );
+}

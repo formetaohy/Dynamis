@@ -1,59 +1,40 @@
 use super::FrameParams;
 use super::dispatch::{
-    CONTACT_ARCHIVE, EVENTS_END, FREEZE_CONTACTS, RESTING_GATHER, SORT_RESTING, THAW_CONTACTS,
+    CONTACT_ARCHIVE, FREEZE_CONTACTS, RESTING_GATHER, SORT_RESTING, THAW_CONTACTS,
 };
-use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
+use super::stage::{
+    CONTACT, CORE, GEOMETRY, IDENTITY, RO, RW, Stage, UNIFORM, shape_resources, whole,
+};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_LARGE, COUNTER_PREV_CONTACTS,
+    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_LARGE,
     COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
     COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_sort::RadixSort;
 
-pub(super) struct Tail {
-    events_end: Stage,
+pub(super) struct Commit {
     thaw_contacts: Stage,
     freeze_contacts: Stage,
     resting_gather: Stage,
     resting_commit: Stage,
     contact_archive: Stage,
-    prev_count_sync: Stage,
+    archive_count_sync: Stage,
     constraints_warm_end: Stage,
     static_wake_clear: Stage,
     query: Stage,
 }
 
-impl Tail {
+impl Commit {
     pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
         Self {
-            events_end: Stage::build(
-                context,
-                "events_end",
-                include_str!("../shaders/events_end.wgsl"),
-                per_row,
-                CORE,
-                &[
-                    (RO, whole(&buffers.contacts.previous)),
-                    (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
-                    (RO, whole(&buffers.contacts.manifolds)),
-                    (RW, buffers.counter(COUNTER_CONTACTS)),
-                    (RW, whole(&buffers.events)),
-                    (RW, buffers.counter(COUNTER_EVENTS)),
-                    (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
-                ],
-                &[],
-            ),
             thaw_contacts: Stage::build(
                 context,
                 "thaw_contacts",
                 include_str!("../shaders/thaw_contacts.wgsl"),
                 per_row,
-                CORE,
+                CONTACT,
                 &[
                     (RO, whole(&buffers.contacts.resting)),
                     (RW, whole(&buffers.contacts.resting_live)),
@@ -65,8 +46,6 @@ impl Tail {
                     (RO, whole(&buffers.bodies.activity)),
                     (RO, whole(&buffers.contacts.manifolds)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),
-                    (RO, whole(&buffers.contacts.previous)),
-                    (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
                     (RW, whole(&buffers.events)),
                     (RW, buffers.counter(COUNTER_EVENTS)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
@@ -79,7 +58,7 @@ impl Tail {
                 "resting_gather",
                 include_str!("../shaders/resting_gather.wgsl"),
                 per_row,
-                CORE,
+                IDENTITY,
                 &[
                     (RO, whole(&buffers.contacts.resting)),
                     (RW, buffers.counter(COUNTER_RESTING)),
@@ -134,20 +113,20 @@ impl Tail {
                 CORE,
                 &[
                     (RO, whole(&buffers.contacts.manifolds)),
-                    (RW, whole(&buffers.contacts.previous)),
+                    (RW, whole(&buffers.contacts.archive)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),
                 ],
                 &[],
             ),
-            prev_count_sync: Stage::build(
+            archive_count_sync: Stage::build(
                 context,
-                "prev_count_sync",
-                include_str!("../shaders/prev_count_sync.wgsl"),
+                "archive_count_sync",
+                include_str!("../shaders/archive_count_sync.wgsl"),
                 per_row,
                 CORE,
                 &[
                     (RW, buffers.counter(COUNTER_CONTACTS)),
-                    (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
+                    (RW, buffers.counter(COUNTER_ARCHIVED)),
                     (RO, whole(&buffers.contacts.manifolds)),
                 ],
                 &[],
@@ -212,13 +191,11 @@ impl Tail {
         buffers: &WorldBuffers,
         params: &FrameParams,
     ) {
-        self.events_end
-            .record_indirect(recorder, &buffers.dispatch, EVENTS_END);
         self.thaw_contacts
             .record_indirect(recorder, &buffers.dispatch, THAW_CONTACTS);
         self.contact_archive
             .record_indirect(recorder, &buffers.dispatch, CONTACT_ARCHIVE);
-        self.prev_count_sync.record_workgroups(recorder, 1);
+        self.archive_count_sync.record_workgroups(recorder, 1);
         self.constraints_warm_end
             .record(recorder, params.constraint_count);
         self.static_wake_clear.record(recorder, params.body_count);

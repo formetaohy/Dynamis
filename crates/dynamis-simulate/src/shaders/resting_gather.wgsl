@@ -20,7 +20,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (slot >= arrayLength(&index_slots)) {
         return;
     }
-    index_major[slot] = contact.first_body_id;
-    index_minor[slot] = contact.second_body_id;
+    let key = contact_pair_key(contact);
+    index_major[slot] = key.x;
+    index_minor[slot] = key.y;
     index_slots[slot] = index;
 }

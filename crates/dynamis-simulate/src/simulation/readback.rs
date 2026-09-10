@@ -1,9 +1,8 @@
 use super::Simulation;
-use crate::buffers::EVENT_SLOTS;
 use dynamis_layout::COUNTER_RESTING;
 use dynamis_layout::{
-    BodyStateRecord, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_EVENTS,
-    COUNTER_STRIDE, ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, Counters,
+    BodyStateRecord, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE,
+    ConstraintRuntimeRecord, ContactRecord, Counters,
 };
 use dynamis_model::{BodyHandle, BodyState, ConstraintHandle};
 use std::collections::HashSet;
@@ -263,52 +262,6 @@ impl Simulation {
         let device = self.device.gpu.device();
         for (batch, bytes) in self.device.buffers.readback.queries.drain(device) {
             self.queries.pool.collect(batch, &bytes);
-        }
-    }
-
-    fn note_events_due(&mut self, step: u64) {
-        let count = self.device.measured[COUNTER_EVENTS];
-        if count > 0 {
-            self.events.due.push_back((step, count));
-        }
-    }
-
-    pub(crate) fn copy_events(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        device: &wgpu::Device,
-    ) {
-        while let Some((step, count)) = self.events.due.pop_front() {
-            let segment = self.device.buffers.events.size() / EVENT_SLOTS as u64;
-            let offset = (step % EVENT_SLOTS as u64) * segment;
-            let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
-            let displaced = self.device.buffers.readback.events.enqueue(
-                device,
-                encoder,
-                self.device.buffers.events.buffer(),
-                offset,
-                bytes,
-                step,
-            );
-            if let Some((_, bytes)) = displaced {
-                self.consume_events(&bytes);
-            }
-        }
-    }
-
-    pub(crate) fn sync_events(&mut self) {
-        if self.events.due.is_empty() {
-            return;
-        }
-        let device = self.device.gpu.device().clone();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis event readback"),
-        });
-        self.copy_events(&mut encoder, &device);
-        self.device.gpu.queue().submit([encoder.finish()]);
-        self.device.buffers.readback.events.arm();
-        for (_, bytes) in self.device.buffers.readback.events.drain(&device) {
-            self.consume_events(&bytes);
         }
     }
 

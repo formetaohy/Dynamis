@@ -1,7 +1,7 @@
 use crate::{BindingKind, BindingSpec, ComputePipeline};
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::{
     Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType, Features,
     Instance, InstanceDescriptor, Limits, PowerPreference, Queue,
@@ -245,9 +245,7 @@ impl GpuContext {
     }
 
     pub async fn available_adapters(backends: Backends) -> Vec<AdapterInfo> {
-        let instance = create_instance(backends);
-        instance
-            .enumerate_adapters(backends)
+        adapters_for(backends)
             .await
             .iter()
             .map(|adapter| adapter.get_info())
@@ -348,9 +346,39 @@ fn create_instance(backends: Backends) -> Instance {
     })
 }
 
+type AdapterEntry = (Backends, Instance, Vec<Adapter>);
+
+static ADAPTER_CACHE: OnceLock<Mutex<Vec<AdapterEntry>>> = OnceLock::new();
+
+fn adapter_cache() -> &'static Mutex<Vec<AdapterEntry>> {
+    ADAPTER_CACHE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+async fn adapters_for(backends: Backends) -> Vec<Adapter> {
+    if let Some(adapters) = cached_adapters(backends) {
+        return adapters;
+    }
+    let instance = create_instance(backends);
+    let adapters = instance.enumerate_adapters(backends).await;
+    let mut cache = adapter_cache().lock().unwrap();
+    if let Some((_, _, existing)) = cache.iter().find(|(cached, _, _)| *cached == backends) {
+        return existing.clone();
+    }
+    cache.push((backends, instance, adapters.clone()));
+    adapters
+}
+
+fn cached_adapters(backends: Backends) -> Option<Vec<Adapter>> {
+    adapter_cache()
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(cached, _, _)| *cached == backends)
+        .map(|(_, _, adapters)| adapters.clone())
+}
+
 async fn select_adapter(request: &GpuRequest) -> Result<Adapter, GpuUnavailable> {
-    let instance = create_instance(request.backends);
-    let adapters = instance.enumerate_adapters(request.backends).await;
+    let adapters = adapters_for(request.backends).await;
     if adapters.is_empty() {
         return Err(GpuUnavailable::NoAdapter {
             backends: request.backends,

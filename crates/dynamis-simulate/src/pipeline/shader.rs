@@ -24,6 +24,8 @@ use dynamis_model::MAX_COLLIDERS_PER_BODY;
 pub(super) const WORKGROUP_SIZE: u32 = 64;
 
 pub(super) const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
+pub(super) const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
+pub(super) const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
 pub(super) const CONVEX_FRAGMENT: &str = include_str!("../shaders/convex.wgsl");
 pub(super) const SCENE_FRAGMENT: &str = include_str!("../shaders/scene.wgsl");
 pub(super) const SHAPES_FRAGMENT: &str = include_str!("../shaders/shapes.wgsl");

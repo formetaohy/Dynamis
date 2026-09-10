@@ -191,11 +191,10 @@ impl Simulation {
         );
         queue.submit([encoder.finish()]);
         self.device.buffers.readback.queries.arm();
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         if let Some((batch, bytes)) = arrived {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (batch, bytes) in self.device.buffers.readback.queries.poll(&device) {
+        for (batch, bytes) in self.device.buffers.readback.queries.drain(&device) {
             self.queries.pool.collect(batch, &bytes);
         }
         self.queries.pending.clear();

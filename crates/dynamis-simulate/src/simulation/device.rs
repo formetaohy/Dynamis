@@ -6,7 +6,7 @@ use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{
-    COUNTER_COUNT, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
+    COUNTER_ARCHIVED, COUNTER_COUNT, COUNTER_RESTING, COUNTER_RESTING_INDEX,
     COUNTER_RESTING_PENDING, COUNTER_STRIDE, Counters,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
@@ -159,11 +159,7 @@ impl Simulation {
         copy(&previous.bodies.states, &next.bodies.states, bodies);
         copy(&previous.bodies.rows, &next.bodies.rows, rows);
         copy(&previous.bodies.aabbs, &next.bodies.aabbs, aabbs);
-        copy(
-            &previous.contacts.previous,
-            &next.contacts.previous,
-            contacts,
-        );
+        copy(&previous.contacts.archive, &next.contacts.archive, contacts);
         copy(
             &previous.islands.wake_flags,
             &next.islands.wake_flags,
@@ -208,7 +204,7 @@ impl Simulation {
             resting_free,
         );
         for slot in [
-            COUNTER_PREV_CONTACTS,
+            COUNTER_ARCHIVED,
             COUNTER_RESTING,
             COUNTER_RESTING_INDEX,
             COUNTER_RESTING_PENDING,

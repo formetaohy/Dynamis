@@ -1,19 +1,20 @@
 use super::FrameParams;
 use super::dispatch::{
-    CONTACT_MATCH, GATHER_CONTACT_KEYS_B, ISLAND_LINK_CONTACTS, MARK_CONTACT_BOUNDARIES,
-    SORT_CONSTRAINTS, SORT_CONTACTS,
+    CONTACT_BEGIN, CONTACT_RELAY, GATHER_CONTACT_KEYS_B, ISLAND_LINK_CONTACTS,
+    MARK_CONTACT_BOUNDARIES, SORT_CONSTRAINTS, SORT_CONTACTS,
 };
-use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CONTACT, CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_PREV_CONTACTS,
-    COUNTER_RESTING_INDEX, COUNTER_SPILLOVER_EVENTS,
+    COUNTER_ARCHIVED, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING_INDEX,
+    COUNTER_SPILLOVER_EVENTS,
 };
 use dynamis_sort::RadixSort;
 
 pub(super) struct Islands {
-    contact_match: Stage,
+    contact_relay: Stage,
+    contact_begin: Stage,
     island_init: Stage,
     island_link_contacts: Stage,
     island_link_constraints: Stage,
@@ -28,17 +29,38 @@ pub(super) struct Islands {
 impl Islands {
     pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
         Self {
-            contact_match: Stage::build(
+            contact_relay: Stage::build(
                 context,
-                "contact_match",
-                include_str!("../shaders/contact_match.wgsl"),
+                "contact_relay",
+                include_str!("../shaders/contact_relay.wgsl"),
                 per_row,
-                CORE,
+                CONTACT,
+                &[
+                    (RO, whole(&buffers.contacts.archive)),
+                    (RW, buffers.counter(COUNTER_ARCHIVED)),
+                    (RW, whole(&buffers.contacts.manifolds)),
+                    (RW, buffers.counter(COUNTER_CONTACTS)),
+                    (RW, whole(&buffers.contacts.contact_matched)),
+                    (RW, whole(&buffers.events)),
+                    (RW, buffers.counter(COUNTER_EVENTS)),
+                    (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
+                    (UNIFORM, whole(&buffers.params)),
+                    (RO, whole(&buffers.bodies.rows)),
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.descriptors)),
+                ],
+                &[],
+            ),
+            contact_begin: Stage::build(
+                context,
+                "contact_begin",
+                include_str!("../shaders/contact_begin.wgsl"),
+                per_row,
+                CONTACT,
                 &[
                     (RW, whole(&buffers.contacts.manifolds)),
-                    (RO, whole(&buffers.contacts.previous)),
-                    (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),
+                    (RO, whole(&buffers.contacts.contact_matched)),
                     (RW, whole(&buffers.events)),
                     (RW, buffers.counter(COUNTER_EVENTS)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
@@ -199,8 +221,10 @@ impl Islands {
         let constraint_active = params.constraint_count > 0;
         let body_words = buffers.body_words();
 
-        self.contact_match
-            .record_indirect(recorder, &buffers.dispatch, CONTACT_MATCH);
+        self.contact_relay
+            .record_indirect(recorder, &buffers.dispatch, CONTACT_RELAY);
+        self.contact_begin
+            .record_indirect(recorder, &buffers.dispatch, CONTACT_BEGIN);
         self.island_init.record(recorder, params.dynamic_count);
         self.island_link_contacts.record_indirect(
             recorder,

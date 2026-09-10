@@ -1,5 +1,6 @@
 mod broadphase;
 mod commands;
+mod commit;
 mod dispatch;
 mod grid;
 mod integrate;
@@ -8,9 +9,7 @@ mod narrowphase;
 mod position_solve;
 mod shader;
 mod sleep;
-mod sort;
 mod stage;
-mod tail;
 #[cfg(feature = "profile")]
 mod timing;
 mod velocity_solve;
@@ -26,6 +25,7 @@ use wgpu::CommandEncoder;
 
 use broadphase::Broadphase;
 use commands::Commands;
+use commit::Commit;
 use dispatch::{Dispatch, SORT_ENTRIES};
 use grid::Grid;
 use integrate::Integrate;
@@ -33,50 +33,49 @@ use islands::Islands;
 use narrowphase::Narrowphase;
 use position_solve::PositionSolve;
 use sleep::Sleep;
-use tail::Tail;
 use velocity_solve::VelocitySolve;
 
 pub(crate) use dispatch::DISPATCH_SLOTS;
 use dispatch::{
-    BROADPHASE_BATCH, COMMANDS_BATCH, GRID_BATCH, ISLANDS_BATCH, RESTING_GATHER_BATCH,
-    RESTING_SORT_BATCH, TAIL_BATCH,
+    BROADPHASE_BATCH, COMMANDS_BATCH, COMMIT_BATCH, GRID_BATCH, ISLANDS_BATCH,
+    RESTING_GATHER_BATCH, RESTING_SORT_BATCH,
 };
 
-enum Pass {
-    Commands,
-    Integrate,
-    Grid,
-    Broadphase,
-    Narrowphase,
-    Islands,
-    Sleep,
-    VelocitySolve,
-    PositionSolve,
-    Tail,
-    RestingGather,
-    RestingIndex,
+macro_rules! passes {
+    ($($variant:ident => $label:literal),+ $(,)?) => {
+        #[derive(Clone, Copy)]
+        enum Pass {
+            $($variant,)+
+        }
+
+        impl Pass {
+            const LABELS: &'static [&'static str] = &[$($label,)+];
+
+            const fn label(self) -> &'static str {
+                Self::LABELS[self.index()]
+            }
+
+            const fn index(self) -> usize {
+                self as usize
+            }
+        }
+    };
 }
 
-impl Pass {
-    const LABELS: &[&str] = &[
-        "commands",
-        "integrate",
-        "grid",
-        "broadphase",
-        "narrowphase",
-        "islands",
-        "sleep",
-        "velocity_solve",
-        "position_solve",
-        "tail",
-        "resting_gather",
-        "resting_index",
-    ];
-
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
+passes!(
+    Commands => "commands",
+    Integrate => "integrate",
+    Grid => "grid",
+    Broadphase => "broadphase",
+    Narrowphase => "narrowphase",
+    Islands => "islands",
+    Sleep => "sleep",
+    VelocitySolve => "velocity_solve",
+    PositionSolve => "position_solve",
+    Commit => "commit",
+    RestingGather => "resting_gather",
+    RestingIndex => "resting_index",
+);
 
 pub(crate) struct FrameParams {
     pub(crate) dynamic_count: u32,
@@ -102,7 +101,7 @@ pub(crate) struct Pipeline {
     sleep: Sleep,
     velocity_solve: VelocitySolve,
     position_solve: PositionSolve,
-    tail: Tail,
+    commit: Commit,
     dispatch: Dispatch,
     sort: RadixSort,
     #[cfg(feature = "profile")]
@@ -133,7 +132,7 @@ impl Pipeline {
             sleep: Sleep::build(context, buffers, per_row),
             velocity_solve: VelocitySolve::build(context, buffers, per_row),
             position_solve: PositionSolve::build(context, buffers, per_row),
-            tail: Tail::build(context, buffers, per_row),
+            commit: Commit::build(context, buffers, per_row),
             dispatch: Dispatch::build(context, buffers, per_row),
             sort,
             #[cfg(feature = "profile")]
@@ -142,17 +141,16 @@ impl Pipeline {
     }
 
     fn open<'a>(&'a self, encoder: &'a mut CommandEncoder, pass: Pass) -> ComputeRecorder<'a> {
-        let index = pass.index();
         #[cfg(feature = "profile")]
         if let Some(timer) = &self.timer {
             return ComputeRecorder::begin_timed(
                 encoder,
-                Pass::LABELS[index],
-                Some(timer.writes(index)),
+                pass.label(),
+                Some(timer.writes(pass.index())),
                 self.per_row,
             );
         }
-        ComputeRecorder::begin(encoder, Pass::LABELS[index], self.per_row)
+        ComputeRecorder::begin(encoder, pass.label(), self.per_row)
     }
 
     pub(crate) fn encode(
@@ -169,7 +167,7 @@ impl Pipeline {
 
         if idle {
             self.dispatch.write(encoder, ISLANDS_BATCH);
-            self.dispatch.write(encoder, TAIL_BATCH);
+            self.dispatch.write(encoder, COMMIT_BATCH);
         } else {
             let mut integrate = self.open(encoder, Pass::Integrate);
             self.integrate
@@ -201,7 +199,7 @@ impl Pipeline {
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);
             drop(sleep);
-            self.dispatch.write(encoder, TAIL_BATCH);
+            self.dispatch.write(encoder, COMMIT_BATCH);
 
             let mut velocity_solve = self.open(encoder, Pass::VelocitySolve);
             self.velocity_solve
@@ -213,17 +211,17 @@ impl Pipeline {
                 .record(&mut position_solve, buffers, params);
             drop(position_solve);
         }
-        let mut tail = self.open(encoder, Pass::Tail);
-        self.tail.record(&mut tail, buffers, params);
-        drop(tail);
+        let mut commit = self.open(encoder, Pass::Commit);
+        self.commit.record(&mut commit, buffers, params);
+        drop(commit);
         if !idle {
             self.dispatch.write(encoder, RESTING_GATHER_BATCH);
             let mut gather = self.open(encoder, Pass::RestingGather);
-            self.tail.record_gather(&mut gather, buffers);
+            self.commit.record_gather(&mut gather, buffers);
             drop(gather);
             self.dispatch.write(encoder, RESTING_SORT_BATCH);
             let mut index = self.open(encoder, Pass::RestingIndex);
-            self.tail.record_index(&mut index, buffers, &self.sort);
+            self.commit.record_index(&mut index, buffers, &self.sort);
             drop(index);
         }
     }
@@ -253,6 +251,6 @@ impl Pipeline {
         );
         self.sort
             .sort(&mut flush, &channels, 4, 0, &buffers.dispatch, SORT_ENTRIES);
-        self.tail.record_query(&mut flush, frame.query_count);
+        self.commit.record_query(&mut flush, frame.query_count);
     }
 }

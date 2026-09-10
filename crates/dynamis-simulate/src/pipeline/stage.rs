@@ -1,4 +1,7 @@
-use super::shader::{CONVEX_FRAGMENT, SCENE_FRAGMENT, WORKGROUP_SIZE, assemble_shader};
+use super::shader::{
+    CONVEX_FRAGMENT, EVENTS_FRAGMENT, IDENTITY_FRAGMENT, SCENE_FRAGMENT, WORKGROUP_SIZE,
+    assemble_shader,
+};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
@@ -7,6 +10,8 @@ use dynamis_gpu::{
 use wgpu::{BindGroup, BindGroupEntry};
 
 pub(super) const CORE: &[&str] = &[];
+pub(super) const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
+pub(super) const CONTACT: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
 pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 
 pub(super) const RO: BindingKind = BindingKind::ReadOnlyStorage;

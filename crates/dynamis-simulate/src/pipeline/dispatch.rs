@@ -3,8 +3,8 @@ use super::stage::CORE;
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_BODY_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_JOINTS,
-    COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
+    COUNTER_ARCHIVED, COUNTER_BODY_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES,
+    COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
@@ -23,10 +23,10 @@ pub(super) const CONTACT_ARCHIVE: u32 = 10;
 pub(super) const ISLAND_LINK_CONTACTS: u32 = 11;
 pub(super) const GATHER_CONTACT_KEYS_B: u32 = 12;
 pub(super) const MARK_CONTACT_BOUNDARIES: u32 = 13;
-pub(super) const CONTACT_MATCH: u32 = 14;
+pub(super) const CONTACT_BEGIN: u32 = 14;
 pub(super) const CONTACT_SOLVE_EXTRACT: u32 = 15;
 pub(super) const POSITION_SOLVE_EXTRACT: u32 = 16;
-pub(super) const EVENTS_END: u32 = 17;
+pub(super) const CONTACT_RELAY: u32 = 17;
 pub(super) const THAW_CONTACTS: u32 = 18;
 pub(super) const FREEZE_CONTACTS: u32 = 19;
 pub(super) const SORT_RESTING: u32 = 20;
@@ -67,7 +67,6 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
     &[
         entry(SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
         entry(SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
-        entry(EVENTS_END, COUNTER_PREV_CONTACTS, WORKGROUP_SIZE),
     ],
     &[
         entry(SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
@@ -81,12 +80,13 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
         entry(CCD_SWEEP, COUNTER_PAIRS, WORKGROUP_SIZE),
     ],
     &[
+        entry(CONTACT_RELAY, COUNTER_ARCHIVED, WORKGROUP_SIZE),
         entry(SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
         entry(CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(ISLAND_LINK_CONTACTS, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(GATHER_CONTACT_KEYS_B, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(MARK_CONTACT_BOUNDARIES, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        entry(CONTACT_MATCH, COUNTER_CONTACTS, WORKGROUP_SIZE),
+        entry(CONTACT_BEGIN, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(CONTACT_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
     ],
@@ -122,7 +122,7 @@ pub(super) const COMMANDS_BATCH: usize = 0;
 pub(super) const GRID_BATCH: usize = 1;
 pub(super) const BROADPHASE_BATCH: usize = 2;
 pub(super) const ISLANDS_BATCH: usize = 3;
-pub(super) const TAIL_BATCH: usize = 4;
+pub(super) const COMMIT_BATCH: usize = 4;
 pub(super) const RESTING_GATHER_BATCH: usize = 5;
 pub(super) const RESTING_SORT_BATCH: usize = 6;
 

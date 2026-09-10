@@ -1,7 +1,9 @@
 use super::Simulation;
-use dynamis_layout::ContactEventRecord;
+use crate::buffers::EVENT_SLOTS;
+use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 use std::collections::VecDeque;
+use std::mem::size_of;
 
 pub(crate) struct Events {
     pub(crate) contact: Vec<ContactEvent>,
@@ -29,6 +31,52 @@ impl Simulation {
 
     pub fn set_event_sink(&mut self, sink: Option<Box<dyn FnMut(ContactEvent)>>) {
         self.events.sink = sink;
+    }
+
+    pub(crate) fn note_events_due(&mut self, step: u64) {
+        let count = self.device.measured[COUNTER_EVENTS];
+        if count > 0 {
+            self.events.due.push_back((step, count));
+        }
+    }
+
+    pub(crate) fn copy_events(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+    ) {
+        while let Some((step, count)) = self.events.due.pop_front() {
+            let segment = self.device.buffers.events.size() / EVENT_SLOTS as u64;
+            let offset = (step % EVENT_SLOTS as u64) * segment;
+            let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
+            let displaced = self.device.buffers.readback.events.enqueue(
+                device,
+                encoder,
+                self.device.buffers.events.buffer(),
+                offset,
+                bytes,
+                step,
+            );
+            if let Some((_, bytes)) = displaced {
+                self.consume_events(&bytes);
+            }
+        }
+    }
+
+    pub(crate) fn sync_events(&mut self) {
+        if self.events.due.is_empty() {
+            return;
+        }
+        let device = self.device.gpu.device().clone();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dynamis event readback"),
+        });
+        self.copy_events(&mut encoder, &device);
+        self.device.gpu.queue().submit([encoder.finish()]);
+        self.device.buffers.readback.events.arm();
+        for (_, bytes) in self.device.buffers.readback.events.drain(&device) {
+            self.consume_events(&bytes);
+        }
     }
 
     pub(crate) fn consume_events(&mut self, bytes: &[u8]) {

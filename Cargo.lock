@@ -379,7 +379,6 @@ dependencies = [
  "dynamis-gpu",
  "dynamis-model",
  "dynamis-simulate",
- "dynamis-sort",
  "pollster",
 ]
 
