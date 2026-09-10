@@ -37,6 +37,10 @@ use tail::Tail;
 use velocity_solve::VelocitySolve;
 
 pub(crate) use dispatch::DISPATCH_SLOTS;
+use dispatch::{
+    BROADPHASE_BATCH, COMMANDS_BATCH, GRID_BATCH, ISLANDS_BATCH, RESTING_GATHER_BATCH,
+    RESTING_SORT_BATCH, TAIL_BATCH,
+};
 
 enum Pass {
     Commands,
@@ -49,6 +53,8 @@ enum Pass {
     VelocitySolve,
     PositionSolve,
     Tail,
+    RestingGather,
+    RestingIndex,
 }
 
 impl Pass {
@@ -63,6 +69,8 @@ impl Pass {
         "velocity_solve",
         "position_solve",
         "tail",
+        "resting_gather",
+        "resting_index",
     ];
 
     const fn index(self) -> usize {
@@ -157,11 +165,11 @@ impl Pipeline {
         let mut commands = self.open(encoder, Pass::Commands);
         self.commands.record(&mut commands, params);
         drop(commands);
-        self.dispatch.write(encoder, 0);
+        self.dispatch.write(encoder, COMMANDS_BATCH);
 
         if idle {
-            self.dispatch.write(encoder, 3);
-            self.dispatch.write(encoder, 4);
+            self.dispatch.write(encoder, ISLANDS_BATCH);
+            self.dispatch.write(encoder, TAIL_BATCH);
         } else {
             let mut integrate = self.open(encoder, Pass::Integrate);
             self.integrate
@@ -171,19 +179,19 @@ impl Pipeline {
             let mut grid = self.open(encoder, Pass::Grid);
             self.grid.record(&mut grid, params.body_count);
             drop(grid);
-            self.dispatch.write(encoder, 1);
+            self.dispatch.write(encoder, GRID_BATCH);
 
             let mut broadphase = self.open(encoder, Pass::Broadphase);
             self.broadphase
                 .record(&mut broadphase, buffers, params, &self.sort);
             drop(broadphase);
-            self.dispatch.write(encoder, 2);
+            self.dispatch.write(encoder, BROADPHASE_BATCH);
 
             let mut narrowphase = self.open(encoder, Pass::Narrowphase);
             self.narrowphase
                 .record(&mut narrowphase, buffers, &self.sort);
             drop(narrowphase);
-            self.dispatch.write(encoder, 3);
+            self.dispatch.write(encoder, ISLANDS_BATCH);
 
             let mut islands = self.open(encoder, Pass::Islands);
             self.islands
@@ -193,7 +201,7 @@ impl Pipeline {
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);
             drop(sleep);
-            self.dispatch.write(encoder, 4);
+            self.dispatch.write(encoder, TAIL_BATCH);
 
             let mut velocity_solve = self.open(encoder, Pass::VelocitySolve);
             self.velocity_solve
@@ -208,6 +216,16 @@ impl Pipeline {
         let mut tail = self.open(encoder, Pass::Tail);
         self.tail.record(&mut tail, buffers, params);
         drop(tail);
+        if !idle {
+            self.dispatch.write(encoder, RESTING_GATHER_BATCH);
+            let mut gather = self.open(encoder, Pass::RestingGather);
+            self.tail.record_gather(&mut gather, buffers);
+            drop(gather);
+            self.dispatch.write(encoder, RESTING_SORT_BATCH);
+            let mut index = self.open(encoder, Pass::RestingIndex);
+            self.tail.record_index(&mut index, buffers, &self.sort);
+            drop(index);
+        }
     }
 
     pub(crate) fn encode_queries(
@@ -225,7 +243,7 @@ impl Pipeline {
             .record_broadphase(&mut commands, frame.dynamic_count);
         self.grid.record(&mut commands, frame.body_count);
         drop(commands);
-        self.dispatch.write(encoder, 1);
+        self.dispatch.write(encoder, GRID_BATCH);
 
         let mut flush = ComputeRecorder::begin(encoder, "query flush", self.per_row);
         let channels = buffers.sort_lanes(

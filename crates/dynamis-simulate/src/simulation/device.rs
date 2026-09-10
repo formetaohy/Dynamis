@@ -6,7 +6,8 @@ use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_layout::{
-    COUNTER_COUNT, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_STRIDE, Counters,
+    COUNTER_COUNT, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
+    COUNTER_RESTING_PENDING, COUNTER_STRIDE, Counters,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
@@ -97,6 +98,7 @@ impl Simulation {
         let previous = &self.device.buffers;
         let bodies = previous.bodies.states.size().min(next.bodies.states.size());
         let aabbs = previous.bodies.aabbs.size().min(next.bodies.aabbs.size());
+        let rows = previous.bodies.rows.size().min(next.bodies.rows.size());
         let contacts = previous
             .contacts
             .manifolds
@@ -122,6 +124,12 @@ impl Simulation {
             .resting
             .size()
             .min(next.contacts.resting.size());
+        let resting_index = previous
+            .contacts
+            .resting_index
+            .major
+            .size()
+            .min(next.contacts.resting_index.major.size());
         let resting_live = previous
             .contacts
             .resting_live
@@ -149,6 +157,7 @@ impl Simulation {
                 encoder.copy_buffer_to_buffer(source.buffer(), 0, target.buffer(), 0, bytes);
             };
         copy(&previous.bodies.states, &next.bodies.states, bodies);
+        copy(&previous.bodies.rows, &next.bodies.rows, rows);
         copy(&previous.bodies.aabbs, &next.bodies.aabbs, aabbs);
         copy(
             &previous.contacts.previous,
@@ -169,6 +178,21 @@ impl Simulation {
         );
         copy(&previous.contacts.resting, &next.contacts.resting, resting);
         copy(
+            &previous.contacts.resting_index.major,
+            &next.contacts.resting_index.major,
+            resting_index,
+        );
+        copy(
+            &previous.contacts.resting_index.minor,
+            &next.contacts.resting_index.minor,
+            resting_index,
+        );
+        copy(
+            &previous.contacts.resting_index.payload,
+            &next.contacts.resting_index.payload,
+            resting_index,
+        );
+        copy(
             &previous.contacts.resting_live,
             &next.contacts.resting_live,
             resting_live,
@@ -183,7 +207,12 @@ impl Simulation {
             &next.contacts.resting_free,
             resting_free,
         );
-        for slot in [COUNTER_PREV_CONTACTS, COUNTER_RESTING] {
+        for slot in [
+            COUNTER_PREV_CONTACTS,
+            COUNTER_RESTING,
+            COUNTER_RESTING_INDEX,
+            COUNTER_RESTING_PENDING,
+        ] {
             let offset = slot as u64 * COUNTER_STRIDE;
             encoder.copy_buffer_to_buffer(
                 previous.counters.buffer(),

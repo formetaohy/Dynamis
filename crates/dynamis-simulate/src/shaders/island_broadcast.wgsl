@@ -6,6 +6,7 @@
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> deferred_woke_count: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -19,6 +20,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if ((island & ISLAND_WAKE) != 0u) {
         if (state.sleeping != 0u) {
             atomicAdd(&woke_count[0], 1u);
+            atomicAdd(&deferred_woke_count[0], 1u);
         }
         state.sleeping = 0u;
         state.sleep_timer = 0.0;

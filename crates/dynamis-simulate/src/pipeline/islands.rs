@@ -8,7 +8,7 @@ use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
     COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_PREV_CONTACTS,
-    COUNTER_SPILLOVER_EVENTS,
+    COUNTER_RESTING_INDEX, COUNTER_SPILLOVER_EVENTS,
 };
 use dynamis_sort::RadixSort;
 
@@ -43,6 +43,12 @@ impl Islands {
                     (RW, buffers.counter(COUNTER_EVENTS)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
                     (UNIFORM, whole(&buffers.params)),
+                    (RO, whole(&buffers.contacts.resting)),
+                    (RO, whole(&buffers.contacts.resting_live)),
+                    (RO, whole(&buffers.contacts.resting_index.major)),
+                    (RO, whole(&buffers.contacts.resting_index.minor)),
+                    (RO, whole(&buffers.contacts.resting_index.payload)),
+                    (RW, buffers.counter(COUNTER_RESTING_INDEX)),
                 ],
                 &[],
             ),

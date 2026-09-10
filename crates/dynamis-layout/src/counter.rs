@@ -40,7 +40,15 @@ pub const COUNTER_BODY_MOVES: usize = 19;
 
 pub const COUNTER_CONSTRAINT_MOVES: usize = 20;
 
-pub const COUNTER_COUNT: usize = 21;
+pub const COUNTER_WOKE_DEFERRED: usize = 21;
+
+pub const COUNTER_RESTING_GATHER: usize = 22;
+
+pub const COUNTER_RESTING_INDEX: usize = 23;
+
+pub const COUNTER_RESTING_PENDING: usize = 24;
+
+pub const COUNTER_COUNT: usize = 25;
 
 pub const COUNTER_STRIDE: u64 = 256;
 

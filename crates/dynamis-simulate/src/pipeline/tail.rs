@@ -1,17 +1,23 @@
 use super::FrameParams;
-use super::dispatch::{CONTACT_ARCHIVE, EVENTS_END, FREEZE_CONTACTS, THAW_CONTACTS};
+use super::dispatch::{
+    CONTACT_ARCHIVE, EVENTS_END, FREEZE_CONTACTS, RESTING_GATHER, SORT_RESTING, THAW_CONTACTS,
+};
 use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
     COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_LARGE, COUNTER_PREV_CONTACTS,
-    COUNTER_RESTING, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING,
+    COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
+    COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
+use dynamis_sort::RadixSort;
 
 pub(super) struct Tail {
     events_end: Stage,
     thaw_contacts: Stage,
     freeze_contacts: Stage,
+    resting_gather: Stage,
+    resting_commit: Stage,
     contact_archive: Stage,
     prev_count_sync: Stage,
     constraints_warm_end: Stage,
@@ -49,13 +55,54 @@ impl Tail {
                 per_row,
                 CORE,
                 &[
-                    (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.contacts.resting)),
                     (RW, whole(&buffers.contacts.resting_live)),
-                    (RW, buffers.counter(COUNTER_RESTING)),
                     (RW, whole(&buffers.contacts.resting_next)),
                     (RW, whole(&buffers.contacts.resting_free)),
-                    (RO, whole(&buffers.bodies.descriptors)),
+                    (RW, buffers.counter(COUNTER_RESTING)),
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.rows)),
+                    (RO, whole(&buffers.bodies.activity)),
+                    (RO, whole(&buffers.contacts.manifolds)),
+                    (RW, buffers.counter(COUNTER_CONTACTS)),
+                    (RO, whole(&buffers.contacts.previous)),
+                    (RW, buffers.counter(COUNTER_PREV_CONTACTS)),
+                    (RW, whole(&buffers.events)),
+                    (RW, buffers.counter(COUNTER_EVENTS)),
+                    (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
+                    (UNIFORM, whole(&buffers.params)),
+                ],
+                &[],
+            ),
+            resting_gather: Stage::build(
+                context,
+                "resting_gather",
+                include_str!("../shaders/resting_gather.wgsl"),
+                per_row,
+                CORE,
+                &[
+                    (RO, whole(&buffers.contacts.resting)),
+                    (RW, buffers.counter(COUNTER_RESTING)),
+                    (RO, whole(&buffers.contacts.resting_live)),
+                    (RW, whole(&buffers.contacts.resting_index.major)),
+                    (RW, whole(&buffers.contacts.resting_index.minor)),
+                    (RW, whole(&buffers.contacts.resting_index.payload)),
+                    (RW, buffers.counter(COUNTER_RESTING_GATHER)),
+                ],
+                &[],
+            ),
+            resting_commit: Stage::build(
+                context,
+                "resting_commit",
+                include_str!("../shaders/resting_commit.wgsl"),
+                per_row,
+                CORE,
+                &[
+                    (RW, buffers.counter(COUNTER_SLEPT)),
+                    (RW, buffers.counter(COUNTER_RESTING_GATHER)),
+                    (RW, buffers.counter(COUNTER_RESTING_INDEX)),
+                    (RW, buffers.counter(COUNTER_WOKE_DEFERRED)),
+                    (RW, buffers.counter(COUNTER_RESTING_PENDING)),
                 ],
                 &[],
             ),
@@ -167,18 +214,47 @@ impl Tail {
     ) {
         self.events_end
             .record_indirect(recorder, &buffers.dispatch, EVENTS_END);
+        self.thaw_contacts
+            .record_indirect(recorder, &buffers.dispatch, THAW_CONTACTS);
         self.contact_archive
             .record_indirect(recorder, &buffers.dispatch, CONTACT_ARCHIVE);
         self.prev_count_sync.record_workgroups(recorder, 1);
         self.constraints_warm_end
             .record(recorder, params.constraint_count);
         self.static_wake_clear.record(recorder, params.body_count);
-        self.thaw_contacts
-            .record_indirect(recorder, &buffers.dispatch, THAW_CONTACTS);
         self.freeze_contacts
             .record_indirect(recorder, &buffers.dispatch, FREEZE_CONTACTS);
         if params.query_count > 0 {
             self.record_query(recorder, params.query_count);
         }
+    }
+
+    pub(super) fn record_gather(&self, recorder: &mut ComputeRecorder, buffers: &WorldBuffers) {
+        self.resting_gather
+            .record_indirect(recorder, &buffers.dispatch, RESTING_GATHER);
+    }
+
+    pub(super) fn record_index(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        sort: &RadixSort,
+    ) {
+        self.resting_commit.record_workgroups(recorder, 1);
+        let words = buffers.collider_words();
+        let channels = buffers.sort_keyed(
+            buffers.counter(COUNTER_RESTING_GATHER),
+            &buffers.contacts.resting_index.major,
+            &buffers.contacts.resting_index.minor,
+            &buffers.contacts.resting_index.payload,
+        );
+        sort.sort(
+            recorder,
+            &channels,
+            words,
+            words,
+            &buffers.dispatch,
+            SORT_RESTING,
+        );
     }
 }

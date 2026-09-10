@@ -9,6 +9,7 @@ pub(super) struct Commands {
     body_move_gather: Stage,
     body_move_scatter: Stage,
     body_edits: Stage,
+    body_rows: Stage,
     constraint_move_gather: Stage,
     constraint_move_scatter: Stage,
     joint_filter: Stage,
@@ -71,6 +72,20 @@ impl Commands {
                     (UNIFORM, whole(&buffers.params)),
                     (RW, buffers.counter(COUNTER_SLEPT)),
                     (RW, buffers.counter(COUNTER_WOKE)),
+                ],
+                &[],
+            ),
+            body_rows: Stage::build(
+                context,
+                "body_rows",
+                include_str!("../shaders/body_rows.wgsl"),
+                per_row,
+                CORE,
+                &[
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.row_moves)),
+                    (RW, whole(&buffers.bodies.rows)),
+                    (UNIFORM, whole(&buffers.params)),
                 ],
                 &[],
             ),
@@ -147,6 +162,7 @@ impl Commands {
                 .record(recorder, params.body_move_count);
             self.body_move_scatter
                 .record(recorder, params.body_move_count);
+            self.body_rows.record(recorder, params.body_move_count);
         }
         if params.constraint_move_count > 0 {
             self.constraint_move_gather

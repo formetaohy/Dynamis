@@ -15,7 +15,9 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_SPILLOVER_RESTING ||
         slot == COUNTER_ACTIVE ||
         slot == COUNTER_SLEPT ||
-        slot == COUNTER_WOKE) {
+        slot == COUNTER_WOKE ||
+        slot == COUNTER_WOKE_DEFERRED ||
+        slot == COUNTER_RESTING_GATHER) {
         atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], 0u);
     }
 }

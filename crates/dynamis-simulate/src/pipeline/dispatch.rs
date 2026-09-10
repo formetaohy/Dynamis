@@ -3,8 +3,9 @@ use super::stage::CORE;
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
 use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_JOINTS, COUNTER_PAIRS,
-    COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_SLEPT, COUNTER_WOKE,
+    COUNTER_BODY_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_JOINTS,
+    COUNTER_PAIRS, COUNTER_PREV_CONTACTS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
+    COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE,
 };
 use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
 
@@ -28,12 +29,14 @@ pub(super) const POSITION_SOLVE_EXTRACT: u32 = 16;
 pub(super) const EVENTS_END: u32 = 17;
 pub(super) const THAW_CONTACTS: u32 = 18;
 pub(super) const FREEZE_CONTACTS: u32 = 19;
+pub(super) const SORT_RESTING: u32 = 20;
+pub(super) const RESTING_GATHER: u32 = 21;
 const KERNEL_TILE: u32 = 256;
 
 struct DispatchEntry {
     slot: u32,
     counter: usize,
-    gate: Option<usize>,
+    gates: &'static [usize],
     lanes: u32,
 }
 
@@ -41,16 +44,21 @@ const fn entry(slot: u32, counter: usize, lanes: u32) -> DispatchEntry {
     DispatchEntry {
         slot,
         counter,
-        gate: None,
+        gates: &[],
         lanes,
     }
 }
 
-const fn transition(slot: u32, counter: usize, gate: usize, lanes: u32) -> DispatchEntry {
+const fn transition(
+    slot: u32,
+    counter: usize,
+    gates: &'static [usize],
+    lanes: u32,
+) -> DispatchEntry {
     DispatchEntry {
         slot,
         counter,
-        gate: Some(gate),
+        gates,
         lanes,
     }
 }
@@ -83,15 +91,40 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
         entry(POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
     ],
     &[
-        transition(THAW_CONTACTS, COUNTER_RESTING, COUNTER_WOKE, WORKGROUP_SIZE),
+        transition(
+            THAW_CONTACTS,
+            COUNTER_RESTING,
+            &[COUNTER_WOKE, COUNTER_RESTING_PENDING, COUNTER_BODY_MOVES],
+            WORKGROUP_SIZE,
+        ),
         transition(
             FREEZE_CONTACTS,
             COUNTER_CONTACTS,
-            COUNTER_SLEPT,
+            &[COUNTER_SLEPT],
             WORKGROUP_SIZE,
         ),
     ],
+    &[transition(
+        RESTING_GATHER,
+        COUNTER_RESTING,
+        &[COUNTER_SLEPT],
+        WORKGROUP_SIZE,
+    )],
+    &[transition(
+        SORT_RESTING,
+        COUNTER_RESTING_GATHER,
+        &[COUNTER_RESTING_GATHER],
+        KERNEL_TILE,
+    )],
 ];
+
+pub(super) const COMMANDS_BATCH: usize = 0;
+pub(super) const GRID_BATCH: usize = 1;
+pub(super) const BROADPHASE_BATCH: usize = 2;
+pub(super) const ISLANDS_BATCH: usize = 3;
+pub(super) const TAIL_BATCH: usize = 4;
+pub(super) const RESTING_GATHER_BATCH: usize = 5;
+pub(super) const RESTING_SORT_BATCH: usize = 6;
 
 pub(crate) const DISPATCH_SLOTS: u32 = dispatch_slots();
 
@@ -118,19 +151,18 @@ fn dispatch_source() -> String {
         "struct Args { per_row: u32, rows: u32, layers: u32, _pad: u32 }\n\
 @group(0) @binding(0) var<storage, read> counters: array<u32>;\n\
 @group(0) @binding(1) var<storage, read_write> table: array<Args>;\n\
-fn write_sweep_args(index: u32, counter: u32, lanes: u32) {\n\
-    let count = counters[counter * COUNTER_STRIDE_WORDS];\n\
+fn write_count_args(index: u32, count: u32, lanes: u32) {\n\
     let workgroups = (count + lanes - 1u) / lanes;\n\
     let per_row = min(workgroups, WORKGROUPS_PER_ROW);\n\
     let rows = (workgroups + WORKGROUPS_PER_ROW - 1u) / WORKGROUPS_PER_ROW;\n\
     table[index] = Args(per_row, rows, 1u, 0u);\n\
 }\n\
-fn write_transition_args(index: u32, counter: u32, gate: u32, lanes: u32) {\n\
-    let count = select(0u, counters[counter * COUNTER_STRIDE_WORDS], counters[gate * COUNTER_STRIDE_WORDS] > 0u);\n\
-    let workgroups = (count + lanes - 1u) / lanes;\n\
-    let per_row = min(workgroups, WORKGROUPS_PER_ROW);\n\
-    let rows = (workgroups + WORKGROUPS_PER_ROW - 1u) / WORKGROUPS_PER_ROW;\n\
-    table[index] = Args(per_row, rows, 1u, 0u);\n\
+fn write_sweep_args(index: u32, counter: u32, lanes: u32) {\n\
+    write_count_args(index, counters[counter * COUNTER_STRIDE_WORDS], lanes);\n\
+}\n\
+fn write_transition_args(index: u32, counter: u32, lanes: u32, run: bool) {\n\
+    let held = counters[counter * COUNTER_STRIDE_WORDS];\n\
+    write_count_args(index, select(0u, held, run), lanes);\n\
 }\n\n",
     );
     for (batch, entries) in DISPATCH_BATCHES.iter().enumerate() {
@@ -138,16 +170,24 @@ fn write_transition_args(index: u32, counter: u32, gate: u32, lanes: u32) {\n\
             "@compute @workgroup_size({WORKGROUP_SIZE}u)\nfn dispatch_{batch}(@builtin(local_invocation_id) lid: vec3u) {{\n"
         ));
         for (index, entry) in entries.iter().enumerate() {
-            source.push_str(&match entry.gate {
-                Some(gate) => format!(
-                    "    if (lid.x == {index}u) {{ write_transition_args({}, {}, {}, {}); }}\n",
-                    entry.slot, entry.counter, gate, entry.lanes
-                ),
-                None => format!(
-                    "    if (lid.x == {index}u) {{ write_sweep_args({}, {}, {}); }}\n",
+            let call = if entry.gates.is_empty() {
+                format!(
+                    "write_sweep_args({}, {}, {})",
                     entry.slot, entry.counter, entry.lanes
-                ),
-            });
+                )
+            } else {
+                let condition = entry
+                    .gates
+                    .iter()
+                    .map(|gate| format!("counters[{gate} * COUNTER_STRIDE_WORDS] > 0u"))
+                    .collect::<Vec<_>>()
+                    .join(" || ");
+                format!(
+                    "write_transition_args({}, {}, {}, {condition})",
+                    entry.slot, entry.counter, entry.lanes
+                )
+            };
+            source.push_str(&format!("    if (lid.x == {index}u) {{ {call}; }}\n"));
         }
         source.push_str("}\n\n");
     }

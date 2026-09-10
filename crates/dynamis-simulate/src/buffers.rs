@@ -83,6 +83,7 @@ impl Lanes {
 pub(crate) struct BodyBuffers {
     pub(crate) states: GpuBuffer,
     pub(crate) activity: GpuBuffer,
+    pub(crate) rows: GpuBuffer,
     pub(crate) descriptors: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
@@ -113,6 +114,7 @@ pub(crate) struct ConstraintBuffers {
 pub(crate) struct ContactBuffers {
     pub(crate) entries: GridLanes,
     pub(crate) pairs: PairLanes,
+    pub(crate) resting_index: Lanes,
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) raw: GpuBuffer,
     pub(crate) valid: GpuBuffer,
@@ -237,6 +239,7 @@ impl WorldBuffers {
             bodies: BodyBuffers {
                 states: rows("body states", bodies, size_of::<BodyStateRecord>() as u64),
                 activity: lanes("body activity", bodies),
+                rows: lanes("body rows", bodies),
                 descriptors: rows(
                     "body descriptors",
                     bodies,
@@ -303,6 +306,7 @@ impl WorldBuffers {
                 ),
             },
             contacts: ContactBuffers {
+                resting_index: Lanes::new(device, "resting index", plan.pairs),
                 entries: GridLanes::new(device, "grid entries", plan.entries),
                 pairs: PairLanes::new(device, "pairs", plan.pairs),
                 large_bodies: lanes("large colliders", colliders),

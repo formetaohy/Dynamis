@@ -27,6 +27,24 @@ impl crate::buffers::WorldBuffers {
         }
     }
 
+    pub(crate) fn sort_keyed<'a>(
+        &'a self,
+        count: dynamis_gpu::GpuSlot<'a>,
+        major: &'a GpuBuffer,
+        minor: &'a GpuBuffer,
+        payload: &'a GpuBuffer,
+    ) -> SortChannels<'a> {
+        SortChannels {
+            count,
+            major,
+            minor,
+            payload,
+            scratch_major: &self.sort.scratch.major,
+            scratch_minor: &self.sort.scratch.minor,
+            scratch_payload: &self.sort.scratch.payload,
+        }
+    }
+
     pub(crate) fn sort_lanes_dual<'a>(
         &'a self,
         count: dynamis_gpu::GpuSlot<'a>,
