@@ -6,19 +6,19 @@
 @group(0) @binding(5) var<storage, read_write> b_blocks: array<u32>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let slot = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    if (slot >= contact_blocks + segments[SOLVER_BLOCK_CONSTRAINT]) {
-        return;
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+    let stride = grid_stride(groups);
+    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
+        let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
+        let block = a_payload[slot];
+        var body_b = 0u;
+        if (block < contact_blocks) {
+            body_b = contacts[block].b / MAX_COLLIDERS_PER_BODY;
+        } else {
+            body_b = constraint_descs[block - contact_blocks].b;
+        }
+        b_bodies[slot] = body_b;
+        b_blocks[slot] = slot;
     }
-    let block = a_payload[slot];
-    var body_b = 0u;
-    if (block < contact_blocks) {
-        body_b = contacts[block].b / MAX_COLLIDERS_PER_BODY;
-    } else {
-        body_b = constraint_descs[block - contact_blocks].b;
-    }
-    b_bodies[slot] = body_b;
-    b_blocks[slot] = slot;
 }

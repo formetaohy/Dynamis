@@ -1,8 +1,4 @@
 use super::FrameParams;
-use super::dispatch::{
-    SOLVER_BLOCKS, SOLVER_BOUNDARIES, SOLVER_COUNT, SOLVER_GATHER_B, SOLVER_POSITION,
-    SORT_SOLVER_A, SORT_SOLVER_B,
-};
 use super::stage::{BLOCKS, CORE, CORRECTIONS, RO, RW, Stage, UNIFORM, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -200,48 +196,30 @@ impl Solver {
         params: &FrameParams,
         sort: &RadixSort,
     ) {
-        self.count
-            .record_indirect(recorder, &buffers.dispatch, SOLVER_COUNT);
+        let blocks = buffers.block_capacity();
+        self.count.record_stride(recorder, blocks);
         let words = buffers.body_words();
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_BLOCKS),
             &buffers.solver.a_bodies,
             &buffers.solver.a_payload,
         );
-        sort.sort(
-            recorder,
-            &channels,
-            words,
-            0,
-            &buffers.dispatch,
-            SORT_SOLVER_A,
-        );
+        sort.sort(recorder, &channels, words, 0, blocks);
 
-        self.gather_b
-            .record_indirect(recorder, &buffers.dispatch, SOLVER_GATHER_B);
+        self.gather_b.record_stride(recorder, blocks);
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_BLOCKS),
             &buffers.solver.b_bodies,
             &buffers.solver.b_blocks,
         );
-        sort.sort(
-            recorder,
-            &channels,
-            words,
-            0,
-            &buffers.dispatch,
-            SORT_SOLVER_B,
-        );
+        sort.sort(recorder, &channels, words, 0, blocks);
 
-        self.boundaries
-            .record_indirect(recorder, &buffers.dispatch, SOLVER_BOUNDARIES);
-        self.blocks
-            .record_warm_indirect(recorder, &buffers.dispatch, SOLVER_BLOCKS);
+        self.boundaries.record_stride(recorder, blocks);
+        self.blocks.record_warm_stride(recorder, blocks);
         self.apply.record(recorder, params.dynamic_count);
 
         for _ in 0..params.solve_iterations {
-            self.blocks
-                .record_indirect(recorder, &buffers.dispatch, SOLVER_BLOCKS);
+            self.blocks.record_stride(recorder, blocks);
             self.apply.record(recorder, params.dynamic_count);
         }
     }
@@ -253,7 +231,7 @@ impl Solver {
         params: &FrameParams,
     ) {
         self.position
-            .record_indirect(recorder, &buffers.dispatch, SOLVER_POSITION);
+            .record_stride(recorder, buffers.block_capacity());
         self.position_apply.record(recorder, params.dynamic_count);
     }
 }

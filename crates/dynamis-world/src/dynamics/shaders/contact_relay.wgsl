@@ -42,36 +42,36 @@ fn current_slot(key_hi: u32, key_lo: u32) -> u32 {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&archive_count[0]), arrayLength(&archive))) {
-        return;
-    }
-    let held = archive[index];
-    let first_row = resolve_row(held.first_body_id, held.first_generation);
-    let second_row = resolve_row(held.second_body_id, held.second_generation);
-    if (first_row != NO_BODY && second_row != NO_BODY) {
-        let key = contact_row_key(held, first_row, second_row);
-        let slot = current_slot(key.x, key.y);
-        if (slot != NO_SLOT) {
-            let current = contacts[slot];
-            if (contact_same_pair(held, current)) {
-                contact_matched[slot] = 1u;
-                if (contact_carries_over(held, current)) {
-                    announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
-                    contacts[slot] = contact_relay_impulses(current, held);
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = min(atomicLoad(&archive_count[0]), arrayLength(&archive));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        let held = archive[index];
+        let first_row = resolve_row(held.first_body_id, held.first_generation);
+        let second_row = resolve_row(held.second_body_id, held.second_generation);
+        if (first_row != NO_BODY && second_row != NO_BODY) {
+            let key = contact_row_key(held, first_row, second_row);
+            let slot = current_slot(key.x, key.y);
+            if (slot != NO_SLOT) {
+                let current = contacts[slot];
+                if (contact_same_pair(held, current)) {
+                    contact_matched[slot] = 1u;
+                    if (contact_carries_over(held, current)) {
+                        announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
+                        contacts[slot] = contact_relay_impulses(current, held);
+                    }
+                    continue;
                 }
-                return;
             }
         }
-    }
-    if ((held.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
-        return;
-    }
-    if (first_row != NO_BODY && second_row != NO_BODY
+        if ((held.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
+            continue;
+        }
+        if (first_row != NO_BODY && second_row != NO_BODY
         && !body_is_active(body_states[first_row], body_descs[first_row])
         && !body_is_active(body_states[second_row], body_descs[second_row])) {
-        return;
+            continue;
+        }
+        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
     }
-    announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
 }

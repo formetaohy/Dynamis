@@ -1,6 +1,7 @@
-use super::dispatch::{COMPACT_SCAN, COMPACT_SCATTER, NARROWPHASE, SORT_PAIRS};
-use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::stage::{
+    CORE, GEOMETRY, MAX_GRID_WORKGROUPS, RO, RW, Stage, UNIFORM, shape_resources, whole,
+};
+use crate::dynamics::buffers::{COMPACT_BLOCK, WorldBuffers};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_sort::RadixSort;
@@ -92,25 +93,19 @@ impl Narrowphase {
         sort: &RadixSort,
     ) {
         let words = buffers.collider_words();
+        let pairs = buffers.pair_capacity();
         let channels = buffers.sort_lanes_dual(
             buffers.counter(COUNTER_PAIRS),
             &buffers.contacts.pairs.major,
             &buffers.contacts.pairs.minor,
         );
-        sort.sort(
+        sort.sort(recorder, &channels, words, words, pairs);
+        self.narrowphase.record_stride(recorder, pairs);
+        self.compact_scan.record_workgroups(
             recorder,
-            &channels,
-            words,
-            words,
-            &buffers.dispatch,
-            SORT_PAIRS,
+            pairs.div_ceil(COMPACT_BLOCK).min(MAX_GRID_WORKGROUPS),
         );
-        self.narrowphase
-            .record_indirect(recorder, &buffers.dispatch, NARROWPHASE);
-        self.compact_scan
-            .record_indirect(recorder, &buffers.dispatch, COMPACT_SCAN);
         self.compact_offsets.record_workgroups(recorder, 1);
-        self.compact_scatter
-            .record_indirect(recorder, &buffers.dispatch, COMPACT_SCATTER);
+        self.compact_scatter.record_stride(recorder, pairs);
     }
 }

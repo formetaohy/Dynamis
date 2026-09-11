@@ -5,7 +5,6 @@ mod broadphase;
 mod ccd;
 mod commands;
 mod commit;
-mod dispatch;
 mod grid;
 mod integrate;
 mod islands;
@@ -30,19 +29,12 @@ use broadphase::Broadphase;
 use ccd::Ccd;
 use commands::Commands;
 use commit::Commit;
-use dispatch::{Dispatch, SORT_ENTRIES};
 use grid::Grid;
 use integrate::Integrate;
 use islands::Islands;
 use narrowphase::Narrowphase;
 use sleep::Sleep;
 use solver::Solver;
-
-pub(crate) use dispatch::DISPATCH_SLOTS;
-use dispatch::{
-    BROADPHASE_BATCH, COMMANDS_BATCH, COMMIT_BATCH, GRID_BATCH, ISLANDS_BATCH,
-    RESTING_GATHER_BATCH, RESTING_SORT_BATCH, SOLVER_BATCH,
-};
 
 macro_rules! passes {
     ($($variant:ident => $label:literal),+ $(,)?) => {
@@ -105,7 +97,6 @@ pub(crate) struct Pipeline {
     ccd: Ccd,
     solver: Solver,
     commit: Commit,
-    dispatch: Dispatch,
     sort: RadixSort,
     #[cfg(feature = "profile")]
     timer: Option<GpuTimer>,
@@ -136,7 +127,6 @@ impl Pipeline {
             ccd: Ccd::build(context, buffers, per_row),
             solver: Solver::build(context, buffers, per_row),
             commit: Commit::build(context, buffers, per_row),
-            dispatch: Dispatch::build(context, buffers, per_row),
             sort,
             #[cfg(feature = "profile")]
             timer,
@@ -166,12 +156,8 @@ impl Pipeline {
         let mut commands = self.open(encoder, Pass::Commands);
         self.commands.record(&mut commands, params);
         drop(commands);
-        self.dispatch.write(encoder, COMMANDS_BATCH);
 
-        if idle {
-            self.dispatch.write(encoder, ISLANDS_BATCH);
-            self.dispatch.write(encoder, COMMIT_BATCH);
-        } else {
+        if !idle {
             let mut integrate = self.open(encoder, Pass::Integrate);
             self.integrate
                 .record(&mut integrate, buffers, params, &self.sort);
@@ -180,19 +166,16 @@ impl Pipeline {
             let mut grid = self.open(encoder, Pass::Grid);
             self.grid.record(&mut grid, params.body_count);
             drop(grid);
-            self.dispatch.write(encoder, GRID_BATCH);
 
             let mut broadphase = self.open(encoder, Pass::Broadphase);
             self.broadphase
                 .record(&mut broadphase, buffers, params, &self.sort);
             drop(broadphase);
-            self.dispatch.write(encoder, BROADPHASE_BATCH);
 
             let mut narrowphase = self.open(encoder, Pass::Narrowphase);
             self.narrowphase
                 .record(&mut narrowphase, buffers, &self.sort);
             drop(narrowphase);
-            self.dispatch.write(encoder, ISLANDS_BATCH);
 
             let mut islands = self.open(encoder, Pass::Islands);
             self.islands.record(&mut islands, buffers, params);
@@ -201,7 +184,6 @@ impl Pipeline {
             let mut prepare = self.open(encoder, Pass::SolverPrepare);
             self.solver.record_prepare(&mut prepare, params.body_count);
             drop(prepare);
-            self.dispatch.write(encoder, SOLVER_BATCH);
 
             let mut solver = self.open(encoder, Pass::Solver);
             self.solver.record(&mut solver, buffers, params, &self.sort);
@@ -217,17 +199,14 @@ impl Pipeline {
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);
             drop(sleep);
-            self.dispatch.write(encoder, COMMIT_BATCH);
         }
         let mut commit = self.open(encoder, Pass::Commit);
         self.commit.record(&mut commit, buffers, params);
         drop(commit);
         if !idle {
-            self.dispatch.write(encoder, RESTING_GATHER_BATCH);
             let mut gather = self.open(encoder, Pass::RestingGather);
             self.commit.record_gather(&mut gather, buffers);
             drop(gather);
-            self.dispatch.write(encoder, RESTING_SORT_BATCH);
             let mut index = self.open(encoder, Pass::RestingIndex);
             self.commit.record_index(&mut index, buffers, &self.sort);
             drop(index);
@@ -249,7 +228,6 @@ impl Pipeline {
             .record_broadphase(&mut commands, frame.dynamic_count);
         self.grid.record(&mut commands, frame.body_count);
         drop(commands);
-        self.dispatch.write(encoder, GRID_BATCH);
 
         let mut flush = ComputeRecorder::begin(encoder, "query flush", self.per_row);
         let channels = buffers.sort_lanes(
@@ -258,7 +236,7 @@ impl Pipeline {
             &buffers.contacts.entries.colliders,
         );
         self.sort
-            .sort(&mut flush, &channels, 4, 0, &buffers.dispatch, SORT_ENTRIES);
+            .sort(&mut flush, &channels, 4, 0, buffers.entry_capacity());
         self.commit.record_query(&mut flush, frame.query_count);
     }
 }

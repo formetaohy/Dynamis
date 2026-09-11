@@ -9,14 +9,17 @@ const TILE_SIZE: u32 = 256u;
 const SHIFT: u32 = __SHIFT__u;
 
 @compute @workgroup_size(TILE_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (__ROW__ * TILE_SIZE) + gid.x;
+fn main(@builtin(workgroup_id) wgid: vec3u, @builtin(num_workgroups) groups: vec3u, @builtin(local_invocation_id) lid: vec3u) {
     let length = min(count_holder[0], arrayLength(&keys_lo));
-    if (index >= length) {
-        return;
+    let tiles = groups.x * groups.y;
+    for (var tile = wgid.y * __ROW__ + wgid.x; tile * TILE_SIZE < length; tile = tile + tiles) {
+        let index = tile * TILE_SIZE + lid.x;
+        if (index >= length) {
+            continue;
+        }
+        let key = select(keys_hi[index], keys_lo[index], SHIFT < 32u);
+        let digit = (key >> (SHIFT & 31u)) & 0xFFu;
+        atomicAdd(&histogram[digit], 1u);
+        atomicAdd(&block_histogram[tile * BIN_COUNT + digit], 1u);
     }
-    let key = select(keys_hi[index], keys_lo[index], SHIFT < 32u);
-    let digit = (key >> (SHIFT & 31u)) & 0xFFu;
-    atomicAdd(&histogram[digit], 1u);
-    atomicAdd(&block_histogram[(index / TILE_SIZE) * BIN_COUNT + digit], 1u);
 }

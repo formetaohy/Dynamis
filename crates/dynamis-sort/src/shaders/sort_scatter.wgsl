@@ -17,37 +17,41 @@ var<workgroup> local_rank: array<u32, TILE_SIZE>;
 var<workgroup> bin_count: array<atomic<u32>, BIN_COUNT>;
 
 @compute @workgroup_size(TILE_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-    let index = gid.y * (__ROW__ * TILE_SIZE) + gid.x;
+fn main(@builtin(workgroup_id) wgid: vec3u, @builtin(num_workgroups) groups: vec3u, @builtin(local_invocation_id) lid: vec3u) {
+    let length = min(count_holder[0], arrayLength(&keys_lo));
+    let tiles = groups.x * groups.y;
     let lane = lid.x;
-    bin_count[lane] = 0u;
-    workgroupBarrier();
-    let valid = index < min(count_holder[0], arrayLength(&keys_lo));
-    var digit = 0u;
-    if (valid) {
-        let key = select(keys_hi[index], keys_lo[index], SHIFT < 32u);
-        digit = (key >> (SHIFT & 31u)) & 0xFFu;
-        digit_map[lane] = digit;
-        atomicAdd(&bin_count[digit], 1u);
-    } else {
-        digit_map[lane] = 0xFFFFFFFFu;
-    }
-    workgroupBarrier();
-    let scan_digit = lid.x;
-    var rank = 0u;
-    for (var lane_i = 0u; lane_i < TILE_SIZE; lane_i = lane_i + 1u) {
-        if (digit_map[lane_i] == scan_digit) {
-            local_rank[lane_i] = rank;
-            rank = rank + 1u;
+    for (var tile = wgid.y * __ROW__ + wgid.x; tile * TILE_SIZE < length; tile = tile + tiles) {
+        let index = tile * TILE_SIZE + lane;
+        bin_count[lane] = 0u;
+        workgroupBarrier();
+        let valid = index < length;
+        var digit = 0u;
+        if (valid) {
+            let key = select(keys_hi[index], keys_lo[index], SHIFT < 32u);
+            digit = (key >> (SHIFT & 31u)) & 0xFFu;
+            digit_map[lane] = digit;
+            atomicAdd(&bin_count[digit], 1u);
+        } else {
+            digit_map[lane] = 0xFFFFFFFFu;
         }
-    }
-    workgroupBarrier();
-    if (valid) {
-        let block = index / TILE_SIZE;
-        let out_index = block_prefix[block * BIN_COUNT + digit] + local_rank[lane];
-        keys_lo_out[out_index] = keys_lo[index];
-        keys_hi_out[out_index] = keys_hi[index];
-        payload_out[out_index] = payload[index];
-        atomicStore(&histogram[digit], 0u);
+        workgroupBarrier();
+        let scan_digit = lid.x;
+        var rank = 0u;
+        for (var lane_i = 0u; lane_i < TILE_SIZE; lane_i = lane_i + 1u) {
+            if (digit_map[lane_i] == scan_digit) {
+                local_rank[lane_i] = rank;
+                rank = rank + 1u;
+            }
+        }
+        workgroupBarrier();
+        if (valid) {
+            let out_index = block_prefix[tile * BIN_COUNT + digit] + local_rank[lane];
+            keys_lo_out[out_index] = keys_lo[index];
+            keys_hi_out[out_index] = keys_hi[index];
+            payload_out[out_index] = payload[index];
+            atomicStore(&histogram[digit], 0u);
+        }
+        workgroupBarrier();
     }
 }

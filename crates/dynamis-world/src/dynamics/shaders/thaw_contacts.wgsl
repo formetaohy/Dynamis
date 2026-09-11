@@ -46,29 +46,29 @@ fn release(index: u32) {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&resting_count[0]), arrayLength(&resting_live))) {
-        return;
-    }
-    if (resting_live[index] == 0u) {
-        return;
-    }
-    let contact = resting[index];
-    let first_row = resolve_row(contact.first_body_id, contact.first_generation);
-    let second_row = resolve_row(contact.second_body_id, contact.second_generation);
-    if (first_row == NO_BODY || second_row == NO_BODY) {
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        if (resting_live[index] == 0u) {
+            continue;
+        }
+        let contact = resting[index];
+        let first_row = resolve_row(contact.first_body_id, contact.first_generation);
+        let second_row = resolve_row(contact.second_body_id, contact.second_generation);
+        if (first_row == NO_BODY || second_row == NO_BODY) {
+            release(index);
+            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+            continue;
+        }
+        if (body_activity[first_row] == 0u && body_activity[second_row] == 0u) {
+            continue;
+        }
         release(index);
+        let key = contact_row_key(contact, first_row, second_row);
+        if (current_holds(key.x, key.y)) {
+            continue;
+        }
         announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
-        return;
     }
-    if (body_activity[first_row] == 0u && body_activity[second_row] == 0u) {
-        return;
-    }
-    release(index);
-    let key = contact_row_key(contact, first_row, second_row);
-    if (current_holds(key.x, key.y)) {
-        return;
-    }
-    announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
 }

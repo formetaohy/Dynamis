@@ -1,5 +1,4 @@
 use super::FrameParams;
-use super::dispatch::{BROADPHASE_PAIRS, SORT_ENTRIES};
 use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -67,9 +66,9 @@ impl Broadphase {
             &buffers.contacts.entries.cells,
             &buffers.contacts.entries.colliders,
         );
-        sort.sort(recorder, &channels, 4, 0, &buffers.dispatch, SORT_ENTRIES);
+        sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
         self.broadphase_pairs
-            .record_indirect(recorder, &buffers.dispatch, BROADPHASE_PAIRS);
+            .record_stride(recorder, buffers.entry_capacity());
         self.large_pairs.record(recorder, params.body_count);
     }
 }

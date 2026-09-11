@@ -61,26 +61,25 @@ fn store_block_delta(slot: u32, delta_a: vec3f, spin_a: vec3f, delta_b: vec3f, s
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let slot = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    if (slot >= contact_blocks + segments[SOLVER_BLOCK_CONSTRAINT]) {
-        return;
-    }
-    let block = a_payload[slot];
-    if (block < contact_blocks) {
-        solve_contact_block(block, slot);
-    } else {
-        solve_constraint_block(block - contact_blocks, slot);
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+    let stride = grid_stride(groups);
+    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
+        let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
+        let block = a_payload[slot];
+        if (block < contact_blocks) {
+            solve_contact_block(block, slot);
+        } else {
+            solve_constraint_block(block - contact_blocks, slot);
+        }
     }
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn warm(@builtin(global_invocation_id) gid: vec3u) {
-    let slot = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    if (slot >= contact_blocks) {
-        return;
+fn warm(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = segments[SOLVER_BLOCK_CONTACT];
+    let stride = grid_stride(groups);
+    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
+        warm_contact_block(a_payload[slot], slot);
     }
-    warm_contact_block(a_payload[slot], slot);
 }

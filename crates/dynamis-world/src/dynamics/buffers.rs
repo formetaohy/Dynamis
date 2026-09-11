@@ -1,5 +1,5 @@
 use crate::dynamics::capacity::{Reservation, ShapeReservation};
-use dynamis_gpu::{DispatchTable, GpuBuffer, GpuSlot, ReadbackRing};
+use dynamis_gpu::{GpuBuffer, GpuSlot, ReadbackRing};
 use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
@@ -175,7 +175,6 @@ pub(crate) struct WorldBuffers {
 
     pub(crate) counters: GpuBuffer,
 
-    pub(crate) dispatch: DispatchTable,
     pub(crate) bodies: BodyBuffers,
     pub(crate) constraints: ConstraintBuffers,
     pub(crate) contacts: ContactBuffers,
@@ -241,7 +240,6 @@ impl WorldBuffers {
                 BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             ),
             counters: GpuBuffer::zeroed(device, "world counters", COUNTER_BYTES, STREAM),
-            dispatch: DispatchTable::new(device, "world dispatch", crate::dynamics::DISPATCH_SLOTS),
             bodies: BodyBuffers {
                 states: rows("body states", bodies, size_of::<BodyStateRecord>() as u64),
                 activity: lanes("body activity", bodies),
@@ -384,6 +382,37 @@ impl WorldBuffers {
         }
     }
 
+    pub(crate) fn constraint_capacity(&self) -> u32 {
+        rows_of(
+            &self.constraints.runtime,
+            size_of::<ConstraintRuntimeRecord>() as u64,
+        )
+    }
+
+    pub(crate) fn entry_capacity(&self) -> u32 {
+        lanes_of(&self.contacts.entries.cells)
+    }
+
+    pub(crate) fn pair_capacity(&self) -> u32 {
+        lanes_of(&self.contacts.pairs.major)
+    }
+
+    pub(crate) fn contact_capacity(&self) -> u32 {
+        rows_of(&self.contacts.manifolds, size_of::<ContactRecord>() as u64)
+    }
+
+    pub(crate) fn archive_capacity(&self) -> u32 {
+        rows_of(&self.contacts.archive, size_of::<ContactRecord>() as u64)
+    }
+
+    pub(crate) fn resting_capacity(&self) -> u32 {
+        rows_of(&self.contacts.resting, size_of::<ContactRecord>() as u64)
+    }
+
+    pub(crate) fn block_capacity(&self) -> u32 {
+        lanes_of(&self.solver.a_payload)
+    }
+
     pub(crate) fn counter(&self, slot: usize) -> GpuSlot<'_> {
         GpuSlot::range(&self.counters, slot as u64 * COUNTER_STRIDE, 4)
     }
@@ -471,4 +500,12 @@ impl WorldBuffers {
             scratch_payload: &self.sort.scratch.payload,
         }
     }
+}
+
+fn lanes_of(buffer: &GpuBuffer) -> u32 {
+    (buffer.size() / 4) as u32
+}
+
+fn rows_of(buffer: &GpuBuffer, stride: u64) -> u32 {
+    (buffer.size() / stride) as u32
 }

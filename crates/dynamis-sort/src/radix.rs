@@ -1,10 +1,11 @@
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, DispatchTable, GpuBuffer,
-    GpuContext, GpuSlot, PipelineHandle,
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
+    PipelineHandle,
 };
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
+const MAX_TILES: u32 = 4096;
 const BINS: u32 = 256;
 const PASSES: usize = 8;
 
@@ -283,8 +284,7 @@ impl RadixSort {
         bindings: &SortBindGroups,
         major_words: u32,
         minor_words: u32,
-        table: &DispatchTable,
-        slot: u32,
+        elements: u32,
     ) {
         let mut passes = (0..minor_words)
             .chain(4..4 + major_words)
@@ -297,25 +297,24 @@ impl RadixSort {
             let last = *passes.last().expect("a sort runs at least one pass");
             passes.push(last);
         }
+        let workgroups = elements.div_ceil(THREADS).min(MAX_TILES);
         for (order, pass) in passes.iter().enumerate() {
             let parity = order % 2;
             let pass = *pass as usize;
-            recorder.record_indirect(
+            recorder.record(
                 self.histogram_pipelines[pass].pipeline(),
                 &[&bindings.histogram[parity]],
-                table,
-                slot,
+                workgroups,
             );
             recorder.record(
                 self.prefix_pipeline.pipeline(),
                 &[&bindings.prefix],
                 THREADS,
             );
-            recorder.record_indirect(
+            recorder.record(
                 self.scatter_pipelines[pass].pipeline(),
                 &[&bindings.scatter[parity]],
-                table,
-                slot,
+                workgroups,
             );
         }
     }
@@ -344,11 +343,10 @@ impl RadixSort {
         channels: &SortChannels<'_>,
         major_words: u32,
         minor_words: u32,
-        table: &DispatchTable,
-        slot: u32,
+        elements: u32,
     ) {
         self.with_bindings(&self.device, channels, |bindings| {
-            self.encode_passes(recorder, bindings, major_words, minor_words, table, slot)
+            self.encode_passes(recorder, bindings, major_words, minor_words, elements)
         })
     }
 }

@@ -1,5 +1,4 @@
 use super::FrameParams;
-use super::dispatch::SORT_JOINTS;
 use super::stage::{CORE, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -84,8 +83,7 @@ impl Integrate {
                 &channels,
                 words,
                 words,
-                &buffers.dispatch,
-                SORT_JOINTS,
+                buffers.constraint_capacity(),
             );
         }
         self.integrate.record(recorder, params.dynamic_count);

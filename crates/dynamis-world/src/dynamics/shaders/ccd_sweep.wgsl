@@ -64,34 +64,33 @@ fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, othe
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_major))) {
-        return;
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {    let live = min(atomicLoad(&pair_count[0]), arrayLength(&pair_major));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
+            continue;
+        }
+        let first_slot = pair_major[index];
+        let second_slot = pair_minor[index];
+        let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
+        let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
+        if (first_body_slot == second_body_slot) {
+            continue;
+        }
+        let first = load_body(first_body_slot);
+        let second = load_body(second_body_slot);
+        if (body_is_static(first) && body_is_static(second)) {
+            continue;
+        }
+        let first_collider = colliders[first_slot];
+        let second_collider = colliders[second_slot];
+        if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+            continue;
+        }
+        if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
+            continue;
+        }
+        retreat(first_body_slot, first, first_collider, second, second_collider);
+        retreat(second_body_slot, second, second_collider, first, first_collider);
     }
-    if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
-        return;
-    }
-    let first_slot = pair_major[index];
-    let second_slot = pair_minor[index];
-    let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
-    let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
-    if (first_body_slot == second_body_slot) {
-        return;
-    }
-    let first = load_body(first_body_slot);
-    let second = load_body(second_body_slot);
-    if (body_is_static(first) && body_is_static(second)) {
-        return;
-    }
-    let first_collider = colliders[first_slot];
-    let second_collider = colliders[second_slot];
-    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
-        return;
-    }
-    if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
-        return;
-    }
-    retreat(first_body_slot, first, first_collider, second, second_collider);
-    retreat(second_body_slot, second, second_collider, first, first_collider);
 }

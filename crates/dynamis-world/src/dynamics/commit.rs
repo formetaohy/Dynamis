@@ -1,7 +1,4 @@
 use super::FrameParams;
-use super::dispatch::{
-    CONTACT_ARCHIVE, FREEZE_CONTACTS, RESTING_GATHER, SORT_RESTING, THAW_CONTACTS,
-};
 use super::stage::{
     CONTACT, CORE, GEOMETRY, IDENTITY, RO, RW, Stage, UNIFORM, shape_resources, whole,
 };
@@ -177,14 +174,13 @@ impl Commit {
         buffers: &WorldBuffers,
         params: &FrameParams,
     ) {
+        let contacts = buffers.contact_capacity();
         self.thaw_contacts
-            .record_indirect(recorder, &buffers.dispatch, THAW_CONTACTS);
-        self.contact_archive
-            .record_indirect(recorder, &buffers.dispatch, CONTACT_ARCHIVE);
+            .record_stride(recorder, buffers.resting_capacity());
+        self.contact_archive.record_stride(recorder, contacts);
         self.archive_count_sync.record_workgroups(recorder, 1);
         self.static_wake_clear.record(recorder, params.body_count);
-        self.freeze_contacts
-            .record_indirect(recorder, &buffers.dispatch, FREEZE_CONTACTS);
+        self.freeze_contacts.record_stride(recorder, contacts);
         if params.query_count > 0 {
             self.record_query(recorder, params.query_count);
         }
@@ -192,7 +188,7 @@ impl Commit {
 
     pub(super) fn record_gather(&self, recorder: &mut ComputeRecorder, buffers: &WorldBuffers) {
         self.resting_gather
-            .record_indirect(recorder, &buffers.dispatch, RESTING_GATHER);
+            .record_stride(recorder, buffers.resting_capacity());
     }
 
     pub(super) fn record_index(
@@ -214,8 +210,7 @@ impl Commit {
             &channels,
             words,
             words,
-            &buffers.dispatch,
-            SORT_RESTING,
+            buffers.resting_capacity(),
         );
     }
 }

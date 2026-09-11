@@ -41,8 +41,8 @@ fn pair_joined(first_body: u32, second_body: u32) -> bool {
 }
 
 fn sphere_sphere(
-    first: Body, first_collider: Collider,
-    second: Body, second_collider: Collider,
+first: Body, first_collider: Collider,
+second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let first_center = box_center(first.state, first_collider);
@@ -90,8 +90,8 @@ fn box_nearest_face(point: vec3f, box_body: Body, box_collider: Collider) -> Box
 }
 
 fn sphere_box(
-    sphere: Body, sphere_collider: Collider,
-    box_body: Body, box_collider: Collider,
+sphere: Body, sphere_collider: Collider,
+box_body: Body, box_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let center = sphere.state.position + quat_rotate(sphere.state.orientation, sphere_collider.local_offset);
@@ -123,8 +123,8 @@ fn capsule_segment(body: Body, collider: Collider) -> Segment {
 }
 
 fn sphere_capsule(
-    sphere: Body, sphere_collider: Collider,
-    capsule: Body, capsule_collider: Collider,
+sphere: Body, sphere_collider: Collider,
+capsule: Body, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let seg = capsule_segment(capsule, capsule_collider);
@@ -186,8 +186,8 @@ fn closest_points_segments(a0: vec3f, a1: vec3f, b0: vec3f, b1: vec3f) -> Segmen
 }
 
 fn capsule_capsule(
-    first: Body, first_collider: Collider,
-    second: Body, second_collider: Collider,
+first: Body, first_collider: Collider,
+second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let seg_a = capsule_segment(first, first_collider);
@@ -289,8 +289,8 @@ fn box_geometry(body: Body, collider: Collider) -> BoxGeometry {
 
 fn support_radius(geometry: BoxGeometry, axis: vec3f) -> f32 {
     return abs(dot(geometry.axes[0], axis)) * geometry.half_extents.x
-        + abs(dot(geometry.axes[1], axis)) * geometry.half_extents.y
-        + abs(dot(geometry.axes[2], axis)) * geometry.half_extents.z;
+    + abs(dot(geometry.axes[1], axis)) * geometry.half_extents.y
+    + abs(dot(geometry.axes[2], axis)) * geometry.half_extents.z;
 }
 
 fn face_overlap(face: BoxGeometry, other: BoxGeometry, axis_index: u32, delta: vec3f) -> f32 {
@@ -303,8 +303,8 @@ fn edge_overlap(left: BoxGeometry, right: BoxGeometry, axis: vec3f, delta: vec3f
 }
 
 fn box_box_sat(
-    first: Body, first_collider: Collider,
-    second: Body, second_collider: Collider,
+first: Body, first_collider: Collider,
+second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let left = box_geometry(first, first_collider);
@@ -345,7 +345,7 @@ fn box_box_sat(
         }
     }
     let extent = max(max(left.half_extents.x, left.half_extents.y), left.half_extents.z)
-        + max(max(right.half_extents.x, right.half_extents.y), right.half_extents.z);
+    + max(max(right.half_extents.x, right.half_extents.y), right.half_extents.z);
     let edge_axis_separates = edge_depth + FACE_AXIS_BIAS * extent < face_depth;
     let depth = select(face_depth, edge_depth, edge_axis_separates);
     if (depth <= 0.0) {
@@ -435,8 +435,8 @@ fn box_box_sat(
 }
 
 fn box_capsule(
-    box_body: Body, box_collider: Collider,
-    capsule: Body, capsule_collider: Collider,
+box_body: Body, box_collider: Collider,
+capsule: Body, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     let seg = capsule_segment(capsule, capsule_collider);
@@ -519,140 +519,80 @@ fn scaled_shape(collider: Collider) -> bool {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&pair_count[0]), arrayLength(&pair_major))) {
-        return;
-    }
-    contact_valid[index] = 0u;
-    if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
-        return;
-    }
-    let first_slot = pair_major[index];
-    let second_slot = pair_minor[index];
-    let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
-    let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
-    let first = load_body(first_body_slot);
-    let second = load_body(second_body_slot);
-    if (first_body_slot == second_body_slot) {
-        return;
-    }
-    if (body_is_static(first) && body_is_static(second)) {
-        return;
-    }
-    let first_collider = colliders[first_slot];
-    let second_collider = colliders[second_slot];
-    if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
-        return;
-    }
-    if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
-        return;
-    }
-    if (pair_joined(first_body_slot, second_body_slot)) {
-        return;
-    }
-    var contact: Contact;
-    var generated = false;
-    let sensor = collider_is_sensor(first_collider) || collider_is_sensor(second_collider);
-    let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD || first_collider.kind == SHAPE_PLANE;
-    let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD || second_collider.kind == SHAPE_PLANE;
-    if (first_world_geom && second_world_geom) {
-        return;
-    }
-    if (first_world_geom) {
-        let world_second = world_collider(second.state, second_collider);
-        if (first_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(first.state, first_collider);
-            contact = plane_convex(world_plane, world_second);
-            generated = contact.point_count > 0u;
-        } else {
-            let hit = scene_convex_hit(first_collider.source, first_collider.scale, world_second);
-            if (hit.distance <= 0.0) {
-                manifold_emit(&contact, hit.normal);
-                generated = true;
-                if (!scene_convex_manifold(first_collider.source, first_collider.scale, world_second, &contact)) {
-                    manifold_from_hit(&contact, hit);
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {    let live = min(atomicLoad(&pair_count[0]), arrayLength(&pair_major));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        contact_valid[index] = 0u;
+        if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
+            continue;
+        }
+        let first_slot = pair_major[index];
+        let second_slot = pair_minor[index];
+        let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
+        let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
+        let first = load_body(first_body_slot);
+        let second = load_body(second_body_slot);
+        if (first_body_slot == second_body_slot) {
+            continue;
+        }
+        if (body_is_static(first) && body_is_static(second)) {
+            continue;
+        }
+        let first_collider = colliders[first_slot];
+        let second_collider = colliders[second_slot];
+        if (first_collider.kind == SHAPE_NONE || second_collider.kind == SHAPE_NONE) {
+            continue;
+        }
+        if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
+            continue;
+        }
+        if (pair_joined(first_body_slot, second_body_slot)) {
+            continue;
+        }
+        var contact: Contact;
+        var generated = false;
+        let sensor = collider_is_sensor(first_collider) || collider_is_sensor(second_collider);
+        let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD || first_collider.kind == SHAPE_PLANE;
+        let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD || second_collider.kind == SHAPE_PLANE;
+        if (first_world_geom && second_world_geom) {
+            continue;
+        }
+        if (first_world_geom) {
+            let world_second = world_collider(second.state, second_collider);
+            if (first_collider.kind == SHAPE_PLANE) {
+                let world_plane = world_collider(first.state, first_collider);
+                contact = plane_convex(world_plane, world_second);
+                generated = contact.point_count > 0u;
+            } else {
+                let hit = scene_convex_hit(first_collider.source, first_collider.scale, world_second);
+                if (hit.distance <= 0.0) {
+                    manifold_emit(&contact, hit.normal);
+                    generated = true;
+                    if (!scene_convex_manifold(first_collider.source, first_collider.scale, world_second, &contact)) {
+                        manifold_from_hit(&contact, hit);
+                    }
                 }
             }
-        }
-    } else if (second_world_geom) {
-        let world_first = world_collider(first.state, first_collider);
-        if (second_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(second.state, second_collider);
-            let swapped = plane_convex(world_plane, world_first);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = contact.point_count > 0u;
-        } else {
-            let hit = scene_convex_hit(second_collider.source, second_collider.scale, world_first);
-            if (hit.distance <= 0.0) {
-                manifold_emit(&contact, -hit.normal);
-                generated = true;
-                if (!scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &contact)) {
-                    let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
-                    manifold_from_hit(&contact, reversed_hit);
+        } else if (second_world_geom) {
+            let world_first = world_collider(first.state, first_collider);
+            if (second_collider.kind == SHAPE_PLANE) {
+                let world_plane = world_collider(second.state, second_collider);
+                let swapped = plane_convex(world_plane, world_first);
+                contact = swapped;
+                contact.normal = -contact.normal;
+                generated = contact.point_count > 0u;
+            } else {
+                let hit = scene_convex_hit(second_collider.source, second_collider.scale, world_first);
+                if (hit.distance <= 0.0) {
+                    manifold_emit(&contact, -hit.normal);
+                    generated = true;
+                    if (!scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &contact)) {
+                        let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
+                        manifold_from_hit(&contact, reversed_hit);
+                    }
                 }
             }
-        }
-    } else if (scaled_shape(first_collider) || scaled_shape(second_collider)) {
-        let world_first = world_collider(first.state, first_collider);
-        let world_second = world_collider(second.state, second_collider);
-        let hit = convex_hit(world_first, world_second);
-        if (hit.distance <= 0.0) {
-            manifold_emit(&contact, hit.normal);
-            generated = true;
-            if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
-                manifold_from_hit(&contact, hit);
-            }
-        }
-    } else if (first_collider.kind == SHAPE_CYLINDER || first_collider.kind == SHAPE_HULL || second_collider.kind == SHAPE_CYLINDER || second_collider.kind == SHAPE_HULL) {
-        let world_first = world_collider(first.state, first_collider);
-        let world_second = world_collider(second.state, second_collider);
-        let hit = convex_hit(world_first, world_second);
-        if (hit.distance <= 0.0) {
-            manifold_emit(&contact, hit.normal);
-            generated = true;
-            if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
-                manifold_from_hit(&contact, hit);
-            }
-        }
-    } else {
-        let shape_a = first_collider.kind;
-        let shape_b = second_collider.kind;
-        if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_SPHERE) {
-            contact = sphere_sphere(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CUBOID) {
-            contact = sphere_box(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CAPSULE) {
-            contact = sphere_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_SPHERE) {
-            let swapped = sphere_box(second, second_collider, first, first_collider);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CUBOID) {
-            contact = box_box_sat(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CAPSULE) {
-            contact = box_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_SPHERE) {
-            let swapped = sphere_capsule(second, second_collider, first, first_collider);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CUBOID) {
-            let swapped = box_capsule(second, second_collider, first, first_collider);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
-            contact = capsule_capsule(first, first_collider, second, second_collider);
-            generated = true;
-        } else {
+        } else if (scaled_shape(first_collider) || scaled_shape(second_collider)) {
             let world_first = world_collider(first.state, first_collider);
             let world_second = world_collider(second.state, second_collider);
             let hit = convex_hit(world_first, world_second);
@@ -663,25 +603,84 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     manifold_from_hit(&contact, hit);
                 }
             }
+        } else if (first_collider.kind == SHAPE_CYLINDER || first_collider.kind == SHAPE_HULL || second_collider.kind == SHAPE_CYLINDER || second_collider.kind == SHAPE_HULL) {
+            let world_first = world_collider(first.state, first_collider);
+            let world_second = world_collider(second.state, second_collider);
+            let hit = convex_hit(world_first, world_second);
+            if (hit.distance <= 0.0) {
+                manifold_emit(&contact, hit.normal);
+                generated = true;
+                if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
+                    manifold_from_hit(&contact, hit);
+                }
+            }
+        } else {
+            let shape_a = first_collider.kind;
+            let shape_b = second_collider.kind;
+            if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_SPHERE) {
+                contact = sphere_sphere(first, first_collider, second, second_collider);
+                generated = true;
+            } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CUBOID) {
+                contact = sphere_box(first, first_collider, second, second_collider);
+                generated = true;
+            } else if (shape_a == SHAPE_SPHERE && shape_b == SHAPE_CAPSULE) {
+                contact = sphere_capsule(first, first_collider, second, second_collider);
+                generated = true;
+            } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_SPHERE) {
+                let swapped = sphere_box(second, second_collider, first, first_collider);
+                contact = swapped;
+                contact.normal = -contact.normal;
+                generated = true;
+            } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CUBOID) {
+                contact = box_box_sat(first, first_collider, second, second_collider);
+                generated = true;
+            } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CAPSULE) {
+                contact = box_capsule(first, first_collider, second, second_collider);
+                generated = true;
+            } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_SPHERE) {
+                let swapped = sphere_capsule(second, second_collider, first, first_collider);
+                contact = swapped;
+                contact.normal = -contact.normal;
+                generated = true;
+            } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CUBOID) {
+                let swapped = box_capsule(second, second_collider, first, first_collider);
+                contact = swapped;
+                contact.normal = -contact.normal;
+                generated = true;
+            } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
+                contact = capsule_capsule(first, first_collider, second, second_collider);
+                generated = true;
+            } else {
+                let world_first = world_collider(first.state, first_collider);
+                let world_second = world_collider(second.state, second_collider);
+                let hit = convex_hit(world_first, world_second);
+                if (hit.distance <= 0.0) {
+                    manifold_emit(&contact, hit.normal);
+                    generated = true;
+                    if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
+                        manifold_from_hit(&contact, hit);
+                    }
+                }
+            }
         }
-    }
-    if (!generated) {
-        return;
-    }
-    contact.a = first_slot;
-    contact.b = second_slot;
-    contact.sensor = select(0u, 1u, sensor);
-    contact.first_body_id = first.state.body_id;
-    contact.second_body_id = second.state.body_id;
-    contact.first_generation = first.state.generation;
-    contact.second_generation = second.state.generation;
-    contact.friction = material_combine(first_collider.friction, second_collider.friction, params.friction_combine);
-    contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
-    contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);
-    contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
-    contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
-    if (contact.point_count > 0u) {
-        contacts_raw[index] = contact;
-        contact_valid[index] = 1u;
+        if (!generated) {
+            continue;
+        }
+        contact.a = first_slot;
+        contact.b = second_slot;
+        contact.sensor = select(0u, 1u, sensor);
+        contact.first_body_id = first.state.body_id;
+        contact.second_body_id = second.state.body_id;
+        contact.first_generation = first.state.generation;
+        contact.second_generation = second.state.generation;
+        contact.friction = material_combine(first_collider.friction, second_collider.friction, params.friction_combine);
+        contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
+        contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);
+        contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
+        contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
+        if (contact.point_count > 0u) {
+            contacts_raw[index] = contact;
+            contact_valid[index] = 1u;
+        }
     }
 }

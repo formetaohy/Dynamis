@@ -16,16 +16,16 @@ fn store_block_correction(slot: u32, first: vec3f, second: vec3f) {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let slot = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    if (slot >= contact_blocks + segments[SOLVER_BLOCK_CONSTRAINT]) {
-        return;
-    }
-    let block = a_payload[slot];
-    if (block < contact_blocks) {
-        solve_contact_correction(block, slot);
-    } else {
-        store_block_correction(slot, vec3f(0.0), vec3f(0.0));
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+    let stride = grid_stride(groups);
+    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
+        let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
+        let block = a_payload[slot];
+        if (block < contact_blocks) {
+            solve_contact_correction(block, slot);
+        } else {
+            store_block_correction(slot, vec3f(0.0), vec3f(0.0));
+        }
     }
 }

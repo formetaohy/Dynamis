@@ -27,23 +27,23 @@ fn acquire_slot() -> u32 {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&contact_count[0]), arrayLength(&contacts))) {
-        return;
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        let contact = contacts[index];
+        let first = contact.a / MAX_COLLIDERS_PER_BODY;
+        let second = contact.b / MAX_COLLIDERS_PER_BODY;
+        if (body_is_active(body_states[first], body_descs[first]) ||
+            body_is_active(body_states[second], body_descs[second])) {
+            continue;
+        }
+        let slot = acquire_slot();
+        if (slot >= arrayLength(&resting)) {
+            atomicAdd(&spillover[0], 1u);
+            continue;
+        }
+        resting[slot] = contact;
+        resting_live[slot] = 1u;
     }
-    let contact = contacts[index];
-    let first = contact.a / MAX_COLLIDERS_PER_BODY;
-    let second = contact.b / MAX_COLLIDERS_PER_BODY;
-    if (body_is_active(body_states[first], body_descs[first]) ||
-        body_is_active(body_states[second], body_descs[second])) {
-        return;
-    }
-    let slot = acquire_slot();
-    if (slot >= arrayLength(&resting)) {
-        atomicAdd(&spillover[0], 1u);
-        return;
-    }
-    resting[slot] = contact;
-    resting_live[slot] = 1u;
 }

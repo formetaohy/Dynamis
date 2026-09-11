@@ -1,4 +1,3 @@
-use super::dispatch::CCD_SWEEP;
 use super::stage::{GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -33,6 +32,6 @@ impl Ccd {
 
     pub(super) fn record(&self, recorder: &mut ComputeRecorder, buffers: &WorldBuffers) {
         self.ccd_sweep
-            .record_indirect(recorder, &buffers.dispatch, CCD_SWEEP);
+            .record_stride(recorder, buffers.pair_capacity());
     }
 }

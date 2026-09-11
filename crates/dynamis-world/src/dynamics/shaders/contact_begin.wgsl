@@ -38,22 +38,22 @@ fn resting_slot(contact: Contact) -> u32 {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(atomicLoad(&contact_count[0]), arrayLength(&contacts))) {
-        return;
-    }
-    if (contact_matched[index] != 0u) {
-        return;
-    }
-    let contact = contacts[index];
-    let slot = resting_slot(contact);
-    if (slot != NO_SLOT) {
-        announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
-        if (contact_carries_over(resting[slot], contact)) {
-            contacts[index] = contact_relay_impulses(contact, resting[slot]);
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    let live = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {
+        if (contact_matched[index] != 0u) {
+            continue;
         }
-        return;
+        let contact = contacts[index];
+        let slot = resting_slot(contact);
+        if (slot != NO_SLOT) {
+            announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
+            if (contact_carries_over(resting[slot], contact)) {
+                contacts[index] = contact_relay_impulses(contact, resting[slot]);
+            }
+            continue;
+        }
+        announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
     }
-    announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
 }

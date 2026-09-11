@@ -1,5 +1,4 @@
 use super::FrameParams;
-use super::dispatch::{CONTACT_BEGIN, CONTACT_RELAY, ISLAND_LINK_CONTACTS};
 use super::stage::{CONTACT, CORE, RO, RW, Stage, UNIFORM, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -133,17 +132,13 @@ impl Islands {
         params: &FrameParams,
     ) {
         let constraint_active = params.constraint_count > 0;
+        let archived = buffers.archive_capacity();
+        let contacts = buffers.contact_capacity();
 
-        self.contact_relay
-            .record_indirect(recorder, &buffers.dispatch, CONTACT_RELAY);
-        self.contact_begin
-            .record_indirect(recorder, &buffers.dispatch, CONTACT_BEGIN);
+        self.contact_relay.record_stride(recorder, archived);
+        self.contact_begin.record_stride(recorder, contacts);
         self.island_init.record(recorder, params.dynamic_count);
-        self.island_link_contacts.record_indirect(
-            recorder,
-            &buffers.dispatch,
-            ISLAND_LINK_CONTACTS,
-        );
+        self.island_link_contacts.record_stride(recorder, contacts);
         if constraint_active {
             self.island_link_constraints
                 .record(recorder, params.constraint_count);

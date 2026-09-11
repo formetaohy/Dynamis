@@ -370,6 +370,14 @@ struct ShapeHit {
     normal: vec3f,
 }
 
+fn global_index(gid: vec3u) -> u32 {
+    return gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+}
+
+fn grid_stride(groups: vec3u) -> u32 {
+    return groups.x * groups.y * WORKGROUP_SIZE;
+}
+
 fn quat_mul(a: vec4f, b: vec4f) -> vec4f {
     return vec4f(
         a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz),

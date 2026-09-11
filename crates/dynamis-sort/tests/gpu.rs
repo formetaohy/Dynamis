@@ -1,6 +1,4 @@
-use dynamis_gpu::{
-    BufferReadback, ComputeRecorder, DispatchTable, GpuBuffer, GpuContext, GpuSlot, WarmupBudget,
-};
+use dynamis_gpu::{BufferReadback, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, WarmupBudget};
 use dynamis_sort::{RadixSort, SortChannels, key_words};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
@@ -86,14 +84,7 @@ fn run_sort(
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let channels = Channels::new(context, major, minor, payload);
-    let table = DispatchTable::new(context.device(), "sort dispatch", 1);
     let row = context.workgroups_per_row();
-    let workgroups = (major.len() as u32).div_ceil(256);
-    let mut args = [0u8; 16];
-    args[..4].copy_from_slice(&workgroups.min(row).to_le_bytes());
-    args[4..8].copy_from_slice(&workgroups.div_ceil(row).to_le_bytes());
-    args[8..12].copy_from_slice(&1u32.to_le_bytes());
-    table.buffer().write(context.queue(), &args);
     let sort = RadixSort::new(context, "test sort", major.len() as u32);
     context.warmup(WarmupBudget::All);
     let mut encoder = context
@@ -106,8 +97,7 @@ fn run_sort(
             &channels.lanes(),
             major_words,
             minor_words,
-            &table,
-            0,
+            major.len() as u32,
         );
     }
     context.queue().submit([encoder.finish()]);

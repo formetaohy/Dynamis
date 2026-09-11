@@ -5,8 +5,8 @@ use super::shader::{
 };
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, DispatchTable, GpuBuffer,
-    GpuContext, GpuSlot, PipelineHandle,
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
+    PipelineHandle,
 };
 use wgpu::{BindGroup, BindGroupEntry};
 
@@ -16,6 +16,8 @@ pub(super) const CONTACT: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
 pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub(super) const BLOCKS: &[&str] = &[CONTACT_BLOCK_FRAGMENT, CONSTRAINT_BLOCK_FRAGMENT];
 pub(super) const CORRECTIONS: &[&str] = &[CONTACT_CORRECTION_FRAGMENT];
+
+pub(super) const MAX_GRID_WORKGROUPS: u32 = 4096;
 
 pub(super) const RO: BindingKind = BindingKind::ReadOnlyStorage;
 pub(super) const RW: BindingKind = BindingKind::ReadWriteStorage;
@@ -168,7 +170,11 @@ impl Stage {
     }
 
     pub(super) fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
-        let workgroups = elements.div_ceil(WORKGROUP_SIZE);
+        self.record_workgroups(recorder, elements.div_ceil(WORKGROUP_SIZE));
+    }
+
+    pub(super) fn record_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {
+        let workgroups = bound.div_ceil(WORKGROUP_SIZE).min(MAX_GRID_WORKGROUPS);
         self.record_workgroups(recorder, workgroups);
     }
 
@@ -180,37 +186,16 @@ impl Stage {
         }
     }
 
-    pub(super) fn record_indirect(
-        &self,
-        recorder: &mut ComputeRecorder,
-        table: &DispatchTable,
-        slot: u32,
-    ) {
-        let compiled = self.pipeline.pipeline();
-        match &self.shapes_group {
-            Some(shapes) => {
-                recorder.record_indirect(compiled, &[&self.bind_group, shapes], table, slot)
-            }
-            None => recorder.record_indirect(compiled, &[&self.bind_group], table, slot),
-        }
-    }
-
-    pub(super) fn record_warm_indirect(
-        &self,
-        recorder: &mut ComputeRecorder,
-        table: &DispatchTable,
-        slot: u32,
-    ) {
+    pub(super) fn record_warm_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {
         let warm = self
             .warm
             .as_ref()
             .expect("warm recording requires a warm entry point")
             .pipeline();
+        let workgroups = bound.div_ceil(WORKGROUP_SIZE).min(MAX_GRID_WORKGROUPS);
         match &self.shapes_group {
-            Some(shapes) => {
-                recorder.record_indirect(warm, &[&self.bind_group, shapes], table, slot)
-            }
-            None => recorder.record_indirect(warm, &[&self.bind_group], table, slot),
+            Some(shapes) => recorder.record(warm, &[&self.bind_group, shapes], workgroups),
+            None => recorder.record(warm, &[&self.bind_group], workgroups),
         }
     }
 }

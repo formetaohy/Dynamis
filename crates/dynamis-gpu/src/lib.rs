@@ -1,6 +1,5 @@
 mod buffer;
 mod context;
-mod dispatch;
 mod library;
 mod pipeline;
 mod readback;
@@ -12,7 +11,6 @@ mod timing;
 
 pub use buffer::{GpuBuffer, GpuSlot};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
-pub use dispatch::{DISPATCH_ARGS_BYTES, DispatchTable};
 pub use library::{WarmupBudget, WarmupProgress};
 pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, PipelineHandle};
 pub use readback::{BufferReadback, ReadbackRing};
