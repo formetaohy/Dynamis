@@ -1,4 +1,6 @@
-use dynamis_gpu::{ComputeRecorder, DispatchTable, GpuBuffer, GpuContext, GpuSlot};
+use dynamis_gpu::{
+    BufferReadback, ComputeRecorder, DispatchTable, GpuBuffer, GpuContext, GpuSlot, WarmupBudget,
+};
 use dynamis_sort::{RadixSort, SortChannels, key_words};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
@@ -15,27 +17,11 @@ fn shared() -> &'static GpuContext {
 
 fn read_u32s(context: &GpuContext, buffer: &GpuBuffer, words: usize) -> Vec<u32> {
     let bytes = (words * 4) as u64;
-    let staging = context.device().create_buffer(&wgpu::BufferDescriptor {
-        label: Some("sort readback"),
-        size: bytes,
-        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    encoder.copy_buffer_to_buffer(buffer.buffer(), 0, &staging, 0, bytes);
-    context.queue().submit([encoder.finish()]);
-    let _ = context.device().poll(wgpu::PollType::wait_indefinitely());
-    let slice = staging.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = tx.send(result);
-    });
-    let _ = context.device().poll(wgpu::PollType::wait_indefinitely());
-    rx.recv().expect("map").expect("map error");
-    let mapped = slice.get_mapped_range().unwrap();
-    bytemuck::cast_slice(&mapped).to_vec()
+    let mut readback = BufferReadback::new(context.device(), "sort readback", bytes);
+    let data = readback.read(context.queue(), buffer.buffer(), 0, bytes);
+    data.chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .collect()
 }
 
 struct Channels {
@@ -103,6 +89,7 @@ fn run_sort(
     args[8..12].copy_from_slice(&1u32.to_le_bytes());
     table.buffer().write(context.queue(), &args);
     let sort = RadixSort::new(context, "test sort", major.len() as u32);
+    context.warmup(WarmupBudget::All);
     let mut encoder = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -118,7 +105,6 @@ fn run_sort(
         );
     }
     context.queue().submit([encoder.finish()]);
-    let _ = context.device().poll(wgpu::PollType::wait_indefinitely());
     (
         read_u32s(context, &channels.major, major.len()),
         read_u32s(context, &channels.minor, minor.len()),
@@ -238,10 +224,10 @@ fn adapter_uses_a_native_backend() {
 #[cfg(target_os = "windows")]
 #[test]
 fn windows_prefers_dx12_when_vulkan_available() {
-    use wgpu::{Backends, Instance};
-    let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let has_dx12 = !pollster::block_on(instance.enumerate_adapters(Backends::DX12)).is_empty();
-    let has_vulkan = !pollster::block_on(instance.enumerate_adapters(Backends::VULKAN)).is_empty();
+    use wgpu::Backends;
+    let has_dx12 = !pollster::block_on(GpuContext::available_adapters(Backends::DX12)).is_empty();
+    let has_vulkan =
+        !pollster::block_on(GpuContext::available_adapters(Backends::VULKAN)).is_empty();
     if has_dx12 && has_vulkan {
         assert_eq!(shared().adapter_info().backend, Backend::Dx12);
     }

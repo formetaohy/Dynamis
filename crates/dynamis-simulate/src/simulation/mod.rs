@@ -15,7 +15,7 @@ use body::Bodies;
 use clock::Clock;
 use constraint::Constraints;
 use device::Device;
-use dynamis_gpu::{GpuBuffer, GpuContext};
+use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_layout::{
     COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_COMMANDS,
     COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
@@ -239,6 +239,14 @@ impl Simulation {
 
     pub fn gpu(&self) -> &GpuContext {
         &self.device.gpu
+    }
+
+    pub fn warmup(&self, budget: WarmupBudget) -> WarmupProgress {
+        self.device.gpu.warmup(budget)
+    }
+
+    pub fn is_warm(&self) -> bool {
+        self.device.gpu.is_warm()
     }
 
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {

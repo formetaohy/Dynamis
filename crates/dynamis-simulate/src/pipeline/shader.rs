@@ -1,4 +1,4 @@
-use dynamis_gpu::GpuReadback;
+use dynamis_gpu::ReadbackRing;
 use dynamis_layout::{
     BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
     CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
@@ -122,7 +122,7 @@ fn shader_constants(per_row: u32) -> String {
     emit("NO_SLOT", NO_SLOT);
     emit("MAX_COLLIDERS_PER_BODY", MAX_COLLIDERS_PER_BODY as u32);
     emit("MAX_HITS_PER_QUERY", MAX_HITS_PER_QUERY);
-    emit("EVENT_SLOTS", GpuReadback::DEPTH as u32);
+    emit("EVENT_SLOTS", ReadbackRing::DEPTH as u32);
     emit("COUNTER_STRIDE_WORDS", (COUNTER_STRIDE / 4) as u32);
     emit("COUNTER_ENTRIES", COUNTER_ENTRIES as u32);
     emit("COUNTER_PAIRS", COUNTER_PAIRS as u32);

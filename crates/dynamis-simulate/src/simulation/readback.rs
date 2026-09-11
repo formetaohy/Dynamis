@@ -86,13 +86,8 @@ impl Simulation {
 
     pub fn synchronize_states(&mut self) {
         self.device.gpu.assert_alive();
-        self.device
-            .gpu
-            .device()
-            .poll(wgpu::PollType::wait_indefinitely())
-            .expect("device lost while awaiting readback");
+        self.drain_readbacks();
         self.device.gpu.assert_alive();
-        self.collect_readbacks();
         if !self.bodies.states_ready {
             self.refresh_body_states();
             self.bodies.states_ready = true;
@@ -159,109 +154,58 @@ impl Simulation {
     }
 
     pub(crate) fn read_range(&mut self, buffer: &wgpu::Buffer, bytes: u64) -> Vec<u8> {
-        let device = self.device.gpu.device();
-        let wide = bytes.max(16);
+        if bytes == 0 {
+            return Vec::new();
+        }
         if self
             .device
-            .sync_staging
+            .state_readback
             .as_ref()
-            .is_none_or(|(_, size)| *size < wide)
+            .is_none_or(|readback| readback.size() < bytes)
         {
-            let staging = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("dynamis sync readback"),
-                size: wide,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            self.device.sync_staging = Some((staging, wide));
+            self.device.state_readback = Some(dynamis_gpu::BufferReadback::new(
+                self.device.gpu.device(),
+                "dynamis state readback",
+                bytes,
+            ));
         }
-        let staging = &self
-            .device
-            .sync_staging
-            .as_ref()
-            .expect("staging just ensured")
-            .0;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(buffer, 0, staging, 0, bytes);
-        self.device.gpu.queue().submit([encoder.finish()]);
-        device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .expect("device lost while reading back");
-        let slice = staging.slice(..);
-        let (sender, receiver) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-        device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .expect("device lost while reading back");
-        receiver
-            .recv()
-            .expect("readback mapping sender dropped")
-            .expect("readback mapping failed");
-        let mapped = slice.get_mapped_range().expect("mapped range unavailable");
-        let data = mapped[..bytes as usize].to_vec();
-        drop(mapped);
-        staging.unmap();
-        data
+        self.device
+            .state_readback
+            .as_mut()
+            .expect("state readback just allocated")
+            .read(self.device.gpu.queue(), buffer, 0, bytes)
     }
 
     pub(crate) fn collect_readbacks(&mut self) {
-        for (step, bytes) in self
-            .device
-            .buffers
-            .readback
-            .step
-            .poll(self.device.gpu.device())
-        {
+        self.device.gpu.poll();
+        for (step, bytes) in self.device.buffers.readback.step.collect() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self
-            .device
-            .buffers
-            .readback
-            .events
-            .poll(self.device.gpu.device())
-        {
+        for (_, bytes) in self.device.buffers.readback.events.collect() {
             self.consume_events(&bytes);
         }
-        for (batch, bytes) in self
-            .device
-            .buffers
-            .readback
-            .queries
-            .poll(self.device.gpu.device())
-        {
+        for (batch, bytes) in self.device.buffers.readback.queries.collect() {
             self.queries.pool.collect(batch, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.device.pipeline.poll_timings() {
+        for (_step, timings) in self.device.pipeline.collect_timings() {
             self.device.pass_timings = timings;
         }
     }
 
     pub(crate) fn drain_readbacks(&mut self) {
-        for (step, bytes) in self
-            .device
-            .buffers
-            .readback
-            .step
-            .drain(self.device.gpu.device())
-        {
+        for (step, bytes) in self.device.buffers.readback.step.drain() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self
-            .device
-            .buffers
-            .readback
-            .events
-            .drain(self.device.gpu.device())
-        {
+        for (_, bytes) in self.device.buffers.readback.events.drain() {
             self.consume_events(&bytes);
         }
-        let device = self.device.gpu.device();
-        for (batch, bytes) in self.device.buffers.readback.queries.drain(device) {
+        for (batch, bytes) in self.device.buffers.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
+        }
+        #[cfg(feature = "profile")]
+        for (_step, timings) in self.device.pipeline.collect_timings() {
+            self.device.pass_timings = timings;
         }
     }
 

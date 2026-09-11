@@ -1,4 +1,4 @@
-use dynamis_gpu::{GpuContext, GpuRequest};
+use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
 use dynamis_model::PhysicsConfig;
 use dynamis_simulate::Simulation;
 use std::sync::OnceLock;
@@ -19,7 +19,9 @@ pub fn gpu() -> GpuContext {
 }
 
 pub fn sim(capacity: usize, config: PhysicsConfig) -> Simulation {
-    Simulation::new(gpu(), capacity, config)
+    let simulation = Simulation::new(gpu(), capacity, config);
+    simulation.warmup(WarmupBudget::All);
+    simulation
 }
 
 pub fn gravity_config() -> PhysicsConfig {

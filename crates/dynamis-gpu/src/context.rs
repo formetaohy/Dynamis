@@ -1,10 +1,12 @@
-use crate::{BindingKind, BindingSpec, ComputePipeline};
-use std::collections::HashMap;
+use crate::library::PipelineLibrary;
+use crate::pipeline::PipelineHandle;
+use crate::{ComputeProgram, GpuRuntime, WarmupBudget, WarmupProgress};
 use std::fmt::{self, Display, Formatter};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use wgpu::{
     Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType, Features,
-    Instance, InstanceDescriptor, Limits, PowerPreference, Queue,
+    Limits, PowerPreference, Queue,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,39 +144,8 @@ pub struct GpuContext {
     limits: Limits,
     timestamp_period_ns: f32,
     health: Arc<Health>,
-    pipelines: Arc<Mutex<HashMap<PipelineKey, Arc<ComputePipeline>>>>,
-}
-
-#[derive(PartialEq, Eq, Hash, Clone)]
-struct PipelineKey {
-    label: String,
-    shader: String,
-    entry: String,
-    workgroup_size: u32,
-    bindings: Vec<(u32, BindingKind)>,
-}
-
-impl PipelineKey {
-    fn of(
-        label: &str,
-        shader: &str,
-        entry: &str,
-        groups: &[&[BindingSpec]],
-        workgroup_size: u32,
-    ) -> Self {
-        let bindings = groups
-            .iter()
-            .flat_map(|group| group.iter())
-            .map(|spec| (spec.binding, spec.kind))
-            .collect();
-        Self {
-            label: label.to_owned(),
-            shader: shader.to_owned(),
-            entry: entry.to_owned(),
-            workgroup_size,
-            bindings,
-        }
-    }
+    pipelines: Arc<Mutex<PipelineLibrary>>,
+    compilation: Arc<Mutex<()>>,
 }
 
 impl GpuContext {
@@ -233,7 +204,8 @@ impl GpuContext {
             limits,
             timestamp_period_ns,
             health,
-            pipelines: Arc::new(Mutex::new(HashMap::new())),
+            pipelines: Arc::new(Mutex::new(PipelineLibrary::new())),
+            compilation: Arc::new(Mutex::new(())),
         })
     }
 
@@ -245,8 +217,9 @@ impl GpuContext {
     }
 
     pub async fn available_adapters(backends: Backends) -> Vec<AdapterInfo> {
-        adapters_for(backends)
+        GpuRuntime::shared()
             .await
+            .adapters(backends)
             .iter()
             .map(|adapter| adapter.get_info())
             .collect()
@@ -299,28 +272,41 @@ impl GpuContext {
         }
     }
 
-    pub fn compute_pipeline(
-        &self,
-        label: &str,
-        shader: &str,
-        entry: &str,
-        groups: &[&[BindingSpec]],
-        workgroup_size: u32,
-    ) -> ComputePipeline {
-        let key = PipelineKey::of(label, shader, entry, groups, workgroup_size);
-        let mut cache = self.pipelines.lock().unwrap();
-        if let Some(pipeline) = cache.get(&key) {
-            return (**pipeline).clone();
+    pub fn poll(&self) {
+        self.assert_alive();
+        self.device
+            .poll(wgpu::PollType::Poll)
+            .expect("GPU polling failed");
+        self.assert_alive();
+    }
+
+    pub fn declare(&self, program: ComputeProgram) -> PipelineHandle {
+        self.pipelines
+            .lock()
+            .unwrap()
+            .declare(&self.device, program)
+    }
+
+    pub fn warmup(&self, budget: WarmupBudget) -> WarmupProgress {
+        let _compiling = self.compilation.lock().unwrap();
+        let deadline = match budget {
+            WarmupBudget::All => None,
+            WarmupBudget::Within(duration) => Instant::now().checked_add(duration),
+        };
+        loop {
+            let Some(pending) = self.pipelines.lock().unwrap().take_pending() else {
+                break;
+            };
+            pending.compile(&self.device);
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                break;
+            }
         }
-        let pipeline = Arc::new(ComputePipeline::new(
-            &self.device,
-            label,
-            shader,
-            entry,
-            groups,
-        ));
-        cache.insert(key, pipeline.clone());
-        (*pipeline).clone()
+        self.pipelines.lock().unwrap().progress()
+    }
+
+    pub fn is_warm(&self) -> bool {
+        self.pipelines.lock().unwrap().progress().complete()
     }
 }
 
@@ -335,50 +321,13 @@ impl Clone for GpuContext {
             timestamp_period_ns: self.timestamp_period_ns,
             health: self.health.clone(),
             pipelines: self.pipelines.clone(),
+            compilation: self.compilation.clone(),
         }
     }
 }
 
-fn create_instance(backends: Backends) -> Instance {
-    Instance::new(InstanceDescriptor {
-        backends,
-        ..InstanceDescriptor::new_without_display_handle()
-    })
-}
-
-type AdapterEntry = (Backends, Instance, Vec<Adapter>);
-
-static ADAPTER_CACHE: OnceLock<Mutex<Vec<AdapterEntry>>> = OnceLock::new();
-
-fn adapter_cache() -> &'static Mutex<Vec<AdapterEntry>> {
-    ADAPTER_CACHE.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-async fn adapters_for(backends: Backends) -> Vec<Adapter> {
-    if let Some(adapters) = cached_adapters(backends) {
-        return adapters;
-    }
-    let instance = create_instance(backends);
-    let adapters = instance.enumerate_adapters(backends).await;
-    let mut cache = adapter_cache().lock().unwrap();
-    if let Some((_, _, existing)) = cache.iter().find(|(cached, _, _)| *cached == backends) {
-        return existing.clone();
-    }
-    cache.push((backends, instance, adapters.clone()));
-    adapters
-}
-
-fn cached_adapters(backends: Backends) -> Option<Vec<Adapter>> {
-    adapter_cache()
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(cached, _, _)| *cached == backends)
-        .map(|(_, _, adapters)| adapters.clone())
-}
-
 async fn select_adapter(request: &GpuRequest) -> Result<Adapter, GpuUnavailable> {
-    let adapters = adapters_for(request.backends).await;
+    let adapters = GpuRuntime::shared().await.adapters(request.backends);
     if adapters.is_empty() {
         return Err(GpuUnavailable::NoAdapter {
             backends: request.backends,

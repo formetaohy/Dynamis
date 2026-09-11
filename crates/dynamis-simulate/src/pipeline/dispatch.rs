@@ -1,7 +1,9 @@
 use super::shader::{WORKGROUP_SIZE, assemble_shader};
 use super::stage::CORE;
 use crate::buffers::{COMPACT_BLOCK, WorldBuffers};
-use dynamis_gpu::{BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, GpuContext};
+use dynamis_gpu::{
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle,
+};
 use dynamis_layout::{
     COUNTER_ARCHIVED, COUNTER_BODY_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES,
     COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
@@ -195,7 +197,7 @@ fn write_transition_args(index: u32, counter: u32, lanes: u32, run: bool) {\n\
 }
 
 struct DispatchStage {
-    pipeline: ComputePipeline,
+    pipeline: PipelineHandle,
     group: BindGroup,
 }
 
@@ -216,16 +218,15 @@ impl Dispatch {
                 kind: BindingKind::ReadWriteStorage,
             },
         ];
-        let shader = assemble_shader(&dispatch_source(), per_row, CORE);
+        let shader: std::sync::Arc<str> = assemble_shader(&dispatch_source(), per_row, CORE).into();
         let stages = (0..DISPATCH_BATCHES.len())
             .map(|batch| {
-                let pipeline = context.compute_pipeline(
+                let pipeline = context.declare(ComputeProgram::new(
                     "dispatch args",
-                    &shader,
+                    shader.clone(),
                     &format!("dispatch_{batch}"),
                     &[BINDINGS],
-                    WORKGROUP_SIZE,
-                );
+                ));
                 let group = pipeline.create_bind_group(
                     context.device(),
                     0,
@@ -249,6 +250,6 @@ impl Dispatch {
     pub(super) fn write(&self, encoder: &mut CommandEncoder, batch: usize) {
         let stage = &self.stages[batch];
         let mut recorder = ComputeRecorder::begin(encoder, "dispatch", self.per_row);
-        recorder.record(&stage.pipeline, &[&stage.group], 1);
+        recorder.record(stage.pipeline.pipeline(), &[&stage.group], 1);
     }
 }

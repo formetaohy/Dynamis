@@ -3,8 +3,11 @@
 mod common;
 
 use crate::common::shared;
-use dynamis_gpu::{BindingKind, BindingSpec, ComputeRecorder, GpuPassTiming, GpuRequest, GpuTimer};
-use wgpu::{BindGroupEntry, BufferUsages, PollType};
+use dynamis_gpu::{
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuPassTiming, GpuRequest, GpuTimer,
+    PipelineHandle, SubmissionEncoder, WarmupBudget,
+};
+use wgpu::{BindGroupEntry, BufferUsages};
 
 const BURN_KERNEL: &str = r#"
 @group(0) @binding(0) var<storage, read_write> sink: array<u32>;
@@ -18,16 +21,23 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 }
 "#;
 
-fn burn_pipeline() -> dynamis_gpu::ComputePipeline {
+fn burn_pipeline() -> PipelineHandle {
     let context = shared();
     let bindings = [BindingSpec {
         binding: 0,
         kind: BindingKind::ReadWriteStorage,
     }];
-    context.compute_pipeline("burn", BURN_KERNEL, "main", &[&bindings[..]], 64)
+    let pipeline = context.declare(ComputeProgram::new(
+        "burn",
+        BURN_KERNEL,
+        "main",
+        &[&bindings[..]],
+    ));
+    context.warmup(WarmupBudget::All);
+    pipeline
 }
 
-fn burn_group(pipeline: &dynamis_gpu::ComputePipeline) -> wgpu::BindGroup {
+fn burn_group(pipeline: &PipelineHandle) -> wgpu::BindGroup {
     let context = shared();
     let sink = context.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("burn sink"),
@@ -76,12 +86,7 @@ fn pass_timings_split_a_step_by_stage() {
     let group = burn_group(&pipeline);
     let mut reported: Option<Vec<GpuPassTiming>> = None;
     for frame in 0..6 {
-        let mut encoder =
-            context
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("timing frame"),
-                });
+        let mut encoder = SubmissionEncoder::new(context.device(), "timing frame");
         {
             let mut idle = ComputeRecorder::begin_timed(
                 &mut encoder,
@@ -89,7 +94,7 @@ fn pass_timings_split_a_step_by_stage() {
                 Some(timer.writes(0)),
                 context.workgroups_per_row(),
             );
-            idle.record(&pipeline, &[], 0);
+            idle.record(pipeline.pipeline(), &[], 0);
         }
         {
             let mut busy = ComputeRecorder::begin_timed(
@@ -98,20 +103,14 @@ fn pass_timings_split_a_step_by_stage() {
                 Some(timer.writes(1)),
                 context.workgroups_per_row(),
             );
-            busy.record(&pipeline, &[&group], 4096);
+            busy.record(pipeline.pipeline(), &[&group], 4096);
         }
         if let Some((_, timings)) = timer.capture(&mut encoder, frame) {
             reported = Some(timings);
-            context.queue().submit([encoder.finish()]);
-            timer.arm();
+            encoder.submit(context.queue());
             break;
         }
-        context.queue().submit([encoder.finish()]);
-        timer.arm();
-        context
-            .device()
-            .poll(PollType::wait_indefinitely())
-            .expect("device lost while timing");
+        encoder.submit(context.queue());
     }
     let timings = reported.expect("a double-buffered timer must report a completed frame");
     assert_eq!(timings.len(), 2);

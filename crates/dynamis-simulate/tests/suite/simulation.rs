@@ -1,6 +1,6 @@
 use super::common::distance;
-use super::common::{DT, gpu, gravity_config, sim, static_config};
-use dynamis_gpu::{GpuContext, GpuRequest};
+use super::common::{DT, gravity_config, sim, static_config};
+use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
 use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -10,6 +10,7 @@ fn logical_capacity_runs_on_minimum_device_limits() {
     let context = pollster::block_on(GpuContext::open(&GpuRequest::minimum_limits()))
         .expect("minimum device limits must support a simulation");
     let mut world = Simulation::new(context, 1024, static_config());
+    world.warmup(WarmupBudget::All);
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
     world.wait();
@@ -148,25 +149,47 @@ fn invalid_inputs_panic() {
 }
 
 #[test]
-fn cloned_gpu_context_runs_independent_worlds() {
-    let mut first = sim(8, static_config());
-    let mut second = Simulation::new(gpu(), 8, static_config());
-    let a = first.spawn(
-        BodyDesc::sphere(0.2)
-            .position([0.0, 1.0, 0.0])
-            .velocity([1.0, 0.0, 0.0]),
-    );
-    let b = second.spawn(
-        BodyDesc::sphere(0.2)
-            .position([0.0, 1.0, 0.0])
-            .velocity([2.0, 0.0, 0.0]),
-    );
-    settle_frames(&mut first, 10);
-    settle_frames(&mut second, 10);
-    assert!(
-        first.read_state(a).position[0] < second.read_state(b).position[0],
-        "independent worlds must simulate independently"
-    );
+fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
+    const WORKERS: usize = 8;
+    let start = std::sync::Barrier::new(WORKERS);
+    std::thread::scope(|scope| {
+        for worker in 0..WORKERS {
+            let start = &start;
+            scope.spawn(move || {
+                start.wait();
+                for _ in 0..2 {
+                    let mut world = sim(4, static_config());
+                    let speed = (worker + 1) as f32;
+                    let body = world.spawn(BodyDesc::sphere(0.2).velocity([speed, 0.0, 0.0]));
+                    for frame in 0..12 {
+                        if frame == 4 {
+                            world.grow(32);
+                            for index in 0..16 {
+                                world.spawn(BodyDesc::static_sphere(0.2).position([
+                                    index as f32,
+                                    10.0,
+                                    0.0,
+                                ]));
+                            }
+                        }
+                        world.step(DT);
+                    }
+                    world.wait();
+                    let position = world.read_state(body).position;
+                    assert!((position[0] - speed * DT * 12.0).abs() < 1e-4);
+                    let query = world.ray_query(
+                        [position[0], -1.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        2.0,
+                        &dynamis_model::QueryFilter::default(),
+                    );
+                    world.flush_queries();
+                    assert_eq!(world.query_hit(query).unwrap().body, body);
+                    world.drain_events();
+                }
+            });
+        }
+    });
 }
 
 #[test]
@@ -692,7 +715,7 @@ fn sleep_threshold_override_accepts_zero() {
 
 #[test]
 fn deterministic_rebuild_on_spawn_burst() {
-    let mut world = Simulation::new(gpu(), 256, static_config());
+    let mut world = sim(256, static_config());
     let a = world.spawn(BodyDesc::sphere(0.3));
     let _b = world.spawn(BodyDesc::sphere(0.3).position([5.0, 0.3, 0.0]));
     let _ = a;

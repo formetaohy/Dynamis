@@ -1,5 +1,5 @@
 use crate::capacity::{Reservation, ShapeReservation};
-use dynamis_gpu::{DispatchTable, GpuBuffer, GpuReadback, GpuSlot};
+use dynamis_gpu::{DispatchTable, GpuBuffer, GpuSlot, ReadbackRing};
 use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
@@ -14,7 +14,7 @@ use wgpu::{BufferUsages, Device};
 
 pub(crate) const COMPACT_BLOCK: u32 = 256;
 
-pub(crate) const EVENT_SLOTS: u32 = GpuReadback::DEPTH as u32;
+pub(crate) const EVENT_SLOTS: u32 = ReadbackRing::DEPTH as u32;
 
 const STREAM: BufferUsages = BufferUsages::STORAGE
     .union(BufferUsages::COPY_DST)
@@ -162,9 +162,9 @@ pub(crate) struct SortBuffers {
 
 pub(crate) struct ReadbackBuffers {
     pub(crate) pack: GpuBuffer,
-    pub(crate) step: GpuReadback,
-    pub(crate) events: GpuReadback,
-    pub(crate) queries: GpuReadback,
+    pub(crate) step: ReadbackRing,
+    pub(crate) events: ReadbackRing,
+    pub(crate) queries: ReadbackRing,
 }
 
 pub(crate) struct WorldBuffers {
@@ -373,9 +373,9 @@ impl WorldBuffers {
             },
             readback: ReadbackBuffers {
                 pack: GpuBuffer::new(device, "sim readback pack", readback_bytes, PACK),
-                step: GpuReadback::new(device, "sim readback", readback_bytes),
-                events: GpuReadback::new(device, "sim events readback", event_segment_bytes),
-                queries: GpuReadback::new(device, "query results readback", query_readback_bytes),
+                step: ReadbackRing::new(device, "sim readback", readback_bytes),
+                events: ReadbackRing::new(device, "sim events readback", event_segment_bytes),
+                queries: ReadbackRing::new(device, "query results readback", query_readback_bytes),
             },
         }
     }

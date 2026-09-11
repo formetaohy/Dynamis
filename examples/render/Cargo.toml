@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+dynamis-gpu = { workspace = true }
 bytemuck = { workspace = true }
 font8x8 = "0.3"
 glam = { workspace = true }

@@ -10,6 +10,7 @@ license = "MIT"
 repository = "https://github.com/formetaohy/Dynamis"
 
 [workspace.dependencies]
+async-lock = "3.4"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = [

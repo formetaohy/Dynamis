@@ -17,3 +17,4 @@ pub mod shape;
 pub mod simulation;
 #[cfg(feature = "profile")]
 pub mod timing;
+pub mod warmup;

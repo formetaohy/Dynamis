@@ -174,27 +174,23 @@ impl Simulation {
             constraint_move_count: self.constraints.last_moves,
             edit_run_count: self.bodies.last_edits,
         };
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis query flush"),
-        });
+        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query flush");
         self.device
             .pipeline
             .encode_queries(&mut encoder, &self.device.buffers, &frame);
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
         let arrived = self.device.buffers.readback.queries.enqueue(
-            &device,
             &mut encoder,
             self.device.buffers.queries.results.buffer(),
             0,
             bytes,
             batch,
         );
-        queue.submit([encoder.finish()]);
-        self.device.buffers.readback.queries.arm();
+        encoder.submit(&queue);
         if let Some((batch, bytes)) = arrived {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (batch, bytes) in self.device.buffers.readback.queries.drain(&device) {
+        for (batch, bytes) in self.device.buffers.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
         self.queries.pending.clear();

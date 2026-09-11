@@ -1,7 +1,7 @@
 use super::Simulation;
 use crate::pipeline::FrameParams;
 use crate::simulation::commands::{CompiledBodyCommands, CompiledConstraintCommands};
-use dynamis_gpu::{GpuBuffer, GpuReadback};
+
 use dynamis_layout::{COUNTER_ACTIVE, QueryResultRecord, RowStreams, SimParamsRecord};
 use std::mem::size_of;
 
@@ -168,11 +168,9 @@ impl Simulation {
     fn encode_step(&mut self, frame: &FrameParams, batch: Option<u64>, step: u64, idle: bool) {
         let device = self.device.gpu.device().clone();
         let queue = self.device.gpu.queue().clone();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis step encoder"),
-        });
+        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
-        self.copy_events(&mut encoder, &device);
+        self.copy_events(&mut encoder);
         self.device
             .pipeline
             .encode(&mut encoder, &self.device.buffers, frame, idle);
@@ -180,7 +178,6 @@ impl Simulation {
         let timings = self.device.pipeline.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);
         let pack = self.device.buffers.readback.step.enqueue(
-            &device,
             &mut encoder,
             self.device.buffers.readback.pack.buffer(),
             0,
@@ -188,22 +185,16 @@ impl Simulation {
             step,
         );
         let queries = match batch {
-            Some(batch) => enqueue_readback(
-                &device,
+            Some(batch) => self.device.buffers.readback.queries.enqueue(
                 &mut encoder,
-                &mut self.device.buffers.readback.queries,
-                &self.device.buffers.queries.results,
+                self.device.buffers.queries.results.buffer(),
+                0,
                 self.queries.pending.len() as u64 * size_of::<QueryResultRecord>() as u64,
                 batch,
             ),
             None => None,
         };
-        queue.submit([encoder.finish()]);
-        self.device.buffers.readback.step.arm();
-        self.device.buffers.readback.events.arm();
-        self.device.buffers.readback.queries.arm();
-        #[cfg(feature = "profile")]
-        self.device.pipeline.arm_timings();
+        encoder.submit(&queue);
         #[cfg(feature = "profile")]
         if let Some((_step, timings)) = timings {
             self.device.pass_timings = timings;
@@ -225,18 +216,4 @@ impl Simulation {
     pub fn gpu_timing_supported(&self) -> bool {
         self.device.gpu.supports_pass_timing()
     }
-}
-
-fn enqueue_readback(
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    slot: &mut GpuReadback,
-    source: &GpuBuffer,
-    bytes: u64,
-    sequence: u64,
-) -> Option<(u64, Vec<u8>)> {
-    if bytes == 0 {
-        return None;
-    }
-    slot.enqueue(device, encoder, source.buffer(), 0, bytes, sequence)
 }

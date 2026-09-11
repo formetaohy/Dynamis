@@ -1,7 +1,8 @@
-use dynamis::{BodyDesc, BodyHandle, GpuContext, PhysicsConfig, Shape, Simulation};
+use dynamis::{BodyDesc, BodyHandle, GpuContext, PhysicsConfig, Shape, Simulation, WarmupBudget};
 use dynamis_example_render::{
     App, AppContext, Color, EulerRot, Geometry, Material, MeshId, Quat, Transform, Vec3,
 };
+use std::thread::JoinHandle;
 
 const PHYSICS_STEP: f32 = 1.0 / 60.0;
 const MAX_SUBSTEPS: u32 = 8;
@@ -11,15 +12,24 @@ const GROUND_HALF: f32 = 30.0;
 struct Example {
     simulation: Simulation,
     bodies: Vec<(BodyHandle, MeshId)>,
+    compiler: Option<JoinHandle<()>>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gpu = pollster::block_on(GpuContext::new());
+    let simulation = Simulation::new(gpu, BODY_COUNT + 4, PhysicsConfig::default());
+    let compiler = {
+        let gpu = simulation.gpu().clone();
+        std::thread::spawn(move || {
+            gpu.warmup(WarmupBudget::All);
+        })
+    };
     App::new(
         "dynamis falling",
         Example {
-            simulation: Simulation::new(gpu, BODY_COUNT + 4, PhysicsConfig::default()),
+            simulation,
             bodies: Vec::new(),
+            compiler: Some(compiler),
         },
     )
     .on_startup(setup)
@@ -35,6 +45,13 @@ fn setup(ctx: &mut AppContext, example: &mut Example) {
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
+    if !example.simulation.is_warm() {
+        ctx.hud = "compiling shaders".to_owned();
+        return;
+    }
+    if let Some(compiler) = example.compiler.take() {
+        compiler.join().expect("shader compilation thread panicked");
+    }
     example
         .simulation
         .update(ctx.time.delta_secs(), PHYSICS_STEP, MAX_SUBSTEPS);

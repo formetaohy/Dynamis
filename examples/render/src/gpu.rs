@@ -118,9 +118,8 @@ pub(crate) struct Gpu {
 
 impl Gpu {
     pub fn new(window: Arc<Window>) -> Self {
-        let mut instance = wgpu::InstanceDescriptor::new_without_display_handle();
-        instance.backends = wgpu::Backends::all();
-        let instance = wgpu::Instance::new(instance);
+        let runtime = pollster::block_on(dynamis_gpu::GpuRuntime::shared());
+        let instance = runtime.instance();
         let surface = instance
             .create_surface(window.clone())
             .expect("failed to create surface");

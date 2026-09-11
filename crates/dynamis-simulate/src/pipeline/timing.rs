@@ -1,10 +1,10 @@
 use super::Pipeline;
-use wgpu::CommandEncoder;
+use dynamis_gpu::SubmissionEncoder;
 
 impl Pipeline {
     pub(crate) fn capture_timings(
         &mut self,
-        encoder: &mut CommandEncoder,
+        encoder: &mut SubmissionEncoder,
         sequence: u64,
     ) -> Option<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
         self.timer
@@ -12,16 +12,10 @@ impl Pipeline {
             .and_then(|timer| timer.capture(encoder, sequence))
     }
 
-    pub(crate) fn poll_timings(&mut self) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+    pub(crate) fn collect_timings(&mut self) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
         match &mut self.timer {
-            Some(timer) => timer.poll(),
+            Some(timer) => timer.collect(),
             None => Vec::new(),
-        }
-    }
-
-    pub(crate) fn arm_timings(&mut self) {
-        if let Some(timer) = &mut self.timer {
-            timer.arm();
         }
     }
 }

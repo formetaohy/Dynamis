@@ -4,8 +4,8 @@ use super::shader::{
 };
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
-    GpuContext, GpuSlot,
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, DispatchTable, GpuBuffer,
+    GpuContext, GpuSlot, PipelineHandle,
 };
 use wgpu::{BindGroup, BindGroupEntry};
 
@@ -32,7 +32,7 @@ pub(super) fn shape_resources(buffers: &WorldBuffers) -> [&GpuBuffer; 4] {
 }
 
 pub(super) struct Stage {
-    pipeline: ComputePipeline,
+    pipeline: PipelineHandle,
     bind_group: BindGroup,
     shapes_group: Option<BindGroup>,
 }
@@ -69,7 +69,7 @@ impl Stage {
         } else {
             vec![&specs[..], &shape_specs[..]]
         };
-        let pipeline = context.compute_pipeline(label, &shader, "main", &groups, WORKGROUP_SIZE);
+        let pipeline = context.declare(ComputeProgram::new(label, shader, "main", &groups));
         let entries: Vec<BindGroupEntry> = bindings
             .iter()
             .enumerate()
@@ -105,11 +105,10 @@ impl Stage {
     }
 
     pub(super) fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
+        let compiled = self.pipeline.pipeline();
         match &self.shapes_group {
-            Some(shapes) => {
-                recorder.record(&self.pipeline, &[&self.bind_group, shapes], workgroups)
-            }
-            None => recorder.record(&self.pipeline, &[&self.bind_group], workgroups),
+            Some(shapes) => recorder.record(compiled, &[&self.bind_group, shapes], workgroups),
+            None => recorder.record(compiled, &[&self.bind_group], workgroups),
         }
     }
 
@@ -119,11 +118,12 @@ impl Stage {
         table: &DispatchTable,
         slot: u32,
     ) {
+        let compiled = self.pipeline.pipeline();
         match &self.shapes_group {
             Some(shapes) => {
-                recorder.record_indirect(&self.pipeline, &[&self.bind_group, shapes], table, slot)
+                recorder.record_indirect(compiled, &[&self.bind_group, shapes], table, slot)
             }
-            None => recorder.record_indirect(&self.pipeline, &[&self.bind_group], table, slot),
+            None => recorder.record_indirect(compiled, &[&self.bind_group], table, slot),
         }
     }
 }

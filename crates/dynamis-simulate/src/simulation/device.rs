@@ -21,7 +21,7 @@ pub(crate) struct Device {
     pub(crate) measured: Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) commanded_step: Option<u64>,
-    pub(crate) sync_staging: Option<(wgpu::Buffer, u64)>,
+    pub(crate) state_readback: Option<dynamis_gpu::BufferReadback>,
     #[cfg(feature = "profile")]
     pub(crate) pass_timings: Vec<GpuPassTiming>,
 }
@@ -44,7 +44,7 @@ impl Device {
             measured: [0; COUNTER_COUNT],
             measured_step: None,
             commanded_step: None,
-            sync_staging: None,
+            state_readback: None,
             #[cfg(feature = "profile")]
             pass_timings: Vec::new(),
         }

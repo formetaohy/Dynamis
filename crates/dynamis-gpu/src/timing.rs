@@ -1,7 +1,7 @@
-use crate::GpuReadback;
+use crate::{ReadbackRing, SubmissionEncoder};
 use wgpu::{
-    Buffer, BufferDescriptor, BufferUsages, CommandEncoder, ComputePassTimestampWrites, Device,
-    QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType,
+    Buffer, BufferDescriptor, BufferUsages, ComputePassTimestampWrites, Device, QUERY_SIZE,
+    QuerySet, QuerySetDescriptor, QueryType,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,10 +17,9 @@ impl GpuPassTiming {
 }
 
 pub struct GpuTimer {
-    device: Device,
     query_set: QuerySet,
     resolved: Buffer,
-    readback: GpuReadback,
+    readback: ReadbackRing,
     labels: &'static [&'static str],
     period_ns: f32,
 }
@@ -49,13 +48,12 @@ impl GpuTimer {
             usage: BufferUsages::QUERY_RESOLVE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        let readback = GpuReadback::new(
+        let readback = ReadbackRing::new(
             device,
             &format!("{label_prefix} timestamp readback"),
             resolved_bytes,
         );
         Self {
-            device: device.clone(),
             query_set,
             resolved,
             readback,
@@ -87,29 +85,20 @@ impl GpuTimer {
 
     pub fn capture(
         &mut self,
-        encoder: &mut CommandEncoder,
+        encoder: &mut SubmissionEncoder,
         sequence: u64,
     ) -> Option<(u64, Vec<GpuPassTiming>)> {
         let count = (self.labels.len() * 2) as u32;
         encoder.resolve_query_set(&self.query_set, 0..count, &self.resolved, 0);
-        let displaced = self.readback.enqueue(
-            &self.device,
-            encoder,
-            &self.resolved,
-            0,
-            self.resolved.size(),
-            sequence,
-        );
+        let displaced =
+            self.readback
+                .enqueue(encoder, &self.resolved, 0, self.resolved.size(), sequence);
         displaced.map(|(frame, bytes)| (frame, self.decode(&bytes)))
     }
 
-    pub fn arm(&mut self) {
-        self.readback.arm();
-    }
-
-    pub fn poll(&mut self) -> Vec<(u64, Vec<GpuPassTiming>)> {
+    pub fn collect(&mut self) -> Vec<(u64, Vec<GpuPassTiming>)> {
         self.readback
-            .poll(&self.device)
+            .collect()
             .into_iter()
             .map(|(frame, bytes)| (frame, self.decode(&bytes)))
             .collect()

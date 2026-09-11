@@ -1,6 +1,6 @@
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputePipeline, ComputeRecorder, DispatchTable, GpuBuffer,
-    GpuContext, GpuSlot,
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, DispatchTable, GpuBuffer,
+    GpuContext, GpuSlot, PipelineHandle,
 };
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
@@ -174,9 +174,9 @@ impl SortBindGroups {
 
 pub struct RadixSort {
     device: Device,
-    histogram_pipelines: [ComputePipeline; PASSES],
-    scatter_pipelines: [ComputePipeline; PASSES],
-    prefix_pipeline: ComputePipeline,
+    histogram_pipelines: [PipelineHandle; PASSES],
+    scatter_pipelines: [PipelineHandle; PASSES],
+    prefix_pipeline: PipelineHandle,
     histogram: GpuBuffer,
     block_histogram: GpuBuffer,
     block_prefix: GpuBuffer,
@@ -222,32 +222,29 @@ impl RadixSort {
             binding(2, WRITE),
             binding(3, READ),
         ];
-        let prefix_pipeline = context.compute_pipeline(
+        let prefix_pipeline = context.declare(ComputeProgram::new(
             &format!("{label} prefix"),
             include_str!("shaders/sort_prefix.wgsl"),
             "main",
             &[&prefix_spec[..]],
-            THREADS,
-        );
+        ));
         let histogram_shader = include_str!("shaders/sort_histogram.wgsl");
         let histogram_pipelines = std::array::from_fn(|index| {
-            context.compute_pipeline(
+            context.declare(ComputeProgram::new(
                 &format!("{label} histogram {index}"),
-                &shifted_shader(histogram_shader, (index * 8) as u32, row),
+                shifted_shader(histogram_shader, (index * 8) as u32, row),
                 "main",
                 &[&histogram_spec[..]],
-                THREADS,
-            )
+            ))
         });
         let scatter_shader = include_str!("shaders/sort_scatter.wgsl");
         let scatter_pipelines = std::array::from_fn(|index| {
-            context.compute_pipeline(
+            context.declare(ComputeProgram::new(
                 &format!("{label} scatter {index}"),
-                &shifted_shader(scatter_shader, (index * 8) as u32, row),
+                shifted_shader(scatter_shader, (index * 8) as u32, row),
                 "main",
                 &[&scatter_spec[..]],
-                THREADS,
-            )
+            ))
         });
         let histogram = GpuBuffer::zeroed(
             &device,
@@ -304,14 +301,18 @@ impl RadixSort {
             let parity = order % 2;
             let pass = *pass as usize;
             recorder.record_indirect(
-                &self.histogram_pipelines[pass],
+                self.histogram_pipelines[pass].pipeline(),
                 &[&bindings.histogram[parity]],
                 table,
                 slot,
             );
-            recorder.record(&self.prefix_pipeline, &[&bindings.prefix], THREADS);
+            recorder.record(
+                self.prefix_pipeline.pipeline(),
+                &[&bindings.prefix],
+                THREADS,
+            );
             recorder.record_indirect(
-                &self.scatter_pipelines[pass],
+                self.scatter_pipelines[pass].pipeline(),
                 &[&bindings.scatter[parity]],
                 table,
                 slot,

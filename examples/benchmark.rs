@@ -1,4 +1,4 @@
-use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation};
+use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation, WarmupBudget};
 use dynamis_example_profile::Profiler;
 use std::time::Instant;
 
@@ -22,6 +22,7 @@ fn main() {
     let mut sim = profiler.measure("simulation_new", || {
         Simulation::new(gpu.clone(), bodies + 4, PhysicsConfig::default())
     });
+    profiler.measure("warmup", || sim.warmup(WarmupBudget::All));
     profiler.measure("spawn_scene", || {
         spawn_scene(&mut sim, bodies);
         sim.spawn(

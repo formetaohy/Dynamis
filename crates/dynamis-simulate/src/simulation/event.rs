@@ -40,17 +40,12 @@ impl Simulation {
         }
     }
 
-    pub(crate) fn copy_events(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        device: &wgpu::Device,
-    ) {
+    pub(crate) fn copy_events(&mut self, encoder: &mut dynamis_gpu::SubmissionEncoder) {
         while let Some((step, count)) = self.events.due.pop_front() {
             let segment = self.device.buffers.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
             let displaced = self.device.buffers.readback.events.enqueue(
-                device,
                 encoder,
                 self.device.buffers.events.buffer(),
                 offset,
@@ -68,13 +63,10 @@ impl Simulation {
             return;
         }
         let device = self.device.gpu.device().clone();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis event readback"),
-        });
-        self.copy_events(&mut encoder, &device);
-        self.device.gpu.queue().submit([encoder.finish()]);
-        self.device.buffers.readback.events.arm();
-        for (_, bytes) in self.device.buffers.readback.events.drain(&device) {
+        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis event readback");
+        self.copy_events(&mut encoder);
+        encoder.submit(self.device.gpu.queue());
+        for (_, bytes) in self.device.buffers.readback.events.drain() {
             self.consume_events(&bytes);
         }
     }
