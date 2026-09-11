@@ -48,7 +48,9 @@ pub const COUNTER_RESTING_INDEX: usize = 23;
 
 pub const COUNTER_RESTING_PENDING: usize = 24;
 
-pub const COUNTER_COUNT: usize = 25;
+pub const COUNTER_BLOCKS: usize = 25;
+
+pub const COUNTER_COUNT: usize = 26;
 
 pub const COUNTER_STRIDE: u64 = 256;
 

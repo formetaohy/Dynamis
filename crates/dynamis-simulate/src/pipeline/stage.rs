@@ -1,4 +1,5 @@
 use super::shader::{
+    CONSTRAINT_BLOCK_FRAGMENT, CONTACT_BLOCK_FRAGMENT, CONTACT_CORRECTION_FRAGMENT,
     CONVEX_FRAGMENT, EVENTS_FRAGMENT, IDENTITY_FRAGMENT, SCENE_FRAGMENT, WORKGROUP_SIZE,
     assemble_shader,
 };
@@ -13,6 +14,8 @@ pub(super) const CORE: &[&str] = &[];
 pub(super) const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
 pub(super) const CONTACT: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
 pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
+pub(super) const BLOCKS: &[&str] = &[CONTACT_BLOCK_FRAGMENT, CONSTRAINT_BLOCK_FRAGMENT];
+pub(super) const CORRECTIONS: &[&str] = &[CONTACT_CORRECTION_FRAGMENT];
 
 pub(super) const RO: BindingKind = BindingKind::ReadOnlyStorage;
 pub(super) const RW: BindingKind = BindingKind::ReadWriteStorage;

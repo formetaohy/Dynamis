@@ -230,7 +230,11 @@ impl Reservation {
     }
 
     pub(crate) fn sort(&self) -> u32 {
-        self.entries.max(self.pairs)
+        self.entries.max(self.pairs).max(self.blocks())
+    }
+
+    pub(crate) fn blocks(&self) -> u32 {
+        self.pairs.saturating_add(self.constraints)
     }
 }
 

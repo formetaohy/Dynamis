@@ -5,7 +5,7 @@ use dynamis_gpu::{
     BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle,
 };
 use dynamis_layout::{
-    COUNTER_ARCHIVED, COUNTER_BODY_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_ENTRIES,
+    COUNTER_ARCHIVED, COUNTER_BLOCKS, COUNTER_BODY_MOVES, COUNTER_CONTACTS, COUNTER_ENTRIES,
     COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE,
 };
@@ -14,8 +14,8 @@ use wgpu::{BindGroup, BindGroupEntry, CommandEncoder};
 pub(super) const SORT_JOINTS: u32 = 0;
 pub(super) const SORT_ENTRIES: u32 = 1;
 pub(super) const SORT_PAIRS: u32 = 2;
-pub(super) const SORT_CONTACTS: u32 = 3;
-pub(super) const SORT_CONSTRAINTS: u32 = 4;
+pub(super) const SORT_SOLVER_A: u32 = 3;
+pub(super) const SORT_SOLVER_B: u32 = 4;
 pub(super) const BROADPHASE_PAIRS: u32 = 5;
 pub(super) const NARROWPHASE: u32 = 6;
 pub(super) const COMPACT_SCAN: u32 = 7;
@@ -23,16 +23,17 @@ pub(super) const COMPACT_SCATTER: u32 = 8;
 pub(super) const CCD_SWEEP: u32 = 9;
 pub(super) const CONTACT_ARCHIVE: u32 = 10;
 pub(super) const ISLAND_LINK_CONTACTS: u32 = 11;
-pub(super) const GATHER_CONTACT_KEYS_B: u32 = 12;
-pub(super) const MARK_CONTACT_BOUNDARIES: u32 = 13;
-pub(super) const CONTACT_BEGIN: u32 = 14;
-pub(super) const CONTACT_SOLVE_EXTRACT: u32 = 15;
-pub(super) const POSITION_SOLVE_EXTRACT: u32 = 16;
-pub(super) const CONTACT_RELAY: u32 = 17;
-pub(super) const THAW_CONTACTS: u32 = 18;
-pub(super) const FREEZE_CONTACTS: u32 = 19;
-pub(super) const SORT_RESTING: u32 = 20;
-pub(super) const RESTING_GATHER: u32 = 21;
+pub(super) const SOLVER_COUNT: u32 = 12;
+pub(super) const SOLVER_GATHER_B: u32 = 13;
+pub(super) const SOLVER_BOUNDARIES: u32 = 14;
+pub(super) const SOLVER_BLOCKS: u32 = 15;
+pub(super) const SOLVER_POSITION: u32 = 16;
+pub(super) const CONTACT_BEGIN: u32 = 17;
+pub(super) const CONTACT_RELAY: u32 = 18;
+pub(super) const THAW_CONTACTS: u32 = 19;
+pub(super) const FREEZE_CONTACTS: u32 = 20;
+pub(super) const SORT_RESTING: u32 = 21;
+pub(super) const RESTING_GATHER: u32 = 22;
 const KERNEL_TILE: u32 = 256;
 
 struct DispatchEntry {
@@ -66,10 +67,7 @@ const fn transition(
 }
 
 const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
-    &[
-        entry(SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE),
-        entry(SORT_CONSTRAINTS, COUNTER_CONSTRAINTS, KERNEL_TILE),
-    ],
+    &[entry(SORT_JOINTS, COUNTER_JOINTS, KERNEL_TILE)],
     &[
         entry(SORT_ENTRIES, COUNTER_ENTRIES, KERNEL_TILE),
         entry(BROADPHASE_PAIRS, COUNTER_ENTRIES, WORKGROUP_SIZE),
@@ -83,14 +81,9 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
     ],
     &[
         entry(CONTACT_RELAY, COUNTER_ARCHIVED, WORKGROUP_SIZE),
-        entry(SORT_CONTACTS, COUNTER_CONTACTS, KERNEL_TILE),
         entry(CONTACT_ARCHIVE, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(ISLAND_LINK_CONTACTS, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        entry(GATHER_CONTACT_KEYS_B, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        entry(MARK_CONTACT_BOUNDARIES, COUNTER_CONTACTS, WORKGROUP_SIZE),
         entry(CONTACT_BEGIN, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        entry(CONTACT_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
-        entry(POSITION_SOLVE_EXTRACT, COUNTER_CONTACTS, WORKGROUP_SIZE),
     ],
     &[
         transition(
@@ -118,6 +111,15 @@ const DISPATCH_BATCHES: &[&[DispatchEntry]] = &[
         &[COUNTER_RESTING_GATHER],
         KERNEL_TILE,
     )],
+    &[
+        entry(SOLVER_COUNT, COUNTER_BLOCKS, WORKGROUP_SIZE),
+        entry(SOLVER_GATHER_B, COUNTER_BLOCKS, WORKGROUP_SIZE),
+        entry(SOLVER_BOUNDARIES, COUNTER_BLOCKS, WORKGROUP_SIZE),
+        entry(SOLVER_BLOCKS, COUNTER_BLOCKS, WORKGROUP_SIZE),
+        entry(SOLVER_POSITION, COUNTER_BLOCKS, WORKGROUP_SIZE),
+        entry(SORT_SOLVER_A, COUNTER_BLOCKS, KERNEL_TILE),
+        entry(SORT_SOLVER_B, COUNTER_BLOCKS, KERNEL_TILE),
+    ],
 ];
 
 pub(super) const COMMANDS_BATCH: usize = 0;
@@ -127,6 +129,7 @@ pub(super) const ISLANDS_BATCH: usize = 3;
 pub(super) const COMMIT_BATCH: usize = 4;
 pub(super) const RESTING_GATHER_BATCH: usize = 5;
 pub(super) const RESTING_SORT_BATCH: usize = 6;
+pub(super) const SOLVER_BATCH: usize = 7;
 
 pub(crate) const DISPATCH_SLOTS: u32 = dispatch_slots();
 

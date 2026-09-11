@@ -78,7 +78,6 @@ impl Narrowphase {
                     (RO, whole(&buffers.contacts.compact_ranks)),
                     (RO, whole(&buffers.contacts.compact_offsets)),
                     (RW, whole(&buffers.contacts.manifolds)),
-                    (RW, whole(&buffers.contacts.a_body)),
                     (RW, whole(&buffers.contacts.contact_matched)),
                     (RW, buffers.counter(COUNTER_PAIRS)),
                 ],

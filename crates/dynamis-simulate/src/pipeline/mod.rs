@@ -6,13 +6,12 @@ mod grid;
 mod integrate;
 mod islands;
 mod narrowphase;
-mod position_solve;
 mod shader;
 mod sleep;
+mod solver;
 mod stage;
 #[cfg(feature = "profile")]
 mod timing;
-mod velocity_solve;
 
 use crate::buffers::WorldBuffers;
 use crate::capacity::Reservation;
@@ -31,14 +30,13 @@ use grid::Grid;
 use integrate::Integrate;
 use islands::Islands;
 use narrowphase::Narrowphase;
-use position_solve::PositionSolve;
 use sleep::Sleep;
-use velocity_solve::VelocitySolve;
+use solver::Solver;
 
 pub(crate) use dispatch::DISPATCH_SLOTS;
 use dispatch::{
     BROADPHASE_BATCH, COMMANDS_BATCH, COMMIT_BATCH, GRID_BATCH, ISLANDS_BATCH,
-    RESTING_GATHER_BATCH, RESTING_SORT_BATCH,
+    RESTING_GATHER_BATCH, RESTING_SORT_BATCH, SOLVER_BATCH,
 };
 
 macro_rules! passes {
@@ -69,9 +67,10 @@ passes!(
     Broadphase => "broadphase",
     Narrowphase => "narrowphase",
     Islands => "islands",
+    SolverPrepare => "solver_prepare",
+    Solver => "solver",
+    Position => "position",
     Sleep => "sleep",
-    VelocitySolve => "velocity_solve",
-    PositionSolve => "position_solve",
     Commit => "commit",
     RestingGather => "resting_gather",
     RestingIndex => "resting_index",
@@ -81,7 +80,6 @@ pub(crate) struct FrameParams {
     pub(crate) dynamic_count: u32,
     pub(crate) body_count: u32,
     pub(crate) solve_iterations: u32,
-    pub(crate) position_iterations: u32,
     pub(crate) island_rounds: u32,
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
@@ -99,8 +97,7 @@ pub(crate) struct Pipeline {
     narrowphase: Narrowphase,
     islands: Islands,
     sleep: Sleep,
-    velocity_solve: VelocitySolve,
-    position_solve: PositionSolve,
+    solver: Solver,
     commit: Commit,
     dispatch: Dispatch,
     sort: RadixSort,
@@ -130,8 +127,7 @@ impl Pipeline {
             narrowphase: Narrowphase::build(context, buffers, per_row),
             islands: Islands::build(context, buffers, per_row),
             sleep: Sleep::build(context, buffers, per_row),
-            velocity_solve: VelocitySolve::build(context, buffers, per_row),
-            position_solve: PositionSolve::build(context, buffers, per_row),
+            solver: Solver::build(context, buffers, per_row),
             commit: Commit::build(context, buffers, per_row),
             dispatch: Dispatch::build(context, buffers, per_row),
             sort,
@@ -192,24 +188,26 @@ impl Pipeline {
             self.dispatch.write(encoder, ISLANDS_BATCH);
 
             let mut islands = self.open(encoder, Pass::Islands);
-            self.islands
-                .record(&mut islands, buffers, params, &self.sort);
+            self.islands.record(&mut islands, buffers, params);
             drop(islands);
+
+            let mut prepare = self.open(encoder, Pass::SolverPrepare);
+            self.solver.record_prepare(&mut prepare, params.body_count);
+            drop(prepare);
+            self.dispatch.write(encoder, SOLVER_BATCH);
+
+            let mut solver = self.open(encoder, Pass::Solver);
+            self.solver.record(&mut solver, buffers, params, &self.sort);
+            drop(solver);
+
+            let mut position = self.open(encoder, Pass::Position);
+            self.solver.record_position(&mut position, buffers, params);
+            drop(position);
 
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);
             drop(sleep);
             self.dispatch.write(encoder, COMMIT_BATCH);
-
-            let mut velocity_solve = self.open(encoder, Pass::VelocitySolve);
-            self.velocity_solve
-                .record(&mut velocity_solve, buffers, params);
-            drop(velocity_solve);
-
-            let mut position_solve = self.open(encoder, Pass::PositionSolve);
-            self.position_solve
-                .record(&mut position_solve, buffers, params);
-            drop(position_solve);
         }
         let mut commit = self.open(encoder, Pass::Commit);
         self.commit.record(&mut commit, buffers, params);

@@ -62,10 +62,6 @@ fn assert_config(config: &PhysicsConfig) {
         (0.0..=1.0).contains(&config.relaxation),
         "position relaxation must be within (0, 1]"
     );
-    assert!(
-        (0.0..=1.0).contains(&config.tempering),
-        "solver tempering must be within (0, 1]"
-    );
 }
 
 impl Simulation {

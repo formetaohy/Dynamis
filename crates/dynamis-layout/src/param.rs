@@ -16,7 +16,6 @@ pub struct SimParamsRecord {
     pub angular_damping: f32,
     pub body_count: u32,
     pub solve_iterations: u32,
-    pub position_iterations: u32,
     pub constraint_count: u32,
     pub relaxation: f32,
     pub slop: f32,
@@ -32,12 +31,11 @@ pub struct SimParamsRecord {
     pub wake_velocity: f32,
     pub friction_combine: u32,
     pub restitution_combine: u32,
-    pub tempering: f32,
     pub edit_run_count: u32,
     pub body_move_count: u32,
     pub constraint_move_count: u32,
     pub event_slot: u32,
-    pub _pad: [u32; 2],
+    pub _pad: [u32; 4],
 }
 
 impl SimParamsRecord {
@@ -57,7 +55,6 @@ impl SimParamsRecord {
             angular_damping: config.angular_damping,
             body_count,
             solve_iterations: config.solve_iterations,
-            position_iterations: config.position_iterations,
             constraint_count,
             relaxation: config.relaxation,
             slop: config.slop,
@@ -73,12 +70,11 @@ impl SimParamsRecord {
             wake_velocity: config.wake_velocity,
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
-            tempering: config.tempering,
             edit_run_count: streams.edit_runs,
             body_move_count: streams.body_moves,
             constraint_move_count: streams.constraint_moves,
             event_slot,
-            _pad: [0; 2],
+            _pad: [0; 4],
         }
     }
 }

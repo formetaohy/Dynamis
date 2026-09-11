@@ -3,9 +3,8 @@
 @group(0) @binding(2) var<storage, read> ranks: array<u32>;
 @group(0) @binding(3) var<storage, read> block_offsets: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(5) var<storage, read_write> a_body: array<u32>;
-@group(0) @binding(6) var<storage, read_write> contact_matched: array<u32>;
-@group(0) @binding(7) var<storage, read_write> count_holder: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> contact_matched: array<u32>;
+@group(0) @binding(6) var<storage, read_write> count_holder: array<atomic<u32>>;
 
 const BLOCK_SIZE: u32 = 256u;
 
@@ -19,8 +18,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let dest = block_offsets[index / BLOCK_SIZE] + ranks[index];
-    let contact = contacts_raw[index];
-    contacts[dest] = contact;
-    a_body[dest] = contact.a / MAX_COLLIDERS_PER_BODY;
+    contacts[dest] = contacts_raw[index];
     contact_matched[dest] = 0u;
 }

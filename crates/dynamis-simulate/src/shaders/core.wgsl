@@ -5,7 +5,6 @@ struct SimParams {
     angular_damping: f32,
     body_count: u32,
     solve_iterations: u32,
-    position_iterations: u32,
     constraint_count: u32,
     relaxation: f32,
     slop: f32,
@@ -21,13 +20,14 @@ struct SimParams {
     wake_velocity: f32,
     friction_combine: u32,
     restitution_combine: u32,
-    tempering: f32,
     edit_run_count: u32,
     body_move_count: u32,
     constraint_move_count: u32,
     event_slot: u32,
     _pad0: u32,
     _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 struct BodyState {
@@ -500,6 +500,10 @@ fn relative_velocity(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f)
     let va = body_a.state.velocity + cross(body_a.state.angular_velocity, point_a - body_com(body_a));
     let vb = body_b.state.velocity + cross(body_b.state.angular_velocity, point_b - body_com(body_b));
     return vb - va;
+}
+
+fn contact_block_resolves(contact: Contact) -> bool {
+    return contact.point_count > 0u && contact.sensor == 0u;
 }
 
 fn point_momentum_mass(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f, axis: vec3f) -> f32 {

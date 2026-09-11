@@ -1,15 +1,3 @@
-@group(0) @binding(0) var<uniform> params: SimParams;
-@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
-@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
-@group(0) @binding(3) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
-@group(0) @binding(4) var<storage, read_write> constraint_runtime: array<ConstraintRuntime>;
-@group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(6) var<storage, read_write> constraint_deltas: array<vec4f>;
-
-fn load_body(slot: u32) -> Body {
-    return Body(body_states[slot], body_descs[slot]);
-}
-
 struct FrameForces {
     linear: f32,
     angular: f32,
@@ -44,13 +32,15 @@ fn solve_point_row(
     point_b: vec3f,
     goal: f32,
     max_bias: f32,
+    mass_first: Body,
+    mass_second: Body,
     first: Body,
     second: Body,
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
     let bias = dot(point_b - point_a, axis) - goal;
-    let k = point_momentum_mass(first, second, point_a, point_b, axis);
+    let k = point_momentum_mass(mass_first, mass_second, point_a, point_b, axis);
     var first_out = first;
     var second_out = second;
     var accumulated_out = accumulated;
@@ -75,6 +65,8 @@ fn solve_point_row(
 
 fn solve_angular_row(
     axis: vec3f,
+    mass_first: Body,
+    mass_second: Body,
     first: Body,
     second: Body,
     accumulated: f32,
@@ -84,7 +76,7 @@ fn solve_angular_row(
     let axis_normalized = normalize(axis);
     let k = dot(
         axis_normalized,
-        apply_inverse_inertia(first, axis_normalized) + apply_inverse_inertia(second, axis_normalized),
+        apply_inverse_inertia(mass_first, axis_normalized) + apply_inverse_inertia(mass_second, axis_normalized),
     );
     var first_out = first;
     var second_out = second;
@@ -120,12 +112,14 @@ fn solve_driven_point_row(
     damping: f32,
     target_speed: f32,
     max_force: f32,
+    mass_first: Body,
+    mass_second: Body,
     first: Body,
     second: Body,
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
-    let k = point_momentum_mass(first, second, point_a, point_b, axis);
+    let k = point_momentum_mass(mass_first, mass_second, point_a, point_b, axis);
     var first_out = first;
     var second_out = second;
     var accumulated_out = accumulated;
@@ -160,6 +154,8 @@ fn solve_driven_angular_row(
     damping: f32,
     target_speed: f32,
     max_force: f32,
+    mass_first: Body,
+    mass_second: Body,
     first: Body,
     second: Body,
     accumulated: f32,
@@ -168,7 +164,7 @@ fn solve_driven_angular_row(
     let axis_normalized = normalize(axis);
     let k = dot(
         axis_normalized,
-        apply_inverse_inertia(first, axis_normalized) + apply_inverse_inertia(second, axis_normalized),
+        apply_inverse_inertia(mass_first, axis_normalized) + apply_inverse_inertia(mass_second, axis_normalized),
     );
     var first_out = first;
     var second_out = second;
@@ -213,12 +209,14 @@ fn limit_row(
     error: f32,
     accumulated: f32,
     axis: vec3f,
+    mass_first: Body,
+    mass_second: Body,
     first: Body,
     second: Body,
     forces: FrameForces,
 ) -> RowOutcome {
     let bias_speed = clamp(error * 0.05 / max(params.dt, 1e-4), -4.0, 4.0);
-    let outcome = solve_angular_row(axis, first, second, accumulated, bias_speed, forces);
+    let outcome = solve_angular_row(axis, mass_first, mass_second, first, second, accumulated, bias_speed, forces);
     return outcome;
 }
 
@@ -234,32 +232,24 @@ fn dof_frame(tangents: TangentBasis, axis_a: vec3f, index: u32) -> vec3f {
     return select(tangents.first, select(tangents.second, axis_a, index == 2u), index == 1u);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.constraint_count) {
-        return;
-    }
-    let constraint_index = index;
+fn solve_constraint_block(constraint_index: u32, slot: u32) {
     var runtime = constraint_runtime[constraint_index];
     let constraint = constraint_descs[constraint_index];
     if (runtime.broken != 0u) {
-        constraint_deltas[constraint_index * 4u] = vec4f(0.0);
-        constraint_deltas[constraint_index * 4u + 1u] = vec4f(0.0);
-        constraint_deltas[constraint_index * 4u + 2u] = vec4f(0.0);
-        constraint_deltas[constraint_index * 4u + 3u] = vec4f(0.0);
+        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
-    var first = load_body(constraint.a);
-    var second = load_body(constraint.b);
-    let first_sleeping = first.state.sleeping != 0u;
-    let second_sleeping = second.state.sleeping != 0u;
-    if (body_is_inert(first)) {
-        first = body_frozen(first);
+    let pair = block_pair(constraint.a, constraint.b);
+    if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
+        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        return;
     }
-    if (body_is_inert(second)) {
-        second = body_frozen(second);
-    }
+    var first = pair.first;
+    var second = pair.second;
+    let mass_first = pair.split_first;
+    let mass_second = pair.split_second;
+    let first_sleeping = pair.first.state.sleeping != 0u;
+    let second_sleeping = pair.second.state.sleeping != 0u;
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     var accumulated = runtime.accumulated;
@@ -272,7 +262,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if ((constraint.flags & CONSTRAINT_IS_SPRING) == 0u) {
             let outcome = solve_point_row(
                 axis, anchor_a, anchor_b, constraint.distance, max_bias,
-                first, second, accumulated[0], forces,
+                mass_first, mass_second, first, second, accumulated[0], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -285,7 +275,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let zeta = constraint.spring_damping_ratio;
             let velocity = relative_velocity(first, second, anchor_a, anchor_b);
             let jacobian_speed = dot(velocity, axis);
-            let k = point_momentum_mass(first, second, anchor_a, anchor_b, axis);
+            let k = point_momentum_mass(mass_first, mass_second, anchor_a, anchor_b, axis);
             if (k > 0.0) {
                 let v_target = -(omega * omega * error * params.dt) - 2.0 * zeta * omega * params.dt * jacobian_speed;
                 let next = accumulated[0] - (jacobian_speed - v_target) / k;
@@ -300,7 +290,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let axis = select(vec3f(1.0, 0.0, 0.0), select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), i == 2u), i == 1u);
             let outcome = solve_point_row(
                 axis, anchor_a, anchor_b, 0.0, max_bias,
-                first, second, accumulated[i], forces,
+                mass_first, mass_second, first, second, accumulated[i], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -311,7 +301,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let tangents = make_tangents(hinge);
         for (var i = 0u; i < 2u; i = i + 1u) {
             let axis = select(tangents.first, tangents.second, i == 1u);
-            let outcome = solve_angular_row(axis, first, second, accumulated[3u + i], 0.0, forces);
+            let outcome = solve_angular_row(axis, mass_first, mass_second, first, second, accumulated[3u + i], 0.0, forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[3u + i] = outcome.accumulated;
@@ -322,7 +312,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let outcome = solve_driven_angular_row(
                 hinge, current, constraint.motor_target, constraint.motor_stiffness, constraint.motor_damping,
                 -constraint.motor_speed, constraint.motor_max_force,
-                first, second, accumulated[6], forces,
+                mass_first, mass_second, first, second, accumulated[6], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -335,14 +325,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let below = angle < constraint.limit_min;
             if (above) {
                 let error = angle - constraint.limit_max;
-                let outcome = limit_row(error, accumulated[5], hinge, first, second, forces);
+                let outcome = limit_row(error, accumulated[5], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[5] = min(outcome.accumulated, 0.0);
                 forces = outcome.forces;
             } else if (below) {
                 let error = angle - constraint.limit_min;
-                let outcome = limit_row(error, accumulated[5], hinge, first, second, forces);
+                let outcome = limit_row(error, accumulated[5], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[5] = max(outcome.accumulated, 0.0);
@@ -356,7 +346,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let tangent = select(tangents.first, tangents.second, i == 1u);
             let outcome = solve_point_row(
                 tangent, anchor_a, anchor_b, 0.0, max_bias,
-                first, second, accumulated[i], forces,
+                mass_first, mass_second, first, second, accumulated[i], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -365,13 +355,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
         for (var i = 0u; i < 2u; i = i + 1u) {
             let tangent = select(tangents.first, tangents.second, i == 1u);
-            let outcome = solve_angular_row(tangent, first, second, accumulated[2u + i], 0.0, forces);
+            let outcome = solve_angular_row(tangent, mass_first, mass_second, first, second, accumulated[2u + i], 0.0, forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[2u + i] = outcome.accumulated;
             forces = outcome.forces;
         }
-        let twist_outcome = solve_angular_row(axis, first, second, accumulated[4], 0.0, forces);
+        let twist_outcome = solve_angular_row(axis, mass_first, mass_second, first, second, accumulated[4], 0.0, forces);
         first = twist_outcome.first;
         second = twist_outcome.second;
         accumulated[4] = twist_outcome.accumulated;
@@ -381,7 +371,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let outcome = solve_driven_point_row(
                 axis, anchor_a, anchor_b, current, constraint.motor_target,
                 constraint.motor_stiffness, constraint.motor_damping, constraint.motor_speed,
-                constraint.motor_max_force, first, second, accumulated[6], forces,
+                constraint.motor_max_force, mass_first, mass_second, first, second, accumulated[6], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -394,14 +384,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let below = separation < constraint.limit_min;
             if (above) {
                 let goal = constraint.limit_max;
-                let outcome = solve_point_row(axis, anchor_a, anchor_b, goal, max_bias, first, second, accumulated[5], forces);
+                let outcome = solve_point_row(axis, anchor_a, anchor_b, goal, max_bias, mass_first, mass_second, first, second, accumulated[5], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[5] = min(outcome.accumulated, 0.0);
                 forces = outcome.forces;
             } else if (below) {
                 let goal = constraint.limit_min;
-                let outcome = solve_point_row(axis, anchor_a, anchor_b, goal, max_bias, first, second, accumulated[5], forces);
+                let outcome = solve_point_row(axis, anchor_a, anchor_b, goal, max_bias, mass_first, mass_second, first, second, accumulated[5], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[5] = max(outcome.accumulated, 0.0);
@@ -413,7 +403,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let axis = select(vec3f(1.0, 0.0, 0.0), select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), i == 2u), i == 1u);
             let outcome = solve_point_row(
                 axis, anchor_a, anchor_b, 0.0, max_bias,
-                first, second, accumulated[i], forces,
+                mass_first, mass_second, first, second, accumulated[i], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -428,14 +418,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let below = angle < constraint.limit_min;
             if (above) {
                 let error = angle - constraint.limit_max;
-                let outcome = limit_row(error, accumulated[3], hinge, first, second, forces);
+                let outcome = limit_row(error, accumulated[3], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[3] = min(outcome.accumulated, 0.0);
                 forces = outcome.forces;
             } else if (below) {
                 let error = angle - constraint.limit_min;
-                let outcome = limit_row(error, accumulated[3], hinge, first, second, forces);
+                let outcome = limit_row(error, accumulated[3], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[3] = max(outcome.accumulated, 0.0);
@@ -445,15 +435,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if ((constraint.flags & CONSTRAINT_HAS_SWING) != 0u) {
             let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
             let perp = q_rel.xyz - hinge * dot(q_rel.xyz, hinge);
-            let swing_magnitude = length(perp);
             for (var i = 0u; i < 2u; i = i + 1u) {
                 let swing_axis = select(tangents.first, tangents.second, i == 1u);
                 let limit = select(constraint.swing_a, constraint.swing_b, i == 1u);
                 let swing_angle = 2.0 * atan2(dot(perp, swing_axis), abs(q_rel.w));
                 if (abs(swing_angle) > limit) {
                     let error = swing_angle - select(limit, -limit, swing_angle < 0.0);
-                    let axis = select(tangents.first, tangents.second, i == 1u);
-                    let outcome = limit_row(error, accumulated[4u + i], axis, first, second, forces);
+                    let outcome = limit_row(error, accumulated[4u + i], swing_axis, mass_first, mass_second, first, second, forces);
                     first = outcome.first;
                     second = outcome.second;
                     let capped = min(outcome.accumulated, 0.0);
@@ -466,8 +454,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let axis_a = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
         let axis_b = normalize(quat_rotate(second.state.orientation, constraint.axis_b));
         let ratio = constraint.gear_ratio;
-        let k = dot(axis_a, apply_inverse_inertia(first, axis_a)) * ratio * ratio
-            + dot(axis_b, apply_inverse_inertia(second, axis_b));
+        let k = dot(axis_a, apply_inverse_inertia(mass_first, axis_a)) * ratio * ratio
+            + dot(axis_b, apply_inverse_inertia(mass_second, axis_b));
         if (k > 0.0) {
             let jacobian_speed = ratio * dot(first.state.angular_velocity, axis_a) - dot(second.state.angular_velocity, axis_b);
             let next = accumulated[0] + jacobian_speed / k;
@@ -486,9 +474,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let rax = cross(ra, dir_a);
         let rb = anchor_b - body_com(second);
         let rbx = cross(rb, dir_b);
-        let k = first.desc.inverse_mass + second.desc.inverse_mass
-            + dot(rax, apply_inverse_inertia(first, rax))
-            + dot(rbx, apply_inverse_inertia(second, rbx));
+        let k = mass_first.desc.inverse_mass + mass_second.desc.inverse_mass
+            + dot(rax, apply_inverse_inertia(mass_first, rax))
+            + dot(rbx, apply_inverse_inertia(mass_second, rbx));
         if (k > 0.0) {
             let velocity = relative_velocity(first, first, anchor_a, anchor_a);
             let jacobian_speed = dot(velocity, dir_a)
@@ -508,7 +496,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let axis = select(vec3f(1.0, 0.0, 0.0), select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), i == 2u), i == 1u);
             let outcome = solve_point_row(
                 axis, anchor_a, anchor_b, 0.0, max_bias,
-                first, second, accumulated[i], forces,
+                mass_first, mass_second, first, second, accumulated[i], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -523,7 +511,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (angle > constraint.cone_angle) {
             let swing_axis = sign_normalize(cross(cone_axis, direction));
             let error = angle - constraint.cone_angle;
-            let outcome = limit_row(error, accumulated[3], swing_axis, first, second, forces);
+            let outcome = limit_row(error, accumulated[3], swing_axis, mass_first, mass_second, first, second, forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[3] = min(outcome.accumulated, 0.0);
@@ -541,7 +529,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
             let current = dot(anchor_b - anchor_a, world_axis);
             if (mode == DOF_LOCKED) {
-                let outcome = solve_point_row(world_axis, anchor_a, anchor_b, 0.0, max_bias, first, second, accumulated[i], forces);
+                let outcome = solve_point_row(world_axis, anchor_a, anchor_b, 0.0, max_bias, mass_first, mass_second, first, second, accumulated[i], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[i] = outcome.accumulated;
@@ -550,13 +538,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 let min_goal = vec_index(constraint.linear_limit_min, i);
                 let max_goal = vec_index(constraint.linear_limit_max, i);
                 if (current < min_goal) {
-                    let outcome = solve_point_row(world_axis, anchor_a, anchor_b, min_goal, max_bias, first, second, accumulated[i], forces);
+                    let outcome = solve_point_row(world_axis, anchor_a, anchor_b, min_goal, max_bias, mass_first, mass_second, first, second, accumulated[i], forces);
                     first = outcome.first;
                     second = outcome.second;
                     accumulated[i] = min(outcome.accumulated, 0.0);
                     forces = outcome.forces;
                 } else if (current > max_goal) {
-                    let outcome = solve_point_row(world_axis, anchor_a, anchor_b, max_goal, max_bias, first, second, accumulated[i], forces);
+                    let outcome = solve_point_row(world_axis, anchor_a, anchor_b, max_goal, max_bias, mass_first, mass_second, first, second, accumulated[i], forces);
                     first = outcome.first;
                     second = outcome.second;
                     accumulated[i] = max(outcome.accumulated, 0.0);
@@ -568,7 +556,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 let damping = vec_index(constraint.linear_motor_damping, i);
                 let max_force = vec_index(constraint.linear_motor_force, i);
                 let target_speed = select(0.0, target_value, stiffness <= 0.0);
-                let outcome = solve_driven_point_row(world_axis, anchor_a, anchor_b, current, target_value, stiffness, damping, target_speed, max_force, first, second, accumulated[i], forces);
+                let outcome = solve_driven_point_row(world_axis, anchor_a, anchor_b, current, target_value, stiffness, damping, target_speed, max_force, mass_first, mass_second, first, second, accumulated[i], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[i] = outcome.accumulated;
@@ -587,7 +575,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             }
             let current = dot(error_vector, local_axis);
             if (mode == DOF_LOCKED) {
-                let outcome = solve_angular_row(world_axis, first, second, accumulated[3u + i], -current, forces);
+                let outcome = solve_angular_row(world_axis, mass_first, mass_second, first, second, accumulated[3u + i], -current, forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[3u + i] = outcome.accumulated;
@@ -596,13 +584,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 let min_goal = vec_index(constraint.angular_limit_min, i);
                 let max_goal = vec_index(constraint.angular_limit_max, i);
                 if (current < min_goal) {
-                    let outcome = limit_row(current - min_goal, accumulated[3u + i], world_axis, first, second, forces);
+                    let outcome = limit_row(current - min_goal, accumulated[3u + i], world_axis, mass_first, mass_second, first, second, forces);
                     first = outcome.first;
                     second = outcome.second;
                     accumulated[3u + i] = min(outcome.accumulated, 0.0);
                     forces = outcome.forces;
                 } else if (current > max_goal) {
-                    let outcome = limit_row(current - max_goal, accumulated[3u + i], world_axis, first, second, forces);
+                    let outcome = limit_row(current - max_goal, accumulated[3u + i], world_axis, mass_first, mass_second, first, second, forces);
                     first = outcome.first;
                     second = outcome.second;
                     accumulated[3u + i] = max(outcome.accumulated, 0.0);
@@ -614,7 +602,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 let damping = vec_index(constraint.angular_motor_damping, i);
                 let max_force = vec_index(constraint.angular_motor_force, i);
                 let target_speed = select(0.0, target_value, stiffness <= 0.0);
-                let outcome = solve_driven_angular_row(world_axis, current, target_value, stiffness, damping, target_speed, max_force, first, second, accumulated[3u + i], forces);
+                let outcome = solve_driven_angular_row(world_axis, current, target_value, stiffness, damping, target_speed, max_force, mass_first, mass_second, first, second, accumulated[3u + i], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[3u + i] = outcome.accumulated;
@@ -626,7 +614,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let axis = select(vec3f(1.0, 0.0, 0.0), select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), i == 2u), i == 1u);
             let outcome = solve_point_row(
                 axis, anchor_a, anchor_b, 0.0, max_bias,
-                first, second, accumulated[i], forces,
+                mass_first, mass_second, first, second, accumulated[i], forces,
             );
             first = outcome.first;
             second = outcome.second;
@@ -639,7 +627,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             vec3f(0.0, 0.0, 1.0),
         );
         for (var i = 0u; i < 3u; i = i + 1u) {
-            let outcome = solve_angular_row(basis[i], first, second, accumulated[3u + i], 0.0, forces);
+            let outcome = solve_angular_row(basis[i], mass_first, mass_second, first, second, accumulated[3u + i], 0.0, forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[3u + i] = outcome.accumulated;
@@ -662,14 +650,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (second_sleeping && !first_sleeping && breach_now) {
         atomicOr(&wake_flags[constraint.b], 1u);
     }
-    let snap_first = load_body(constraint.a);
-    let snap_second = load_body(constraint.b);
-    let delta_a = first.state.velocity - snap_first.state.velocity;
-    let delta_spin_a = first.state.angular_velocity - snap_first.state.angular_velocity;
-    let delta_b = second.state.velocity - snap_second.state.velocity;
-    let delta_spin_b = second.state.angular_velocity - snap_second.state.angular_velocity;
-    constraint_deltas[constraint_index * 4u] = vec4f(delta_a, 0.0);
-    constraint_deltas[constraint_index * 4u + 1u] = vec4f(delta_spin_a, 0.0);
-    constraint_deltas[constraint_index * 4u + 2u] = vec4f(delta_b, 0.0);
-    constraint_deltas[constraint_index * 4u + 3u] = vec4f(delta_spin_b, 0.0);
+    store_block_delta(
+        slot,
+        first.state.velocity - pair.first.state.velocity,
+        first.state.angular_velocity - pair.first.state.angular_velocity,
+        second.state.velocity - pair.second.state.velocity,
+        second.state.angular_velocity - pair.second.state.angular_velocity,
+    );
 }

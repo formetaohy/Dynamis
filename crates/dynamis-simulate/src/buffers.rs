@@ -4,8 +4,8 @@ use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
     COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
     ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, NO_SLOT,
-    QueryHitRecord, QueryRecord, QueryResultHeader, RowMoveRecord, ShapeSourceRecord,
-    SimParamsRecord,
+    QueryHitRecord, QueryRecord, QueryResultHeader, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
+    ShapeSourceRecord, SimParamsRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use dynamis_sort::{SortChannels, key_words};
@@ -23,6 +23,8 @@ const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_COUNT as u64;
 const DELTA_BYTES: u64 = 64;
+const CORRECTION_BYTES: u64 = 32;
+const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;
 pub(crate) const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
 pub(crate) const TRIANGLE_BYTES: u64 = size_of::<[u32; 4]>() as u64;
 const QUERY_BYTES: u64 = size_of::<QueryRecord>() as u64;
@@ -95,16 +97,23 @@ pub(crate) struct BodyBuffers {
     pub(crate) state_scratch: GpuBuffer,
 }
 
+pub(crate) struct SolverBuffers {
+    pub(crate) segments: GpuBuffer,
+    pub(crate) a_bodies: GpuBuffer,
+    pub(crate) a_payload: GpuBuffer,
+    pub(crate) b_bodies: GpuBuffer,
+    pub(crate) b_blocks: GpuBuffer,
+    pub(crate) first_a: GpuBuffer,
+    pub(crate) first_b: GpuBuffer,
+    pub(crate) counts: GpuBuffer,
+    pub(crate) contact_counts: GpuBuffer,
+    pub(crate) deltas: GpuBuffer,
+    pub(crate) corrections: GpuBuffer,
+}
+
 pub(crate) struct ConstraintBuffers {
     pub(crate) descriptors: GpuBuffer,
     pub(crate) runtime: GpuBuffer,
-    pub(crate) a_bodies: GpuBuffer,
-    pub(crate) a_rows: GpuBuffer,
-    pub(crate) b_bodies: GpuBuffer,
-    pub(crate) b_rows: GpuBuffer,
-    pub(crate) first_a: GpuBuffer,
-    pub(crate) first_b: GpuBuffer,
-    pub(crate) deltas: GpuBuffer,
     pub(crate) joint_major: GpuBuffer,
     pub(crate) joint_minor: GpuBuffer,
     pub(crate) row_moves: GpuBuffer,
@@ -119,7 +128,6 @@ pub(crate) struct ContactBuffers {
     pub(crate) large_bodies: GpuBuffer,
     pub(crate) raw: GpuBuffer,
     pub(crate) valid: GpuBuffer,
-    pub(crate) a_body: GpuBuffer,
     pub(crate) compact_ranks: GpuBuffer,
     pub(crate) compact_sums: GpuBuffer,
     pub(crate) compact_offsets: GpuBuffer,
@@ -130,11 +138,6 @@ pub(crate) struct ContactBuffers {
     pub(crate) resting_live: GpuBuffer,
     pub(crate) resting_next: GpuBuffer,
     pub(crate) resting_free: GpuBuffer,
-    pub(crate) b_bodies: GpuBuffer,
-    pub(crate) b_rows: GpuBuffer,
-    pub(crate) first_a: GpuBuffer,
-    pub(crate) first_b: GpuBuffer,
-    pub(crate) deltas: GpuBuffer,
 }
 
 pub(crate) struct IslandBuffers {
@@ -176,6 +179,7 @@ pub(crate) struct WorldBuffers {
     pub(crate) bodies: BodyBuffers,
     pub(crate) constraints: ConstraintBuffers,
     pub(crate) contacts: ContactBuffers,
+    pub(crate) solver: SolverBuffers,
     pub(crate) islands: IslandBuffers,
     pub(crate) shapes: ShapeBuffers,
     pub(crate) events: GpuBuffer,
@@ -282,13 +286,6 @@ impl WorldBuffers {
                     constraints,
                     size_of::<ConstraintRuntimeRecord>() as u64,
                 ),
-                a_bodies: lanes("constraint gather a bodies", constraints),
-                a_rows: lanes("constraint gather a rows", constraints),
-                b_bodies: lanes("constraint gather b bodies", constraints),
-                b_rows: lanes("constraint gather b rows", constraints),
-                first_a: lanes("constraint gather first a", bodies),
-                first_b: lanes("constraint gather first b", bodies),
-                deltas: rows("constraint solver deltas", constraints, DELTA_BYTES),
                 joint_major: lanes("joint filter major", constraints),
                 joint_minor: lanes("joint filter minor", constraints),
                 row_moves: rows(
@@ -307,6 +304,19 @@ impl WorldBuffers {
                     size_of::<ConstraintRuntimeRecord>() as u64,
                 ),
             },
+            solver: SolverBuffers {
+                segments: lanes("solver segments", SOLVER_BLOCK_KINDS),
+                a_bodies: lanes("solver block bodies", plan.blocks()),
+                a_payload: lanes("solver block payload", plan.blocks()),
+                b_bodies: lanes("solver block second bodies", plan.blocks()),
+                b_blocks: lanes("solver block second slots", plan.blocks()),
+                first_a: lanes("solver first block", bodies),
+                first_b: lanes("solver first second block", bodies),
+                counts: lanes("solver block counts", bodies),
+                contact_counts: lanes("solver contact counts", bodies),
+                deltas: rows("solver block deltas", plan.blocks(), DELTA_BYTES),
+                corrections: rows("solver block corrections", plan.blocks(), CORRECTION_BYTES),
+            },
             contacts: ContactBuffers {
                 resting_index: Lanes::new(device, "resting index", plan.pairs),
                 entries: GridLanes::new(device, "grid entries", plan.entries),
@@ -318,7 +328,6 @@ impl WorldBuffers {
                     size_of::<ContactRecord>() as u64,
                 ),
                 valid: lanes("contact valid", plan.pairs),
-                a_body: lanes("contact a body", plan.pairs),
                 compact_ranks: lanes("compact ranks", plan.pairs),
                 compact_sums: lanes("compact block sums", plan.pairs.div_ceil(COMPACT_BLOCK)),
                 compact_offsets: lanes("compact block offsets", plan.pairs.div_ceil(COMPACT_BLOCK)),
@@ -337,11 +346,6 @@ impl WorldBuffers {
                 resting_live: lanes("resting contact live", plan.pairs),
                 resting_next: lanes("resting contact next", plan.pairs),
                 resting_free,
-                b_bodies: lanes("contact gather b bodies", plan.pairs),
-                b_rows: lanes("contact gather b rows", plan.pairs),
-                first_a: lanes("contact gather first a", bodies),
-                first_b: lanes("contact gather first b", bodies),
-                deltas: rows("contact solver deltas", plan.pairs, DELTA_BYTES),
             },
             islands: IslandBuffers {
                 parents: lanes("island parents", bodies),

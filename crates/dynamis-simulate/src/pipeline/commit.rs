@@ -21,7 +21,6 @@ pub(super) struct Commit {
     resting_commit: Stage,
     contact_archive: Stage,
     archive_count_sync: Stage,
-    constraints_warm_end: Stage,
     static_wake_clear: Stage,
     query: Stage,
 }
@@ -131,19 +130,6 @@ impl Commit {
                 ],
                 &[],
             ),
-            constraints_warm_end: Stage::build(
-                context,
-                "constraints_warm_end",
-                include_str!("../shaders/constraints_warm_end.wgsl"),
-                per_row,
-                CORE,
-                &[
-                    (RO, whole(&buffers.constraints.descriptors)),
-                    (RW, whole(&buffers.constraints.runtime)),
-                    (UNIFORM, whole(&buffers.params)),
-                ],
-                &[],
-            ),
             static_wake_clear: Stage::build(
                 context,
                 "static_wake_clear",
@@ -196,8 +182,6 @@ impl Commit {
         self.contact_archive
             .record_indirect(recorder, &buffers.dispatch, CONTACT_ARCHIVE);
         self.archive_count_sync.record_workgroups(recorder, 1);
-        self.constraints_warm_end
-            .record(recorder, params.constraint_count);
         self.static_wake_clear.record(recorder, params.body_count);
         self.freeze_contacts
             .record_indirect(recorder, &buffers.dispatch, FREEZE_CONTACTS);
