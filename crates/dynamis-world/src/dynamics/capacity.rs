@@ -18,6 +18,7 @@ pub(crate) const STREAM_FLOOR: u32 = 256;
 
 pub(crate) struct Live {
     pub(crate) bodies: u32,
+    pub(crate) body_ids: u32,
     pub(crate) constraints: u32,
     pub(crate) body_commands: u32,
     pub(crate) constraint_commands: u32,
@@ -40,6 +41,7 @@ pub(crate) enum CapacityPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Reservation {
     pub(crate) bodies: u32,
+    pub(crate) body_ids: u32,
     pub(crate) constraints: u32,
     pub(crate) entries: u32,
     pub(crate) pairs: u32,
@@ -81,6 +83,7 @@ impl Reservation {
         Self::planned(
             &Self {
                 bodies: 0,
+                body_ids: 0,
                 constraints: 0,
                 entries: 0,
                 pairs: 0,
@@ -91,6 +94,7 @@ impl Reservation {
             },
             &Live {
                 bodies: 0,
+                body_ids: 0,
                 constraints: 0,
                 body_commands: 0,
                 constraint_commands: 0,
@@ -109,6 +113,7 @@ impl Reservation {
         } else {
             narrowed(current.bodies, live.bodies)
         };
+        let body_ids = current.body_ids.max(live.body_ids).max(MIN_SLOTS);
         let constraints = if widen {
             grown(current.constraints, live.constraints)
         } else {
@@ -191,6 +196,7 @@ impl Reservation {
         };
         Self {
             bodies,
+            body_ids,
             constraints,
             entries,
             pairs,

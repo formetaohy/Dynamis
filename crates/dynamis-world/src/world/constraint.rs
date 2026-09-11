@@ -39,6 +39,26 @@ impl Constraints {
             self.index_of.resize(rows, u32::MAX);
         }
     }
+
+    fn attach(&mut self, handle: ConstraintHandle, record: ConstraintDescriptorRecord) -> u32 {
+        let slot = self.alive.len() as u32;
+        self.index_of[handle.id as usize] = slot;
+        self.alive.push(handle);
+        self.records.push(record);
+        slot
+    }
+
+    fn detach(&mut self, slot: usize) -> bool {
+        let tail = self.alive.len() - 1;
+        self.alive.swap_remove(slot);
+        self.records.swap_remove(slot);
+        if slot == tail {
+            return false;
+        }
+        let moved = self.alive[slot];
+        self.index_of[moved.id as usize] = slot as u32;
+        true
+    }
 }
 
 impl World {
@@ -67,16 +87,13 @@ impl World {
         let (id, generation) = self.constraints.ids.acquire();
         self.constraints.grow_to(id);
         let handle = ConstraintHandle { id, generation };
-        let slot = self.constraints.alive.len() as u32;
-        self.constraints.index_of[id as usize] = slot;
-        self.constraints.alive.push(handle);
-        self.constraints.dirty.push(slot);
         let record = ConstraintDescriptorRecord::build(
             &desc,
             self.bodies.index_of[first.id as usize],
             self.bodies.index_of[second.id as usize],
         );
-        self.constraints.records.push(record);
+        let slot = self.constraints.attach(handle, record);
+        self.constraints.dirty.push(slot);
         self.constraints
             .commands
             .push(ConstraintCommandRecord::add(slot, id, generation));
@@ -193,11 +210,7 @@ impl World {
         let id = handle.id as usize;
         let slot = self.constraints.index_of[id] as usize;
         let tail = self.constraints.alive.len() - 1;
-        self.constraints.alive.swap_remove(slot);
-        self.constraints.records.remove(slot);
-        if slot < tail {
-            let moved = self.constraints.alive[slot];
-            self.constraints.index_of[moved.id as usize] = slot as u32;
+        if self.constraints.detach(slot) {
             self.constraints.dirty.push(slot as u32);
             self.constraints
                 .commands

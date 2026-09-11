@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, settle, static_config, static_sphere_ground};
+use super::common::{DT, new_world, settle, settle_until, static_config, static_sphere_ground};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_SPILLOVER_PAIRS};
 use dynamis_model::{BodyDesc, BodyHandle};
 use dynamis_world::World;
@@ -84,5 +84,46 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     assert!(
         world.measured()[COUNTER_CONTACTS] > 0,
         "the world must still resolve contacts"
+    );
+}
+
+#[test]
+fn a_narrowed_world_still_resolves_recycled_body_identities() {
+    let mut world = new_world(static_config());
+    let pile = sphere_pile(&mut world);
+    for _ in 0..3 {
+        world.step(DT);
+        world.wait();
+    }
+    let widened = world.stream_capacity();
+    for body in pile {
+        world.remove(body);
+    }
+    for _ in 0..480 {
+        world.step(DT);
+        world.wait();
+    }
+    let released = world.stream_capacity();
+    assert!(
+        released.pairs < widened.pairs && released.entries < widened.entries,
+        "an idle world must release its widened streams, {released:?} vs {widened:?}"
+    );
+
+    world.drain_events();
+    static_sphere_ground(&mut world, 1.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
+    settle_until(&mut world, 600, |world| world.read_state(ball).sleeping);
+    for _ in 0..5 {
+        world.step(DT);
+        world.wait();
+    }
+    let ends = world
+        .drain_events()
+        .into_iter()
+        .filter(|event| event.kind == dynamis_model::ContactEventKind::End)
+        .count();
+    assert_eq!(
+        ends, 0,
+        "a resting pair must not emit an end event after the streams narrowed"
     );
 }

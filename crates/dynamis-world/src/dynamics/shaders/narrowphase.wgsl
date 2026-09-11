@@ -15,7 +15,7 @@ fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
 }
 
-fn contact_emit(contact: ptr<function, Contact>, normal: vec3f) {
+fn manifold_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).point_count = 0u;
     (*contact).normal = normal;
 }
@@ -49,15 +49,15 @@ fn sphere_sphere(
     let second_center = box_center(second.state, second_collider);
     let delta = second_center - first_center;
     let distance = length(delta);
-    let radius_sum = first_collider.radius + second_collider.radius;
-    contact_emit(&contact, sign_normalize(delta));
-    if (distance > radius_sum) {
-        return contact;
-    }
     var normal = sign_normalize(delta);
     if (distance <= 1e-6) {
         let relative = relative_velocity(first, second, second_center, first_center);
         normal = select(normal, -normalize(relative), length(relative) > 1e-6);
+    }
+    manifold_emit(&contact, normal);
+    let radius_sum = first_collider.radius + second_collider.radius;
+    if (distance > radius_sum) {
+        return contact;
     }
     let depth = radius_sum - distance;
     let point = first_center + normal * (first_collider.radius - depth * 0.5);
@@ -65,11 +65,16 @@ fn sphere_sphere(
     return contact;
 }
 
-fn box_deep_normal(point: vec3f, box_body: Body, box_collider: Collider) -> vec3f {
+struct BoxFace {
+    normal: vec3f,
+    clearance: f32,
+}
+
+fn box_nearest_face(point: vec3f, box_body: Body, box_collider: Collider) -> BoxFace {
     let q = quat_mul(box_body.state.orientation, box_collider.local_rotation);
     let local = quat_rotate(quat_conjugate(q), point - box_center(box_body.state, box_collider));
-    let penetration = box_collider.half_extents - abs(local);
-    let axis = largest_axis(penetration);
+    let clearance = box_collider.half_extents - abs(local);
+    let axis = smallest_axis(clearance);
     var facing = vec3f(0.0);
     if (axis == 0u) {
         facing = vec3f(select(1.0, -1.0, local.x > 0.0), 0.0, 0.0);
@@ -78,7 +83,10 @@ fn box_deep_normal(point: vec3f, box_body: Body, box_collider: Collider) -> vec3
     } else {
         facing = vec3f(0.0, 0.0, select(1.0, -1.0, local.z > 0.0));
     }
-    return -quat_rotate(q, facing);
+    var face: BoxFace;
+    face.normal = -quat_rotate(q, facing);
+    face.clearance = clearance[axis];
+    return face;
 }
 
 fn sphere_box(
@@ -91,15 +99,17 @@ fn sphere_box(
     let delta = closest - center;
     let distance = length(delta);
     let radius = sphere_collider.radius;
-    contact_emit(&contact, sign_normalize(delta));
-    if (distance >= radius) {
+    var normal = sign_normalize(delta);
+    var depth = radius - distance;
+    if (distance <= 1e-6) {
+        let face = box_nearest_face(center, box_body, box_collider);
+        normal = -face.normal;
+        depth = radius + face.clearance;
+    }
+    manifold_emit(&contact, normal);
+    if (depth <= 0.0) {
         return contact;
     }
-    var normal = sign_normalize(delta);
-    if (distance <= 1e-6) {
-        normal = box_deep_normal(center, box_body, box_collider);
-    }
-    let depth = radius - distance;
     let point = closest - normal * (depth * 0.5);
     manifold_push(&contact, point, depth);
     return contact;
@@ -123,7 +133,7 @@ fn sphere_capsule(
     let delta = closest - center;
     let distance = length(delta);
     let radius_sum = sphere_collider.radius + capsule_collider.radius;
-    contact_emit(&contact, sign_normalize(delta));
+    manifold_emit(&contact, sign_normalize(delta));
     if (distance > radius_sum) {
         return contact;
     }
@@ -186,7 +196,7 @@ fn capsule_capsule(
     let delta = closest.end - closest.start;
     let distance = length(delta);
     let radius_sum = first_collider.radius + second_collider.radius;
-    contact_emit(&contact, sign_normalize(delta));
+    manifold_emit(&contact, sign_normalize(delta));
     if (distance > radius_sum) {
         return contact;
     }
@@ -297,7 +307,6 @@ fn box_box_sat(
     second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
     let left = box_geometry(first, first_collider);
     let right = box_geometry(second, second_collider);
     let delta = right.center - left.center;
@@ -344,9 +353,9 @@ fn box_box_sat(
     }
     let axis = select(face_axis, edge_axis, edge_axis_separates);
     let signed = select(axis, -axis, dot(axis, delta) < 0.0);
+    manifold_emit(&contact, signed);
     if (edge_axis_separates) {
         let point = (box_support(first, first_collider, signed) + box_support(second, second_collider, -signed)) * 0.5;
-        contact.normal = signed;
         manifold_push(&contact, point, depth);
         return contact;
     }
@@ -406,7 +415,6 @@ fn box_box_sat(
             }
         }
     }
-    contact.normal = signed;
     if (candidate_count == 0u) {
         manifold_push(&contact, ref_center - ref_normal * (face_depth * 0.5), face_depth);
         return contact;
@@ -431,7 +439,6 @@ fn box_capsule(
     capsule: Body, capsule_collider: Collider,
 ) -> Contact {
     var contact: Contact;
-    contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
     let seg = capsule_segment(capsule, capsule_collider);
     var candidates: array<ManifoldPoint, 8>;
     var candidate_normals: array<vec3f, 8>;
@@ -442,11 +449,13 @@ fn box_capsule(
         let closest = closest_point_box(point, box_body.state, box_collider);
         let delta = point - closest;
         let distance = length(delta);
-        let depth = capsule_collider.radius - distance;
+        var depth = capsule_collider.radius - distance;
         if (depth > 0.0) {
             var normal = sign_normalize(delta);
             if (distance <= 1e-6) {
-                normal = box_deep_normal(point, box_body, box_collider);
+                let face = box_nearest_face(point, box_body, box_collider);
+                normal = face.normal;
+                depth = capsule_collider.radius + face.clearance;
             }
             let contact_point = closest + normal * (depth * 0.5);
             var found = false;
@@ -474,7 +483,7 @@ fn box_capsule(
             best_normal = candidate_normals[i];
         }
     }
-    contact.normal = best_normal;
+    manifold_emit(&contact, best_normal);
     var keep = min(candidate_count, 2u);
     for (var i = 0u; i < keep; i = i + 1u) {
         manifold_push(&contact, candidates[i].position, candidates[i].depth);
@@ -493,7 +502,7 @@ fn plane_convex(plane: WorldShape, convex: WorldShape) -> Contact {
     let n = plane_normal(plane);
     let center_side = dot(convex.center - plane.center, n);
     let facing = select(n, -n, center_side < 0.0);
-    contact_emit(&contact, facing);
+    manifold_emit(&contact, facing);
     var points: array<vec3f, 4>;
     let count = convex_sample_points(convex, -facing, &points);
     for (var i = 0u; i < count; i = i + 1u) {
@@ -559,7 +568,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else {
             let hit = scene_convex_hit(first_collider.source, first_collider.scale, world_second);
             if (hit.distance <= 0.0) {
-                contact_emit(&contact, hit.normal);
+                manifold_emit(&contact, hit.normal);
                 generated = true;
                 if (!scene_convex_manifold(first_collider.source, first_collider.scale, world_second, &contact)) {
                     manifold_from_hit(&contact, hit);
@@ -577,7 +586,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         } else {
             let hit = scene_convex_hit(second_collider.source, second_collider.scale, world_first);
             if (hit.distance <= 0.0) {
-                contact_emit(&contact, -hit.normal);
+                manifold_emit(&contact, -hit.normal);
                 generated = true;
                 if (!scene_convex_manifold(second_collider.source, second_collider.scale, world_first, &contact)) {
                     let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
@@ -590,7 +599,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let world_second = world_collider(second.state, second_collider);
         let hit = convex_hit(world_first, world_second);
         if (hit.distance <= 0.0) {
-            contact_emit(&contact, hit.normal);
+            manifold_emit(&contact, hit.normal);
             generated = true;
             if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
                 manifold_from_hit(&contact, hit);
@@ -601,7 +610,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let world_second = world_collider(second.state, second_collider);
         let hit = convex_hit(world_first, world_second);
         if (hit.distance <= 0.0) {
-            contact_emit(&contact, hit.normal);
+            manifold_emit(&contact, hit.normal);
             generated = true;
             if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
                 manifold_from_hit(&contact, hit);
@@ -648,7 +657,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let world_second = world_collider(second.state, second_collider);
             let hit = convex_hit(world_first, world_second);
             if (hit.distance <= 0.0) {
-                contact_emit(&contact, hit.normal);
+                manifold_emit(&contact, hit.normal);
                 generated = true;
                 if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
                     manifold_from_hit(&contact, hit);

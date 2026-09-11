@@ -107,7 +107,11 @@ struct ShapeSource {
     triangle_count: u32,
     node_offset: u32,
     node_count: u32,
-    _pad: u32,
+    _pad0: u32,
+    local_min: vec3f,
+    _pad1: f32,
+    local_max: vec3f,
+    _pad2: f32,
 }
 
 struct BvhNode {
@@ -569,12 +573,36 @@ fn min_radius(collider: Collider) -> f32 {
     return 0.0;
 }
 
+fn world_shape_bounds(world: WorldShape) -> Aabb {
+    let source = shape_sources[world.source];
+    let local_center = (source.local_min + source.local_max) * 0.5;
+    let half = (source.local_max - source.local_min) * 0.5;
+    let center = world.center + quat_rotate(world.rotation, local_center);
+    let extent = abs(quat_rotate(world.rotation, vec3f(half.x, 0.0, 0.0)))
+        + abs(quat_rotate(world.rotation, vec3f(0.0, half.y, 0.0)))
+        + abs(quat_rotate(world.rotation, vec3f(0.0, 0.0, half.z)));
+    var aabb: Aabb;
+    aabb.min = center - extent;
+    aabb.max = center + extent;
+    return aabb;
+}
+
 fn world_aabb_of(world: WorldShape) -> Aabb {
     if (world.kind == SHAPE_PLANE) {
         var plane_box: Aabb;
         plane_box.min = world.center - vec3f(1e6);
         plane_box.max = world.center + vec3f(1e6);
         return plane_box;
+    }
+    if (world.kind == SHAPE_HULL || world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD) {
+        let bounds = world_shape_bounds(world);
+        let s = max(max(world.scale.x, world.scale.y), world.scale.z);
+        let center = (bounds.min + bounds.max) * 0.5;
+        let extent = (bounds.max - bounds.min) * 0.5 * s;
+        var aabb: Aabb;
+        aabb.min = center - extent;
+        aabb.max = center + extent;
+        return aabb;
     }
     var extent = vec3f(0.0);
     if (world.kind == SHAPE_SPHERE) {
@@ -590,17 +618,6 @@ fn world_aabb_of(world: WorldShape) -> Aabb {
     } else if (world.kind == SHAPE_CYLINDER) {
         let axis = shape_axis(world);
         extent = abs(axis * world.half_height) + vec3f(world.radius);
-    } else {
-        let source = shape_sources[world.source];
-        var min_v = vec3f(3.402823466e38);
-        var max_v = vec3f(-3.402823466e38);
-        for (var i = 0u; i < source.vertex_count; i = i + 1u) {
-            let local = shape_vertices[source.vertex_offset + i].xyz;
-            let p = world.center + quat_rotate(world.rotation, local);
-            min_v = min(min_v, p);
-            max_v = max(max_v, p);
-        }
-        extent = (max_v - min_v) * 0.5;
     }
     let s = max(max(world.scale.x, world.scale.y), world.scale.z);
     extent = extent * s;
@@ -675,12 +692,12 @@ fn closest_point_segment(point: vec3f, a: vec3f, b: vec3f) -> vec3f {
     return a + ab * t;
 }
 
-fn largest_axis(v: vec3f) -> u32 {
+fn smallest_axis(v: vec3f) -> u32 {
     let av = abs(v);
-    if (av.x > av.y && av.x > av.z) {
+    if (av.x < av.y && av.x < av.z) {
         return 0u;
     }
-    if (av.y > av.z) {
+    if (av.y < av.z) {
         return 1u;
     }
     return 2u;

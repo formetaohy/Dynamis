@@ -467,3 +467,24 @@ fn penetration_solver_expels_embedded_hull() {
         "embedded hull must be expelled to the box top, got {y}"
     );
 }
+
+#[test]
+fn a_small_off_center_mesh_floor_catches_a_ball_over_its_span() {
+    let mut world = new_world(super::common::gravity_config());
+    let vertices = vec![
+        [10.0f32, 0.0, -0.5],
+        [11.0, 0.0, -0.5],
+        [11.0, 0.0, 0.5],
+        [10.0, 0.0, 0.5],
+    ];
+    let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
+    let floor = world.add_mesh(&vertices, &triangles);
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0));
+    let ball = world.spawn(BodyDesc::sphere(0.4).position([10.5, 3.0, 0.0]));
+    settle_until(&mut world, 240, |world| asleep(world));
+    let y = world.read_state(ball).position[1];
+    assert!(
+        (y - 0.4).abs() < 0.1,
+        "a small off-center mesh floor must catch the ball, got y={y}"
+    );
+}

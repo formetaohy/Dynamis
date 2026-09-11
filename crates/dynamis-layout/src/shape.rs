@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<ShapeSourceRecord>() == 32);
+    assert!(size_of::<ShapeSourceRecord>() == 64);
     assert!(size_of::<BvhNodeRecord>() == 48);
 };
 
@@ -16,7 +16,11 @@ pub struct ShapeSourceRecord {
     pub triangle_count: u32,
     pub node_offset: u32,
     pub node_count: u32,
-    pub _pad: u32,
+    pub _pad0: u32,
+    pub local_min: [f32; 3],
+    pub _pad1: f32,
+    pub local_max: [f32; 3],
+    pub _pad2: f32,
 }
 
 #[repr(C)]

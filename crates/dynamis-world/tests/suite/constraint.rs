@@ -659,3 +659,44 @@ fn warm_start_off_keeps_constraint_stable() {
         "distance constraint must keep holding the load"
     );
 }
+
+#[test]
+fn updating_a_moved_constraint_edits_its_own_record() {
+    let mut world = new_world(static_config());
+    let anchor = world.spawn(BodyDesc::static_sphere(0.05));
+    let loose = world.spawn(BodyDesc::sphere(0.05).position([1.0, 0.0, 0.0]));
+    let far = world.spawn(BodyDesc::sphere(0.05));
+    let dropped = world.add_constraint(
+        anchor,
+        loose,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    world.add_constraint(
+        anchor,
+        far,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 5.0),
+    );
+    let moved = world.add_constraint(
+        loose,
+        far,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 10.0),
+    );
+    world.remove_constraint(dropped);
+    assert_eq!(world.constraints()[0], moved);
+    world.update_constraint(moved, ConstraintDesc::distance([0.0; 3], [0.0; 3], 20.0));
+    settle_until(&mut world, 480, |world| {
+        let held = distance(
+            world.read_state(loose).position,
+            world.read_state(far).position,
+        );
+        (held - 20.0).abs() < 0.5
+    });
+    let reach = distance(
+        world.read_state(anchor).position,
+        world.read_state(far).position,
+    );
+    assert!(
+        (reach - 5.0).abs() < 0.5,
+        "the untouched anchor-far span must keep its rest length, got {reach}"
+    );
+}

@@ -110,6 +110,7 @@ impl World {
     pub(crate) fn live(&self) -> Live {
         Live {
             bodies: self.bodies.alive.len() as u32,
+            body_ids: self.bodies.ids.len() as u32,
             constraints: self.constraints.alive.len() as u32,
             body_commands: self.bodies.commands.len() as u32,
             constraint_commands: self.constraints.commands.len() as u32,

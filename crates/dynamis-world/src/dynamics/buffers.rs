@@ -86,7 +86,7 @@ impl Lanes {
 pub(crate) struct BodyBuffers {
     pub(crate) states: GpuBuffer,
     pub(crate) activity: GpuBuffer,
-    pub(crate) rows: GpuBuffer,
+    pub(crate) row_of_body: GpuBuffer,
     pub(crate) descriptors: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
@@ -245,7 +245,7 @@ impl WorldBuffers {
             bodies: BodyBuffers {
                 states: rows("body states", bodies, size_of::<BodyStateRecord>() as u64),
                 activity: lanes("body activity", bodies),
-                rows: lanes("body rows", bodies),
+                row_of_body: lanes("body row of id", plan.body_ids),
                 descriptors: rows(
                     "body descriptors",
                     bodies,
@@ -404,7 +404,7 @@ impl WorldBuffers {
         size_of::<ConstraintDescriptorRecord>() as u64
     }
 
-    pub(crate) fn body_rows(&self) -> u32 {
+    pub(crate) fn body_row_count(&self) -> u32 {
         (self.bodies.states.size() / size_of::<BodyStateRecord>() as u64) as u32
     }
 
@@ -413,7 +413,7 @@ impl WorldBuffers {
     }
 
     pub(crate) fn body_words(&self) -> u32 {
-        key_words(self.body_rows().max(1))
+        key_words(self.body_row_count().max(1))
     }
 
     pub(crate) fn collider_words(&self) -> u32 {

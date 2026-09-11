@@ -99,7 +99,11 @@ impl World {
         let previous = &self.backend.buffers;
         let bodies = previous.bodies.states.size().min(next.bodies.states.size());
         let aabbs = previous.bodies.aabbs.size().min(next.bodies.aabbs.size());
-        let rows = previous.bodies.rows.size().min(next.bodies.rows.size());
+        let rows = previous
+            .bodies
+            .row_of_body
+            .size()
+            .min(next.bodies.row_of_body.size());
         let contacts = previous
             .contacts
             .manifolds
@@ -158,7 +162,7 @@ impl World {
                 encoder.copy_buffer_to_buffer(source.buffer(), 0, target.buffer(), 0, bytes);
             };
         copy(&previous.bodies.states, &next.bodies.states, bodies);
-        copy(&previous.bodies.rows, &next.bodies.rows, rows);
+        copy(&previous.bodies.row_of_body, &next.bodies.row_of_body, rows);
         copy(&previous.bodies.aabbs, &next.bodies.aabbs, aabbs);
         copy(&previous.contacts.archive, &next.contacts.archive, contacts);
         copy(

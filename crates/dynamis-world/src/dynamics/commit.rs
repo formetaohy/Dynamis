@@ -41,7 +41,7 @@ impl Commit {
                     (RW, whole(&buffers.contacts.resting_free)),
                     (RW, buffers.counter(COUNTER_RESTING)),
                     (RO, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.rows)),
+                    (RO, whole(&buffers.bodies.row_of_body)),
                     (RO, whole(&buffers.bodies.activity)),
                     (RO, whole(&buffers.contacts.manifolds)),
                     (RW, buffers.counter(COUNTER_CONTACTS)),

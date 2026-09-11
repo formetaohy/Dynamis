@@ -191,7 +191,11 @@ impl ShapePool {
                 triangle_count: record.triangle_count,
                 node_offset: record.node_offset,
                 node_count: record.node_count,
-                _pad: 0,
+                _pad0: 0,
+                local_min: record.bounds.0,
+                _pad1: 0.0,
+                local_max: record.bounds.1,
+                _pad2: 0.0,
             })
             .collect()
     }

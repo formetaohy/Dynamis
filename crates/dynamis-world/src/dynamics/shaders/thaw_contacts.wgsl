@@ -4,7 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> resting_free: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> resting_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read> body_states: array<BodyState>;
-@group(0) @binding(6) var<storage, read> body_rows: array<u32>;
+@group(0) @binding(6) var<storage, read> row_of_body: array<u32>;
 @group(0) @binding(7) var<storage, read> body_activity: array<u32>;
 @group(0) @binding(8) var<storage, read> contacts: array<Contact>;
 @group(0) @binding(9) var<storage, read_write> contact_count: array<atomic<u32>>;
@@ -14,10 +14,10 @@
 @group(0) @binding(13) var<uniform> params: StepParams;
 
 fn resolve_row(body_id: u32, generation: u32) -> u32 {
-    if (body_id >= arrayLength(&body_rows)) {
+    if (body_id >= arrayLength(&row_of_body)) {
         return NO_BODY;
     }
-    let row = body_rows[body_id];
+    let row = row_of_body[body_id];
     if (row >= arrayLength(&body_states) || !contact_row_matches(body_states[row], body_id, generation)) {
         return NO_BODY;
     }

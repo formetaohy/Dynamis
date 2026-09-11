@@ -221,9 +221,14 @@ fn collider_level_filter_controls_collisions() {
 #[test]
 fn per_body_damping_overrides_global() {
     let mut world = new_world(static_config());
-    let loose = world.spawn(BodyDesc::sphere(0.2).velocity([10.0, 0.0, 0.0]));
+    let loose = world.spawn(
+        BodyDesc::sphere(0.2)
+            .position([0.0, 10.0, 0.0])
+            .velocity([10.0, 0.0, 0.0]),
+    );
     let damped = world.spawn(
         BodyDesc::sphere(0.2)
+            .position([0.0, -10.0, 0.0])
             .velocity([10.0, 0.0, 0.0])
             .damping(3.0),
     );

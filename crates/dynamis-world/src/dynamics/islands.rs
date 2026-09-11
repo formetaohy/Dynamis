@@ -36,7 +36,7 @@ impl Islands {
                     (RW, buffers.counter(COUNTER_EVENTS)),
                     (RW, buffers.counter(COUNTER_SPILLOVER_EVENTS)),
                     (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.rows)),
+                    (RO, whole(&buffers.bodies.row_of_body)),
                     (RO, whole(&buffers.bodies.states)),
                     (RO, whole(&buffers.bodies.descriptors)),
                 ],
