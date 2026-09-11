@@ -4,6 +4,8 @@ use wgpu::{
     QuerySet, QuerySetDescriptor, QueryType,
 };
 
+const QUERY_BYTES: usize = QUERY_SIZE as usize;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GpuPassTiming {
     pub label: &'static str,
@@ -67,7 +69,7 @@ impl GpuTimer {
     }
 
     fn resolved_bytes(labels: &[&'static str]) -> u64 {
-        u64::from((labels.len() * 2) as u32 * QUERY_SIZE)
+        (labels.len() * 2 * QUERY_BYTES) as u64
     }
 
     pub fn writes(&self, slot: usize) -> ComputePassTimestampWrites<'_> {
@@ -105,17 +107,20 @@ impl GpuTimer {
     }
 
     fn decode(&self, bytes: &[u8]) -> Vec<GpuPassTiming> {
-        let mut ticks = Vec::with_capacity(self.labels.len() * 2);
-        for chunk in bytes.chunks_exact(QUERY_SIZE as usize) {
-            ticks.push(u64::from_le_bytes(
-                chunk.try_into().expect("timestamp chunk is 8 bytes"),
-            ));
-        }
+        let (chunks, remainder) = bytes.as_chunks::<QUERY_BYTES>();
+        assert!(
+            remainder.is_empty(),
+            "resolved timestamp buffer is not a multiple of {QUERY_BYTES} bytes"
+        );
         assert_eq!(
-            ticks.len(),
+            chunks.len(),
             self.labels.len() * 2,
             "resolved timestamp count disagrees with the recorded passes"
         );
+        let ticks: Vec<u64> = chunks
+            .iter()
+            .map(|chunk| u64::from_le_bytes(*chunk))
+            .collect();
         self.labels
             .iter()
             .enumerate()

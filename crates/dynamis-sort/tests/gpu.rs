@@ -19,8 +19,14 @@ fn read_u32s(context: &GpuContext, buffer: &GpuBuffer, words: usize) -> Vec<u32>
     let bytes = (words * 4) as u64;
     let mut readback = BufferReadback::new(context.device(), "sort readback", bytes);
     let data = readback.read(context.queue(), buffer.buffer(), 0, bytes);
-    data.chunks_exact(4)
-        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+    let (chunks, remainder) = data.as_chunks::<4>();
+    assert!(
+        remainder.is_empty(),
+        "readback is not a whole number of words"
+    );
+    chunks
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
         .collect()
 }
 
