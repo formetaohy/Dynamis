@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, settle, sim, static_config};
+use super::common::{DT, asleep, gravity_config, settle, settle_until, sim, static_config};
 use dynamis_layout::{
     COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING,
     COUNTER_SLEPT, COUNTER_WOKE,
@@ -32,7 +32,13 @@ fn a_pile_at_rest_leaves_the_simulation_domain() {
         world.measured()[COUNTER_PAIRS] > 0,
         "an unsettled pile must generate pairs"
     );
-    settle(&mut world, 400);
+    settle_until(&mut world, 400, |world| {
+        let measured = world.measured();
+        measured[COUNTER_ACTIVE] == 0
+            && measured[COUNTER_ENTRIES] == 0
+            && measured[COUNTER_PAIRS] == 0
+            && measured[COUNTER_CONTACTS] == 0
+    });
     let settled = world.measured();
     assert_eq!(
         settled[COUNTER_ACTIVE], 0,
@@ -55,7 +61,7 @@ fn a_pile_at_rest_leaves_the_simulation_domain() {
 #[test]
 fn resting_contacts_survive_sleep_and_recycle_their_slots() {
     let (mut world, bottom) = rest_scene();
-    settle(&mut world, 400);
+    settle_until(&mut world, 400, |world| asleep(world));
     let resting = world.measured()[COUNTER_RESTING];
     assert!(
         resting > 0,
@@ -82,7 +88,7 @@ fn resting_contacts_survive_sleep_and_recycle_their_slots() {
         for handle in world.bodies().to_vec() {
             world.wake(handle);
         }
-        settle(&mut world, 400);
+        settle_until(&mut world, 400, |world| asleep(world));
     }
     assert!(
         world.measured()[COUNTER_RESTING] <= resting + 16,
@@ -193,7 +199,7 @@ fn sleeping_ball_on_ground(collider: ColliderDesc) -> (dynamis_simulate::Simulat
             .position([0.0, -0.5, 0.0]),
     );
     let ball = world.spawn(BodyDesc::new(collider).position([0.0, 2.0, 0.0]));
-    settle(&mut world, 300);
+    settle_until(&mut world, 300, |world| asleep(world));
     assert!(
         world.read_state(ball).sleeping,
         "the landing ball must fall asleep"
@@ -238,7 +244,7 @@ fn reviving_a_resting_pair_resumes_its_persist_stream() {
             .position([0.0, -0.5, 0.0]),
     );
     let ball = world.spawn(BodyDesc::new(persist(Shape::sphere(0.5))).position([0.0, 2.0, 0.0]));
-    settle(&mut world, 300);
+    settle_until(&mut world, 300, |world| asleep(world));
     assert!(
         world.read_state(ball).sleeping,
         "the landing ball must fall asleep"
@@ -269,7 +275,7 @@ fn an_impact_revives_a_resting_pair_without_a_new_begin() {
             .position([0.0, -0.5, 0.0]),
     );
     let sleeper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
-    settle(&mut world, 300);
+    settle_until(&mut world, 300, |world| asleep(world));
     assert!(
         world.read_state(sleeper).sleeping,
         "the resting ball must fall asleep"
@@ -317,7 +323,7 @@ fn removing_a_body_ends_only_its_own_resting_contacts() {
     );
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
     let victim = world.spawn(BodyDesc::sphere(0.5).position([3.0, 0.5, 0.0]));
-    settle(&mut world, 300);
+    settle_until(&mut world, 300, |world| asleep(world));
     assert!(
         world.read_state(ball).sleeping && world.read_state(victim).sleeping,
         "both resting balls must fall asleep"

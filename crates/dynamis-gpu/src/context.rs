@@ -2,6 +2,7 @@ use crate::library::PipelineLibrary;
 use crate::pipeline::PipelineHandle;
 use crate::{ComputeProgram, GpuRuntime, WarmupBudget, WarmupProgress};
 use std::fmt::{self, Display, Formatter};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use wgpu::{
@@ -289,20 +290,47 @@ impl GpuContext {
 
     pub fn warmup(&self, budget: WarmupBudget) -> WarmupProgress {
         let _compiling = self.compilation.lock().unwrap();
-        let deadline = match budget {
-            WarmupBudget::All => None,
-            WarmupBudget::Within(duration) => Instant::now().checked_add(duration),
-        };
-        loop {
-            let Some(pending) = self.pipelines.lock().unwrap().take_pending() else {
-                break;
-            };
-            pending.compile(&self.device);
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                break;
+        match budget {
+            WarmupBudget::All => self.compile_all_pending(),
+            WarmupBudget::Within(duration) => {
+                let deadline = Instant::now().checked_add(duration);
+                loop {
+                    let Some(pending) = self.pipelines.lock().unwrap().take_pending() else {
+                        break;
+                    };
+                    pending.compile(&self.device);
+                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                        break;
+                    }
+                }
             }
         }
         self.pipelines.lock().unwrap().progress()
+    }
+
+    fn compile_all_pending(&self) {
+        let pending = self.pipelines.lock().unwrap().drain_pending();
+        if pending.is_empty() {
+            return;
+        }
+        let workers = std::thread::available_parallelism()
+            .map(|threads| threads.get())
+            .unwrap_or(1)
+            .min(pending.len());
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(pipeline) = pending.get(index) else {
+                            break;
+                        };
+                        pipeline.compile(&self.device);
+                    }
+                });
+            }
+        });
     }
 
     pub fn is_warm(&self) -> bool {

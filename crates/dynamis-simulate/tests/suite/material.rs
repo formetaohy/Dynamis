@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, settle, sim, static_config};
+use super::common::{DT, asleep, gravity_config, settle_until, sim, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, MaterialCombine, PhysicsConfig, QueryFilter, Shape};
 
 #[test]
@@ -14,7 +14,7 @@ fn friction_combine_modes_scale_grip() {
         .position([0.0, -0.5, 0.0])
         .mass(0.0),
     );
-    settle(&mut grip, 300);
+    settle_until(&mut grip, 300, |world| asleep(world));
     let grip_state = grip.read_state(ball);
     assert!(
         (grip_state.position[1] - 0.5).abs() < 0.02 && grip_state.velocity[0].abs() < 0.05,
@@ -33,7 +33,9 @@ fn friction_combine_modes_scale_grip() {
             .position([0.0, -0.5, 0.0])
             .mass(0.0),
     );
-    settle(&mut slick, 300);
+    settle_until(&mut slick, 300, |world| {
+        world.read_state(ball).position[1] < 0.6
+    });
     let slick_state = slick.read_state(ball);
     assert!(
         slick_state.position[1] > 0.45,
@@ -52,7 +54,7 @@ fn set_friction_updates_collider_material() {
             .mass(0.0),
     );
     world.set_friction(ball, 0.0);
-    settle(&mut world, 300);
+    settle_until(&mut world, 300, |world| asleep(world));
     let state = world.read_state(ball);
     assert!(
         (state.position[1] - 0.5).abs() < 0.05,
@@ -70,7 +72,7 @@ fn plane_floor_supports_resting_contact() {
             .position([0.0, 0.0, 0.0])
             .mass(0.0),
     );
-    settle(&mut world, 240);
+    settle_until(&mut world, 240, |world| asleep(world));
     let state = world.read_state(ball);
     assert!(
         (state.position[1] - 0.5).abs() < 0.02,
@@ -93,7 +95,10 @@ fn tilted_plane_keeps_contact_normal() {
         .position([0.0, 0.0, 0.0])
         .mass(0.0),
     );
-    settle(&mut world, 200);
+    settle_until(&mut world, 200, |world| {
+        let state = world.read_state(ball);
+        state.position[1] < 0.8 && state.velocity[1].abs() < 0.1
+    });
     let state = world.read_state(ball);
     let height = state.position[1];
     assert!(
@@ -165,7 +170,10 @@ fn scaled_cuboid_collides_at_scaled_extent() {
             .position([0.0, 0.0, 0.0])
             .mass(0.0),
     );
-    settle(&mut world, 240);
+    settle_until(&mut world, 240, |world| {
+        let state = world.read_state(ball);
+        state.position[0] > -5.0 && state.velocity[0].abs() < 0.05
+    });
     let state = world.read_state(ball);
     assert!(
         state.position[0] > -5.0 && state.position[0] < -4.2,

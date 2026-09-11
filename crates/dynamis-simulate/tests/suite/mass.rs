@@ -1,4 +1,4 @@
-use super::common::{DT, flat_mesh_floor, sim, static_config};
+use super::common::{DT, flat_mesh_floor, settle_until, sim, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, Shape};
 
 fn swing_angle(orientation: [f32; 4]) -> f32 {
@@ -23,11 +23,10 @@ fn offset_com_pendulum_swings_under_gravity() {
         ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).disable_collisions(true),
     );
     let mut max_angle = 0.0f32;
-    for _ in 0..240 {
-        world.step(DT);
-        world.wait();
+    settle_until(&mut world, 240, |world| {
         max_angle = max_angle.max(swing_angle(world.read_state(bob).orientation));
-    }
+        max_angle > 0.2
+    });
     assert!(
         max_angle > 0.2,
         "an offset center of mass must torque the pendulum, max {max_angle} rad"

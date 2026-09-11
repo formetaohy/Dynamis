@@ -1,4 +1,6 @@
-use super::common::{DT, gravity_config, settle, sim, static_config, static_sphere_ground};
+use super::common::{
+    DT, asleep, gravity_config, settle, settle_until, sim, static_config, static_sphere_ground,
+};
 use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, PhysicsConfig, QueryFilter, Shape};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -11,7 +13,10 @@ fn cylinder_stacks_flat_on_cylinder() {
             .mass(0.0),
     );
     let top = world.spawn(BodyDesc::cylinder(0.5, 0.5).position([0.0, 1.49, 0.0]));
-    settle(&mut world, 180);
+    settle(&mut world, 30);
+    settle_until(&mut world, 150, |world| {
+        (world.read_state(top).position[1] - 1.5).abs() < 0.12
+    });
     assert!(
         (world.read_state(top).position[1] - 1.5).abs() < 0.12,
         "cylinder must rest flat on cylinder caps, got {}",
@@ -55,7 +60,10 @@ fn hull_cube_stacks_stable() {
     );
     let upper =
         world.spawn(BodyDesc::new(ColliderDesc::new(Shape::hull(hull))).position([0.0, 1.49, 0.0]));
-    settle(&mut world, 240);
+    settle(&mut world, 60);
+    settle_until(&mut world, 180, |world| {
+        (world.read_state(upper).position[1] - 1.5).abs() < 0.15
+    });
     assert!(
         (world.read_state(upper).position[1] - 1.5).abs() < 0.15,
         "hull cubes must stack face to face, got {}",
@@ -95,7 +103,7 @@ fn hull_rests_on_mesh_floor() {
     let _floor = super::common::flat_mesh_floor(&mut world);
     let body =
         world.spawn(BodyDesc::new(ColliderDesc::new(Shape::hull(hull))).position([0.0, 1.49, 0.0]));
-    settle(&mut world, 180);
+    settle_until(&mut world, 180, |world| asleep(world));
     assert!(
         (world.read_state(body).position[1] - 0.5).abs() < 0.1,
         "hull must rest on mesh floor, got {}",
@@ -145,10 +153,9 @@ fn constraint_patch_updates_motor_speed() {
         ConstraintDesc::revolute([0.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
     );
     world.set_motor(joint, 3.0, 100.0);
-    for _ in 0..60 {
-        world.step(DT);
-    }
-    world.wait();
+    settle_until(&mut world, 60, |world| {
+        world.read_state(arm).angular_velocity[2].abs() > 2.0
+    });
     let spin = world.read_state(arm).angular_velocity[2].abs();
     assert!(
         spin > 2.0,
@@ -281,7 +288,9 @@ fn rolling_and_spin_friction_damp_rotation() {
             .position([3.0, 1.15, 0.0])
             .angular_velocity([0.0, 8.0, 0.0]),
     );
-    settle(&mut world, 90);
+    settle_until(&mut world, 90, |world| {
+        world.read_state(braked).angular_velocity[1].abs() < 1.0
+    });
     let braked_spin = world.read_state(braked).angular_velocity[1].abs();
     let bare_spin = world.read_state(bare).angular_velocity[1].abs();
     assert!(
@@ -391,14 +400,18 @@ fn update_height_field_reshapes_terrain() {
     let _floor =
         world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.2).position([2.0, 3.0, 2.0]));
-    settle(&mut world, 60);
+    settle_until(&mut world, 60, |world| {
+        (world.read_state(ball).position[1] - 0.7).abs() < 0.1
+    });
     let rest_a = world.read_state(ball).position[1];
     assert!(
         (rest_a - 0.7).abs() < 0.1,
         "ball must rest on height field at 0.5 + radius, got {rest_a}"
     );
     world.update_height_field(source, 2, 2, &[0.1, 0.1, 0.1, 0.1], [4.0, 4.0]);
-    settle(&mut world, 60);
+    settle_until(&mut world, 60, |world| {
+        world.read_state(ball).position[1] < rest_a - 0.2
+    });
     let rest_b = world.read_state(ball).position[1];
     assert!(
         rest_b < rest_a - 0.2,

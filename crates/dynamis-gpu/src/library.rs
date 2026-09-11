@@ -46,6 +46,10 @@ impl PipelineLibrary {
         handle
     }
 
+    pub(crate) fn drain_pending(&mut self) -> Vec<PipelineHandle> {
+        self.pending.drain(..).collect()
+    }
+
     pub(crate) fn take_pending(&mut self) -> Option<PipelineHandle> {
         self.pending.pop_front()
     }

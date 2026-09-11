@@ -1,4 +1,4 @@
-use super::common::{DT, distance, settle, sim, static_config};
+use super::common::{DT, converged, distance, settle, settle_until, sim, static_config};
 use dynamis_model::{BodyDesc, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig};
 use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -97,11 +97,10 @@ fn revolute_rotates_freely_without_limit() {
     let (mut world, arm) = pendulum_world(None, None);
     world.apply_force(arm, [1.0, 0.0, 0.0]);
     let mut max_angle = 0.0f32;
-    for _ in 0..120 {
-        world.step(DT);
-        world.wait();
+    settle_until(&mut world, 120, |world| {
         max_angle = max_angle.max(hinge_angle(world.read_state(arm).orientation));
-    }
+        max_angle > 0.01
+    });
     assert!(
         max_angle > 0.01,
         "unlimited revolute must swing under a kick, max {max_angle} rad"
@@ -126,10 +125,9 @@ fn revolute_limit_caps_swing() {
 #[test]
 fn revolute_motor_drives_arm() {
     let (mut world, arm) = pendulum_world(None, Some(2.0));
-    for _ in 0..90 {
-        world.step(DT);
-    }
-    world.wait();
+    settle_until(&mut world, 90, |world| {
+        hinge_angle(world.read_state(arm).orientation) > 1.0
+    });
     let angle = hinge_angle(world.read_state(arm).orientation);
     assert!(
         angle > 1.0,
@@ -220,7 +218,10 @@ fn distance_spring_sags_under_gravity() {
         ball,
         ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).spring(1.0, 0.5),
     );
-    settle(&mut world, 240);
+    let mut previous = f32::INFINITY;
+    settle_until(&mut world, 240, |world| {
+        converged(&mut previous, world.read_state(ball).position[1])
+    });
     let y = world.read_state(ball).position[1];
     assert!(
         y > 0.3 && y < 1.0,
@@ -327,9 +328,17 @@ fn ball_twist_limit_caps_relative_rotation() {
             .axis([0.0, 0.0, 1.0])
             .limit(-0.3, 0.3),
     );
-    for _ in 0..120 {
+    let mut previous = f32::INFINITY;
+    for frame in 1usize..=120 {
         world.apply_torque(second, [0.0, 0.0, 12.0]);
         world.step(DT);
+        if frame.is_multiple_of(4) {
+            world.wait();
+            let angle = twist_angle(world.read_state(second).orientation);
+            if converged(&mut previous, angle) {
+                break;
+            }
+        }
     }
     world.wait();
     let state = world.read_state(second);
@@ -428,9 +437,16 @@ fn break_threshold_removes_constraint_under_load() {
         second,
         ConstraintDesc::ball([0.0; 3], [0.3, 0.0, 0.0]).break_threshold(0.4, 0.0),
     );
-    for _ in 0..90 {
+    for frame in 1usize..=90 {
         world.apply_force(second, [0.0, 40.0, 0.0]);
         world.step(DT);
+        if frame.is_multiple_of(4) {
+            world.wait();
+            let escaped = world.read_state(second).position[1] > 1.1;
+            if !world.constraints().contains(&handle) && escaped {
+                break;
+            }
+        }
     }
     world.wait();
     assert!(
@@ -457,10 +473,10 @@ fn motor_force_cap_limits_driving_torque() {
             .motor(20.0)
             .motor_force(0.5),
     );
-    for _ in 0..120 {
-        world.step(DT);
-    }
-    world.wait();
+    let mut previous = f32::INFINITY;
+    settle_until(&mut world, 120, |world| {
+        converged(&mut previous, world.read_state(second).angular_velocity[2])
+    });
     let spin = world.read_state(second).angular_velocity[2].abs();
     assert!(
         spin < 6.0,
@@ -547,10 +563,11 @@ fn six_dof_linear_limit_caps_separation() {
     let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
         .dofs(dofs);
     world.add_constraint(first, second, desc);
-    for _ in 0..180 {
-        world.step(DT);
-    }
-    world.wait();
+    let mut previous = f32::INFINITY;
+    settle_until(&mut world, 180, |world| {
+        let separation = world.read_state(second).position[0] - world.read_state(first).position[0];
+        converged(&mut previous, separation)
+    });
     let separation = world.read_state(second).position[0] - world.read_state(first).position[0];
     assert!(
         separation.abs() > 0.38 && separation.abs() < 0.62,
@@ -606,10 +623,9 @@ fn servo_drives_prismatic_to_target_distance() {
             .servo(2.0, 0.2, 0.4)
             .motor_force(30.0),
     );
-    for _ in 0..300 {
-        world.step(DT);
-    }
-    world.wait();
+    settle_until(&mut world, 300, |world| {
+        (world.read_state(slider).position[0] - 2.0).abs() < 0.15
+    });
     let x = world.read_state(slider).position[0];
     assert!(
         (x - 2.0).abs() < 0.15,

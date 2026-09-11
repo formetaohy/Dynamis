@@ -1,4 +1,4 @@
-use super::common::{DT, flat_mesh_floor, settle, sim, static_config};
+use super::common::{DT, asleep, flat_mesh_floor, settle_until, sim, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 use dynamis_simulate::Simulation;
 
@@ -115,7 +115,7 @@ fn mesh_floor_catches_ball_and_blocks_from_below() {
     let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| asleep(world));
     let y = world.read_state(ball).position[1];
     assert!(
         (y - 0.5).abs() < 0.05,
@@ -149,7 +149,7 @@ fn height_field_catches_ball_and_blocks_from_below() {
     let source = world.add_height_field(3, 3, &heights, [2.0, 2.0]);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([1.0, 5.0, 1.0]));
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| asleep(world));
     let y = world.read_state(ball).position[1];
     assert!(
         (y - 0.5).abs() < 0.05,
@@ -194,7 +194,9 @@ fn height_field_ramp_directs_ball_downhill() {
             .position([0.5, 5.0, 2.0])
             .restitution(0.0),
     );
-    settle(&mut world, 150);
+    settle_until(&mut world, 150, |world| {
+        world.read_state(ball).position[0] > 4.0
+    });
     let state = world.read_state(ball);
     assert!(
         state.position[0] > 4.0,
@@ -212,7 +214,7 @@ fn cylinder_rests_at_half_height() {
             .position([0.0, 3.0, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| asleep(world));
     let y = world.read_state(cylinder).position[1];
     assert!(
         (y - 1.0).abs() < 0.05,
@@ -229,7 +231,7 @@ fn capsule_rests_upright_on_flat_floor() {
             .position([0.0, 3.0, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 150);
+    settle_until(&mut world, 150, |world| asleep(world));
     let y = world.read_state(capsule).position[1];
     assert!(
         (y - 1.3).abs() < 0.1,
@@ -250,7 +252,7 @@ fn box_rests_flat_on_static_ground() {
             .position([0.0, 3.0, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 150);
+    settle_until(&mut world, 150, |world| asleep(world));
     let y = world.read_state(cube).position[1];
     assert!((y - 0.5).abs() < 0.05, "cube must rest at y=0.5, got {y}");
 }
@@ -265,7 +267,7 @@ fn compound_body_rests_on_lowest_child() {
             .position([0.0, 3.0, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| asleep(world));
     let y = world.read_state(compound).position[1];
     assert!(
         (y - 0.5).abs() < 0.05,
@@ -367,7 +369,7 @@ fn set_collider_and_set_shape_replace_geometry() {
             .restitution(0.0),
     );
     world.set_shape(switched, Shape::cuboid([0.5, 0.5, 0.5]));
-    settle(&mut world, 150);
+    settle_until(&mut world, 150, |world| asleep(world));
     let y = world.read_state(switched).position[1];
     assert!(
         (y - 0.5).abs() < 0.05,
@@ -409,7 +411,7 @@ fn hull_cube_rests_on_floor() {
             .position([0.0, 3.0, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 150);
+    settle_until(&mut world, 150, |world| asleep(world));
     let y = world.read_state(hull).position[1];
     assert!(
         (y - 1.0).abs() < 0.05,
@@ -455,7 +457,10 @@ fn penetration_solver_expels_embedded_hull() {
             .position([0.0, 0.3, 0.0])
             .restitution(0.0),
     );
-    settle(&mut world, 90);
+    settle_until(&mut world, 90, |world| {
+        let y = world.read_state(hull).position[1];
+        y > 0.45 && y < 1.5
+    });
     let y = world.read_state(hull).position[1];
     assert!(
         y > 0.3 && y < 2.0,

@@ -1,9 +1,12 @@
 use dynamis_gpu::{Backends, GpuContext, GpuRequest, WarmupBudget};
+use dynamis_layout::COUNTER_ACTIVE;
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
 use dynamis_simulate::Simulation;
 use std::sync::OnceLock;
 
 pub const DT: f32 = 1.0 / 60.0;
+
+const SETTLE_POLL: usize = 4;
 
 static GPU: OnceLock<GpuContext> = OnceLock::new();
 
@@ -52,6 +55,36 @@ pub fn settle(sim: &mut Simulation, frames: usize) {
         sim.step(DT);
     }
     sim.wait();
+}
+
+pub fn settle_until(
+    sim: &mut Simulation,
+    limit: usize,
+    mut settled: impl FnMut(&mut Simulation) -> bool,
+) -> usize {
+    for frame in 1..=limit {
+        sim.step(DT);
+        if !frame.is_multiple_of(SETTLE_POLL) {
+            continue;
+        }
+        sim.wait();
+        if settled(sim) {
+            return frame;
+        }
+    }
+    sim.wait();
+    assert!(settled(sim), "world must settle within {limit} frames");
+    limit
+}
+
+pub fn asleep(sim: &Simulation) -> bool {
+    sim.measured()[COUNTER_ACTIVE] == 0
+}
+
+pub fn converged(previous: &mut f32, sample: f32) -> bool {
+    let converged = (*previous - sample).abs() < 1e-4;
+    *previous = sample;
+    converged
 }
 
 pub fn static_sphere_ground(sim: &mut Simulation, radius: f32) -> BodyHandle {

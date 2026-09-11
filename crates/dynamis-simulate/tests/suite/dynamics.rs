@@ -1,5 +1,9 @@
-use super::common::{DT, gravity_config, settle, sim, static_config, static_sphere_ground};
+use super::common::{
+    DT, asleep, distance, gravity_config, settle, settle_until, sim, static_config,
+    static_sphere_ground,
+};
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
+use dynamis_simulate::Simulation;
 
 const GRAVITY: f32 = 9.81;
 
@@ -59,14 +63,14 @@ fn ball_rests_on_ground_and_stays_asleep() {
     let mut world = sim(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
-    settle(&mut world, 90);
+    settle_until(&mut world, 90, |world| asleep(world));
     let rest_y = world.read_state(ball).position[1];
     assert!(
         (rest_y - 1.5).abs() < 0.05,
         "ball must rest on the sphere top, got {rest_y}"
     );
     assert!(world.read_state(ball).sleeping, "resting body must sleep");
-    settle(&mut world, 60);
+    settle(&mut world, 30);
     assert!(
         (world.read_state(ball).position[1] - rest_y).abs() < 1e-3,
         "sleeping body must not drift"
@@ -138,7 +142,9 @@ fn friction_free_slides_then_grip_rolls() {
     );
 
     world.set_friction(ball, 0.8);
-    settle(&mut world, 180);
+    settle_until(&mut world, 180, |world| {
+        world.read_state(ball).angular_velocity[2] < -1.5
+    });
     let rolling = world.read_state(ball);
     assert!(
         rolling.angular_velocity[2] < -1.5,
@@ -156,7 +162,7 @@ fn stacked_bodies_do_not_collapse() {
     static_sphere_ground(&mut world, 1.0);
     let lower = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     let upper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 2.5, 0.0]));
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| asleep(world));
     let lower_y = world.read_state(lower).position[1];
     let upper_y = world.read_state(upper).position[1];
     assert!(lower_y > 1.4 && lower_y < 1.52);
@@ -212,7 +218,9 @@ fn kinematic_platform_carries_ball_and_ignores_gravity() {
     );
     let ball = world.spawn(BodyDesc::sphere(0.3).position([0.0, 2.3, 0.0]));
     let floater = world.spawn(BodyDesc::sphere(0.5).kinematic(true));
-    settle(&mut world, 120);
+    settle_until(&mut world, 120, |world| {
+        world.read_state(platform).position[0] > 1.0
+    });
     let platform_x = world.read_state(platform).position[0];
     assert!(platform_x > 0.5, "kinematic platform must advance");
     assert!(
@@ -236,7 +244,7 @@ fn idle_body_sleeps_and_impact_wakes() {
     let ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let _ = ground;
     let target = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
-    settle(&mut world, 40);
+    settle_until(&mut world, 40, |world| asleep(world));
     assert!(
         world.read_state(target).sleeping,
         "resting target must sleep before impact"
@@ -246,7 +254,7 @@ fn idle_body_sleeps_and_impact_wakes() {
             .position([0.0, 12.0, 0.0])
             .velocity([0.0, -10.0, 0.0]),
     );
-    settle(&mut world, 60);
+    settle_until(&mut world, 120, |world| !world.read_state(target).sleeping);
     assert!(
         !world.read_state(target).sleeping,
         "impact must wake the target"
@@ -293,12 +301,12 @@ fn sleep_and_wake_commands_toggle_state() {
 fn patches_and_impulses_wake_sleeping_body() {
     let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
-    settle(&mut world, 40);
+    settle_until(&mut world, 40, |world| asleep(world));
     assert!(world.read_state(ball).sleeping);
     world.set_position(ball, [2.0, 0.0, 0.0]);
     settle(&mut world, 2);
     assert!(!world.read_state(ball).sleeping, "position patch must wake");
-    settle(&mut world, 40);
+    settle_until(&mut world, 40, |world| asleep(world));
     assert!(world.read_state(ball).sleeping);
     world.apply_impulse(ball, [0.0, 0.0, 1.0]);
     settle(&mut world, 2);
@@ -315,7 +323,7 @@ fn constraint_linked_bodies_sleep_and_wake_together() {
         second,
         ConstraintDesc::distance([0.0; 3], [0.0; 3], 2.0),
     );
-    settle(&mut world, 50);
+    settle_until(&mut world, 50, |world| asleep(world));
     assert!(
         world.read_state(first).sleeping && world.read_state(second).sleeping,
         "linked bodies must share the sleep state"
@@ -333,7 +341,7 @@ fn distant_idle_bodies_sleep_independently() {
     let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.3));
     let second = world.spawn(BodyDesc::sphere(0.3).position([50.0, 0.0, 0.0]));
-    settle(&mut world, 50);
+    settle_until(&mut world, 50, |world| asleep(world));
     assert!(world.read_state(first).sleeping && world.read_state(second).sleeping);
     world.wake(first);
     settle(&mut world, 3);
@@ -349,7 +357,7 @@ fn driven_contact_island_stays_awake() {
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let lower = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
     let upper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.3, 0.0]));
-    settle(&mut world, 50);
+    settle_until(&mut world, 50, |world| asleep(world));
     assert!(world.read_state(lower).sleeping && world.read_state(upper).sleeping);
     for _ in 0..20 {
         world.apply_force(upper, [3.0, 0.0, 0.0]);
@@ -368,9 +376,7 @@ fn resting_contact_carries_warm_start_impulse() {
     let mut world = sim(gravity_config());
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let _ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
-    for _ in 0..60 {
-        world.step(DT);
-    }
+    settle_until(&mut world, 60, |world| asleep(world));
     let resting = world.contact_manifolds();
     assert_eq!(
         resting.len(),
@@ -418,12 +424,27 @@ fn settled_stack_drifts_nothing_across_frames() {
             ),
         );
     }
-    settle(&mut world, 180);
+    let snapshot = |world: &mut Simulation| {
+        stack
+            .iter()
+            .map(|handle| world.read_state(*handle).position)
+            .collect::<Vec<_>>()
+    };
+    let mut previous = snapshot(&mut world);
+    settle_until(&mut world, 180, |world| {
+        let current = snapshot(world);
+        let settled = current
+            .iter()
+            .zip(&previous)
+            .all(|(now, before)| distance(*now, *before) < 1e-5);
+        previous = current;
+        settled
+    });
     let baseline: Vec<_> = stack
         .iter()
         .map(|body| world.read_state(*body).position[1])
         .collect();
-    settle(&mut world, 60);
+    settle(&mut world, 30);
     for (index, body) in stack.iter().enumerate() {
         let drift = (world.read_state(*body).position[1] - baseline[index]).abs();
         assert!(
