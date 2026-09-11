@@ -14,7 +14,7 @@ use wgpu::{BufferUsages, Device};
 
 pub(crate) const COMPACT_BLOCK: u32 = 256;
 
-pub(crate) const EVENT_SLOTS: u32 = ReadbackRing::DEPTH as u32;
+pub(crate) const EVENT_SLOTS: u32 = ReadbackRing::DEPTH as u32 + 2;
 
 const STREAM: BufferUsages = BufferUsages::STORAGE
     .union(BufferUsages::COPY_DST)

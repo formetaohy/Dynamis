@@ -197,7 +197,16 @@ fn capsule_capsule(
     return contact;
 }
 
-fn box_face_corners(body: Body, collider: Collider, face_normal: vec3f) -> array<vec3f, 4> {
+fn box_support(body: Body, collider: Collider, direction: vec3f) -> vec3f {
+    let axes = box_rotated_axes(body.state, collider);
+    var point = box_center(body.state, collider);
+    for (var index = 0u; index < 3u; index = index + 1u) {
+        point = point + axes[index] * select(-collider.half_extents[index], collider.half_extents[index], dot(axes[index], direction) > 0.0);
+    }
+    return point;
+}
+
+fn box_face(body: Body, collider: Collider, face_normal: vec3f, corners: ptr<function, array<vec3f, 4>>) -> vec3f {
     let axes = box_rotated_axes(body.state, collider);
     let center = box_center(body.state, collider);
     var axis = 0u;
@@ -210,13 +219,18 @@ fn box_face_corners(body: Body, collider: Collider, face_normal: vec3f) -> array
     let n = axes[axis] * sign;
     let u = axes[(axis + 1u) % 3u];
     let v = axes[(axis + 2u) % 3u];
-    let e = collider.half_extents[axis];
-    var corners: array<vec3f, 4>;
-    corners[0] = center + n * e + u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
-    corners[1] = center + n * e - u * collider.half_extents[(axis + 1u) % 3u] + v * collider.half_extents[(axis + 2u) % 3u];
-    corners[2] = center + n * e - u * collider.half_extents[(axis + 1u) % 3u] - v * collider.half_extents[(axis + 2u) % 3u];
-    corners[3] = center + n * e + u * collider.half_extents[(axis + 1u) % 3u] - v * collider.half_extents[(axis + 2u) % 3u];
-    return corners;
+    let half_u = collider.half_extents[(axis + 1u) % 3u];
+    let half_v = collider.half_extents[(axis + 2u) % 3u];
+    let face_center = center + n * collider.half_extents[axis];
+    var edges: array<vec3f, 4>;
+    edges[0] = u * half_u + v * half_v;
+    edges[1] = -u * half_u + v * half_v;
+    edges[2] = -u * half_u - v * half_v;
+    edges[3] = u * half_u - v * half_v;
+    for (var index = 0u; index < 4u; index = index + 1u) {
+        (*corners)[index] = face_center + edges[index];
+    }
+    return face_center;
 }
 
 fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_normal: vec3f, out_points: ptr<function, array<vec3f, 8>>) -> u32 {
@@ -224,8 +238,8 @@ fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_n
     for (var i = 0u; i < count; i = i + 1u) {
         let current = points[i];
         let next = points[(i + 1u) % count];
-        let current_dist = dot(current - plane_point, plane_normal);
-        let next_dist = dot(next - plane_point, plane_normal);
+        let current_dist = dot(current - plane_point, plane_normal) - CLIP_MARGIN;
+        let next_dist = dot(next - plane_point, plane_normal) - CLIP_MARGIN;
         if (current_dist <= 0.0) {
             if (out_count < 8u) {
                 (*out_points)[out_count] = current;
@@ -243,126 +257,118 @@ fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_n
     return out_count;
 }
 
+const FACE_AXIS_BIAS: f32 = 1e-3;
+
+struct BoxGeometry {
+    body: Body,
+    collider: Collider,
+    axes: array<vec3f, 3>,
+    half_extents: vec3f,
+    center: vec3f,
+}
+
+fn box_geometry(body: Body, collider: Collider) -> BoxGeometry {
+    var geometry: BoxGeometry;
+    geometry.body = body;
+    geometry.collider = collider;
+    geometry.axes = box_rotated_axes(body.state, collider);
+    geometry.half_extents = collider.half_extents;
+    geometry.center = box_center(body.state, collider);
+    return geometry;
+}
+
+fn support_radius(geometry: BoxGeometry, axis: vec3f) -> f32 {
+    return abs(dot(geometry.axes[0], axis)) * geometry.half_extents.x
+        + abs(dot(geometry.axes[1], axis)) * geometry.half_extents.y
+        + abs(dot(geometry.axes[2], axis)) * geometry.half_extents.z;
+}
+
+fn face_overlap(face: BoxGeometry, other: BoxGeometry, axis_index: u32, delta: vec3f) -> f32 {
+    let axis = face.axes[axis_index];
+    return face.half_extents[axis_index] + support_radius(other, axis) - abs(dot(delta, axis));
+}
+
+fn edge_overlap(left: BoxGeometry, right: BoxGeometry, axis: vec3f, delta: vec3f) -> f32 {
+    return support_radius(left, axis) + support_radius(right, axis) - abs(dot(delta, axis));
+}
+
 fn box_box_sat(
     first: Body, first_collider: Collider,
     second: Body, second_collider: Collider,
 ) -> Contact {
     var contact: Contact;
     contact_emit(&contact, vec3f(0.0, 1.0, 0.0));
-    let box_radius = max(max(first_collider.half_extents.x, first_collider.half_extents.y), first_collider.half_extents.z);
-    let other_radius = max(max(second_collider.half_extents.x, second_collider.half_extents.y), second_collider.half_extents.z);
-    let swapped = box_radius < other_radius;
-    var ref_body = first;
-    var ref_collider = first_collider;
-    var hit_body = second;
-    var hit_collider = second_collider;
-    if (swapped) {
-        ref_body = second;
-        ref_collider = second_collider;
-        hit_body = first;
-        hit_collider = first_collider;
+    let left = box_geometry(first, first_collider);
+    let right = box_geometry(second, second_collider);
+    let delta = right.center - left.center;
+    var face_depth = 1e30;
+    var face_axis = left.axes[0];
+    var face_on_right = false;
+    for (var index = 0u; index < 3u; index = index + 1u) {
+        let overlap = face_overlap(left, right, index, delta);
+        if (overlap < face_depth) {
+            face_depth = overlap;
+            face_axis = left.axes[index];
+            face_on_right = false;
+        }
+        let other = face_overlap(right, left, index, delta);
+        if (other < face_depth) {
+            face_depth = other;
+            face_axis = right.axes[index];
+            face_on_right = true;
+        }
     }
-    let axes_a = box_rotated_axes(ref_body.state, ref_collider);
-    let axes_b = box_rotated_axes(hit_body.state, hit_collider);
-    let he_a = ref_collider.half_extents;
-    let he_b = hit_collider.half_extents;
-    let center_a = box_center(ref_body.state, ref_collider);
-    let center_b = box_center(hit_body.state, hit_collider);
-    let delta = center_b - center_a;
-    var best = 1e30;
-    var best_axis = vec3f(0.0, 1.0, 0.0);
-    var best_side = 0u;
-    var index = 0u;
-    loop {
-        if (index >= 3u) {
-            break;
-        }
-        let axis = axes_a[index];
-        let ra = abs(dot(delta, axis));
-        let rb = abs(dot(axes_b[0], axis)) * he_b.x + abs(dot(axes_b[1], axis)) * he_b.y + abs(dot(axes_b[2], axis)) * he_b.z;
-        let overlap = he_a[index] + rb - ra;
-        if (overlap < best) {
-            best = overlap;
-            best_axis = axis;
-            best_side = index;
-        }
-        index = index + 1u;
-    }
-    index = 0u;
-    loop {
-        if (index >= 3u) {
-            break;
-        }
-        let axis = axes_b[index];
-        let projected_delta = abs(dot(delta, axis));
-        let projected_a = abs(dot(axes_a[0], axis)) * he_a.x + abs(dot(axes_a[1], axis)) * he_a.y + abs(dot(axes_a[2], axis)) * he_a.z;
-        let overlap = he_b[index] + projected_a - projected_delta;
-        if (overlap < best) {
-            best = overlap;
-            best_axis = axis;
-            best_side = 3u + index;
-        }
-        index = index + 1u;
-    }
-    for (var ia = 0u; ia < 3u; ia = ia + 1u) {
-        for (var ib = 0u; ib < 3u; ib = ib + 1u) {
-            let axis = cross(axes_a[ia], axes_b[ib]);
-            let len = length(axis);
+    var edge_depth = 1e30;
+    var edge_axis = face_axis;
+    for (var i = 0u; i < 3u; i = i + 1u) {
+        for (var j = 0u; j < 3u; j = j + 1u) {
+            let crossed = cross(left.axes[i], right.axes[j]);
+            let len = length(crossed);
             if (len < 1e-8) {
                 continue;
             }
-            let n = axis / len;
-            let ra = abs(dot(delta, n));
-            let rb = abs(dot(axes_a[0], n)) * he_a.x + abs(dot(axes_a[1], n)) * he_a.y + abs(dot(axes_a[2], n)) * he_a.z
-                + abs(dot(axes_b[0], n)) * he_b.x + abs(dot(axes_b[1], n)) * he_b.y + abs(dot(axes_b[2], n)) * he_b.z;
-            let overlap = rb - ra;
-            if (overlap < best) {
-                best = overlap;
-                best_axis = n;
-                best_side = 6u + ia * 3u + ib;
+            let axis = crossed / len;
+            let overlap = edge_overlap(left, right, axis, delta);
+            if (overlap < edge_depth) {
+                edge_depth = overlap;
+                edge_axis = axis;
             }
         }
     }
-    if (best <= 0.0) {
+    let extent = max(max(left.half_extents.x, left.half_extents.y), left.half_extents.z)
+        + max(max(right.half_extents.x, right.half_extents.y), right.half_extents.z);
+    let edge_axis_separates = edge_depth + FACE_AXIS_BIAS * extent < face_depth;
+    let depth = select(face_depth, edge_depth, edge_axis_separates);
+    if (depth <= 0.0) {
         return contact;
     }
-    let signed = select(best_axis, -best_axis, dot(best_axis, delta) < 0.0);
-    if (best_side >= 6u) {
-        let depth = best;
-        let point = box_face_point(hit_body.state, hit_collider, -signed);
-        contact.normal = select(signed, -signed, swapped);
+    let axis = select(face_axis, edge_axis, edge_axis_separates);
+    let signed = select(axis, -axis, dot(axis, delta) < 0.0);
+    if (edge_axis_separates) {
+        let point = (box_support(first, first_collider, signed) + box_support(second, second_collider, -signed)) * 0.5;
+        contact.normal = signed;
         manifold_push(&contact, point, depth);
         return contact;
     }
-    var reference: Body;
-    var reference_collider: Collider;
-    var incident: Body;
-    var incident_collider: Collider;
-    var face_normal = signed;
-    if (best_side < 3u) {
-        reference = ref_body;
-        reference_collider = ref_collider;
-        incident = hit_body;
-        incident_collider = hit_collider;
-    } else {
-        reference = hit_body;
-        reference_collider = hit_collider;
-        incident = ref_body;
-        incident_collider = ref_collider;
-        face_normal = -signed;
+    var reference = left;
+    var incident = right;
+    var ref_normal = signed;
+    if (face_on_right) {
+        reference = right;
+        incident = left;
+        ref_normal = -signed;
     }
-    let ref_normal = face_normal;
-    let ref_center = box_face_point(reference.state, reference_collider, ref_normal);
-    let ref_corners = box_face_corners(reference, reference_collider, ref_normal);
-    let incident_ax = box_rotated_axes(incident.state, incident_collider);
-    var face_axis = 0u;
+    var ref_corners: array<vec3f, 4>;
+    let ref_center = box_face(reference.body, reference.collider, ref_normal, &ref_corners);
+    var incident_axis = 0u;
     for (var i = 1u; i < 3u; i = i + 1u) {
-        if (abs(dot(incident_ax[i], ref_normal)) > abs(dot(incident_ax[face_axis], ref_normal))) {
-            face_axis = i;
+        if (abs(dot(incident.axes[i], ref_normal)) > abs(dot(incident.axes[incident_axis], ref_normal))) {
+            incident_axis = i;
         }
     }
-    let incident_normal = incident_ax[face_axis] * select(1.0, -1.0, dot(incident_ax[face_axis], ref_normal) > 0.0);
-    let incident_corners = box_face_corners(incident, incident_collider, incident_normal);
+    let incident_normal = incident.axes[incident_axis] * select(1.0, -1.0, dot(incident.axes[incident_axis], ref_normal) > 0.0);
+    var incident_corners: array<vec3f, 4>;
+    box_face(incident.body, incident.collider, incident_normal, &incident_corners);
     var polygon_a: array<vec3f, 8>;
     var polygon_b: array<vec3f, 8>;
     for (var i = 0u; i < 4u; i = i + 1u) {
@@ -379,21 +385,30 @@ fn box_box_sat(
             polygon_count = clip_polygon(polygon_b, polygon_count, current, plane_normal, &polygon_a);
         }
         if (polygon_count == 0u) {
-            return contact;
+            break;
         }
     }
-    let clipped = polygon_a;
-    contact.normal = select(signed, -signed, swapped);
-    var candidates: array<ManifoldPoint, 8>;
+    var candidates: array<ManifoldPoint, CONTACT_MAX_POINTS>;
     var candidate_count = 0u;
-    for (var i = 0u; i < polygon_count; i = i + 1u) {
-        let depth = dot(ref_center - clipped[i], ref_normal);
-        if (depth >= 0.0 && candidate_count < 8u) {
-            candidates[candidate_count] = ManifoldPoint(clipped[i] - ref_normal * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
+    for (var i = 0u; i < polygon_count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+        let point_depth = dot(ref_center - polygon_a[i], ref_normal);
+        if (point_depth >= 0.0) {
+            candidates[candidate_count] = ManifoldPoint(polygon_a[i] - ref_normal * (point_depth * 0.5), point_depth, 0.0, 0.0, 0.0, 0.0);
             candidate_count = candidate_count + 1u;
         }
     }
     if (candidate_count == 0u) {
+        for (var i = 0u; i < 4u && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+            let point_depth = dot(ref_center - incident_corners[i], ref_normal);
+            if (point_depth >= 0.0) {
+                candidates[candidate_count] = ManifoldPoint(incident_corners[i] - ref_normal * (point_depth * 0.5), point_depth, 0.0, 0.0, 0.0, 0.0);
+                candidate_count = candidate_count + 1u;
+            }
+        }
+    }
+    contact.normal = signed;
+    if (candidate_count == 0u) {
+        manifold_push(&contact, ref_center - ref_normal * (face_depth * 0.5), face_depth);
         return contact;
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
@@ -405,8 +420,7 @@ fn box_box_sat(
             }
         }
     }
-    var keep = min(candidate_count, CONTACT_MAX_POINTS);
-    for (var i = 0u; i < keep; i = i + 1u) {
+    for (var i = 0u; i < candidate_count; i = i + 1u) {
         manifold_push(&contact, candidates[i].position, candidates[i].depth);
     }
     return contact;

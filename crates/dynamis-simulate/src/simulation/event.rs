@@ -42,6 +42,11 @@ impl Simulation {
 
     pub(crate) fn copy_events(&mut self, encoder: &mut dynamis_gpu::SubmissionEncoder) {
         while let Some((step, count)) = self.events.due.pop_front() {
+            assert!(
+                self.clock.step <= step + EVENT_SLOTS as u64,
+                "event segment for step {step} was overwritten before step {} could copy it",
+                self.clock.step
+            );
             let segment = self.device.buffers.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);

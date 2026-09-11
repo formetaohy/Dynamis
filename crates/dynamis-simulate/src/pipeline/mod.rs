@@ -1,4 +1,5 @@
 mod broadphase;
+mod ccd;
 mod commands;
 mod commit;
 mod dispatch;
@@ -23,6 +24,7 @@ use dynamis_sort::RadixSort;
 use wgpu::CommandEncoder;
 
 use broadphase::Broadphase;
+use ccd::Ccd;
 use commands::Commands;
 use commit::Commit;
 use dispatch::{Dispatch, SORT_ENTRIES};
@@ -69,7 +71,7 @@ passes!(
     Islands => "islands",
     SolverPrepare => "solver_prepare",
     Solver => "solver",
-    Position => "position",
+    Impact => "impact",
     Sleep => "sleep",
     Commit => "commit",
     RestingGather => "resting_gather",
@@ -97,6 +99,7 @@ pub(crate) struct Pipeline {
     narrowphase: Narrowphase,
     islands: Islands,
     sleep: Sleep,
+    ccd: Ccd,
     solver: Solver,
     commit: Commit,
     dispatch: Dispatch,
@@ -127,6 +130,7 @@ impl Pipeline {
             narrowphase: Narrowphase::build(context, buffers, per_row),
             islands: Islands::build(context, buffers, per_row),
             sleep: Sleep::build(context, buffers, per_row),
+            ccd: Ccd::build(context, buffers, per_row),
             solver: Solver::build(context, buffers, per_row),
             commit: Commit::build(context, buffers, per_row),
             dispatch: Dispatch::build(context, buffers, per_row),
@@ -200,9 +204,12 @@ impl Pipeline {
             self.solver.record(&mut solver, buffers, params, &self.sort);
             drop(solver);
 
-            let mut position = self.open(encoder, Pass::Position);
-            self.solver.record_position(&mut position, buffers, params);
-            drop(position);
+            let mut impact = self.open(encoder, Pass::Impact);
+            self.integrate
+                .record_advance(&mut impact, params.dynamic_count);
+            self.ccd.record(&mut impact, buffers);
+            self.solver.record_position(&mut impact, buffers, params);
+            drop(impact);
 
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);

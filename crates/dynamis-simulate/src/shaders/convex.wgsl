@@ -752,6 +752,19 @@ fn shape_feature(
     return 1u;
 }
 
+fn feature_radius(points: ptr<function, array<vec3f, FEATURE_MAX>>, count: u32) -> f32 {
+    var center = vec3f(0.0);
+    for (var i = 0u; i < count; i = i + 1u) {
+        center = center + (*points)[i];
+    }
+    center = center / f32(count);
+    var radius = 0.0;
+    for (var i = 0u; i < count; i = i + 1u) {
+        radius = max(radius, length((*points)[i] - center));
+    }
+    return radius;
+}
+
 fn convex_pair_manifold(
     first: WorldShape,
     second: WorldShape,
@@ -767,12 +780,16 @@ fn convex_pair_manifold(
     if (!first_flat && !second_flat) {
         return false;
     }
+    var first_reference = first_flat;
+    if (first_flat && second_flat) {
+        first_reference = feature_radius(&first_points, first_count) >= feature_radius(&second_points, second_count);
+    }
     var reference: array<vec3f, FEATURE_MAX>;
     var reference_count = 0u;
     var incident: array<vec3f, FEATURE_MAX>;
     var incident_count = 0u;
     var ref_dir: vec3f;
-    if (first_flat) {
+    if (first_reference) {
         reference = first_points;
         reference_count = first_count;
         incident = second_points;
@@ -792,26 +809,36 @@ fn convex_pair_manifold(
     center = center / f32(reference_count);
     var candidates: array<ManifoldPoint, 4>;
     var candidate_count = 0u;
-    for (var i = 0u; i < incident_count && candidate_count < 4u; i = i + 1u) {
+    var deepest = vec3f(0.0);
+    var deepest_depth = -1e30;
+    for (var i = 0u; i < incident_count; i = i + 1u) {
         let point = incident[i];
         let depth = dot(center - point, ref_dir);
-        if (depth > 0.0) {
+        if (depth > deepest_depth) {
+            deepest_depth = depth;
+            deepest = point;
+        }
+        if (depth > 0.0 && candidate_count < 4u) {
             var kept = true;
             for (var s = 0u; s < reference_count && kept; s = s + 1u) {
                 let edge = reference[(s + 1u) % reference_count] - reference[s];
                 let plane_normal = normalize(cross(edge, ref_dir));
-                if (dot(point - reference[s], plane_normal) < 0.0) {
+                if (dot(point - reference[s], plane_normal) < -CLIP_MARGIN) {
                     kept = false;
                 }
             }
             if (kept) {
-                candidates[candidate_count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, 0.0);
+                candidates[candidate_count] = ManifoldPoint(point - ref_dir * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
                 candidate_count = candidate_count + 1u;
             }
         }
     }
     if (candidate_count == 0u) {
-        return false;
+        if (deepest_depth <= 0.0) {
+            return false;
+        }
+        manifold_push(contact, deepest - ref_dir * (deepest_depth * 0.5), deepest_depth);
+        return true;
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
         for (var j = i + 1u; j < candidate_count; j = j + 1u) {

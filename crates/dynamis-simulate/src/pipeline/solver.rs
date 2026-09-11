@@ -63,7 +63,10 @@ impl Solver {
                 per_row,
                 CORE,
                 &[
-                    (RO, whole(&buffers.contacts.manifolds)),
+                    (UNIFORM, whole(&buffers.params)),
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.descriptors)),
+                    (RW, whole(&buffers.contacts.manifolds)),
                     (RO, whole(&buffers.constraints.descriptors)),
                     (RO, whole(&buffers.constraints.runtime)),
                     (RO, whole(&buffers.solver.segments)),
@@ -107,14 +110,20 @@ impl Solver {
             ),
             warm: Stage::build(
                 context,
-                "solver_warm",
-                include_str!("../shaders/solver_warm.wgsl"),
+                "contact_warm",
+                "@compute @workgroup_size(WORKGROUP_SIZE)
+fn main() {}
+",
                 per_row,
                 CORE,
                 &[
-                    (RO, whole(&buffers.constraints.descriptors)),
-                    (RW, whole(&buffers.constraints.runtime)),
                     (UNIFORM, whole(&buffers.params)),
+                    (RO, whole(&buffers.bodies.states)),
+                    (RO, whole(&buffers.bodies.descriptors)),
+                    (RO, whole(&buffers.contacts.manifolds)),
+                    (RO, whole(&buffers.solver.segments)),
+                    (RO, whole(&buffers.solver.a_payload)),
+                    (RW, whole(&buffers.solver.deltas)),
                 ],
                 &[],
             ),
@@ -246,7 +255,9 @@ impl Solver {
 
         self.boundaries
             .record_indirect(recorder, &buffers.dispatch, SOLVER_BOUNDARIES);
-        self.warm.record(recorder, params.constraint_count);
+        self.warm
+            .record_indirect(recorder, &buffers.dispatch, SOLVER_BLOCKS);
+        self.apply.record(recorder, params.dynamic_count);
 
         for _ in 0..params.solve_iterations {
             self.blocks

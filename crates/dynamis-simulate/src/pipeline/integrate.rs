@@ -8,6 +8,7 @@ use dynamis_sort::RadixSort;
 
 pub(super) struct Integrate {
     integrate: Stage,
+    advance: Stage,
     broadphase_aabb: Stage,
 }
 
@@ -27,6 +28,18 @@ impl Integrate {
                 ],
                 &[],
             ),
+            advance: Stage::build(
+                context,
+                "advance",
+                include_str!("../shaders/advance.wgsl"),
+                per_row,
+                CORE,
+                &[
+                    (UNIFORM, whole(&buffers.params)),
+                    (RW, whole(&buffers.bodies.states)),
+                ],
+                &[],
+            ),
             broadphase_aabb: Stage::build(
                 context,
                 "broadphase_aabb",
@@ -42,6 +55,10 @@ impl Integrate {
                 &shape_resources(buffers),
             ),
         }
+    }
+
+    pub(super) fn record_advance(&self, recorder: &mut ComputeRecorder, dynamic_count: u32) {
+        self.advance.record(recorder, dynamic_count);
     }
 
     pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, dynamic_count: u32) {

@@ -22,8 +22,7 @@ fn solve_contact_correction(contact_index: u32, slot: u32) {
         if (error <= 0.0) {
             continue;
         }
-        let position = contact.points[point_index].position;
-        let k = point_momentum_mass(first, second, position, position, normal);
+        let k = linear_momentum_mass(first, second);
         if (k == 0.0) {
             continue;
         }

@@ -14,7 +14,7 @@ pub struct ManifoldPointRecord {
     pub accumulated_normal: f32,
     pub accumulated_tangent_1: f32,
     pub accumulated_tangent_2: f32,
-    pub _pad0: f32,
+    pub target_speed: f32,
 }
 
 #[repr(C)]

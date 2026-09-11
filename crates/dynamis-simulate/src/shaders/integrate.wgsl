@@ -48,9 +48,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     state.velocity = state.velocity * linear_damping;
     state.angular_velocity = state.angular_velocity * angular_damping;
     state.prev_position = state.position;
-    state.position = state.position + state.velocity * params.dt;
-    let spin_quat = vec4f(state.angular_velocity, 0.0);
-    state.orientation = normalize(state.orientation + 0.5 * params.dt * quat_mul(spin_quat, state.orientation));
     state.force = vec3f(0.0);
     state.torque = vec3f(0.0);
     body_states[index] = state;

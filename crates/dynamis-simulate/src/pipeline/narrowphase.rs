@@ -1,4 +1,4 @@
-use super::dispatch::{CCD_SWEEP, COMPACT_SCAN, COMPACT_SCATTER, NARROWPHASE, SORT_PAIRS};
+use super::dispatch::{COMPACT_SCAN, COMPACT_SCATTER, NARROWPHASE, SORT_PAIRS};
 use super::stage::{CORE, GEOMETRY, RO, RW, Stage, UNIFORM, shape_resources, whole};
 use crate::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -10,7 +10,6 @@ pub(super) struct Narrowphase {
     compact_scan: Stage,
     compact_offsets: Stage,
     compact_scatter: Stage,
-    ccd_sweep: Stage,
 }
 
 impl Narrowphase {
@@ -83,23 +82,6 @@ impl Narrowphase {
                 ],
                 &[],
             ),
-            ccd_sweep: Stage::build(
-                context,
-                "ccd_sweep",
-                include_str!("../shaders/ccd_sweep.wgsl"),
-                per_row,
-                GEOMETRY,
-                &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RW, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
-                    (RO, whole(&buffers.bodies.colliders)),
-                    (RO, whole(&buffers.contacts.pairs.major)),
-                    (RO, whole(&buffers.contacts.pairs.minor)),
-                    (RW, buffers.counter(COUNTER_PAIRS)),
-                ],
-                &shape_resources(buffers),
-            ),
         }
     }
 
@@ -123,8 +105,6 @@ impl Narrowphase {
             &buffers.dispatch,
             SORT_PAIRS,
         );
-        self.ccd_sweep
-            .record_indirect(recorder, &buffers.dispatch, CCD_SWEEP);
         self.narrowphase
             .record_indirect(recorder, &buffers.dispatch, NARROWPHASE);
         self.compact_scan

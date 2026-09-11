@@ -146,7 +146,7 @@ struct ManifoldPoint {
     accumulated_normal: f32,
     accumulated_tangent_1: f32,
     accumulated_tangent_2: f32,
-    _pad0: f32,
+    target_speed: f32,
 }
 
 struct Contact {
@@ -506,6 +506,10 @@ fn contact_block_resolves(contact: Contact) -> bool {
     return contact.point_count > 0u && contact.sensor == 0u;
 }
 
+fn linear_momentum_mass(body_a: Body, body_b: Body) -> f32 {
+    return body_a.desc.inverse_mass + body_b.desc.inverse_mass;
+}
+
 fn point_momentum_mass(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f, axis: vec3f) -> f32 {
     let ra = point_a - body_com(body_a);
     let rb = point_b - body_com(body_b);
@@ -644,18 +648,6 @@ fn box_center(state: BodyState, collider: Collider) -> vec3f {
     return state.position + quat_rotate(state.orientation, collider.local_offset);
 }
 
-fn box_projected_radius(collider: Collider, q: vec4f, direction: vec3f) -> f32 {
-    let local_direction = quat_rotate(quat_conjugate(q), direction);
-    return abs(local_direction.x) * collider.half_extents.x
-        + abs(local_direction.y) * collider.half_extents.y
-        + abs(local_direction.z) * collider.half_extents.z;
-}
-
-fn box_face_point(state: BodyState, collider: Collider, direction: vec3f) -> vec3f {
-    let q = quat_mul(state.orientation, collider.local_rotation);
-    return box_center(state, collider) + direction * box_projected_radius(collider, q, direction);
-}
-
 fn box_rotated_axes(state: BodyState, collider: Collider) -> array<vec3f, 3> {
     let q = quat_mul(state.orientation, collider.local_rotation);
     let axes: array<vec3f, 3> = array(
@@ -695,6 +687,7 @@ fn largest_axis(v: vec3f) -> u32 {
 }
 
 const FEATURE_MAX: u32 = 8u;
+const CLIP_MARGIN: f32 = 1e-4;
 
 fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
     let count = (*contact).point_count;

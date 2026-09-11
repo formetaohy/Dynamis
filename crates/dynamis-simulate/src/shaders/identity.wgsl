@@ -49,3 +49,4 @@ fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
     }
     return relayed;
 }
+

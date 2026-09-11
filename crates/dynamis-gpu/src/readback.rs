@@ -1,4 +1,5 @@
 use crate::SubmissionEncoder;
+use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -44,6 +45,12 @@ impl BufferReadback {
 
     pub fn size(&self) -> BufferAddress {
         self.staging.size()
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|pending| pending.submission.get().is_some())
     }
 
     pub fn read(
@@ -153,9 +160,11 @@ impl BufferReadback {
 }
 
 pub struct ReadbackRing {
-    slots: [BufferReadback; Self::DEPTH],
-    head: usize,
-    len: usize,
+    device: Device,
+    label: String,
+    size: BufferAddress,
+    slots: VecDeque<BufferReadback>,
+    inflight: usize,
     last_sequence: Option<u64>,
 }
 
@@ -164,17 +173,19 @@ impl ReadbackRing {
 
     pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
         Self {
-            slots: std::array::from_fn(|index| {
-                BufferReadback::new(device, &format!("{label} slot {index}"), size)
-            }),
-            head: 0,
-            len: 0,
+            device: device.clone(),
+            label: label.to_owned(),
+            size,
+            slots: (0..Self::DEPTH)
+                .map(|index| BufferReadback::new(device, &format!("{label} slot {index}"), size))
+                .collect(),
+            inflight: 0,
             last_sequence: None,
         }
     }
 
     pub fn size(&self) -> BufferAddress {
-        self.slots[0].size()
+        self.size
     }
 
     pub fn enqueue(
@@ -190,24 +201,17 @@ impl ReadbackRing {
                 .is_none_or(|previous| sequence > previous),
             "readback sequences must increase"
         );
-        let displaced = if self.len == Self::DEPTH {
-            let entry = self.slots[self.head].wait();
-            self.retire();
-            Some(entry)
-        } else {
-            None
-        };
-        let tail = (self.head + self.len) % Self::DEPTH;
-        self.slots[tail].record(encoder, source, source_offset, bytes, sequence);
-        self.len += 1;
+        let displaced = self.reclaim();
+        self.slots[self.inflight].record(encoder, source, source_offset, bytes, sequence);
+        self.inflight += 1;
         self.last_sequence = Some(sequence);
         displaced
     }
 
     pub fn collect(&mut self) -> Vec<(u64, Vec<u8>)> {
         let mut completed = Vec::new();
-        while self.len > 0 {
-            let Some(entry) = self.slots[self.head].collect() else {
+        while self.inflight > 0 {
+            let Some(entry) = self.slots[0].collect() else {
                 break;
             };
             self.retire();
@@ -217,16 +221,38 @@ impl ReadbackRing {
     }
 
     pub fn drain(&mut self) -> Vec<(u64, Vec<u8>)> {
-        let mut completed = Vec::with_capacity(self.len);
-        while self.len > 0 {
-            completed.push(self.slots[self.head].wait());
+        let mut completed = Vec::with_capacity(self.inflight);
+        while self.inflight > 0 {
+            let entry = self.slots[0].wait();
             self.retire();
+            completed.push(entry);
         }
         completed
     }
 
+    fn reclaim(&mut self) -> Option<(u64, Vec<u8>)> {
+        if self.inflight < self.slots.len() {
+            return None;
+        }
+        if !self.slots[0].is_sealed() {
+            let index = self.slots.len();
+            self.slots.push_back(BufferReadback::new(
+                &self.device,
+                &format!("{} slot {index}", self.label),
+                self.size,
+            ));
+            return None;
+        }
+        let mut oldest = self.slots.pop_front().expect("readback ring holds a slot");
+        let entry = oldest.wait();
+        self.slots.push_back(oldest);
+        self.inflight -= 1;
+        Some(entry)
+    }
+
     fn retire(&mut self) {
-        self.head = (self.head + 1) % Self::DEPTH;
-        self.len -= 1;
+        let slot = self.slots.pop_front().expect("readback ring holds a slot");
+        self.slots.push_back(slot);
+        self.inflight -= 1;
     }
 }

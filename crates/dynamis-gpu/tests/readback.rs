@@ -53,15 +53,33 @@ fn readbacks_retain_their_own_submission_and_retire_in_sequence_order() {
 }
 
 #[test]
-#[should_panic(expected = "must be submitted before waiting or reusing its slot")]
-fn reusing_a_slot_from_the_same_unsubmitted_encoder_fails_fast() {
+fn a_batch_larger_than_the_pool_grows_the_pool_without_waiting_on_unsubmitted_slots() {
     let context = shared();
     let source = source();
-    let mut ring = ReadbackRing::new(context.device(), "unsubmitted ring", 4);
-    let mut encoder = SubmissionEncoder::new(context.device(), "unsubmitted copies");
-    for sequence in 0..=ReadbackRing::DEPTH as u64 {
-        ring.enqueue(&mut encoder, source.buffer(), 0, 4, sequence);
+    let expected = [7u8; 4];
+    source.write(context.queue(), &expected);
+    let mut ring = ReadbackRing::new(context.device(), "burst ring", 4);
+    let mut encoder = SubmissionEncoder::new(context.device(), "burst copies");
+    let reads = ReadbackRing::DEPTH as u64 + 2;
+    for sequence in 0..reads {
+        assert!(
+            ring.enqueue(&mut encoder, source.buffer(), 0, 4, sequence)
+                .is_none(),
+            "a slot whose encoder is still being recorded must never be waited on"
+        );
     }
+    encoder.submit(context.queue());
+    assert_eq!(
+        ring.drain(),
+        (0..reads)
+            .map(|sequence| (sequence, expected.to_vec()))
+            .collect::<Vec<_>>()
+    );
+
+    let mut reused = SubmissionEncoder::new(context.device(), "reused copies");
+    ring.enqueue(&mut reused, source.buffer(), 0, 4, reads);
+    reused.submit(context.queue());
+    assert_eq!(ring.drain(), vec![(reads, expected.to_vec())]);
 }
 
 #[test]

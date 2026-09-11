@@ -26,6 +26,19 @@ fn constraint_breach(anchor_a: vec3f, anchor_b: vec3f, constraint: ConstraintDes
     return abs(separation - constraint.distance) > 0.05;
 }
 
+struct RowImpulse {
+    applied: f32,
+    accumulated: f32,
+}
+
+fn row_impulse(accumulated: f32, next: f32, cap: f32) -> RowImpulse {
+    var applied = next - accumulated;
+    if (cap > 0.0) {
+        applied = clamp(applied, -cap, cap);
+    }
+    return RowImpulse(applied, accumulated + applied);
+}
+
 fn solve_point_row(
     axis: vec3f,
     point_a: vec3f,
@@ -50,10 +63,10 @@ fn solve_point_row(
         let jacobian_speed = dot(velocity, axis);
         let bias_speed = clamp(bias * 0.05 / max(params.dt, 1e-4), -max_bias, max_bias);
         let next = accumulated - (jacobian_speed + bias_speed) / k;
-        let applied = next - accumulated;
-        apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * applied);
-        accumulated_out = next;
-        forces_out.linear = forces_out.linear + abs(applied);
+        let impulse = row_impulse(accumulated, next, 0.0);
+        apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * impulse.applied);
+        accumulated_out = impulse.accumulated;
+        forces_out.linear = forces_out.linear + abs(impulse.applied);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -86,13 +99,13 @@ fn solve_angular_row(
         let velocity = second.state.angular_velocity - first.state.angular_velocity;
         let jacobian_speed = dot(velocity, axis_normalized);
         let next = accumulated - (jacobian_speed + bias_speed) / k;
-        let applied = next - accumulated;
+        let impulse = row_impulse(accumulated, next, 0.0);
         first_out.state.angular_velocity =
-            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
+            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * impulse.applied);
         second_out.state.angular_velocity =
-            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
-        accumulated_out = next;
-        forces_out.angular = forces_out.angular + abs(applied);
+            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * impulse.applied);
+        accumulated_out = impulse.accumulated;
+        forces_out.angular = forces_out.angular + abs(impulse.applied);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -132,11 +145,10 @@ fn solve_driven_point_row(
         let v_target = target_speed + servo_speed;
         let next = accumulated - (jacobian_speed - v_target) / k;
         let cap = max_force * params.dt;
-        let applied_raw = next - accumulated;
-        let applied = select(applied_raw, clamp(applied_raw, -cap, cap), cap > 0.0);
-        apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * applied);
-        accumulated_out = accumulated + applied;
-        forces_out.linear = forces_out.linear + abs(applied);
+        let impulse = row_impulse(accumulated, next, cap);
+        apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * impulse.applied);
+        accumulated_out = impulse.accumulated;
+        forces_out.linear = forces_out.linear + abs(impulse.applied);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -178,14 +190,13 @@ fn solve_driven_angular_row(
         let v_target = target_speed + servo_speed;
         let next = accumulated - (jacobian_speed - v_target) / k;
         let cap = max_force * params.dt;
-        let applied_raw = next - accumulated;
-        let applied = select(applied_raw, clamp(applied_raw, -cap, cap), cap > 0.0);
+        let impulse = row_impulse(accumulated, next, cap);
         first_out.state.angular_velocity =
-            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * applied);
+            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * impulse.applied);
         second_out.state.angular_velocity =
-            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * applied);
-        accumulated_out = accumulated + applied;
-        forces_out.angular = forces_out.angular + abs(applied);
+            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * impulse.applied);
+        accumulated_out = impulse.accumulated;
+        forces_out.angular = forces_out.angular + abs(impulse.applied);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -235,6 +246,9 @@ fn dof_frame(tangents: TangentBasis, axis_a: vec3f, index: u32) -> vec3f {
 fn solve_constraint_block(constraint_index: u32, slot: u32) {
     var runtime = constraint_runtime[constraint_index];
     let constraint = constraint_descs[constraint_index];
+    if ((constraint.flags & CONSTRAINT_WARM_START) == 0u) {
+        runtime.accumulated = array<f32, 8>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    }
     if (runtime.broken != 0u) {
         store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
@@ -269,21 +283,17 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             accumulated[0] = outcome.accumulated;
             forces = outcome.forces;
         } else {
+            let omega = 6.2831853 * constraint.spring_frequency;
+            let stiffness = omega * omega;
+            let damping = 2.0 * constraint.spring_damping_ratio * omega;
             let separation = length(anchor_b - anchor_a);
             let error = separation - constraint.distance;
-            let omega = 6.2831853 * constraint.spring_frequency;
-            let zeta = constraint.spring_damping_ratio;
             let velocity = relative_velocity(first, second, anchor_a, anchor_b);
             let jacobian_speed = dot(velocity, axis);
-            let k = point_momentum_mass(mass_first, mass_second, anchor_a, anchor_b, axis);
-            if (k > 0.0) {
-                let v_target = -(omega * omega * error * params.dt) - 2.0 * zeta * omega * params.dt * jacobian_speed;
-                let next = accumulated[0] - (jacobian_speed - v_target) / k;
-                let applied = next - accumulated[0];
-                apply_pair_impulse(&first, &second, anchor_a, anchor_b, axis * applied);
-                accumulated[0] = next;
-                forces.linear = forces.linear + abs(applied);
-            }
+            let impulse = -(stiffness * error + damping * jacobian_speed) * params.dt;
+            apply_pair_impulse(&first, &second, anchor_a, anchor_b, axis * impulse);
+            accumulated[0] = accumulated[0] + impulse;
+            forces.linear = forces.linear + abs(impulse);
         }
     } else if (constraint.kind == CONSTRAINT_REVOLUTE) {
         for (var i = 0u; i < 3u; i = i + 1u) {
@@ -459,11 +469,11 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if (k > 0.0) {
             let jacobian_speed = ratio * dot(first.state.angular_velocity, axis_a) - dot(second.state.angular_velocity, axis_b);
             let next = accumulated[0] + jacobian_speed / k;
-            let applied = next - accumulated[0];
-            first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, axis_a * ratio * applied);
-            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, axis_b * applied);
-            accumulated[0] = next;
-            forces.angular = forces.angular + abs(applied);
+            let impulse = row_impulse(accumulated[0], next, 0.0);
+            first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, axis_a * ratio * impulse.applied);
+            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, axis_b * impulse.applied);
+            accumulated[0] = impulse.accumulated;
+            forces.angular = forces.angular + abs(impulse.applied);
         }
     } else if (constraint.kind == CONSTRAINT_PULLEY) {
         let dir_a = sign_normalize(constraint.pulley_fixed_a - anchor_a);
@@ -483,13 +493,13 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
                 + dot(relative_velocity(second, second, anchor_b, anchor_b), dir_b);
             let bias_speed = clamp(error * 0.05 / max(params.dt, 1e-4), -max_bias, max_bias);
             let next = accumulated[0] + (bias_speed - jacobian_speed) / k;
-            let applied = next - accumulated[0];
-            first.state.velocity = first.state.velocity + dir_a * applied * first.desc.inverse_mass;
-            first.state.angular_velocity = first.state.angular_velocity + apply_inverse_inertia(first, cross(anchor_a - body_com(first), dir_a * applied));
-            second.state.velocity = second.state.velocity + dir_b * applied * second.desc.inverse_mass;
-            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, cross(anchor_b - body_com(second), dir_b * applied));
-            accumulated[0] = next;
-            forces.linear = forces.linear + abs(applied);
+            let impulse = row_impulse(accumulated[0], next, 0.0);
+            first.state.velocity = first.state.velocity + dir_a * impulse.applied * first.desc.inverse_mass;
+            first.state.angular_velocity = first.state.angular_velocity + apply_inverse_inertia(first, cross(anchor_a - body_com(first), dir_a * impulse.applied));
+            second.state.velocity = second.state.velocity + dir_b * impulse.applied * second.desc.inverse_mass;
+            second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, cross(anchor_b - body_com(second), dir_b * impulse.applied));
+            accumulated[0] = impulse.accumulated;
+            forces.linear = forces.linear + abs(impulse.applied);
         }
     } else if (constraint.kind == CONSTRAINT_CONE) {
         for (var i = 0u; i < 3u; i = i + 1u) {
@@ -634,7 +644,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             forces = outcome.forces;
         }
     }
-    if ((constraint.flags & CONSTRAINT_HAS_BREAK) != 0u) {
+    if ((constraint.flags & CONSTRAINT_HAS_BREAK) != 0u ) {
         let linear_limit = constraint.break_force * params.dt;
         let angular_limit = constraint.break_torque * params.dt;
         if ((linear_limit > 0.0 && forces.linear > linear_limit) || (angular_limit > 0.0 && forces.angular > angular_limit)) {
