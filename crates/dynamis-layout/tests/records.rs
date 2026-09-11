@@ -10,7 +10,7 @@ use dynamis_layout::{
     FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
     PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
     RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SimParamsRecord,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, StepParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
@@ -211,7 +211,7 @@ fn constraint_record_encodes_kinds_and_options() {
 }
 
 #[test]
-fn sim_params_record_maps_config() {
+fn step_params_record_maps_config() {
     let config = PhysicsConfig {
         gravity: [0.0, -9.81, 3.0],
         damping: 0.5,
@@ -230,7 +230,7 @@ fn sim_params_record_maps_config() {
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
-    let record = SimParamsRecord::new(
+    let record = StepParamsRecord::new(
         &config,
         1.0 / 60.0,
         9,

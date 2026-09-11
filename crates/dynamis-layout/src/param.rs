@@ -4,12 +4,12 @@ use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 const _: () = {
     use std::mem::size_of;
-    assert!(size_of::<SimParamsRecord>() == 128);
+    assert!(size_of::<StepParamsRecord>() == 128);
 };
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct SimParamsRecord {
+pub struct StepParamsRecord {
     pub gravity: [f32; 4],
     pub dt: f32,
     pub damping: f32,
@@ -38,7 +38,7 @@ pub struct SimParamsRecord {
     pub _pad: [u32; 4],
 }
 
-impl SimParamsRecord {
+impl StepParamsRecord {
     pub fn new(
         config: &PhysicsConfig,
         dt: f32,

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*", "examples/*"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -25,14 +25,14 @@ winit = "0.30"
 glam = "0.32"
 font8x8 = "0.3"
 dynamis = { path = "." }
-dynamis-gpu = { version = "0.5.0", path = "crates/dynamis-gpu" }
-dynamis-sort = { version = "0.5.0", path = "crates/dynamis-sort" }
-dynamis-layout = { version = "0.5.0", path = "crates/dynamis-layout" }
-dynamis-math = { version = "0.5.0", path = "crates/dynamis-math" }
-dynamis-mesh = { version = "0.5.0", path = "crates/dynamis-mesh" }
-dynamis-model = { version = "0.5.0", path = "crates/dynamis-model" }
-dynamis-simulate = { version = "0.5.0", path = "crates/dynamis-simulate" }
-dynamis-character = { version = "0.5.0", path = "crates/dynamis-character" }
+dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
+dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
+dynamis-layout = { version = "0.6.0", path = "crates/dynamis-layout" }
+dynamis-math = { version = "0.6.0", path = "crates/dynamis-math" }
+dynamis-mesh = { version = "0.6.0", path = "crates/dynamis-mesh" }
+dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
+dynamis-world = { version = "0.6.0", path = "crates/dynamis-world" }
+dynamis-character = { version = "0.6.0", path = "crates/dynamis-character" }
 dynamis-example-profile = { path = "examples/profile" }
 dynamis-example-render = { path = "examples/render" }
 
@@ -54,11 +54,13 @@ repository.workspace = true
 [dependencies]
 dynamis-character = { workspace = true }
 dynamis-gpu = { workspace = true }
+dynamis-layout = { workspace = true }
+dynamis-mesh = { workspace = true }
 dynamis-model = { workspace = true }
-dynamis-simulate = { workspace = true }
+dynamis-world = { workspace = true }
 
 [features]
-profile = ["dynamis-gpu/profile", "dynamis-simulate/profile"]
+profile = ["dynamis-gpu/profile", "dynamis-world/profile"]
 
 [dev-dependencies]
 dynamis-example-profile = { workspace = true }

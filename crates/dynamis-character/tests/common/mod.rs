@@ -1,6 +1,6 @@
 use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
 use dynamis_model::PhysicsConfig;
-use dynamis_simulate::Simulation;
+use dynamis_world::World;
 use std::sync::OnceLock;
 
 pub const DT: f32 = 1.0 / 60.0;
@@ -18,10 +18,10 @@ pub fn gpu() -> GpuContext {
     .clone()
 }
 
-pub fn sim(config: PhysicsConfig) -> Simulation {
-    let simulation = Simulation::new(gpu(), config);
-    simulation.warmup(WarmupBudget::All);
-    simulation
+pub fn new_world(config: PhysicsConfig) -> World {
+    let world = World::new(gpu(), config);
+    world.warmup(WarmupBudget::All);
+    world
 }
 
 pub fn gravity_config() -> PhysicsConfig {

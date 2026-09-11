@@ -43,4 +43,4 @@ jobs:
       - name: Test with profiling built in
         run: |
           cargo test -p dynamis-gpu --all-features --test timing
-          cargo test -p dynamis-simulate --all-features --test dynamis_simulate timing
+          cargo test -p dynamis-world --all-features --test dynamis_world timing

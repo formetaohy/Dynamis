@@ -1,6 +1,6 @@
 use dynamis_math::{add, dot, length, mul, negate, normalize, sub};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
-use dynamis_simulate::{QueryHit, Simulation};
+use dynamis_world::{QueryHit, World};
 
 const SKIN: f32 = 0.05;
 
@@ -36,7 +36,7 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn spawn(sim: &mut Simulation, position: [f32; 3], desc: CharacterDesc) -> Self {
+    pub fn spawn(world: &mut World, position: [f32; 3], desc: CharacterDesc) -> Self {
         assert!(desc.radius > 0.0, "character radius must be positive");
         assert!(
             desc.half_height >= 0.0,
@@ -55,7 +55,7 @@ impl Character {
             (0.0..=std::f32::consts::FRAC_PI_2).contains(&desc.slope_limit),
             "character slope limit must be within [0, pi/2]"
         );
-        let body = sim.spawn(
+        let body = world.spawn(
             BodyDesc::new(ColliderDesc::new(Shape::capsule(
                 desc.radius,
                 desc.half_height,
@@ -66,18 +66,18 @@ impl Character {
         Self {
             body,
             desc,
-            up: up_of(sim.config().gravity),
+            up: up_of(world.config().gravity),
             vertical: 0.0,
             grounded: true,
             position,
         }
     }
 
-    pub fn step(&mut self, sim: &mut Simulation, dt: f32, move_dir: [f32; 3], jump: bool) {
+    pub fn step(&mut self, world: &mut World, dt: f32, move_dir: [f32; 3], jump: bool) {
         assert!(dt > 0.0, "character dt must be positive");
-        let up = up_of(sim.config().gravity);
+        let up = up_of(world.config().gravity);
         self.up = up;
-        let gravity_magnitude = length(sim.config().gravity);
+        let gravity_magnitude = length(world.config().gravity);
         let horizontal = if length(move_dir) > 0.0 {
             mul(normalize(move_dir), self.desc.max_speed)
         } else {
@@ -115,7 +115,7 @@ impl Character {
             None
         };
         let forward = forward_dir.map(|direction| {
-            sim.sweep_query(
+            world.sweep_query(
                 &probe,
                 identity,
                 position,
@@ -125,23 +125,23 @@ impl Character {
             )
         });
         let forward_low = forward_dir.map(|direction| {
-            sim.sweep_query(&probe, identity, bottom, direction, forward_length, &filter)
+            world.sweep_query(&probe, identity, bottom, direction, forward_length, &filter)
         });
         let lifted = add(position, mul(up, self.desc.step_height));
         let lifted_forward = forward_dir.map(|direction| {
-            sim.sweep_query(&probe, identity, lifted, direction, forward_length, &filter)
+            world.sweep_query(&probe, identity, lifted, direction, forward_length, &filter)
         });
         let down = if !jumped {
-            Some(sim.sweep_query(&probe, identity, bottom, negate(up), down_length, &filter))
+            Some(world.sweep_query(&probe, identity, bottom, negate(up), down_length, &filter))
         } else {
             None
         };
         let up_hit = if vertical > 0.0 {
-            Some(sim.sweep_query(&probe, identity, top, up, up_length, &filter))
+            Some(world.sweep_query(&probe, identity, top, up, up_length, &filter))
         } else {
             None
         };
-        sim.flush_queries();
+        world.flush_queries();
 
         let mut target = position;
         let mut grounded = false;
@@ -150,13 +150,13 @@ impl Character {
         let mut press_dir = [0.0; 3];
         let slope_cos = self.desc.slope_limit.cos();
         let forward_hit = pick_forward(
-            forward.and_then(|handle| sim.query_hit(handle)),
-            forward_low.and_then(|handle| sim.query_hit(handle)),
+            forward.and_then(|handle| world.query_hit(handle)),
+            forward_low.and_then(|handle| world.query_hit(handle)),
             up,
         );
-        let lifted_hit = lifted_forward.and_then(|handle| sim.query_hit(handle));
-        let down_hit = down.and_then(|handle| sim.query_hit(handle));
-        let ceiling_hit = up_hit.and_then(|handle| sim.query_hit(handle));
+        let lifted_hit = lifted_forward.and_then(|handle| world.query_hit(handle));
+        let down_hit = down.and_then(|handle| world.query_hit(handle));
+        let ceiling_hit = up_hit.and_then(|handle| world.query_hit(handle));
 
         if !jumped && let Some(landing) = down_hit {
             target = add(
@@ -194,8 +194,8 @@ impl Character {
         self.vertical = vertical_after;
         let press = mul(press_dir, SKIN * 0.5);
         let pre_move = sub(add(self.position, press), mul(velocity, dt));
-        sim.set_position(self.body, pre_move);
-        sim.set_velocity(self.body, velocity);
+        world.set_position(self.body, pre_move);
+        world.set_velocity(self.body, velocity);
     }
 
     pub fn body(&self) -> BodyHandle {

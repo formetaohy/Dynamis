@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 dynamis-math = { workspace = true }
 dynamis-model = { workspace = true }
-dynamis-simulate = { workspace = true }
+dynamis-world = { workspace = true }
 
 [dev-dependencies]
 dynamis-gpu = { workspace = true }

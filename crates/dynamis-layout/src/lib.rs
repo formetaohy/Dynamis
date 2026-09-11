@@ -4,6 +4,7 @@ mod constant;
 mod constraint;
 mod contact;
 mod counter;
+mod decode;
 mod event;
 mod param;
 mod query;
@@ -42,8 +43,9 @@ pub use counter::{
     COUNTER_SPILLOVER_PAIRS, COUNTER_SPILLOVER_RESTING, COUNTER_STRIDE, COUNTER_WOKE,
     COUNTER_WOKE_DEFERRED, Counters,
 };
+pub use decode::decode;
 pub use event::ContactEventRecord;
-pub use param::{RowStreams, SimParamsRecord};
+pub use param::{RowStreams, StepParamsRecord};
 pub use query::{QueryHitRecord, QueryRecord, QueryResultHeader, QueryResultRecord};
 pub use row::RowMoveRecord;
 pub use shape::{BvhNodeRecord, ShapeSourceRecord};

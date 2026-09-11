@@ -1,4 +1,4 @@
-use dynamis::{BodyDesc, BodyHandle, GpuContext, PhysicsConfig, Shape, Simulation, WarmupBudget};
+use dynamis::{BodyDesc, BodyHandle, GpuContext, PhysicsConfig, Shape, WarmupBudget, World};
 use dynamis_example_render::{
     App, AppContext, Color, EulerRot, Geometry, Material, MeshId, Quat, Transform, Vec3,
 };
@@ -10,16 +10,16 @@ const BODY_COUNT: usize = 128;
 const GROUND_HALF: f32 = 30.0;
 
 struct Example {
-    simulation: Simulation,
+    world: World,
     bodies: Vec<(BodyHandle, MeshId)>,
     compiler: Option<JoinHandle<()>>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gpu = pollster::block_on(GpuContext::new());
-    let simulation = Simulation::new(gpu, PhysicsConfig::default());
+    let world = World::new(gpu, PhysicsConfig::default());
     let compiler = {
-        let gpu = simulation.gpu().clone();
+        let gpu = world.gpu().clone();
         std::thread::spawn(move || {
             gpu.warmup(WarmupBudget::All);
         })
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     App::new(
         "dynamis falling",
         Example {
-            simulation,
+            world,
             bodies: Vec::new(),
             compiler: Some(compiler),
         },
@@ -38,14 +38,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn setup(ctx: &mut AppContext, example: &mut Example) {
-    setup_scene(ctx, &mut example.simulation);
+    setup_scene(ctx, &mut example.world);
     ctx.camera.eye = Vec3::new(29.33, 20.13, 13.1);
     ctx.camera.target = Vec3::new(0.0, 3.0, 0.0);
-    spawn_collection(ctx, &mut example.simulation, &mut example.bodies);
+    spawn_collection(ctx, &mut example.world, &mut example.bodies);
 }
 
 fn update(ctx: &mut AppContext, example: &mut Example) {
-    if !example.simulation.is_warm() {
+    if !example.world.is_warm() {
         ctx.hud = "compiling shaders".to_owned();
         return;
     }
@@ -53,11 +53,11 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
         compiler.join().expect("shader compilation thread panicked");
     }
     example
-        .simulation
+        .world
         .update(ctx.time.delta_secs(), PHYSICS_STEP, MAX_SUBSTEPS);
-    example.simulation.synchronize_states();
+    example.world.synchronize_states();
     for (body, mesh) in &example.bodies {
-        let state = example.simulation.read_state(*body);
+        let state = example.world.read_state(*body);
         let transform = ctx.mesh_transform(*mesh);
         transform.translation = Vec3::from(state.position);
         transform.rotation = Quat::from_xyzw(
@@ -71,18 +71,18 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
     let sleeping = example
         .bodies
         .iter()
-        .filter(|(body, _)| example.simulation.read_state(*body).sleeping)
+        .filter(|(body, _)| example.world.read_state(*body).sleeping)
         .count();
     ctx.hud = format!(
         "bodies: {}   sleeping: {}   fps: {:.0}",
-        example.simulation.count(),
+        example.world.count(),
         sleeping,
         1.0 / ctx.time.delta_secs().max(1e-6),
     );
 }
 
-fn setup_scene(ctx: &mut AppContext, simulation: &mut Simulation) {
-    simulation.spawn(
+fn setup_scene(ctx: &mut AppContext, world: &mut World) {
+    world.spawn(
         BodyDesc::cuboid([GROUND_HALF, 0.5, GROUND_HALF])
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
@@ -107,7 +107,7 @@ fn setup_scene(ctx: &mut AppContext, simulation: &mut Simulation) {
 
 fn spawn_collection(
     ctx: &mut AppContext,
-    simulation: &mut Simulation,
+    world: &mut World,
     bodies: &mut Vec<(BodyHandle, MeshId)>,
 ) {
     for index in 0..BODY_COUNT {
@@ -137,7 +137,7 @@ fn spawn_collection(
         let z = (index / 16) as f32 * 1.7 - 6.0;
         let y = 5.0 + (index % 13) as f32 * 1.5;
         let spin = 0.4 + (index % 7) as f32 * 0.25;
-        let handle = simulation.spawn(
+        let handle = world.spawn(
             desc.position([x, y, z])
                 .angular_velocity([spin, spin * 0.7, spin * 0.5])
                 .restitution(0.2 + (index % 4) as f32 * 0.08)

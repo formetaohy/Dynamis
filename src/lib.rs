@@ -7,6 +7,15 @@ pub use dynamis_gpu::{
 };
 #[cfg(feature = "profile")]
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
+pub use dynamis_layout::{
+    COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES,
+    COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS,
+    COUNTER_COUNT, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS, COUNTER_LARGE, COUNTER_PAIRS,
+    COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
+    COUNTER_SLEPT, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS,
+    COUNTER_SPILLOVER_RESTING, COUNTER_WOKE, COUNTER_WOKE_DEFERRED, Counters,
+};
+pub use dynamis_mesh::HullDecomposeSettings;
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
@@ -14,12 +23,6 @@ pub use dynamis_model::{
     MAX_COLLIDERS_PER_BODY, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter, Shape,
     ShapeSourceHandle,
 };
-pub use dynamis_simulate::{
-    COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES,
-    COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS, COUNTER_CONTACTS,
-    COUNTER_COUNT, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_JOINTS, COUNTER_LARGE, COUNTER_PAIRS,
-    COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
-    COUNTER_SLEPT, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS,
-    COUNTER_SPILLOVER_RESTING, COUNTER_WOKE, COUNTER_WOKE_DEFERRED, ContactManifold, ContactPoint,
-    Counters, HullDecomposeSettings, QueryHandle, QueryHit, Simulation, StreamCapacity,
+pub use dynamis_world::{
+    ContactManifold, ContactPoint, QueryHandle, QueryHit, StreamCapacity, World,
 };

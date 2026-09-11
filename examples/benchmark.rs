@@ -1,4 +1,4 @@
-use dynamis::{BodyDesc, GpuContext, PhysicsConfig, Simulation, WarmupBudget};
+use dynamis::{BodyDesc, GpuContext, PhysicsConfig, WarmupBudget, World};
 use dynamis_example_profile::Profiler;
 use std::time::Instant;
 
@@ -20,7 +20,7 @@ fn main() {
 
     let mut profiler = Profiler::new();
     let mut sim = profiler.measure("simulation_new", || {
-        Simulation::new(gpu.clone(), PhysicsConfig::default())
+        World::new(gpu.clone(), PhysicsConfig::default())
     });
     profiler.measure("warmup", || sim.warmup(WarmupBudget::All));
     profiler.measure("spawn_scene", || {
@@ -88,7 +88,7 @@ fn main() {
     );
 }
 
-fn record_passes(profiler: &mut Profiler, sim: &Simulation) -> u64 {
+fn record_passes(profiler: &mut Profiler, sim: &World) -> u64 {
     let timings = sim.gpu_pass_timings();
     if timings.is_empty() {
         return 0;
@@ -106,7 +106,7 @@ fn format_elapsed(ns: f64) -> String {
     dynamis_example_profile::format_ns(ns)
 }
 
-fn spawn_scene(sim: &mut Simulation, count: usize) {
+fn spawn_scene(sim: &mut World, count: usize) {
     for index in 0..count {
         let radius = 0.35 + (index % 5) as f32 * 0.07;
         let desc = match index % 4 {
