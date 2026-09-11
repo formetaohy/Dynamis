@@ -1,4 +1,5 @@
 const NORMAL_MATCH: f32 = 0.7;
+const POINT_MATCH_DISTANCE: f32 = 0.05;
 
 fn contact_row_matches(state: BodyState, body_id: u32, generation: u32) -> bool {
     return state.body_id == body_id && state.generation == generation;
@@ -40,9 +41,17 @@ fn contact_carries_over(held: Contact, current: Contact) -> bool {
     return contact_same_roles(held, current) && dot(current.normal, held.normal) >= NORMAL_MATCH;
 }
 
+fn contact_point_matches(current: ManifoldPoint, held: ManifoldPoint) -> bool {
+    return distance(current.position, held.position) <= POINT_MATCH_DISTANCE;
+}
+
 fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
     var relayed = current;
-    for (var point_index = 0u; point_index < current.point_count; point_index = point_index + 1u) {
+    let matched_points = min(current.point_count, held.point_count);
+    for (var point_index = 0u; point_index < matched_points; point_index = point_index + 1u) {
+        if (!contact_point_matches(relayed.points[point_index], held.points[point_index])) {
+            continue;
+        }
         relayed.points[point_index].accumulated_normal = held.points[point_index].accumulated_normal;
         relayed.points[point_index].accumulated_tangent_1 = held.points[point_index].accumulated_tangent_1;
         relayed.points[point_index].accumulated_tangent_2 = held.points[point_index].accumulated_tangent_2;

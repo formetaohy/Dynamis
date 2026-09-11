@@ -36,8 +36,14 @@ pub(super) fn shape_resources(buffers: &WorldBuffers) -> [&GpuBuffer; 4] {
 
 pub(super) struct Stage {
     pipeline: PipelineHandle,
+    warm: Option<PipelineHandle>,
     bind_group: BindGroup,
     shapes_group: Option<BindGroup>,
+}
+
+struct StageBindings<'a> {
+    storage: &'a [(BindingKind, GpuSlot<'a>)],
+    shapes: &'a [&'a GpuBuffer],
 }
 
 impl Stage {
@@ -50,8 +56,55 @@ impl Stage {
         bindings: &[(BindingKind, GpuSlot)],
         shape_resources: &[&GpuBuffer],
     ) -> Self {
+        Self::assemble(
+            context,
+            label,
+            body,
+            per_row,
+            fragments,
+            StageBindings {
+                storage: bindings,
+                shapes: shape_resources,
+            },
+            false,
+        )
+    }
+
+    pub(super) fn build_warm(
+        context: &GpuContext,
+        label: &str,
+        body: &str,
+        per_row: u32,
+        fragments: &[&str],
+        bindings: &[(BindingKind, GpuSlot)],
+        shape_resources: &[&GpuBuffer],
+    ) -> Self {
+        Self::assemble(
+            context,
+            label,
+            body,
+            per_row,
+            fragments,
+            StageBindings {
+                storage: bindings,
+                shapes: shape_resources,
+            },
+            true,
+        )
+    }
+
+    fn assemble(
+        context: &GpuContext,
+        label: &str,
+        body: &str,
+        per_row: u32,
+        fragments: &[&str],
+        bindings: StageBindings,
+        with_warm: bool,
+    ) -> Self {
         let shader = assemble_shader(body, per_row, fragments);
-        let shape_specs = shape_resources
+        let shape_specs = bindings
+            .shapes
             .iter()
             .enumerate()
             .map(|(position, _)| BindingSpec {
@@ -60,6 +113,7 @@ impl Stage {
             })
             .collect::<Vec<_>>();
         let specs = bindings
+            .storage
             .iter()
             .enumerate()
             .map(|(position, (kind, _))| BindingSpec {
@@ -72,8 +126,17 @@ impl Stage {
         } else {
             vec![&specs[..], &shape_specs[..]]
         };
-        let pipeline = context.declare(ComputeProgram::new(label, shader, "main", &groups));
+        let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), "main", &groups));
+        let warm = with_warm.then(|| {
+            context.declare(ComputeProgram::new(
+                &format!("{label} warm"),
+                shader,
+                "warm",
+                &groups,
+            ))
+        });
         let entries: Vec<BindGroupEntry> = bindings
+            .storage
             .iter()
             .enumerate()
             .map(|(position, (_, slot))| BindGroupEntry {
@@ -82,10 +145,11 @@ impl Stage {
             })
             .collect();
         let bind_group = pipeline.create_bind_group(context.device(), 0, &entries);
-        let shapes_group = if shape_resources.is_empty() {
+        let shapes_group = if bindings.shapes.is_empty() {
             None
         } else {
-            let entries = shape_resources
+            let entries = bindings
+                .shapes
                 .iter()
                 .enumerate()
                 .map(|(position, buffer)| BindGroupEntry {
@@ -97,6 +161,7 @@ impl Stage {
         };
         Self {
             pipeline,
+            warm,
             bind_group,
             shapes_group,
         }
@@ -127,6 +192,25 @@ impl Stage {
                 recorder.record_indirect(compiled, &[&self.bind_group, shapes], table, slot)
             }
             None => recorder.record_indirect(compiled, &[&self.bind_group], table, slot),
+        }
+    }
+
+    pub(super) fn record_warm_indirect(
+        &self,
+        recorder: &mut ComputeRecorder,
+        table: &DispatchTable,
+        slot: u32,
+    ) {
+        let warm = self
+            .warm
+            .as_ref()
+            .expect("warm recording requires a warm entry point")
+            .pipeline();
+        match &self.shapes_group {
+            Some(shapes) => {
+                recorder.record_indirect(warm, &[&self.bind_group, shapes], table, slot)
+            }
+            None => recorder.record_indirect(warm, &[&self.bind_group], table, slot),
         }
     }
 }

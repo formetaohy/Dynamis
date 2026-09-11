@@ -1,4 +1,4 @@
-use super::common::{new_world, settle, static_config};
+use super::common::{asleep, new_world, settle_until, static_config};
 use dynamis_mesh::HullDecomposeSettings;
 use dynamis_model::BodyDesc;
 
@@ -69,7 +69,7 @@ fn decomposed_body_rests_on_ground() {
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
     );
-    settle(&mut world, 150);
+    settle_until(&mut world, 600, |world| asleep(world));
     let state = world.read_state(body);
     assert!(
         state.position[1] > -0.5 && state.position[1] < 2.5,
@@ -77,8 +77,9 @@ fn decomposed_body_rests_on_ground() {
         state.position[1]
     );
     assert!(
-        state.sleeping || state.position[1] > 0.0,
-        "settled decomposed body must not fall through"
+        state.sleeping,
+        "settled decomposed body must fall asleep on the floor, got y={} speed {}",
+        state.position[1], state.velocity[1]
     );
 }
 

@@ -142,8 +142,10 @@ fn friction_free_slides_then_grip_rolls() {
     );
 
     world.set_friction(ball, 0.8);
-    settle_until(&mut world, 180, |world| {
-        world.read_state(ball).angular_velocity[2] < -1.5
+    settle_until(&mut world, 600, |world| {
+        let state = world.read_state(ball);
+        state.angular_velocity[2] < -1.5
+            && (state.velocity[0] + state.angular_velocity[2] * 0.5).abs() < 0.05
     });
     let rolling = world.read_state(ball);
     assert!(
@@ -151,8 +153,9 @@ fn friction_free_slides_then_grip_rolls() {
         "friction must spin the ball"
     );
     assert!(
-        (rolling.velocity[0] + rolling.angular_velocity[2] * 0.5).abs() < 0.1,
-        "ball must roll without slipping"
+        (rolling.velocity[0] + rolling.angular_velocity[2] * 0.5).abs() < 0.05,
+        "ball must roll without slipping, got slip {}",
+        rolling.velocity[0] + rolling.angular_velocity[2] * 0.5
     );
 }
 

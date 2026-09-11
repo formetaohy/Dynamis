@@ -10,6 +10,41 @@ fn wake_on_impact(slot: u32, sleeping: Body, moving: Body) {
     }
 }
 
+fn warm_contact_block(contact_index: u32, slot: u32) {
+    let contact = contacts[contact_index];
+    if (!contact_block_resolves(contact)) {
+        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        return;
+    }
+    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
+    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
+    let first_loaded = load_body(first_slot);
+    let second_loaded = load_body(second_slot);
+    var first = first_loaded;
+    var second = second_loaded;
+    if (body_is_inert(first_loaded)) {
+        first = body_frozen(first_loaded);
+    }
+    if (body_is_inert(second_loaded)) {
+        second = body_frozen(second_loaded);
+    }
+    let tangents = make_tangents(contact.normal);
+    for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
+        let point = contact.points[point_index];
+        let impulse = contact.normal * point.accumulated_normal
+            + tangents.first * point.accumulated_tangent_1
+            + tangents.second * point.accumulated_tangent_2;
+        apply_pair_impulse(&first, &second, point.position, point.position, impulse);
+    }
+    store_block_delta(
+        slot,
+        first.state.velocity - first_loaded.state.velocity,
+        first.state.angular_velocity - first_loaded.state.angular_velocity,
+        second.state.velocity - second_loaded.state.velocity,
+        second.state.angular_velocity - second_loaded.state.angular_velocity,
+    );
+}
+
 fn solve_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
     if (!contact_block_resolves(contact)) {

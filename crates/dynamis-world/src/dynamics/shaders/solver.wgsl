@@ -74,3 +74,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         solve_constraint_block(block - contact_blocks, slot);
     }
 }
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn warm(@builtin(global_invocation_id) gid: vec3u) {
+    let slot = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
+    if (slot >= contact_blocks) {
+        return;
+    }
+    warm_contact_block(a_payload[slot], slot);
+}

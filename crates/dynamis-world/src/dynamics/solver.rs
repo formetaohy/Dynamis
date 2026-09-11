@@ -15,7 +15,6 @@ pub(super) struct Solver {
     count: Stage,
     gather_b: Stage,
     boundaries: Stage,
-    warm: Stage,
     blocks: Stage,
     apply: Stage,
     position: Stage,
@@ -108,26 +107,7 @@ impl Solver {
                 ],
                 &[],
             ),
-            warm: Stage::build(
-                context,
-                "contact_warm",
-                "@compute @workgroup_size(WORKGROUP_SIZE)
-fn main() {}
-",
-                per_row,
-                CORE,
-                &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
-                    (RO, whole(&buffers.contacts.manifolds)),
-                    (RO, whole(&buffers.solver.segments)),
-                    (RO, whole(&buffers.solver.a_payload)),
-                    (RW, whole(&buffers.solver.deltas)),
-                ],
-                &[],
-            ),
-            blocks: Stage::build(
+            blocks: Stage::build_warm(
                 context,
                 "solver_blocks",
                 include_str!("shaders/solver.wgsl"),
@@ -255,8 +235,8 @@ fn main() {}
 
         self.boundaries
             .record_indirect(recorder, &buffers.dispatch, SOLVER_BOUNDARIES);
-        self.warm
-            .record_indirect(recorder, &buffers.dispatch, SOLVER_BLOCKS);
+        self.blocks
+            .record_warm_indirect(recorder, &buffers.dispatch, SOLVER_BLOCKS);
         self.apply.record(recorder, params.dynamic_count);
 
         for _ in 0..params.solve_iterations {
