@@ -20,7 +20,7 @@ fn main() {
 
     let mut profiler = Profiler::new();
     let mut sim = profiler.measure("simulation_new", || {
-        Simulation::new(gpu.clone(), bodies + 4, PhysicsConfig::default())
+        Simulation::new(gpu.clone(), PhysicsConfig::default())
     });
     profiler.measure("warmup", || sim.warmup(WarmupBudget::All));
     profiler.measure("spawn_scene", || {

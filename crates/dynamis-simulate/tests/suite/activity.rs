@@ -8,7 +8,7 @@ use dynamis_model::{
 };
 
 fn rest_scene() -> (dynamis_simulate::Simulation, BodyHandle) {
-    let mut world = sim(64, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -92,7 +92,7 @@ fn resting_contacts_survive_sleep_and_recycle_their_slots() {
 
 #[test]
 fn sleeping_a_pair_never_ends_its_contact() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -124,7 +124,7 @@ fn sleeping_a_pair_never_ends_its_contact() {
 
 #[test]
 fn sleep_and_wake_transitions_are_counted_once() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     settle(&mut world, 40);
     assert!(world.read_state(ball).sleeping);
@@ -144,7 +144,7 @@ fn sleep_and_wake_transitions_are_counted_once() {
 
 #[test]
 fn static_pairs_never_reach_the_pair_stream() {
-    let mut world = sim(64, static_config());
+    let mut world = sim(static_config());
     assert!(PhysicsConfig::default().gravity[1] < 0.0);
     for index in 0..32 {
         world.spawn(BodyDesc::static_sphere(6.0).position([index as f32 * 0.5, 0.0, 0.0]));
@@ -186,7 +186,7 @@ impl ContactTally {
 }
 
 fn sleeping_ball_on_ground(collider: ColliderDesc) -> (dynamis_simulate::Simulation, BodyHandle) {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -231,7 +231,7 @@ fn reviving_a_resting_pair_reports_no_second_begin() {
 #[test]
 fn reviving_a_resting_pair_resumes_its_persist_stream() {
     let persist = |shape| ColliderDesc::new(shape).events(ContactEventMode::Persist);
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::new(persist(Shape::cuboid([5.0, 0.5, 5.0])))
             .mass(0.0)
@@ -262,7 +262,7 @@ fn reviving_a_resting_pair_resumes_its_persist_stream() {
 
 #[test]
 fn an_impact_revives_a_resting_pair_without_a_new_begin() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -309,7 +309,7 @@ fn an_impact_revives_a_resting_pair_without_a_new_begin() {
 
 #[test]
 fn removing_a_body_ends_only_its_own_resting_contacts() {
-    let mut world = sim(16, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)

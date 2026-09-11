@@ -20,7 +20,7 @@ fn walk_and_settle(
 
 #[test]
 fn character_walks_on_flat_ground() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -43,7 +43,7 @@ fn character_walks_on_flat_ground() {
 
 #[test]
 fn character_climbs_step() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -82,7 +82,7 @@ fn character_climbs_step() {
 
 #[test]
 fn character_blocked_by_tall_wall() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -104,7 +104,7 @@ fn character_blocked_by_tall_wall() {
 
 #[test]
 fn character_lands_after_jump() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -134,7 +134,7 @@ fn character_lands_after_jump() {
 
 #[test]
 fn character_pushes_dynamic_box() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -156,7 +156,7 @@ fn character_pushes_dynamic_box() {
 
 #[test]
 fn character_climbs_walkable_slope() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let angle = 20.0_f32.to_radians();
     let tilt = [0.0, 0.0, (angle * 0.5).sin(), (angle * 0.5).cos()];
     world.spawn(

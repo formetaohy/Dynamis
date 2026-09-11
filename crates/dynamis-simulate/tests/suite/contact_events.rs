@@ -8,7 +8,7 @@ fn falling_ball_scene() -> (
     dynamis_model::BodyHandle,
     dynamis_model::BodyHandle,
 ) {
-    let mut world = sim(6, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let ground = world.spawn(
         BodyDesc::new(
             ColliderDesc::new(Shape::cuboid([20.0, 0.5, 20.0])).events(ContactEventMode::Persist),
@@ -25,7 +25,7 @@ fn falling_ball_scene() -> (
 
 #[test]
 fn disabled_events_silence_contacts() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ground = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(1.0)).events(ContactEventMode::None))
             .mass(0.0)
@@ -122,7 +122,7 @@ fn event_sink_receives_events() {
 
 #[test]
 fn persisted_touch_envokes_sink_per_frame() {
-    let mut world = super::common::sim(6, super::common::gravity_config());
+    let mut world = super::common::sim(super::common::gravity_config());
     let ground = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(10.0)).events(ContactEventMode::Persist))
             .mass(0.0)

@@ -3,7 +3,7 @@ use dynamis_model::{BodyDesc, ColliderDesc, MAX_COLLIDERS_PER_BODY, QueryFilter,
 
 #[test]
 fn compound_support_many_colliders() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let mut desc = BodyDesc::cuboid([0.4, 0.4, 0.4]);
     for i in 0..MAX_COLLIDERS_PER_BODY - 1 {
         desc = desc.collider(ColliderDesc::new(Shape::sphere(0.1)).offset([
@@ -30,7 +30,7 @@ fn compound_support_many_colliders() {
 
 #[test]
 fn runtime_added_collider_supports_falling_body() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let base = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]).mass(0.0));
     world.add_collider(
         base,
@@ -47,7 +47,7 @@ fn runtime_added_collider_supports_falling_body() {
 
 #[test]
 fn add_collider_then_query_detects_it() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
     world.add_collider(
         body,
@@ -76,7 +76,7 @@ fn add_collider_then_query_detects_it() {
 
 #[test]
 fn removed_collider_stops_colliding() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
     world.add_collider(
         body,
@@ -104,7 +104,7 @@ fn removed_collider_stops_colliding() {
 
 #[test]
 fn remove_last_collider_panics() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3));
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -17,7 +17,7 @@ struct Example {
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let gpu = pollster::block_on(GpuContext::new());
-    let simulation = Simulation::new(gpu, BODY_COUNT + 4, PhysicsConfig::default());
+    let simulation = Simulation::new(gpu, PhysicsConfig::default());
     let compiler = {
         let gpu = simulation.gpu().clone();
         std::thread::spawn(move || {

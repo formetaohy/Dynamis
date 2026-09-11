@@ -18,8 +18,8 @@ pub fn gpu() -> GpuContext {
     .clone()
 }
 
-pub fn sim(capacity: usize, config: PhysicsConfig) -> Simulation {
-    let simulation = Simulation::new(gpu(), capacity, config);
+pub fn sim(config: PhysicsConfig) -> Simulation {
+    let simulation = Simulation::new(gpu(), config);
     simulation.warmup(WarmupBudget::All);
     simulation
 }

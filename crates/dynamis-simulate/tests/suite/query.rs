@@ -13,7 +13,7 @@ fn query_static(
 
 #[test]
 fn ray_hits_nearest_and_reports_surface() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let _far = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
     let query = world.ray_query(
@@ -37,7 +37,7 @@ fn ray_hits_nearest_and_reports_surface() {
 
 #[test]
 fn ray_miss_variants() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let _target = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
     let short = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -49,7 +49,7 @@ fn ray_miss_variants() {
     world.wait();
     assert_eq!(world.query_hit(short), None, "out-of-range ray must miss");
 
-    let mut behind = sim(4, static_config());
+    let mut behind = sim(static_config());
     query_static(&mut behind, 0.5, [0.0, 0.0, -5.0]);
     let backward = behind.ray_query(
         [0.0, 0.0, 0.0],
@@ -68,7 +68,7 @@ fn ray_miss_variants() {
 
 #[test]
 fn ray_from_inside_body_returns_exit_distance() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let query = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -88,7 +88,7 @@ fn ray_from_inside_body_returns_exit_distance() {
 
 #[test]
 fn sphere_query_reports_penetration_and_miss() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let overlap = world.sphere_query([0.0, 0.0, 0.8], 0.5, &QueryFilter::default());
     let miss = world.sphere_query([0.0, 0.0, 5.0], 0.5, &QueryFilter::default());
@@ -106,7 +106,7 @@ fn sphere_query_reports_penetration_and_miss() {
 
 #[test]
 fn cuboid_query_reports_overlap_and_outside() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     query_static(&mut world, 1.0, [0.0, 0.0, 0.0]);
     let inside = world.cuboid_query([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], &QueryFilter::default());
     let outside = world.cuboid_query([0.0, 0.0, 10.0], [1.0, 1.0, 1.0], &QueryFilter::default());
@@ -118,7 +118,7 @@ fn cuboid_query_reports_overlap_and_outside() {
 
 #[test]
 fn sweep_query_stops_at_surface() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let wall = query_static(&mut world, 2.0, [0.0, 0.0, 10.0]);
     let query = world.sweep_query(
         &Shape::sphere(0.3),
@@ -141,7 +141,7 @@ fn sweep_query_stops_at_surface() {
 
 #[test]
 fn filters_skip_each_body_kind() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let kinematic = world.spawn(
         BodyDesc::sphere(0.5)
@@ -230,7 +230,7 @@ fn filters_skip_each_body_kind() {
 
 #[test]
 fn group_and_mask_filters_select_bodies() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let a = world.spawn(
         BodyDesc::static_sphere(0.5)
             .position([0.0, 0.0, 2.0])
@@ -288,7 +288,7 @@ fn group_and_mask_filters_select_bodies() {
 
 #[test]
 fn multi_hit_query_reports_all_in_distance_order() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     query_static(&mut world, 0.4, [0.0, 0.0, 2.0]);
     query_static(&mut world, 0.4, [0.0, 0.0, 2.7]);
     query_static(&mut world, 0.4, [0.0, 0.0, 3.4]);
@@ -323,7 +323,7 @@ fn multi_hit_query_reports_all_in_distance_order() {
 
 #[test]
 fn batched_queries_resolve_in_submission_order() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let far = query_static(&mut world, 0.5, [0.0, 0.0, 8.0]);
     let first = world.ray_query(
@@ -346,7 +346,7 @@ fn batched_queries_resolve_in_submission_order() {
 
 #[test]
 fn results_persist_until_slot_reused() {
-    let mut world = sim(2, static_config());
+    let mut world = sim(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let query = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -364,7 +364,7 @@ fn results_persist_until_slot_reused() {
 
 #[test]
 fn retired_batch_invalidates_handle() {
-    let mut world = sim(2, static_config());
+    let mut world = sim(static_config());
     let first = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
@@ -392,7 +392,7 @@ fn retired_batch_invalidates_handle() {
 
 #[test]
 fn handle_without_arrived_results_panics() {
-    let mut world = sim(2, static_config());
+    let mut world = sim(static_config());
     let pending = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
@@ -407,7 +407,7 @@ fn handle_without_arrived_results_panics() {
 
 #[test]
 fn raycast_resolves_against_latest_state() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     world.step(DT);
     world.wait();
@@ -429,7 +429,7 @@ fn raycast_resolves_against_latest_state() {
 
 #[test]
 fn query_validation_panics() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             world.sphere_query(
@@ -521,7 +521,7 @@ fn query_validation_panics() {
 
 #[test]
 fn point_query_detects_inside_and_outside() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     world.step(DT);
     world.wait();
@@ -545,7 +545,7 @@ fn point_query_detects_inside_and_outside() {
 
 #[test]
 fn overlap_query_accepts_any_convex_shape() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     world.add_collider(
         body,
@@ -575,7 +575,7 @@ fn overlap_query_accepts_any_convex_shape() {
 
 #[test]
 fn include_filter_limits_results_to_one_body() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     let first = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let second = query_static(&mut world, 0.5, [3.0, 0.0, 0.0]);
     world.step(DT);
@@ -599,7 +599,7 @@ fn include_filter_limits_results_to_one_body() {
 
 #[test]
 fn capsule_down_sweep_normal_is_vertical() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -627,7 +627,7 @@ fn capsule_down_sweep_normal_is_vertical() {
 
 #[test]
 fn capsule_sweep_stops_before_wall_face() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     world.spawn(
         BodyDesc::cuboid([0.25, 3.0, 4.0])
             .mass(0.0)
@@ -662,7 +662,7 @@ fn capsule_sweep_stops_before_wall_face() {
 
 #[test]
 fn query_after_teleport_sees_the_new_position() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
 
     world.set_position(body, [0.0, 0.0, 2.0]);

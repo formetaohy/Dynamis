@@ -1,4 +1,5 @@
 use super::Simulation;
+use super::ids::IdSpace;
 use dynamis_layout::{ConstraintCommandRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
@@ -7,9 +8,8 @@ use dynamis_model::{
 
 pub(crate) struct Constraints {
     pub(crate) alive: Vec<ConstraintHandle>,
+    pub(crate) ids: IdSpace,
     pub(crate) index_of: Vec<u32>,
-    pub(crate) generations: Vec<u32>,
-    pub(crate) free_ids: Vec<u32>,
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
     pub(crate) commands: Vec<ConstraintCommandRecord>,
     pub(crate) dirty: Vec<u32>,
@@ -19,12 +19,11 @@ pub(crate) struct Constraints {
 }
 
 impl Constraints {
-    pub(crate) fn new(slots: usize) -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             alive: Vec::new(),
-            index_of: vec![u32::MAX; slots],
-            generations: vec![1; slots],
-            free_ids: (0..slots as u32).rev().collect(),
+            ids: IdSpace::new(),
+            index_of: Vec::new(),
             records: Vec::new(),
             commands: Vec::new(),
             dirty: Vec::new(),
@@ -34,9 +33,11 @@ impl Constraints {
         }
     }
 
-    pub(crate) fn resize(&mut self, slots: usize) {
-        self.index_of.resize(slots, u32::MAX);
-        self.generations.resize(slots, 1);
+    fn grow_to(&mut self, id: u32) {
+        let rows = id as usize + 1;
+        if rows > self.index_of.len() {
+            self.index_of.resize(rows, u32::MAX);
+        }
     }
 }
 
@@ -63,16 +64,9 @@ impl Simulation {
         {
             desc.reference = relative_reference(state_a.orientation, state_b.orientation);
         }
-        let id = self
-            .constraints
-            .free_ids
-            .pop()
-            .expect("simulation constraint capacity exhausted");
-        self.constraints.generations[id as usize] += 1;
-        let handle = ConstraintHandle {
-            id,
-            generation: self.constraints.generations[id as usize],
-        };
+        let (id, generation) = self.constraints.ids.acquire();
+        self.constraints.grow_to(id);
+        let handle = ConstraintHandle { id, generation };
         let slot = self.constraints.alive.len() as u32;
         self.constraints.index_of[id as usize] = slot;
         self.constraints.alive.push(handle);
@@ -83,11 +77,9 @@ impl Simulation {
             self.bodies.index_of[second.id as usize],
         );
         self.constraints.records.push(record);
-        self.constraints.commands.push(ConstraintCommandRecord::add(
-            slot,
-            id,
-            self.constraints.generations[id as usize],
-        ));
+        self.constraints
+            .commands
+            .push(ConstraintCommandRecord::add(slot, id, generation));
         handle
     }
 
@@ -212,7 +204,7 @@ impl Simulation {
                 .push(ConstraintCommandRecord::swap(slot as u32, tail as u32));
         }
         self.constraints.index_of[id] = u32::MAX;
-        self.constraints.free_ids.push(handle.id);
+        self.constraints.ids.release(handle.id);
         self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
     }
 
@@ -222,10 +214,10 @@ impl Simulation {
 
     fn validate_constraint(&self, handle: ConstraintHandle) {
         let id = handle.id as usize;
-        if id >= self.slots {
+        if id >= self.constraints.ids.len() {
             panic!("constraint handle {handle:?} is out of range");
         }
-        if self.constraints.generations[id] != handle.generation {
+        if self.constraints.ids.generation(handle.id) != handle.generation {
             panic!("constraint handle {handle:?} is stale");
         }
         if self.constraints.index_of[id] == u32::MAX {

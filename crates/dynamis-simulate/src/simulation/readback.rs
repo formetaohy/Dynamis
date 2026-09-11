@@ -218,10 +218,11 @@ impl Simulation {
     pub(crate) fn accept_body(&mut self, step: u64, record: BodyStateRecord) {
         let id = record.body_id as usize;
         assert!(
-            id < self.slots,
+            id < self.bodies.ids.len(),
             "GPU readback returned an out-of-range body id"
         );
-        if record.generation != self.bodies.generations[id] || self.bodies.index_of[id] == u32::MAX
+        if record.generation != self.bodies.ids.generation(record.body_id)
+            || self.bodies.index_of[id] == u32::MAX
         {
             return;
         }
@@ -243,10 +244,10 @@ impl Simulation {
             return;
         }
         let id = record.constraint_id as usize;
-        if id >= self.constraints.generations.len() {
+        if id >= self.constraints.ids.len() {
             return;
         }
-        if self.constraints.generations[id] != record.generation
+        if self.constraints.ids.generation(record.constraint_id) != record.generation
             || self.constraints.index_of[id] == u32::MAX
         {
             return;

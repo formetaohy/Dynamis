@@ -59,9 +59,9 @@ fn snapshot(world: &Simulation, scenario: &Scenario) -> Vec<u32> {
 
 #[test]
 fn solver_is_bit_deterministic_across_worlds() {
-    let mut first = sim(32, PhysicsConfig::default());
+    let mut first = sim(PhysicsConfig::default());
     let first_scenario = build_scenario(&mut first);
-    let mut second = sim(32, PhysicsConfig::default());
+    let mut second = sim(PhysicsConfig::default());
     let second_scenario = build_scenario(&mut second);
     let frames = [0u64, 24, 48, 71];
     for frame in 0usize..72 {

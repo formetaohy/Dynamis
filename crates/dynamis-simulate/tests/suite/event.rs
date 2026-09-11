@@ -3,7 +3,7 @@ use dynamis_model::{BodyDesc, ContactEventKind};
 
 #[test]
 fn sensor_transit_emits_begin_then_end_and_never_blocks() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let sensor = world.spawn(
         BodyDesc::sphere(0.5)
             .sensor(true)
@@ -42,7 +42,7 @@ fn sensor_transit_emits_begin_then_end_and_never_blocks() {
 
 #[test]
 fn solid_begin_fires_on_landing_and_end_on_removal() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::static_sphere(10.0).position([0.0, -2.0, 0.0]));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 10.0, 0.0]));
     let mut began = false;
@@ -84,7 +84,7 @@ fn solid_begin_fires_on_landing_and_end_on_removal() {
 
 #[test]
 fn sensor_and_solid_events_carry_distinct_flags() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let sensor = world.spawn(
         BodyDesc::sphere(0.5)
             .sensor(true)
@@ -121,7 +121,7 @@ fn sensor_and_solid_events_carry_distinct_flags() {
 
 #[test]
 fn live_contacts_survive_row_moves() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::static_sphere(10.0).position([0.0, -2.0, 0.0]));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
     let touches = |event: &dynamis_model::ContactEvent| {

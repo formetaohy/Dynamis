@@ -1,5 +1,6 @@
 use super::Simulation;
 use super::commands::BodyCommand;
+use super::ids::IdSpace;
 use crate::static_aabb;
 use bytemuck::Zeroable;
 use dynamis_layout::{
@@ -14,9 +15,8 @@ use dynamis_model::{
 
 pub(crate) struct Bodies {
     pub(crate) alive: Vec<BodyHandle>,
+    pub(crate) ids: IdSpace,
     pub(crate) index_of: Vec<u32>,
-    pub(crate) generations: Vec<u32>,
-    pub(crate) free_ids: Vec<u32>,
     pub(crate) collider_descs: Vec<Vec<ColliderDesc>>,
     pub(crate) masses: Vec<f32>,
     pub(crate) com_overrides: Vec<Option<[f32; 3]>>,
@@ -34,20 +34,19 @@ pub(crate) struct Bodies {
 }
 
 impl Bodies {
-    pub(crate) fn new(slots: usize) -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             alive: Vec::new(),
-            index_of: vec![u32::MAX; slots],
-            generations: vec![1; slots],
-            free_ids: (0..slots as u32).rev().collect(),
-            collider_descs: vec![Vec::new(); slots],
-            masses: vec![1.0; slots],
-            com_overrides: vec![None; slots],
-            inertia_overrides: vec![None; slots],
-            descriptors: vec![BodyDescriptorRecord::zeroed(); slots],
+            ids: IdSpace::new(),
+            index_of: Vec::new(),
+            collider_descs: Vec::new(),
+            masses: Vec::new(),
+            com_overrides: Vec::new(),
+            inertia_overrides: Vec::new(),
+            descriptors: Vec::new(),
             dynamic_count: 0,
-            kinematic: vec![false; slots],
-            states: vec![None; slots],
+            kinematic: Vec::new(),
+            states: Vec::new(),
             states_ready: true,
             device_count: 0,
             commands: Vec::new(),
@@ -57,32 +56,28 @@ impl Bodies {
         }
     }
 
-    pub(crate) fn resize(&mut self, slots: usize) {
-        self.index_of.resize(slots, u32::MAX);
-        self.generations.resize(slots, 1);
-        self.collider_descs.resize(slots, Vec::new());
-        self.masses.resize(slots, 1.0);
-        self.com_overrides.resize(slots, None);
-        self.inertia_overrides.resize(slots, None);
+    fn grow_to(&mut self, id: u32) {
+        let rows = id as usize + 1;
+        if rows <= self.index_of.len() {
+            return;
+        }
+        self.index_of.resize(rows, u32::MAX);
+        self.collider_descs.resize(rows, Vec::new());
+        self.masses.resize(rows, 1.0);
+        self.com_overrides.resize(rows, None);
+        self.inertia_overrides.resize(rows, None);
         self.descriptors
-            .resize(slots, BodyDescriptorRecord::zeroed());
-        self.states.resize(slots, None);
-        self.kinematic.resize(slots, false);
+            .resize(rows, BodyDescriptorRecord::zeroed());
+        self.kinematic.resize(rows, false);
+        self.states.resize(rows, None);
     }
 }
 
 impl Simulation {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
-        let id = self
-            .bodies
-            .free_ids
-            .pop()
-            .expect("simulation body capacity exhausted");
-        self.bodies.generations[id as usize] += 1;
-        let handle = BodyHandle {
-            id,
-            generation: self.bodies.generations[id as usize],
-        };
+        let (id, generation) = self.bodies.ids.acquire();
+        self.bodies.grow_to(id);
+        let handle = BodyHandle { id, generation };
         let id = id as usize;
         self.validate_world_geometry(&desc);
         let mass = desc.effective_mass(|shape| self.shape_bounds(shape));
@@ -146,7 +141,7 @@ impl Simulation {
         let handle = self.bodies.alive[last as usize];
         let id = handle.id as usize;
         self.bodies.index_of[id] = u32::MAX;
-        self.bodies.free_ids.push(handle.id);
+        self.bodies.ids.release(handle.id);
         self.bodies.alive.pop();
         self.bodies.dirty.retain(|dirty| *dirty != last);
         let removed = std::mem::take(&mut self.bodies.collider_descs[id]);
@@ -609,10 +604,10 @@ impl Simulation {
 
     pub(super) fn validate(&self, handle: BodyHandle) {
         let id = handle.id as usize;
-        if id >= self.slots {
+        if id >= self.bodies.ids.len() {
             panic!("body handle {handle:?} is out of range");
         }
-        if self.bodies.generations[id] != handle.generation {
+        if self.bodies.ids.generation(handle.id) != handle.generation {
             panic!("body handle {handle:?} is stale");
         }
         if self.bodies.index_of[id] == u32::MAX {

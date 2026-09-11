@@ -1,12 +1,12 @@
 use crate::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
 use crate::capacity::ShapeReservation;
+use crate::simulation::IdSpace;
 use dynamis_layout::BvhNodeRecord;
 use dynamis_model::ShapeSourceHandle;
 use std::mem::size_of;
 
 pub(crate) struct ShapePool {
-    generations: Vec<u32>,
-    free_ids: Vec<u32>,
+    ids: IdSpace,
     refs: Vec<u32>,
     records: Vec<ShapeSourceRecordStorage>,
     pub(crate) vertices: Vec<[f32; 4]>,
@@ -31,8 +31,7 @@ pub(crate) struct ShapeSourceRecordStorage {
 impl ShapePool {
     pub fn new() -> Self {
         Self {
-            generations: Vec::new(),
-            free_ids: Vec::new(),
+            ids: IdSpace::new(),
             refs: Vec::new(),
             records: Vec::new(),
             vertices: Vec::new(),
@@ -46,7 +45,7 @@ impl ShapePool {
 
     pub fn used(&self) -> ShapeReservation {
         ShapeReservation {
-            sources: self.generations.len() as u32,
+            sources: self.ids.len() as u32,
             vertices: self.vertices.len() as u32,
             triangles: self.triangles.len() as u32,
             nodes: self.nodes.len() as u32,
@@ -59,7 +58,7 @@ impl ShapePool {
             "shape source handle is out of range"
         );
         assert!(
-            self.generations[handle.id as usize] == handle.generation,
+            self.ids.generation(handle.id) == handle.generation,
             "shape source handle is stale"
         );
         assert!(
@@ -94,9 +93,8 @@ impl ShapePool {
             "shape source is still referenced by a live body"
         );
         let id = handle.id as usize;
-        self.generations[id] += 1;
         self.records[id].kind = 0;
-        self.free_ids.push(handle.id);
+        self.ids.release(handle.id);
     }
 
     pub fn update_mesh(
@@ -144,16 +142,7 @@ impl ShapePool {
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
-        let id = match self.free_ids.pop() {
-            Some(id) => id,
-            None => {
-                let id = self.generations.len() as u32;
-                self.generations.push(1);
-                self.refs.push(0);
-                id
-            }
-        };
-        self.generations[id as usize] += 1;
+        let (id, generation) = self.ids.acquire();
         let (bounds_min, bounds_max) = bounds_of(vertices);
         let vertex_offset = self.vertices.len() as u32;
         let triangle_offset = self.triangles.len() as u32;
@@ -166,6 +155,7 @@ impl ShapePool {
         let node_count = nodes.len() as u32;
         self.nodes.extend(nodes);
         while self.records.len() as u32 <= id {
+            self.refs.push(0);
             self.records.push(ShapeSourceRecordStorage {
                 kind: 0,
                 vertex_offset: 0,
@@ -187,10 +177,7 @@ impl ShapePool {
             node_count,
             bounds: (bounds_min, bounds_max),
         };
-        ShapeSourceHandle {
-            id,
-            generation: self.generations[id as usize],
-        }
+        ShapeSourceHandle { id, generation }
     }
 
     pub fn layouts(&self) -> Vec<dynamis_layout::ShapeSourceRecord> {

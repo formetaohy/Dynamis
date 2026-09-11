@@ -8,7 +8,7 @@ use std::time::Duration;
 #[test]
 fn a_cold_simulation_reports_progress_and_refuses_to_step() {
     let context = pollster::block_on(GpuContext::open(&GpuRequest::default())).expect("test gpu");
-    let mut world = Simulation::new(context, 64, PhysicsConfig::default());
+    let mut world = Simulation::new(context, PhysicsConfig::default());
     assert!(
         !world.is_warm(),
         "constructing a world must not compile its pipelines"

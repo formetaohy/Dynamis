@@ -11,7 +11,7 @@ fn hinge_angle(orientation: [f32; 4]) -> f32 {
 
 #[test]
 fn ball_constraint_keeps_bodies_linked() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
@@ -32,7 +32,7 @@ fn ball_constraint_keeps_bodies_linked() {
 
 #[test]
 fn distance_constraint_holds_span() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([0.0, 3.0, 0.0]));
     world.add_constraint(
@@ -57,7 +57,7 @@ fn distance_constraint_holds_span() {
 
 #[test]
 fn fixed_constraint_preserves_offset() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5));
     let second = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 2.0]));
     world.add_constraint(first, second, ConstraintDesc::fixed([0.0; 3], [0.0; 3]));
@@ -74,14 +74,11 @@ fn pendulum_world(
     limit: Option<(f32, f32)>,
     motor: Option<f32>,
 ) -> (Simulation, dynamis_model::BodyHandle) {
-    let mut world = sim(
-        8,
-        PhysicsConfig {
-            sleep_velocity: 0.0,
-            sleep_angular_velocity: 0.0,
-            ..static_config()
-        },
-    );
+    let mut world = sim(PhysicsConfig {
+        sleep_velocity: 0.0,
+        sleep_angular_velocity: 0.0,
+        ..static_config()
+    });
     let anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let arm = world.spawn(BodyDesc::cuboid([0.1, 1.0, 0.1]).position([0.0, 1.0, 0.0]));
     let mut desc = ConstraintDesc::revolute([0.0; 3], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]);
@@ -142,7 +139,7 @@ fn revolute_motor_drives_arm() {
 
 #[test]
 fn prismatic_locks_perpendicular_motion() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let guide = world.spawn(BodyDesc::static_sphere(0.1).position([0.0, 5.0, 0.0]));
     let slider = world.spawn(BodyDesc::sphere(0.3).position([0.0, 6.0, 0.0]));
     world.add_constraint(
@@ -167,7 +164,7 @@ fn prismatic_locks_perpendicular_motion() {
 
 #[test]
 fn prismatic_motor_drives_and_limit_caps_travel() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let slider = world.spawn(BodyDesc::cuboid([0.1, 0.1, 0.1]).position([1.0, 0.0, 0.0]));
     world.add_constraint(
@@ -190,7 +187,7 @@ fn prismatic_motor_drives_and_limit_caps_travel() {
 
 #[test]
 fn prismatic_motor_alone_drives_beyond_start() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let slider = world.spawn(BodyDesc::cuboid([0.1, 0.1, 0.1]).position([1.0, 0.0, 0.0]));
     world.add_constraint(
@@ -211,14 +208,11 @@ fn prismatic_motor_alone_drives_beyond_start() {
 
 #[test]
 fn distance_spring_sags_under_gravity() {
-    let mut world = sim(
-        8,
-        PhysicsConfig {
-            sleep_velocity: 0.0,
-            sleep_angular_velocity: 0.0,
-            ..PhysicsConfig::default()
-        },
-    );
+    let mut world = sim(PhysicsConfig {
+        sleep_velocity: 0.0,
+        sleep_angular_velocity: 0.0,
+        ..PhysicsConfig::default()
+    });
     let anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     world.add_constraint(
@@ -236,7 +230,7 @@ fn distance_spring_sags_under_gravity() {
 
 #[test]
 fn joined_bodies_collision_policy_controls_overlap() {
-    let mut merged = sim(8, static_config());
+    let mut merged = sim(static_config());
     let first = merged.spawn(BodyDesc::sphere(0.5));
     let second = merged.spawn(BodyDesc::sphere(0.5).position([0.0, 0.6, 0.0]));
     merged.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
@@ -247,7 +241,7 @@ fn joined_bodies_collision_policy_controls_overlap() {
         "disabled collisions must not push joined bodies apart, got y={y}"
     );
 
-    let mut separated = sim(8, static_config());
+    let mut separated = sim(static_config());
     let first = separated.spawn(BodyDesc::sphere(0.5));
     let second = separated.spawn(BodyDesc::sphere(0.5).position([0.0, 0.6, 0.0]));
     separated.add_constraint(
@@ -265,7 +259,7 @@ fn joined_bodies_collision_policy_controls_overlap() {
 
 #[test]
 fn constraint_handle_reuse_bumps_generation() {
-    let mut world = sim(16, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     let constraint = world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
@@ -280,30 +274,31 @@ fn constraint_handle_reuse_bumps_generation() {
 
 #[test]
 fn constraint_misuse_panics() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
-    let third = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
-    world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    let joint = world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
     assert!(
         catch_unwind(AssertUnwindSafe(|| world.remove(first))).is_err(),
         "removing a constrained body must panic"
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
-            world.add_constraint(second, first, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
-            world.add_constraint(first, third, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
-            world.add_constraint(second, third, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+            world.add_constraint(first, first, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
         }))
         .is_err(),
-        "exceeding constraint capacity must panic"
+        "a constraint must join distinct bodies"
+    );
+    world.remove_constraint(joint);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.remove_constraint(joint))).is_err(),
+        "a removed constraint handle must stay stale"
     );
 }
 
 #[test]
 fn removing_constraint_allows_body_removal() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     let constraint = world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
@@ -322,7 +317,7 @@ fn twist_angle(orientation: [f32; 4]) -> f32 {
 
 #[test]
 fn ball_twist_limit_caps_relative_rotation() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     world.add_constraint(
@@ -347,7 +342,7 @@ fn ball_twist_limit_caps_relative_rotation() {
 
 #[test]
 fn ball_swing_limit_caps_conical_sway() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     world.add_constraint(
@@ -373,7 +368,7 @@ fn ball_swing_limit_caps_conical_sway() {
 
 #[test]
 fn gear_constraint_links_angular_velocities() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let _anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let first = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
@@ -397,7 +392,7 @@ fn gear_constraint_links_angular_velocities() {
 
 #[test]
 fn pulley_constraint_holds_rope_length() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let _anchor = world.spawn(BodyDesc::static_sphere(0.1));
     let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 1.0, 0.0]));
@@ -425,7 +420,7 @@ fn pulley_constraint_holds_rope_length() {
 
 #[test]
 fn break_threshold_removes_constraint_under_load() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.3));
     let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
     let handle = world.add_constraint(
@@ -452,7 +447,7 @@ fn break_threshold_removes_constraint_under_load() {
 
 #[test]
 fn motor_force_cap_limits_driving_torque() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.3));
     let second = world.spawn(BodyDesc::sphere(0.3).position([1.0, 0.0, 0.0]));
     world.add_constraint(
@@ -475,7 +470,7 @@ fn motor_force_cap_limits_driving_torque() {
 
 #[test]
 fn cone_constraint_caps_swing_angle() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let tip = world.spawn(BodyDesc::sphere(0.1).position([-2.0, 0.0, 0.0]));
     world.add_constraint(
@@ -496,7 +491,7 @@ fn cone_constraint_caps_swing_angle() {
 
 #[test]
 fn six_dof_locked_acts_as_fixed_constraint() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let base = world.spawn(BodyDesc::sphere(0.5));
     let link = world.spawn(BodyDesc::sphere(0.5).position([1.5, 0.0, 0.0]));
     let desc = ConstraintDesc::six_dof([0.0; 3], [1.5, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
@@ -538,7 +533,7 @@ fn six_dof_locked_acts_as_fixed_constraint() {
 
 #[test]
 fn six_dof_linear_limit_caps_separation() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     let dofs = [
@@ -565,7 +560,7 @@ fn six_dof_linear_limit_caps_separation() {
 
 #[test]
 fn six_dof_servo_spins_to_target() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let arm = world.spawn(BodyDesc::cuboid([1.0, 0.05, 0.05]).position([1.0, 0.0, 0.0]));
     let motor = ConstraintMotor {
@@ -601,7 +596,7 @@ fn six_dof_servo_spins_to_target() {
 
 #[test]
 fn servo_drives_prismatic_to_target_distance() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let slider = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.0]));
     world.add_constraint(
@@ -624,7 +619,7 @@ fn servo_drives_prismatic_to_target_distance() {
 
 #[test]
 fn warm_start_off_keeps_constraint_stable() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let pick = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let load = world.spawn(BodyDesc::sphere(0.2).position([0.0, -2.0, 0.0]));
     world.add_constraint(

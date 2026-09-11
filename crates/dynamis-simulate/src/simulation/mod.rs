@@ -4,6 +4,7 @@ mod commands;
 mod constraint;
 mod device;
 mod event;
+mod ids;
 mod query;
 mod readback;
 mod rows;
@@ -25,12 +26,13 @@ use event::Events;
 use query::Queries;
 use shape::Shapes;
 
+pub(crate) use ids::IdSpace;
+
 pub use readback::{ContactManifold, ContactPoint};
 
 pub struct Simulation {
     config: PhysicsConfig,
 
-    slots: usize,
     clock: Clock,
     device: Device,
     bodies: Bodies,
@@ -67,22 +69,16 @@ fn assert_config(config: &PhysicsConfig) {
 }
 
 impl Simulation {
-    pub fn new(gpu: GpuContext, slots: usize, config: PhysicsConfig) -> Self {
-        assert!(slots > 0, "simulation slot count must be positive");
-        assert!(
-            u32::try_from(slots).is_ok(),
-            "simulation slot count exceeds the handle space"
-        );
+    pub fn new(gpu: GpuContext, config: PhysicsConfig) -> Self {
         assert_config(&config);
         let shapes = Shapes::new();
         let device = Device::new(gpu, &shapes);
         Self {
             config,
-            slots,
             clock: Clock::new(),
             device,
-            bodies: Bodies::new(slots),
-            constraints: Constraints::new(slots),
+            bodies: Bodies::new(),
+            constraints: Constraints::new(),
             shapes,
             queries: Queries::new(),
             events: Events::new(),
@@ -102,10 +98,6 @@ impl Simulation {
         self.config.gravity = gravity;
     }
 
-    pub fn capacity(&self) -> usize {
-        self.slots
-    }
-
     pub fn stream_capacity(&self) -> StreamCapacity {
         self.device.reservation.streams()
     }
@@ -116,30 +108,6 @@ impl Simulation {
 
     pub fn count(&self) -> usize {
         self.bodies.alive.len()
-    }
-
-    pub fn grow(&mut self, slots: usize) {
-        assert!(
-            u32::try_from(slots).is_ok(),
-            "simulation slot count exceeds the handle space"
-        );
-        assert!(
-            slots >= self.bodies.alive.len(),
-            "grow slot count must not drop below the live body count"
-        );
-        if slots <= self.slots {
-            return;
-        }
-        let base = self.slots;
-        self.slots = slots;
-        self.bodies
-            .free_ids
-            .extend((base..slots).rev().map(|id| id as u32));
-        self.constraints
-            .free_ids
-            .extend((base..slots).rev().map(|id| id as u32));
-        self.bodies.resize(slots);
-        self.constraints.resize(slots);
     }
 
     pub(crate) fn live(&self) -> Live {

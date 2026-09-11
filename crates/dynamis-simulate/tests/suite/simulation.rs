@@ -1,7 +1,7 @@
 use super::common::distance;
 use super::common::{DT, gravity_config, sim, static_config};
 use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
-use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
+use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, PhysicsConfig};
 use dynamis_simulate::Simulation;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -9,7 +9,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 fn logical_capacity_runs_on_minimum_device_limits() {
     let context = pollster::block_on(GpuContext::open(&GpuRequest::minimum_limits()))
         .expect("minimum device limits must support a simulation");
-    let mut world = Simulation::new(context, 1024, static_config());
+    let mut world = Simulation::new(context, static_config());
     world.warmup(WarmupBudget::All);
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
@@ -23,7 +23,7 @@ fn sphere_inertia(radius: f32, mass: f32) -> f32 {
 
 #[test]
 fn spawn_state_is_immediately_readable() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([1.0, 2.0, 3.0])
@@ -41,7 +41,7 @@ fn spawn_state_is_immediately_readable() {
 
 #[test]
 fn remove_swap_keeps_live_bodies_in_place() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
     let third = world.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
@@ -57,7 +57,7 @@ fn remove_swap_keeps_live_bodies_in_place() {
 
 #[test]
 fn removed_and_stale_handles_panic() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.remove(ball);
     assert!(catch_unwind(AssertUnwindSafe(|| world.read_state(ball))).is_err());
@@ -78,9 +78,15 @@ fn removed_and_stale_handles_panic() {
     assert_eq!(world.read_state(fresh).position, [0.0, 0.0, 0.0]);
 }
 
+fn spawn_burst(world: &mut Simulation, count: usize) {
+    for index in 0..count {
+        world.spawn(BodyDesc::static_sphere(0.05).position([1000.0 + index as f32, 0.0, 0.0]));
+    }
+}
+
 #[test]
-fn grow_preserves_live_state_and_adds_capacity() {
-    let mut world = sim(4, static_config());
+fn a_world_outgrowing_its_plan_keeps_simulating() {
+    let mut world = sim(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.3)
             .position([0.0, 5.0, 0.0])
@@ -88,27 +94,24 @@ fn grow_preserves_live_state_and_adds_capacity() {
     );
     settle_frames(&mut world, 10);
     let before = world.read_state(ball).position[0];
-    world.grow(64);
+    spawn_burst(&mut world, 160);
     settle_frames(&mut world, 10);
     let after = world.read_state(ball).position[0];
     assert!(
         after > before + 0.1,
-        "grow must preserve the simulation flow"
+        "a world reallocated under live demand must keep its flow"
     );
     assert!((world.read_state(ball).position[1] - 5.0).abs() < 1e-4);
     let extra = world.spawn(BodyDesc::sphere(0.2).position([0.0, 4.0, 0.0]));
     world.step(DT);
     world.wait();
-    assert_eq!(world.count(), 2);
     assert!(world.read_state(extra).position[1] > 0.0);
 }
 
 #[test]
-fn grow_extends_the_constraint_id_space() {
-    let mut world = sim(4, static_config());
+fn body_and_constraint_handles_grow_on_demand() {
+    let mut world = sim(static_config());
     let ground = world.spawn(BodyDesc::static_sphere(5.0));
-    world.grow(64);
-    let mut balls = Vec::new();
     for index in 0..40u32 {
         let ball = world.spawn(BodyDesc::sphere(0.1).position([0.0, 3.0 + index as f32, 0.0]));
         world.add_constraint(
@@ -116,7 +119,6 @@ fn grow_extends_the_constraint_id_space() {
             ground,
             ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
         );
-        balls.push(ball);
     }
     assert_eq!(world.constraints().len(), 40);
     world.step(DT);
@@ -125,21 +127,15 @@ fn grow_extends_the_constraint_id_space() {
 }
 
 #[test]
-fn grow_below_live_count_panics() {
-    let mut world = sim(8, static_config());
-    world.spawn(BodyDesc::sphere(0.5));
-    let _ = world.spawn(BodyDesc::sphere(0.5));
-    assert!(catch_unwind(AssertUnwindSafe(|| world.grow(1))).is_err());
-}
-
-#[test]
 fn invalid_inputs_panic() {
-    let mut world = sim(2, static_config());
-    let _first = world.spawn(BodyDesc::sphere(0.5));
-    let _second = world.spawn(BodyDesc::sphere(0.5));
+    let mut world = sim(static_config());
+    let ball = world.spawn(BodyDesc::sphere(0.5));
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            world.spawn(BodyDesc::sphere(0.5));
+            world.read_state(BodyHandle {
+                id: ball.id + 9,
+                generation: ball.generation,
+            });
         }))
         .is_err()
     );
@@ -158,13 +154,12 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
             scope.spawn(move || {
                 start.wait();
                 for _ in 0..2 {
-                    let mut world = sim(4, static_config());
+                    let mut world = sim(static_config());
                     let speed = (worker + 1) as f32;
                     let body = world.spawn(BodyDesc::sphere(0.2).velocity([speed, 0.0, 0.0]));
                     for frame in 0..12 {
                         if frame == 4 {
-                            world.grow(32);
-                            for index in 0..16 {
+                            for index in 0..160 {
                                 world.spawn(BodyDesc::static_sphere(0.2).position([
                                     index as f32,
                                     10.0,
@@ -194,7 +189,7 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
 
 #[test]
 fn apply_force_accelerates_and_consumes_within_one_step() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).mass(2.0));
     world.apply_force(ball, [0.0, 4.0, 0.0]);
     world.step(DT);
@@ -217,7 +212,7 @@ fn apply_force_accelerates_and_consumes_within_one_step() {
 
 #[test]
 fn apply_force_at_point_combines_linear_and_angular() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.apply_force_at_point(ball, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
     world.step(DT);
@@ -235,7 +230,7 @@ fn apply_force_at_point_combines_linear_and_angular() {
 
 #[test]
 fn apply_impulse_changes_linear_and_angular_exactly() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).mass(2.0));
     world.apply_impulse_at_point(ball, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
     world.step(DT);
@@ -252,7 +247,7 @@ fn apply_impulse_changes_linear_and_angular_exactly() {
 
 #[test]
 fn apply_torque_and_angular_impulse_match_closed_form() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     const STEPS: u32 = 5;
     for _ in 0..STEPS {
@@ -277,7 +272,7 @@ fn apply_torque_and_angular_impulse_match_closed_form() {
 
 #[test]
 fn velocity_and_position_patches_apply() {
-    let mut world = sim(4, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     world.step(DT);
     world.set_velocity(ball, [0.0, 3.0, 0.0]);
@@ -304,7 +299,7 @@ fn velocity_and_position_patches_apply() {
 
 #[test]
 fn angular_velocity_and_orientation_patches_apply() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
     world.set_angular_velocity(ball, [0.0, 1.0, 0.0]);
@@ -328,7 +323,7 @@ fn angular_velocity_and_orientation_patches_apply() {
 
 #[test]
 fn non_unit_orientation_patch_panics() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -346,7 +341,7 @@ fn non_unit_orientation_patch_panics() {
 
 #[test]
 fn set_mass_zero_freezes_then_mass_restores() {
-    let mut world = sim(4, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     world.step(DT);
     world.set_mass(ball, 0.0);
@@ -373,7 +368,7 @@ fn set_mass_zero_freezes_then_mass_restores() {
 
 #[test]
 fn kinematic_flag_round_trip() {
-    let mut world = sim(4, gravity_config());
+    let mut world = sim(gravity_config());
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.set_kinematic(body, true);
     world.set_velocity(body, [2.0, 0.0, 0.0]);
@@ -394,7 +389,7 @@ fn kinematic_flag_round_trip() {
 
 #[test]
 fn config_accessors_round_trip() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     assert_eq!(world.config().gravity, [0.0, 0.0, 0.0]);
     world.set_gravity([0.0, -1.0, 0.0]);
     assert_eq!(world.config().gravity, [0.0, -1.0, 0.0]);
@@ -403,7 +398,6 @@ fn config_accessors_round_trip() {
         ..PhysicsConfig::default()
     });
     assert_eq!(world.config().gravity, [0.0, -2.0, 0.0]);
-    assert_eq!(world.capacity(), 4);
     assert!(world.constraints().is_empty());
 }
 
@@ -416,7 +410,7 @@ fn settle_frames(world: &mut Simulation, frames: usize) {
 
 #[test]
 fn mixed_static_and_dynamic_removal_keeps_world_consistent() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([50.0, 0.5, 50.0])
             .mass(0.0)
@@ -446,11 +440,10 @@ fn mixed_static_and_dynamic_removal_keeps_world_consistent() {
 }
 
 #[test]
-fn grow_within_logical_capacity_spawns_without_rebuild() {
-    let mut world = sim(16, static_config());
-    world.grow(16);
+fn a_spawn_burst_lands_every_identity_and_releases_it() {
+    let mut world = sim(static_config());
     let mut handles = Vec::new();
-    for index in 0..16 {
+    for index in 0..200 {
         let ball = world.spawn(BodyDesc::sphere(0.2).position([
             (index % 4) as f32 * 1.0,
             0.0,
@@ -460,21 +453,23 @@ fn grow_within_logical_capacity_spawns_without_rebuild() {
     }
     world.step(DT);
     world.wait();
-    assert_eq!(world.count(), 16);
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| world.grow(12))).is_err(),
-        "grow below the live count must panic"
-    );
+    assert_eq!(world.count(), 200);
     assert!(
         handles
             .iter()
             .all(|handle| world.read_state(*handle).inverse_mass > 0.0)
     );
+    for handle in &handles {
+        world.remove(*handle);
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.count(), 0);
 }
 
 #[test]
 fn dynamic_spawn_shuttles_around_static_slots() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([50.0, 0.5, 50.0])
             .mass(0.0)
@@ -495,7 +490,7 @@ fn dynamic_spawn_shuttles_around_static_slots() {
 
 #[test]
 fn mass_migration_keeps_constraints_attached() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let pick = world.spawn(BodyDesc::sphere(0.2));
     let load = world.spawn(BodyDesc::sphere(0.2).position([0.0, -2.0, 0.0]));
     world.add_constraint(
@@ -526,29 +521,29 @@ fn mass_migration_keeps_constraints_attached() {
 }
 
 #[test]
-fn grow_within_reserved_extends_id_space_and_spawns() {
-    let mut world = sim(4, static_config());
-    world.grow(64);
-    world.grow(100);
-    world.grow(110);
+fn id_space_grows_with_spawn_bursts() {
+    let mut world = sim(static_config());
     let mut handles = Vec::new();
-    for index in 0..110u32 {
-        let z = index as f32 * 0.5;
-        let ball = world.spawn(BodyDesc::sphere(0.1).position([0.0, 0.0, z + 10.0]));
-        handles.push(ball);
-    }
-    world.step(DT);
-    world.wait();
-    assert_eq!(world.count(), 110);
-    for (index, handle) in handles.iter().enumerate() {
-        let state = world.read_state(*handle);
-        assert_eq!(state.position[2], index as f32 * 0.5 + 10.0);
+    for burst in [64, 192, 768] {
+        for _ in 0..burst {
+            let z = handles.len() as f32 * 0.5;
+            handles.push(world.spawn(BodyDesc::sphere(0.1).position([0.0, 0.0, z + 10.0])));
+        }
+        world.step(DT);
+        world.wait();
+        assert_eq!(world.count(), handles.len());
+        for (index, handle) in handles.iter().enumerate() {
+            assert_eq!(
+                world.read_state(*handle).position[2],
+                index as f32 * 0.5 + 10.0
+            );
+        }
     }
 }
 
 #[test]
 fn remove_then_spawn_reuses_slot_with_fresh_generation() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     let _second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
     let _third = world.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
@@ -568,8 +563,8 @@ fn remove_then_spawn_reuses_slot_with_fresh_generation() {
 }
 
 #[test]
-fn grow_preserves_kinematic_and_ccd_flags() {
-    let mut world = sim(4, gravity_config());
+fn reallocation_preserves_kinematic_and_ccd_flags() {
+    let mut world = sim(gravity_config());
     let platform = world.spawn(
         BodyDesc::cuboid([1.0, 0.2, 1.0])
             .position([0.0, 3.0, 0.0])
@@ -577,7 +572,7 @@ fn grow_preserves_kinematic_and_ccd_flags() {
             .ccd(true),
     );
     settle_frames(&mut world, 10);
-    world.grow(64);
+    spawn_burst(&mut world, 160);
     settle_frames(&mut world, 60);
     let state = world.read_state(platform);
     assert!(
@@ -588,8 +583,8 @@ fn grow_preserves_kinematic_and_ccd_flags() {
 }
 
 #[test]
-fn grow_preserves_body_collision_filters() {
-    let mut world = sim(4, gravity_config());
+fn reallocation_preserves_collision_filters() {
+    let mut world = sim(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -604,7 +599,7 @@ fn grow_preserves_body_collision_filters() {
             .collision_mask(0x2),
     );
     settle_frames(&mut world, 20);
-    world.grow(64);
+    spawn_burst(&mut world, 160);
     settle_frames(&mut world, 180);
     let height = world.read_state(ball).position[1];
     assert!(
@@ -614,8 +609,8 @@ fn grow_preserves_body_collision_filters() {
 }
 
 #[test]
-fn grow_preserves_constraint_slots_and_breaks() {
-    let mut world = sim(8, gravity_config());
+fn reallocation_preserves_constraint_slots_and_breaks() {
+    let mut world = sim(gravity_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 6.0, 0.0]));
     let mut handles = vec![anchor];
     for index in 0..4 {
@@ -638,7 +633,7 @@ fn grow_preserves_constraint_slots_and_breaks() {
     );
     world.remove_constraint(middle);
     settle_frames(&mut world, 60);
-    world.grow(64);
+    spawn_burst(&mut world, 160);
     settle_frames(&mut world, 60);
     let tip = world.read_state(handles[4]).position;
     let anchor_pos = world.read_state(anchor).position;
@@ -651,7 +646,7 @@ fn grow_preserves_constraint_slots_and_breaks() {
 
 #[test]
 fn apply_impulse_at_center_of_mass_spins_nothing() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let offset = world.spawn(
         BodyDesc::sphere(0.5)
             .mass(2.0)
@@ -679,7 +674,7 @@ fn apply_impulse_at_center_of_mass_spins_nothing() {
 
 #[test]
 fn apply_impulse_at_point_levers_about_the_center_of_mass() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(
         BodyDesc::sphere(0.5)
             .mass(2.0)
@@ -699,7 +694,7 @@ fn apply_impulse_at_point_levers_about_the_center_of_mass() {
 
 #[test]
 fn sleep_threshold_override_accepts_zero() {
-    let mut world = sim(4, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([0.0, 0.0, 0.0])
@@ -715,7 +710,7 @@ fn sleep_threshold_override_accepts_zero() {
 
 #[test]
 fn deterministic_rebuild_on_spawn_burst() {
-    let mut world = sim(256, static_config());
+    let mut world = sim(static_config());
     let a = world.spawn(BodyDesc::sphere(0.3));
     let _b = world.spawn(BodyDesc::sphere(0.3).position([5.0, 0.3, 0.0]));
     let _ = a;

@@ -3,7 +3,7 @@ use dynamis_model::BodyDesc;
 
 #[test]
 fn a_stepped_world_reports_one_duration_per_pass() {
-    let mut world = sim(64, gravity_config());
+    let mut world = sim(gravity_config());
     for index in 0..32 {
         world.spawn(BodyDesc::sphere(0.4).mass(1.0).position([
             (index % 8) as f32 * 0.9,

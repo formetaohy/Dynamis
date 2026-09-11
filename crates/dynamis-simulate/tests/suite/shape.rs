@@ -89,7 +89,7 @@ fn raycast_reaches_every_convex_shape_exactly() {
         },
     ];
     for case in cases {
-        let mut world = sim(8, static_config());
+        let mut world = sim(static_config());
         let (body, expected) = (case.build)(&mut world);
         let query = world.ray_query(
             [0.0, 0.0, 0.0],
@@ -112,7 +112,7 @@ fn raycast_reaches_every_convex_shape_exactly() {
 
 #[test]
 fn mesh_floor_catches_ball_and_blocks_from_below() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
     settle(&mut world, 120);
@@ -122,7 +122,7 @@ fn mesh_floor_catches_ball_and_blocks_from_below() {
         "ball must rest on the mesh floor, got {y}"
     );
 
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
@@ -144,7 +144,7 @@ fn mesh_floor_catches_ball_and_blocks_from_below() {
 
 #[test]
 fn height_field_catches_ball_and_blocks_from_below() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let heights = vec![0.0f32; 9];
     let source = world.add_height_field(3, 3, &heights, [2.0, 2.0]);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
@@ -156,7 +156,7 @@ fn height_field_catches_ball_and_blocks_from_below() {
         "ball must rest on the field, got {y}"
     );
 
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let heights = vec![0.0f32; 9];
     let source = world.add_height_field(3, 3, &heights, [2.0, 2.0]);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
@@ -180,7 +180,7 @@ fn height_field_catches_ball_and_blocks_from_below() {
 
 #[test]
 fn height_field_ramp_directs_ball_downhill() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let mut heights = Vec::new();
     for _row in 0..3 {
         for col in 0..5 {
@@ -205,7 +205,7 @@ fn height_field_ramp_directs_ball_downhill() {
 
 #[test]
 fn cylinder_rests_at_half_height() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let cylinder = world.spawn(
         BodyDesc::cylinder(0.5, 1.0)
@@ -222,7 +222,7 @@ fn cylinder_rests_at_half_height() {
 
 #[test]
 fn capsule_rests_upright_on_flat_floor() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let capsule = world.spawn(
         BodyDesc::capsule(0.3, 1.0)
@@ -239,7 +239,7 @@ fn capsule_rests_upright_on_flat_floor() {
 
 #[test]
 fn box_rests_flat_on_static_ground() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 1.0, 20.0])
             .mass(0.0)
@@ -257,7 +257,7 @@ fn box_rests_flat_on_static_ground() {
 
 #[test]
 fn compound_body_rests_on_lowest_child() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     flat_mesh_floor(&mut world);
     let compound = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)))
@@ -275,7 +275,7 @@ fn compound_body_rests_on_lowest_child() {
 
 #[test]
 fn collider_offset_shifts_hit_surface() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).offset([0.0, 0.0, -0.5]))
             .position([0.0, 0.0, 5.0]),
@@ -302,7 +302,7 @@ fn collider_rotation_reshapes_hit_geometry() {
     let sin_half = std::f32::consts::FRAC_PI_8.sin();
     let cos_half = std::f32::consts::FRAC_PI_8.cos();
     let half_sqrt_two: f32 = std::f32::consts::FRAC_1_SQRT_2;
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(
         BodyDesc::new(
             ColliderDesc::new(Shape::cuboid([0.5, 0.5, 0.5]))
@@ -332,7 +332,7 @@ fn collider_rotation_reshapes_hit_geometry() {
 
 #[test]
 fn set_collider_and_set_shape_replace_geometry() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3));
     world.set_collider(body, 0, ColliderDesc::new(Shape::sphere(0.9)));
     world.step(DT);
@@ -355,7 +355,7 @@ fn set_collider_and_set_shape_replace_geometry() {
         hit.distance
     );
 
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 1.0, 20.0])
             .mass(0.0)
@@ -377,7 +377,7 @@ fn set_collider_and_set_shape_replace_geometry() {
 
 #[test]
 fn hull_cube_rests_on_floor() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let vertices = vec![
         [-1.0f32, -1.0, -1.0],
         [1.0, -1.0, -1.0],
@@ -419,7 +419,7 @@ fn hull_cube_rests_on_floor() {
 
 #[test]
 fn penetration_solver_expels_embedded_hull() {
-    let mut world = sim(8, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 1.0, 20.0])
             .mass(0.0)

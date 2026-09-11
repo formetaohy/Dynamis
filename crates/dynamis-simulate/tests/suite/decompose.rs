@@ -39,7 +39,7 @@ fn l_prism() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
 
 #[test]
 fn decomposition_splits_concave_mesh_into_convex_parts() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(
         &vertices,
@@ -59,7 +59,7 @@ fn decomposition_splits_concave_mesh_into_convex_parts() {
 
 #[test]
 fn decomposed_body_rests_on_ground() {
-    let mut world = super::common::sim(8, super::common::gravity_config());
+    let mut world = super::common::sim(super::common::gravity_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, HullDecomposeSettings::default());
     let desc = BodyDesc::compound(&parts).position([2.0, 3.0, 2.0]);
@@ -84,7 +84,7 @@ fn decomposed_body_rests_on_ground() {
 
 #[test]
 fn shape_source_refcount_blocks_removal_while_live() {
-    let mut world = super::common::sim(4, static_config());
+    let mut world = super::common::sim(static_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, HullDecomposeSettings::default());
     let body = world.spawn(BodyDesc::compound(&parts));

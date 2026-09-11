@@ -9,7 +9,7 @@ fn swing_angle(orientation: [f32; 4]) -> f32 {
 
 #[test]
 fn offset_com_pendulum_swings_under_gravity() {
-    let mut world = sim(6, super::common::gravity_config());
+    let mut world = sim(super::common::gravity_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.1).position([0.0, 0.0, 0.0]));
     let bob = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)).offset([1.5, 0.0, 0.0]))
@@ -36,7 +36,7 @@ fn offset_com_pendulum_swings_under_gravity() {
 
 #[test]
 fn composite_body_reports_center_of_mass() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let double = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)))
             .collider(ColliderDesc::new(Shape::sphere(0.2)).offset([2.0, 0.0, 0.0]))
@@ -52,7 +52,7 @@ fn composite_body_reports_center_of_mass() {
 
 #[test]
 fn set_com_relocates_center_of_mass_on_gpu() {
-    let mut world = sim(4, static_config());
+    let mut world = sim(static_config());
     let double = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)))
             .collider(ColliderDesc::new(Shape::sphere(0.2)).offset([2.0, 0.0, 0.0]))
@@ -67,7 +67,7 @@ fn set_com_relocates_center_of_mass_on_gpu() {
 
 #[test]
 fn custom_inertia_scales_angular_response() {
-    let mut world = sim(6, static_config());
+    let mut world = sim(static_config());
     let default = world.spawn(BodyDesc::sphere(0.5).position([-3.0, 0.0, 0.0]));
     let custom = world.spawn(BodyDesc::sphere(0.5).position([3.0, 0.0, 0.0]));
     world.set_inertia(custom, [0.05, 0.0, 0.0, 0.05, 0.0, 0.05]);
@@ -86,7 +86,7 @@ fn custom_inertia_scales_angular_response() {
 
 #[test]
 fn ccd_stops_against_mesh_floor_while_non_ccd_passes() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     flat_mesh_floor(&mut world);
     let shielded = world.spawn(
         BodyDesc::sphere(0.3)
@@ -117,13 +117,10 @@ fn ccd_stops_against_mesh_floor_while_non_ccd_passes() {
 
 #[test]
 fn ccd_retreats_before_mesh_impact_without_tunneling() {
-    let mut world = sim(
-        8,
-        dynamis_model::PhysicsConfig {
-            max_velocity: 1000.0,
-            ..static_config()
-        },
-    );
+    let mut world = sim(dynamis_model::PhysicsConfig {
+        max_velocity: 1000.0,
+        ..static_config()
+    });
     flat_mesh_floor(&mut world);
     let ball = world.spawn(
         BodyDesc::sphere(0.3)

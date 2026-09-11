@@ -21,7 +21,7 @@ fn sphere_pile(world: &mut Simulation) -> Vec<BodyHandle> {
 
 #[test]
 fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
-    let mut world = sim(PILE, static_config());
+    let mut world = sim(static_config());
     let floor = world.stream_capacity();
     sphere_pile(&mut world);
 
@@ -52,7 +52,7 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
 
 #[test]
 fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_scene() {
-    let mut world = sim(PILE, static_config());
+    let mut world = sim(static_config());
     let bodies = sphere_pile(&mut world);
     for _ in 0..4 {
         world.step(DT);

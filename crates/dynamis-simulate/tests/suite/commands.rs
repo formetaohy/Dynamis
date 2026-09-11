@@ -6,7 +6,7 @@ use dynamis_model::{BodyDesc, ConstraintDesc};
 
 #[test]
 fn batch_spawn_lands_every_row() {
-    let mut world = sim(512, static_config());
+    let mut world = sim(static_config());
     let mut handles = Vec::new();
     for index in 0..512 {
         let x = (index % 32) as f32 * 0.5;
@@ -30,7 +30,7 @@ fn batch_spawn_lands_every_row() {
 
 #[test]
 fn structural_shuffle_keeps_identity() {
-    let mut world = sim(16, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 0.0, 0.0]));
     let third = world.spawn(BodyDesc::sphere(0.2).position([3.0, 0.0, 0.0]));
@@ -49,7 +49,7 @@ fn structural_shuffle_keeps_identity() {
 
 #[test]
 fn ordered_commands_on_one_slot_fold_in_order() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.5).mass(2.0).position([0.0, 0.0, 0.0]));
 
     world.set_velocity(body, [1.0, 0.0, 0.0]);
@@ -70,7 +70,7 @@ fn ordered_commands_on_one_slot_fold_in_order() {
 
 #[test]
 fn edits_after_shuffle_land_on_the_moved_row() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.5).position([5.0, 0.0, 0.0]));
 
@@ -89,7 +89,7 @@ fn edits_after_shuffle_land_on_the_moved_row() {
 
 #[test]
 fn edits_before_a_shuffle_follow_their_row() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([1.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
     let third = world.spawn(BodyDesc::sphere(0.5).position([3.0, 0.0, 0.0]));
@@ -113,7 +113,7 @@ fn edits_before_a_shuffle_follow_their_row() {
 
 #[test]
 fn edits_on_a_removed_row_are_dropped() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let doomed = world.spawn(BodyDesc::sphere(0.5).position([1.0, 0.0, 0.0]));
     let survivor = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
 
@@ -132,7 +132,7 @@ fn edits_on_a_removed_row_are_dropped() {
 
 #[test]
 fn an_edit_declares_one_stream_row() {
-    let mut world = sim(64, static_config());
+    let mut world = sim(static_config());
     let edited = world.spawn(BodyDesc::sphere(0.5).position([1.0, 0.0, 0.0]));
     let untouched = world.spawn(BodyDesc::sphere(0.5).position([5.0, 0.0, 0.0]));
 
@@ -153,7 +153,7 @@ fn an_edit_declares_one_stream_row() {
 
 #[test]
 fn a_step_without_edits_declares_an_empty_stream() {
-    let mut world = sim(64, static_config());
+    let mut world = sim(static_config());
     let body = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     world.step(DT);
     world.wait();
@@ -171,8 +171,8 @@ fn a_step_without_edits_declares_an_empty_stream() {
 }
 
 #[test]
-fn forced_edits_reach_every_row_of_a_large_capacity() {
-    let mut world = sim(64, static_config());
+fn forced_edits_reach_every_row_of_a_large_world() {
+    let mut world = sim(static_config());
     let bodies = (0..64)
         .map(|index| {
             world.spawn(
@@ -203,7 +203,7 @@ fn forced_edits_reach_every_row_of_a_large_capacity() {
 
 #[test]
 fn constraint_edits_declare_their_own_stream() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5));
     let second = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.0, 0.0]));
     world.add_constraint(
@@ -219,7 +219,7 @@ fn constraint_edits_declare_their_own_stream() {
 
 #[test]
 fn a_row_move_stream_declares_only_touched_rows() {
-    let mut world = sim(65_536, static_config());
+    let mut world = sim(static_config());
     let _ground = world.spawn(BodyDesc::static_sphere(0.5));
     let first = world.spawn(BodyDesc::sphere(0.25).position([1.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.25).position([2.0, 0.0, 0.0]));
@@ -246,40 +246,49 @@ fn a_row_move_stream_declares_only_touched_rows() {
 }
 
 #[test]
-fn a_row_move_stream_never_scales_with_capacity() {
-    let mut small = sim(64, static_config());
-    let mut large = sim(65_536, static_config());
-    for world in [&mut small, &mut large] {
-        world.spawn(BodyDesc::static_sphere(0.5));
-        let ball = world.spawn(BodyDesc::sphere(0.25).position([1.0, 0.0, 0.0]));
-        world.spawn(BodyDesc::sphere(0.25).position([2.0, 0.0, 0.0]));
-        let anchor = world.spawn(BodyDesc::static_sphere(0.25).position([0.0, 3.0, 0.0]));
-        let joint = world.add_constraint(
-            anchor,
-            ball,
-            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
-        );
-        world.remove_constraint(joint);
-        world.remove(ball);
-        world.set_velocity(world.bodies()[0], [1.0, 0.0, 0.0]);
-        world.step(DT);
-        world.wait();
+fn a_large_world_shuffles_only_the_rows_touched_by_commands() {
+    let mut world = sim(static_config());
+    for index in 0..256 {
+        world.spawn(BodyDesc::static_sphere(0.1).position([100.0 + index as f32, 0.0, 0.0]));
     }
+    world.step(DT);
+    world.wait();
+    let ground = world.spawn(BodyDesc::static_sphere(0.5));
+    let ball = world.spawn(BodyDesc::sphere(0.25).position([1.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.25).position([2.0, 0.0, 0.0]));
+    let anchor = world.spawn(BodyDesc::static_sphere(0.25).position([0.0, 3.0, 0.0]));
+    let joint = world.add_constraint(
+        anchor,
+        ball,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    let spare = world.add_constraint(
+        anchor,
+        second,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    world.remove_constraint(joint);
+    world.step(DT);
+    world.wait();
     assert_eq!(
-        small.measured()[COUNTER_BODY_MOVES],
-        large.measured()[COUNTER_BODY_MOVES],
-        "reserved capacity must not widen the row move stream"
+        world.measured()[COUNTER_BODY_MOVES],
+        6,
+        "a 260 row world must shuffle only the rows touched by commands"
     );
     assert_eq!(
-        small.measured()[COUNTER_CONSTRAINT_MOVES],
-        large.measured()[COUNTER_CONSTRAINT_MOVES],
-        "reserved capacity must not widen the constraint move stream"
+        world.measured()[COUNTER_CONSTRAINT_MOVES],
+        1,
+        "removing a non tail constraint must move only the tail row"
     );
+    assert_eq!(world.count(), 260);
+    assert_eq!(world.constraints(), &[spare]);
+    assert_eq!(world.read_state(ground).position, [0.0, 0.0, 0.0]);
+    assert_eq!(world.read_state(anchor).position, [0.0, 3.0, 0.0]);
 }
 
 #[test]
 fn a_quiet_step_declares_no_row_moves() {
-    let mut world = sim(64, static_config());
+    let mut world = sim(static_config());
     world.spawn(BodyDesc::sphere(0.25));
     world.step(DT);
     world.wait();

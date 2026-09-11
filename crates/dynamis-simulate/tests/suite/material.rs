@@ -3,7 +3,7 @@ use dynamis_model::{BodyDesc, ColliderDesc, MaterialCombine, PhysicsConfig, Quer
 
 #[test]
 fn friction_combine_modes_scale_grip() {
-    let mut grip = sim(8, gravity_config());
+    let mut grip = sim(gravity_config());
     let ball = grip.spawn(BodyDesc::sphere(0.5).position([0.0, 2.0, 0.0]));
     let _floor = grip.spawn(
         BodyDesc::new(
@@ -23,13 +23,10 @@ fn friction_combine_modes_scale_grip() {
         grip_state.velocity
     );
 
-    let mut slick = sim(
-        8,
-        PhysicsConfig {
-            friction_combine: MaterialCombine::Min,
-            ..gravity_config()
-        },
-    );
+    let mut slick = sim(PhysicsConfig {
+        friction_combine: MaterialCombine::Min,
+        ..gravity_config()
+    });
     let ball = slick.spawn(BodyDesc::sphere(0.5).position([0.0, 2.0, 0.0]));
     let _floor = slick.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([5.0, 0.5, 5.0])).friction(0.1))
@@ -47,7 +44,7 @@ fn friction_combine_modes_scale_grip() {
 
 #[test]
 fn set_friction_updates_collider_material() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.45, 0.0]));
     let _floor = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([5.0, 0.5, 5.0])))
@@ -66,7 +63,7 @@ fn set_friction_updates_collider_material() {
 
 #[test]
 fn plane_floor_supports_resting_contact() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.45, 0.0]));
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
@@ -84,7 +81,7 @@ fn plane_floor_supports_resting_contact() {
 
 #[test]
 fn tilted_plane_keeps_contact_normal() {
-    let mut world = sim(8, gravity_config());
+    let mut world = sim(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.8, 0.0]));
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()).rotation([
@@ -107,7 +104,7 @@ fn tilted_plane_keeps_contact_normal() {
 
 #[test]
 fn ray_hits_plane_and_reports_surface() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
@@ -130,7 +127,7 @@ fn ray_hits_plane_and_reports_surface() {
 
 #[test]
 fn sweep_over_plane_stops_at_surface() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
@@ -157,7 +154,7 @@ fn sweep_over_plane_stops_at_surface() {
 
 #[test]
 fn scaled_cuboid_collides_at_scaled_extent() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([-8.0, 0.0, 0.0])
@@ -179,7 +176,7 @@ fn scaled_cuboid_collides_at_scaled_extent() {
 
 #[test]
 fn scaled_mesh_ray_hit_uses_local_scale() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let vertices = vec![
         [-1.0f32, 0.0, -1.0],
         [1.0, 0.0, -1.0],
@@ -213,7 +210,7 @@ fn scaled_mesh_ray_hit_uses_local_scale() {
 
 #[test]
 fn plane_ccd_stops_fast_ball() {
-    let mut world = sim(8, static_config());
+    let mut world = sim(static_config());
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
