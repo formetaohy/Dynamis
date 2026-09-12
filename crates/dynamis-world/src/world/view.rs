@@ -26,6 +26,7 @@ impl World {
 
     pub fn wait(&mut self) {
         self.backend.gpu.assert_alive();
+        self.resolve_queries();
         loop {
             self.drain_readbacks();
             if self.states_current() {

@@ -1,5 +1,5 @@
-use super::common::{DT, gravity_config, new_world, settle};
-use dynamis_model::{BodyDesc, BodyHandle};
+use super::common::{DT, gravity_config, new_world, settle, static_config};
+use dynamis_model::{BodyDesc, BodyHandle, QueryFilter};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn falling_sphere(world: &mut dynamis_world::World) -> BodyHandle {
@@ -60,12 +60,14 @@ fn observed_state_arrives_without_a_sync_while_strict_reads_require_one() {
         "a strict read must refuse a state that predates the last step"
     );
     let mut observed = None;
-    for _ in 0..16 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
         world.poll();
         if let Some(state) = world.try_state(body) {
             observed = Some(state);
             break;
         }
+        std::thread::yield_now();
     }
     let observed = observed.expect("a polled mirror must deliver the stepped state");
     assert!(observed.position[1] < 5.0);
@@ -122,5 +124,65 @@ fn contact_inspection_costs_a_single_submission() {
         manifolds
             .iter()
             .any(|manifold| manifold.first == body || manifold.second == body)
+    );
+}
+
+#[test]
+fn a_query_rides_the_step_submission() {
+    let mut world = new_world(static_config());
+    let ground = world.spawn(BodyDesc::static_sphere(1.0));
+    world.try_state(ground);
+    world.step(DT);
+    world.wait();
+    let base = world.submissions();
+    let query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.try_state(ground);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.submissions() - base,
+        1,
+        "a query must ride the step submission instead of opening its own"
+    );
+    assert!(
+        world.query_hit(query).is_some(),
+        "a query resolved by the step must deliver its hits"
+    );
+}
+
+#[test]
+fn resolving_queries_opens_a_single_submission() {
+    let mut world = new_world(static_config());
+    world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 0.0]));
+    let base = world.submissions();
+    let query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    assert!(
+        !world.query_ready(query),
+        "a query reports ready only after its results arrive"
+    );
+    world.resolve_queries();
+    assert_eq!(
+        world.submissions() - base,
+        1,
+        "pending queries resolve in one submission"
+    );
+    world.wait_query(query);
+    assert!(
+        world.query_ready(query),
+        "a resolved query must become ready"
+    );
+    assert!(
+        world.query_hit(query).is_some(),
+        "a resolved query must hit"
     );
 }

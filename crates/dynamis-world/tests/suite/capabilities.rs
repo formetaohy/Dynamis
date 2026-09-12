@@ -365,14 +365,14 @@ fn query_filter_excludes_own_body() {
         ..QueryFilter::default()
     };
     let handle = world.ray_query([5.0, 0.0, 0.0], [0.0, 0.0, 1.0], 100.0, &filter);
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(handle).is_none(),
         "excluded body must not be hit"
     );
     let filter = QueryFilter::default();
     let handle = world.ray_query([5.0, 0.0, 0.0], [0.0, 0.0, 1.0], 100.0, &filter);
-    world.flush_queries();
+    world.wait();
     assert_eq!(
         world
             .query_hit(handle)

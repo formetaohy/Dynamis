@@ -123,9 +123,12 @@ impl World {
         self.queries.pool.overflow(handle)
     }
 
-    pub fn flush_queries(&mut self) {
+    pub fn query_ready(&self, handle: QueryHandle) -> bool {
+        self.queries.pool.is_ready(handle)
+    }
+
+    pub fn resolve_queries(&mut self) {
         if self.queries.pending.is_empty() {
-            self.apply_plan();
             return;
         }
         self.backend.gpu.assert_alive();
@@ -151,7 +154,7 @@ impl World {
         let batch = self.queries.next_batch;
         self.queries.pool.submit(batch, step, count);
         self.queries.next_batch += 1;
-        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query flush");
+        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query resolve");
         self.backend
             .pipeline
             .encode_queries(&mut encoder, &self.backend.streams, &frame);
@@ -167,11 +170,20 @@ impl World {
         if let Some((batch, bytes)) = arrived {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (batch, bytes) in self.backend.streams.readback.queries.drain() {
-            self.queries.pool.collect(batch, &bytes);
-        }
         self.queries.pending.clear();
         self.apply_plan();
+    }
+
+    pub fn wait_query(&mut self, handle: QueryHandle) {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        if !self.queries.pool.is_ready(handle) {
+            let pending = self.backend.streams.readback.queries.drain();
+            for (batch, bytes) in pending {
+                self.queries.pool.collect(batch, &bytes);
+            }
+        }
+        self.validate_query(handle);
     }
 
     fn validate_query(&self, handle: QueryHandle) {
@@ -181,7 +193,7 @@ impl World {
         );
         assert!(
             self.queries.pool.is_ready(handle),
-            "query handle {handle:?} has no results yet; call poll() or wait()"
+            "query handle {handle:?} has no results yet; call resolve_queries(), step() or wait_query()"
         );
     }
 }

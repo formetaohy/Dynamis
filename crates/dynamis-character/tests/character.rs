@@ -192,3 +192,35 @@ fn character_climbs_walkable_slope() {
         position[1]
     );
 }
+
+#[test]
+fn character_queries_ride_the_world_step() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    let body = character.body();
+    for _ in 0..10 {
+        world.step(DT);
+        character.step(&mut world, DT, [1.0, 0.0, 0.0], false);
+    }
+    world.wait();
+    let base = world.submissions();
+    for _ in 0..10 {
+        world.try_state(body);
+        world.step(DT);
+        character.step(&mut world, DT, [1.0, 0.0, 0.0], false);
+    }
+    assert_eq!(
+        world.submissions() - base,
+        10,
+        "a character step must ride the world step instead of opening a submission"
+    );
+    assert!(
+        character.grounded(),
+        "a pipelined character must stay grounded on flat ground"
+    );
+}

@@ -1,6 +1,6 @@
 use dynamis_math::{add, dot, length, mul, negate, normalize, sub};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
-use dynamis_world::{QueryHit, World};
+use dynamis_world::{QueryHandle, QueryHit, World};
 
 const SKIN: f32 = 0.05;
 
@@ -26,13 +26,42 @@ impl Default for CharacterDesc {
     }
 }
 
+struct Cast {
+    forward: Option<QueryHandle>,
+    forward_low: Option<QueryHandle>,
+    lifted_forward: Option<QueryHandle>,
+    down: Option<QueryHandle>,
+    ceiling: Option<QueryHandle>,
+    down_length: f32,
+}
+
+impl Cast {
+    fn handles(&self) -> [Option<QueryHandle>; 5] {
+        [
+            self.forward,
+            self.forward_low,
+            self.lifted_forward,
+            self.down,
+            self.ceiling,
+        ]
+    }
+}
+
+struct Sweeps {
+    forward: Option<QueryHit>,
+    lifted_forward: Option<QueryHit>,
+    down: Option<QueryHit>,
+    ceiling: Option<QueryHit>,
+    down_length: f32,
+}
+
 pub struct Character {
     body: BodyHandle,
     desc: CharacterDesc,
-    up: [f32; 3],
     vertical: f32,
     grounded: bool,
     position: [f32; 3],
+    cast: Option<Cast>,
 }
 
 impl Character {
@@ -66,35 +95,134 @@ impl Character {
         Self {
             body,
             desc,
-            up: up_of(world.config().gravity),
             vertical: 0.0,
             grounded: true,
             position,
+            cast: None,
         }
     }
 
     pub fn step(&mut self, world: &mut World, dt: f32, move_dir: [f32; 3], jump: bool) {
         assert!(dt > 0.0, "character dt must be positive");
         let up = up_of(world.config().gravity);
-        self.up = up;
         let gravity_magnitude = length(world.config().gravity);
         let horizontal = if length(move_dir) > 0.0 {
             mul(normalize(move_dir), self.desc.max_speed)
         } else {
             [0.0; 3]
         };
+        let sweeps = self.take_sweeps(world, up);
         let mut jumped = false;
         if self.grounded {
             self.vertical = 0.0;
             if jump && gravity_magnitude > 0.0 {
                 self.vertical = self.desc.jump_speed;
-                self.grounded = false;
                 jumped = true;
             }
         } else {
             self.vertical -= gravity_magnitude * dt;
         }
         let vertical = self.vertical;
+        let mut target = self.position;
+        let mut grounded = false;
+        let mut vertical_after = vertical;
+        let mut cpu_horizontal = horizontal;
+        let mut press_dir = [0.0; 3];
+        let slope_cos = self.desc.slope_limit.cos();
+        if let Some(sweeps) = sweeps {
+            if !jumped && let Some(landing) = sweeps.down {
+                target = add(
+                    target,
+                    mul(
+                        up,
+                        -(landing.distance - SKIN).clamp(0.0, sweeps.down_length),
+                    ),
+                );
+                let surface = negate(landing.normal);
+                grounded = dot(surface, up) > slope_cos;
+                vertical_after = if grounded { 0.0 } else { vertical };
+            }
+            if sweeps.forward.is_some() {
+                match sweeps.lifted_forward {
+                    None => {
+                        target = add(self.position, mul(up, self.desc.step_height));
+                        grounded = false;
+                        vertical_after = vertical;
+                    }
+                    Some(_) => {
+                        cpu_horizontal = [0.0; 3];
+                        press_dir = normalize(horizontal);
+                    }
+                }
+            }
+            if sweeps.ceiling.is_some() && vertical_after > 0.0 {
+                vertical_after = 0.0;
+            }
+        }
+        let velocity = add(horizontal, mul(up, vertical_after));
+        let moved = add(mul(cpu_horizontal, dt), mul(up, vertical_after * dt));
+        self.position = add(target, moved);
+        self.grounded = grounded;
+        self.vertical = vertical_after;
+        let press = mul(press_dir, SKIN * 0.5);
+        let pre_move = sub(add(self.position, press), mul(velocity, dt));
+        world.set_position(self.body, pre_move);
+        world.set_velocity(self.body, velocity);
+        self.cast = Some(self.cast_sweeps(world, dt, up, horizontal, vertical_after, jumped));
+    }
+
+    pub fn body(&self) -> BodyHandle {
+        self.body
+    }
+
+    pub fn position(&self) -> [f32; 3] {
+        self.position
+    }
+
+    pub fn grounded(&self) -> bool {
+        self.grounded
+    }
+
+    pub fn vertical_speed(&self) -> f32 {
+        self.vertical
+    }
+
+    fn take_sweeps(&mut self, world: &mut World, up: [f32; 3]) -> Option<Sweeps> {
+        let cast = self.cast.take()?;
+        world.poll();
+        if cast
+            .handles()
+            .into_iter()
+            .flatten()
+            .any(|handle| !world.query_ready(handle))
+        {
+            world.resolve_queries();
+            for handle in cast.handles().into_iter().flatten() {
+                world.wait_query(handle);
+            }
+        }
+        let forward = cast.forward.and_then(|handle| world.query_hit(handle));
+        let forward_low = cast.forward_low.and_then(|handle| world.query_hit(handle));
+        Some(Sweeps {
+            forward: pick_forward(forward, forward_low, up),
+            lifted_forward: cast
+                .lifted_forward
+                .and_then(|handle| world.query_hit(handle)),
+            down: cast.down.and_then(|handle| world.query_hit(handle)),
+            ceiling: cast.ceiling.and_then(|handle| world.query_hit(handle)),
+            down_length: cast.down_length,
+        })
+    }
+
+    fn cast_sweeps(
+        &self,
+        world: &mut World,
+        dt: f32,
+        up: [f32; 3],
+        horizontal: [f32; 3],
+        vertical: f32,
+        jumped: bool,
+    ) -> Cast {
         let position = self.position;
         let probe = Shape::sphere(self.desc.radius);
         let identity = [0.0, 0.0, 0.0, 1.0];
@@ -136,82 +264,19 @@ impl Character {
         } else {
             None
         };
-        let up_hit = if vertical > 0.0 {
+        let ceiling = if vertical > 0.0 {
             Some(world.sweep_query(&probe, identity, top, up, up_length, &filter))
         } else {
             None
         };
-        world.flush_queries();
-
-        let mut target = position;
-        let mut grounded = false;
-        let mut vertical_after = vertical;
-        let mut cpu_horizontal = horizontal;
-        let mut press_dir = [0.0; 3];
-        let slope_cos = self.desc.slope_limit.cos();
-        let forward_hit = pick_forward(
-            forward.and_then(|handle| world.query_hit(handle)),
-            forward_low.and_then(|handle| world.query_hit(handle)),
-            up,
-        );
-        let lifted_hit = lifted_forward.and_then(|handle| world.query_hit(handle));
-        let down_hit = down.and_then(|handle| world.query_hit(handle));
-        let ceiling_hit = up_hit.and_then(|handle| world.query_hit(handle));
-
-        if !jumped && let Some(landing) = down_hit {
-            target = add(
-                target,
-                mul(up, -(landing.distance - SKIN).clamp(0.0, down_length)),
-            );
-            let surface = negate(landing.normal);
-            grounded = dot(surface, up) > slope_cos;
-            vertical_after = if grounded { 0.0 } else { vertical };
+        Cast {
+            forward,
+            forward_low,
+            lifted_forward,
+            down,
+            ceiling,
+            down_length,
         }
-        if let Some(_hit) = forward_hit {
-            match lifted_hit {
-                None => {
-                    target = lifted;
-                    grounded = false;
-                    vertical_after = vertical;
-                }
-                Some(_) => {
-                    cpu_horizontal = [0.0; 3];
-                    press_dir = normalize(horizontal);
-                }
-            }
-        }
-
-        if let Some(_ceiling) = ceiling_hit
-            && vertical_after > 0.0
-        {
-            vertical_after = 0.0;
-        }
-
-        let velocity = add(horizontal, mul(up, vertical_after));
-        let moved = add(mul(cpu_horizontal, dt), mul(up, vertical_after * dt));
-        self.position = add(target, moved);
-        self.grounded = grounded;
-        self.vertical = vertical_after;
-        let press = mul(press_dir, SKIN * 0.5);
-        let pre_move = sub(add(self.position, press), mul(velocity, dt));
-        world.set_position(self.body, pre_move);
-        world.set_velocity(self.body, velocity);
-    }
-
-    pub fn body(&self) -> BodyHandle {
-        self.body
-    }
-
-    pub fn position(&self) -> [f32; 3] {
-        self.position
-    }
-
-    pub fn grounded(&self) -> bool {
-        self.grounded
-    }
-
-    pub fn vertical_speed(&self) -> f32 {
-        self.vertical
     }
 }
 

@@ -522,17 +522,17 @@ fn point_query_detects_inside_and_outside() {
     world.step(DT);
     world.wait();
     let inside = world.point_query([0.1, 0.0, 0.0], &QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     let inside_hit = world.query_hit(inside);
     assert_eq!(inside_hit.map(|hit| hit.body), Some(body));
     let outside = world.point_query([5.0, 0.0, 0.0], &QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(outside).is_none(),
         "point outside must miss"
     );
     let edge = world.point_query([0.5, 0.0, 0.0], &QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(edge).is_some(),
         "point on the surface must hit"
@@ -556,7 +556,7 @@ fn overlap_query_accepts_any_convex_shape() {
         [2.2, 0.0, 0.0],
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     let hit = world.query_hit(handle);
     assert_eq!(hit.map(|hit| (hit.body, hit.collider)), Some((body, 1)));
     let miss = world.overlap_query(
@@ -565,7 +565,7 @@ fn overlap_query_accepts_any_convex_shape() {
         [8.0, 0.0, 0.0],
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     assert!(world.query_hit(miss).is_none());
 }
 
@@ -583,7 +583,7 @@ fn include_filter_limits_results_to_one_body() {
         ..Default::default()
     };
     let handle = world.ray_query([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 100.0, &filter);
-    world.flush_queries();
+    world.wait();
     let hits = world.query_hits(handle);
     assert!(!hits.is_empty(), "include query must not be empty");
     assert!(
@@ -613,7 +613,7 @@ fn capsule_down_sweep_normal_is_vertical() {
             0.5,
             &QueryFilter::default(),
         );
-        world.flush_queries();
+        world.wait();
         let hit = world
             .query_hit(handle)
             .expect("down sweep must hit the floor");
@@ -640,7 +640,7 @@ fn capsule_sweep_stops_before_wall_face() {
         0.5,
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     let hit = world
         .query_hit(handle)
         .expect("sweep must stop at the wall");
@@ -668,7 +668,7 @@ fn query_after_teleport_sees_the_new_position() {
         20.0,
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     let hit = world
         .query_hit(query)
         .expect("ray must hit the teleported body");
@@ -677,7 +677,7 @@ fn query_after_teleport_sees_the_new_position() {
     assert!(!world.query_overflow(query));
 
     let stale = world.point_query([0.0, 0.0, 10.0], &QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(stale).is_none(),
         "stale entries must not answer for the old position"
@@ -749,7 +749,7 @@ fn truncated_sweep_query_keeps_the_closest_obstacle() {
             ..QueryFilter::default()
         },
     );
-    world.flush_queries();
+    world.wait();
     let hit = world.query_hit(handle).expect("sweep must hit a wall");
     assert!(
         hit.distance < 1.0,
@@ -814,7 +814,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
             ..QueryFilter::default()
         },
     );
-    world.flush_queries();
+    world.wait();
     assert_eq!(
         world.query_hit(first).map(|hit| hit.body),
         Some(first_target)
@@ -828,7 +828,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
             ..QueryFilter::default()
         },
     );
-    world.flush_queries();
+    world.wait();
     assert_eq!(
         world.query_hit(second).map(|hit| hit.body),
         Some(far_target),

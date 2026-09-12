@@ -235,7 +235,7 @@ fn floor_hit_height(world: &mut World) -> Option<f32> {
         10.0,
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     world.query_hit(handle).map(|hit| hit.point[1])
 }
 

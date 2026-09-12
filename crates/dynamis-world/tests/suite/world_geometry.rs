@@ -133,7 +133,7 @@ fn a_sweep_query_respects_a_moved_mesh() {
         10.0,
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     let hit = world
         .query_hit(query)
         .expect("the sweep must hit the moved mesh");
@@ -198,7 +198,7 @@ fn a_scaled_height_field_lifts_its_surface() {
             ..QueryFilter::default()
         },
     );
-    world.flush_queries();
+    world.wait();
     let hit = world
         .query_hit(query)
         .expect("the sweep must reach the scaled field");

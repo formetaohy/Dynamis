@@ -68,7 +68,7 @@ fn add_collider_then_query_detects_it() {
         [2.0, 0.0, 0.0],
         &filter,
     );
-    world.flush_queries();
+    world.wait();
     let hit = world.query_hit(handle);
     assert_eq!(
         hit.map(|hit| (hit.body, hit.collider)),
@@ -98,7 +98,7 @@ fn removed_collider_stops_colliding() {
         [2.0, 0.0, 0.0],
         &filter,
     );
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(handle).is_none(),
         "removed collider must not be queryable"
@@ -111,7 +111,7 @@ fn removed_body_leaves_no_ghost_collider() {
     let ghost = world.spawn(BodyDesc::static_sphere(0.75).position([0.0, 0.0, 0.0]));
     let filter = QueryFilter::default();
     let probe = world.sphere_query([0.0; 3], 0.5, &filter);
-    world.flush_queries();
+    world.wait();
     assert_eq!(
         world.query_hits(probe).len(),
         1,
@@ -120,7 +120,7 @@ fn removed_body_leaves_no_ghost_collider() {
 
     world.remove(ghost);
     let probe = world.sphere_query([0.0; 3], 0.5, &filter);
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hits(probe).is_empty(),
         "a removed body must leave no ghost collider in the pool"

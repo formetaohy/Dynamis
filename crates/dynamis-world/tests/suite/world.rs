@@ -178,7 +178,7 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
                         2.0,
                         &dynamis_model::QueryFilter::default(),
                     );
-                    world.flush_queries();
+                    world.wait();
                     assert_eq!(world.query_hit(query).unwrap().body, body);
                     world.drain_events();
                 }
@@ -793,13 +793,13 @@ fn deterministic_rebuild_on_spawn_burst() {
         world.step(DT);
         let probe =
             world.sphere_query([0.0, 0.0, 0.0], 2.0, &dynamis_model::QueryFilter::default());
-        world.flush_queries();
+        world.wait();
         let hits = world.query_hits(probe);
         assert!(hits.iter().all(|hit| hit.distance.is_finite()));
     }
     world.wait();
     let probe = world.sphere_query([0.0, 0.0, 0.0], 2.0, &dynamis_model::QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     let hits = world.query_hits(probe);
     assert!(
         hits.iter().all(|hit| hit.distance.is_finite()),

@@ -139,7 +139,7 @@ fn a_narrow_ray_reaches_a_coarse_static_collider() {
         100.0,
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     let hit = world
         .query_hit(handle)
         .expect("the ray must reach the terrain");
@@ -156,7 +156,7 @@ fn a_narrow_ray_reaches_a_coarse_static_collider() {
         [0.0, 60.0, 0.0],
         &QueryFilter::default(),
     );
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(overlap).is_none(),
         "an overlap far above the terrain must miss it"
@@ -359,7 +359,7 @@ fn a_wide_query_reaches_grains_finer_than_the_query() {
     let center = [3.0, 3.0, 3.0];
     let local = world.sphere_query(center, 0.2, &QueryFilter::default());
     let wide = world.cuboid_query(center, [2.5, 2.5, 2.5], &QueryFilter::default());
-    world.flush_queries();
+    world.wait();
     assert!(
         world.query_hit(local).is_some(),
         "a local query must reach the grain it covers"
