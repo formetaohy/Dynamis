@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{CONTACT, CORE, Stage, whole};
+use super::stage::{CONTACT, CORE, IDENTITY, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -91,7 +91,7 @@ impl Islands {
                 "island_link_contacts",
                 include_str!("shaders/island_link_contacts.wgsl"),
                 per_row,
-                CORE,
+                IDENTITY,
                 &[
                     ("body_states", whole(&buffers.bodies.states)),
                     ("body_descs", whole(&buffers.bodies.descriptors)),
@@ -99,6 +99,7 @@ impl Islands {
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
                     ("island_parents", whole(&buffers.islands.parents)),
                     ("wake_flags", whole(&buffers.islands.wake_flags)),
+                    ("params", whole(&buffers.params)),
                 ],
                 &[],
             ),

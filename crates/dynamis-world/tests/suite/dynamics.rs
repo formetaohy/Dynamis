@@ -173,6 +173,71 @@ fn stacked_bodies_do_not_collapse() {
 }
 
 #[test]
+fn a_resting_tower_holds_its_spacing() {
+    let mut world = new_world(PhysicsConfig::default());
+    world.spawn(
+        BodyDesc::cuboid([40.0, 0.5, 40.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let mut tower = Vec::new();
+    for level in 0..6 {
+        tower.push(
+            world.spawn(
+                BodyDesc::cuboid([0.5; 3])
+                    .position([0.0, 0.5 + level as f32 * 1.0005, 0.0])
+                    .friction(0.7)
+                    .restitution(0.0),
+            ),
+        );
+    }
+    settle(&mut world, 240);
+    let margin = world.config().contact_margin;
+    let slop = world.config().slop;
+    for (level, handle) in tower.iter().enumerate() {
+        let state = world.read_state(*handle);
+        let expected = 0.5 + level as f32;
+        assert!(
+            (state.position[1] - expected).abs() <= margin + level as f32 * slop,
+            "tower level {level} must hold its spacing: y={} expected={expected}",
+            state.position[1]
+        );
+        assert!(
+            state.position[0].abs() < 0.1 && state.position[2].abs() < 0.1,
+            "tower level {level} must not wander: {:?}",
+            state.position
+        );
+    }
+}
+
+#[test]
+fn a_dropped_body_settles_within_the_contact_margin() {
+    let margin = 0.02;
+    let mut world = new_world(PhysicsConfig {
+        contact_margin: margin,
+        ..PhysicsConfig::default()
+    });
+    world.spawn(
+        BodyDesc::cuboid([40.0, 0.5, 40.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let box_body = world.spawn(
+        BodyDesc::cuboid([0.5; 3])
+            .position([0.0, 2.5, 0.0])
+            .friction(0.7)
+            .restitution(0.0),
+    );
+    settle(&mut world, 240);
+    let state = world.read_state(box_body);
+    let overlap = 0.5 - state.position[1];
+    assert!(
+        overlap <= margin + world.config().slop,
+        "a landing body must not sink past the contact margin: overlap={overlap}"
+    );
+}
+
+#[test]
 fn ccd_flag_stops_bullet_that_would_tunnel() {
     let mut world = new_world(static_config());
     static_sphere_ground(&mut world, 0.2);

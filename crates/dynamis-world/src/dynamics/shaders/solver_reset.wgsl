@@ -3,6 +3,7 @@
 @group(0) @binding(2) var<storage, read_write> first_b: array<u32>;
 @group(0) @binding(3) var<storage, read_write> block_counts: array<u32>;
 @group(0) @binding(4) var<storage, read_write> contact_counts: array<u32>;
+@group(0) @binding(5) var<storage, read_write> resolution: array<vec4f>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -14,4 +15,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     first_b[index] = 0u;
     block_counts[index] = 0u;
     contact_counts[index] = 0u;
+    resolution[index] = vec4f(0.0);
 }

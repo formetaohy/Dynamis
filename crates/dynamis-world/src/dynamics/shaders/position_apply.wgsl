@@ -8,6 +8,7 @@
 @group(0) @binding(7) var<storage, read> contact_counts: array<u32>;
 @group(0) @binding(8) var<storage, read> block_corrections: array<vec4f>;
 @group(0) @binding(9) var<storage, read_write> block_count: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read_write> resolution: array<vec4f>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -42,7 +43,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             correction = correction + block_corrections[b_blocks[i] * 2u + 1u].xyz;
         }
     }
+    let applied = correction / f32(blocks);
     var updated = body;
-    updated.position = body.position + correction / f32(blocks);
+    updated.position = body.position + applied;
+    resolution[body_index] = vec4f(resolution[body_index].xyz + applied, 0.0);
     body_states[body_index] = updated;
 }

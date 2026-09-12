@@ -58,7 +58,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         let second_row = resolve_row(contact.second_body_id, contact.second_generation);
         if (first_row == NO_BODY || second_row == NO_BODY) {
             release(index);
-            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+            if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
+                announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+            }
             continue;
         }
         if (body_activity[first_row] == 0u && body_activity[second_row] == 0u) {
@@ -69,6 +71,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         if (current_holds(key.x, key.y)) {
             continue;
         }
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+        if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
+            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+        }
     }
 }

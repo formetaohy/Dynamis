@@ -67,6 +67,7 @@ passes!(
     SolverPrepare => "solver_prepare",
     Solver => "solver",
     Impact => "impact",
+    SolverPosition => "solver_position",
     Sleep => "sleep",
     Commit => "commit",
     RestingGather => "resting_gather",
@@ -77,6 +78,7 @@ pub(crate) struct FrameParams {
     pub(crate) dynamic_count: u32,
     pub(crate) body_count: u32,
     pub(crate) solve_iterations: u32,
+    pub(crate) position_iterations: u32,
     pub(crate) island_rounds: u32,
     pub(crate) query_count: u32,
     pub(crate) constraint_count: u32,
@@ -193,8 +195,12 @@ impl Pipeline {
             self.integrate
                 .record_advance(&mut impact, params.dynamic_count);
             self.ccd.record(&mut impact, buffers);
-            self.solver.record_position(&mut impact, buffers, params);
             drop(impact);
+
+            let mut position = self.open(encoder, Pass::SolverPosition);
+            self.solver
+                .record_position_iterations(&mut position, buffers, params);
+            drop(position);
 
             let mut sleep = self.open(encoder, Pass::Sleep);
             self.sleep.record(&mut sleep, params);

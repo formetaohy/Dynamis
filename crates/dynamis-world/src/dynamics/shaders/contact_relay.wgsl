@@ -55,10 +55,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
             if (slot != NO_SLOT) {
                 let current = contacts[slot];
                 if (contact_same_pair(held, current)) {
-                    contact_matched[slot] = 1u;
-                    if (contact_carries_over(held, current)) {
-                        announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
-                        contacts[slot] = contact_relay_impulses(current, held);
+                    if ((held.events & CONTACT_ANNOUNCED) != 0u) {
+                        contact_matched[slot] = 1u;
+                        var relayed = current;
+                        relayed.events = relayed.events | CONTACT_ANNOUNCED;
+                        if (contact_carries_over(held, current)) {
+                            if (contact_touches(current, params.slop)) {
+                                announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
+                            }
+                            relayed = contact_relay_impulses(current, held);
+                            relayed.events = relayed.events | CONTACT_ANNOUNCED;
+                        }
+                        contacts[slot] = relayed;
                     }
                     continue;
                 }
@@ -72,6 +80,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         && !body_is_active(body_states[second_row], body_descs[second_row])) {
             continue;
         }
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
+        if ((held.events & CONTACT_ANNOUNCED) != 0u) {
+            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
+        }
     }
 }

@@ -109,6 +109,7 @@ pub(crate) struct SolverBuffers {
     pub(crate) contact_counts: GpuBuffer,
     pub(crate) deltas: GpuBuffer,
     pub(crate) corrections: GpuBuffer,
+    pub(crate) resolution: GpuBuffer,
 }
 
 pub(crate) struct ConstraintBuffers {
@@ -314,6 +315,7 @@ impl WorldBuffers {
                 contact_counts: lanes("solver contact counts", bodies),
                 deltas: rows("solver block deltas", plan.blocks(), DELTA_BYTES),
                 corrections: rows("solver block corrections", plan.blocks(), CORRECTION_BYTES),
+                resolution: rows("solver resolution", bodies, 16),
             },
             contacts: ContactBuffers {
                 resting_index: Lanes::new(device, "resting index", plan.pairs),

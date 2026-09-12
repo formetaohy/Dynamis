@@ -223,7 +223,7 @@ fn triangle_world(source_index: u32, triangle_index: u32, scale: vec3f) -> World
     return world;
 }
 
-fn plane_penetration(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> ConvexClosest {
+fn plane_distance(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> ConvexClosest {
     let points = triangle_points(source_index, triangle, scale);
     var n = sign_normalize(cross(points[1] - points[0], points[2] - points[0]));
     var offset = dot(world.center - points[0], n);
@@ -233,13 +233,13 @@ fn plane_penetration(triangle: u32, source_index: u32, scale: vec3f, world: Worl
     }
     let deep = support(world, -n);
     let extent = dot(deep - world.center, -n);
-    let depth = extent - offset;
+    let separation = offset - extent;
     var result: ConvexClosest;
-    result.distance = depth;
+    result.distance = separation;
     result.point_a = world.center - n * extent;
-    result.point_b = world.center;
+    result.point_b = result.point_a;
     result.normal = n;
-    result.penetrating = depth > 0.0;
+    result.penetrating = separation < 0.0;
     return result;
 }
 
@@ -254,16 +254,20 @@ fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShap
     result.penetrating = false;
     if (shape_sources[source_index].kind == SHAPE_HULL) {
         for (var i = 0u; i < shape_sources[source_index].triangle_count; i = i + 1u) {
-            let candidate = convex_closest(triangle_world(source_index, i, source_scale), world, &simplex, &count);
-            if (candidate.penetrating) {
-                result = candidate;
-                result.penetrating = true;
-                *out_triangle = i;
-                return result;
+            let hit = convex_hit(triangle_world(source_index, i, source_scale), world);
+            if (hit.distance == NO_HIT) {
+                continue;
             }
-            if (candidate.distance < result.distance) {
-                result = candidate;
+            if (hit.distance < result.distance) {
+                result.distance = hit.distance;
+                result.point_a = hit.point;
+                result.point_b = hit.point;
+                result.normal = hit.normal;
+                result.penetrating = hit.distance < 0.0;
                 *out_triangle = i;
+            }
+            if (hit.distance < 0.0) {
+                return result;
             }
         }
         return result;
@@ -276,8 +280,8 @@ fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShap
     let source = shape_sources[source_index];
     if (source.node_count == 0u) {
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let candidate = plane_penetration(i, source_index, source_scale, world);
-            if (candidate.penetrating) { result = candidate; result.penetrating = true; *out_triangle = i; return result; }
+            let candidate = plane_distance(i, source_index, source_scale, world);
+            if (candidate.penetrating) { result = candidate; *out_triangle = i; return result; }
             if (candidate.distance < result.distance) { result = candidate; *out_triangle = i; }
         }
         return result;
@@ -293,10 +297,9 @@ fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShap
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
-                let candidate = plane_penetration(node.left + i, source_index, source_scale, world);
+                let candidate = plane_distance(node.left + i, source_index, source_scale, world);
                 if (candidate.penetrating) {
                     result = candidate;
-                    result.penetrating = true;
                     *out_triangle = node.left + i;
                     return result;
                 }
@@ -322,14 +325,10 @@ fn scene_convex_hit(source_index: u32, source_scale: vec3f, world: WorldShape) -
     var triangle: u32;
     triangle = 0u;
     let closest = scene_convex_closest(source_index, source_scale, world, &triangle);
-    if (!closest.penetrating) {
-        if (closest.distance > 0.0) {
-            return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
-        }
+    if (closest.distance == 3.402823466e38) {
         return no_hit();
     }
-    let depth = closest.distance;
-    return ShapeHit(-depth, closest.point_a, closest.normal);
+    return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
 }
 
 fn convex_sweep_hit(moving: WorldShape, start: vec3f, direction: vec3f, obstacle: WorldShape) -> ShapeHit {
@@ -550,6 +549,7 @@ fn scene_convex_manifold(
     source_index: u32,
     source_scale: vec3f,
     world: WorldShape,
+    margin: f32,
     contact: ptr<function, Contact>,
 ) -> bool {
     let source = shape_sources[source_index];
@@ -557,9 +557,9 @@ fn scene_convex_manifold(
     var candidate_count = 0u;
     if (source.node_count == 0u) {
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let probe = plane_penetration(i, source_index, source_scale, world);
-            if (probe.penetrating) {
-                candidates[candidate_count] = ManifoldPoint(probe.point_a, probe.distance, 0.0, 0.0, 0.0, 0.0);
+            let probe = plane_distance(i, source_index, source_scale, world);
+            if (probe.distance <= margin) {
+                candidates[candidate_count] = ManifoldPoint(probe.point_a, -probe.distance, 0.0, 0.0, 0.0, 0.0);
                 candidate_count = candidate_count + 1u;
                 if (candidate_count >= 8u) {
                     break;
@@ -583,9 +583,9 @@ fn scene_convex_manifold(
             }
             if (node.leaf == 1u) {
                 for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
-                    let probe = plane_penetration(node.left + i, source_index, source_scale, world);
-                    if (probe.penetrating) {
-                        candidates[candidate_count] = ManifoldPoint(probe.point_a, probe.distance, 0.0, 0.0, 0.0, 0.0);
+                    let probe = plane_distance(node.left + i, source_index, source_scale, world);
+                    if (probe.distance <= margin) {
+                        candidates[candidate_count] = ManifoldPoint(probe.point_a, -probe.distance, 0.0, 0.0, 0.0, 0.0);
                         candidate_count = candidate_count + 1u;
                     }
                 }

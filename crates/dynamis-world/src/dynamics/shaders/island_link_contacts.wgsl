@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(6) var<uniform> params: StepParams;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -20,7 +21,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
     let stride = grid_stride(groups);
     for (var index = global_index(gid); index < live; index = index + stride) {
         let contact = contacts[index];
-        if (contact.point_count == 0u || contact.sensor == 1u) {
+        if (contact.point_count == 0u || contact.sensor == 1u || !contact_touches(contact, params.slop)) {
             continue;
         }
         let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;

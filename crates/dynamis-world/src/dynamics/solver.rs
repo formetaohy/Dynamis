@@ -32,6 +32,7 @@ impl Solver {
                     ("first_b", whole(&buffers.solver.first_b)),
                     ("block_counts", whole(&buffers.solver.counts)),
                     ("contact_counts", whole(&buffers.solver.contact_counts)),
+                    ("resolution", whole(&buffers.solver.resolution)),
                 ],
                 &[],
             ),
@@ -158,6 +159,7 @@ impl Solver {
                     ("segments", whole(&buffers.solver.segments)),
                     ("a_payload", whole(&buffers.solver.a_payload)),
                     ("block_corrections", whole(&buffers.solver.corrections)),
+                    ("resolution", whole(&buffers.solver.resolution)),
                 ],
                 &[],
             ),
@@ -177,6 +179,7 @@ impl Solver {
                     ("b_blocks", whole(&buffers.solver.b_blocks)),
                     ("contact_counts", whole(&buffers.solver.contact_counts)),
                     ("block_corrections", whole(&buffers.solver.corrections)),
+                    ("resolution", whole(&buffers.solver.resolution)),
                     ("block_count", buffers.counter(COUNTER_BLOCKS)),
                 ],
                 &[],
@@ -233,5 +236,16 @@ impl Solver {
         self.position
             .record_stride(recorder, buffers.block_capacity());
         self.position_apply.record(recorder, params.dynamic_count);
+    }
+
+    pub(super) fn record_position_iterations(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        params: &FrameParams,
+    ) {
+        for _ in 0..params.position_iterations {
+            self.record_position(recorder, buffers, params);
+        }
     }
 }

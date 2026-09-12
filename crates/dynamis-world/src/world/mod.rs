@@ -60,6 +60,14 @@ fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
 
 fn assert_config(config: &PhysicsConfig) {
     assert!(
+        config.contact_margin >= 0.0,
+        "contact margin must be non-negative"
+    );
+    assert!(
+        config.position_iterations > 0,
+        "position iterations must be strictly positive"
+    );
+    assert!(
         (0.0..=1.0).contains(&config.relaxation),
         "position relaxation must be within (0, 1]"
     );

@@ -55,6 +55,7 @@ impl World {
             dynamic_count: self.bodies.dynamic_count as u32,
             body_count: self.bodies.alive.len() as u32,
             solve_iterations: self.config.solve_iterations,
+            position_iterations: self.config.position_iterations,
             island_rounds: self.island_rounds(),
             query_count,
             constraint_count: self.constraints.alive.len() as u32,

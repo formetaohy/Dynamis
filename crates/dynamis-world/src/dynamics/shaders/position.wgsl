@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read> segments: array<u32>;
 @group(0) @binding(5) var<storage, read> a_payload: array<u32>;
 @group(0) @binding(6) var<storage, read_write> block_corrections: array<vec4f>;
+@group(0) @binding(7) var<storage, read> resolution: array<vec4f>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);

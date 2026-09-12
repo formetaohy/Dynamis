@@ -48,12 +48,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         let contact = contacts[index];
         let slot = resting_slot(contact);
         if (slot != NO_SLOT) {
-            announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
-            if (contact_carries_over(resting[slot], contact)) {
-                contacts[index] = contact_relay_impulses(contact, resting[slot]);
+            var revived = contact;
+            if ((resting[slot].events & CONTACT_ANNOUNCED) != 0u) {
+                revived.events = revived.events | CONTACT_ANNOUNCED;
+                if (contact_touches(contact, params.slop)) {
+                    announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
+                }
+                if (contact_carries_over(resting[slot], contact)) {
+                    revived = contact_relay_impulses(revived, resting[slot]);
+                    revived.events = revived.events | CONTACT_ANNOUNCED;
+                }
+            } else if (contact_touches(contact, params.slop)) {
+                announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+                revived.events = revived.events | CONTACT_ANNOUNCED;
             }
+            contacts[index] = revived;
             continue;
         }
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+        if (contact_touches(contact, params.slop)) {
+            announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+            var announced = contacts[index];
+            announced.events = announced.events | CONTACT_ANNOUNCED;
+            contacts[index] = announced;
+        }
     }
 }

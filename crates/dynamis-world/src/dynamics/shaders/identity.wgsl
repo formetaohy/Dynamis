@@ -18,6 +18,15 @@ fn contact_row_key(contact: Contact, first_row: u32, second_row: u32) -> vec2u {
     return vec2u(min(first, second), max(first, second));
 }
 
+fn contact_touches(contact: Contact, threshold: f32) -> bool {
+    for (var index = 0u; index < contact.point_count; index = index + 1u) {
+        if (contact.points[index].depth >= -threshold) {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn contact_same_roles(held: Contact, current: Contact) -> bool {
     return held.first_body_id == current.first_body_id
         && held.first_generation == current.first_generation

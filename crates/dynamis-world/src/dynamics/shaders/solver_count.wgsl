@@ -32,7 +32,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
                     let point = contact.points[point_index];
                     let speed = dot(relative_velocity(first, second, point.position, point.position), contact.normal);
                     var target_speed = 0.0;
-                    if (speed < -params.restitution_threshold) {
+                    if (point.depth < 0.0) {
+                        target_speed = point.depth / params.dt;
+                    } else if (speed < -params.restitution_threshold) {
                         target_speed = -speed * contact.restitution;
                     }
                     contact.points[point_index].target_speed = target_speed;

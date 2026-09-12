@@ -217,8 +217,10 @@ fn step_params_record_maps_config() {
         damping: 0.5,
         angular_damping: 0.25,
         solve_iterations: 7,
+        position_iterations: 5,
         relaxation: 0.4,
         slop: 0.01,
+        contact_margin: 0.03,
         restitution_threshold: 2.0,
         max_velocity: 50.0,
         max_angular_velocity: 100.0,
@@ -255,8 +257,10 @@ fn step_params_record_maps_config() {
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.solve_iterations, 7);
+    assert_eq!(record.position_iterations, 5);
     assert_eq!(record.relaxation, 0.4);
     assert_eq!(record.slop, 0.01);
+    assert_eq!(record.contact_margin, 0.03);
     assert_eq!(record.restitution_threshold, 2.0);
     assert_eq!(record.max_velocity, 50.0);
     assert_eq!(record.max_angular_velocity, 100.0);

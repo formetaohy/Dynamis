@@ -10,6 +10,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let state = body_states[index];
+    let travel = state.velocity * params.dt;
+    let margin = params.contact_margin + length(travel);
     for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
         let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
         let collider = colliders[collider_index];
@@ -22,7 +24,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
         let world = world_collider(state, collider);
         var aabb = world_aabb_of(world);
-        let extent = (aabb.max - aabb.min) * 0.5;
+        let extent = (aabb.max - aabb.min) * 0.5 + vec3f(margin);
+        let center = state.position + quat_rotate(state.orientation, collider.local_offset);
+        aabb.min = center + travel - extent;
+        aabb.max = center + travel + extent;
         let prev_center = state.prev_position + quat_rotate(state.orientation, collider.local_offset);
         aabb.min = min(aabb.min, prev_center - extent);
         aabb.max = max(aabb.max, prev_center + extent);

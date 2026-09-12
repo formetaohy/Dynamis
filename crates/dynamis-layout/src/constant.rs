@@ -34,6 +34,7 @@ declare_constants! {
     pub const COLLIDER_SENSOR: u32 = 1;
     pub const COLLIDER_EVENT_BEGIN_END: u32 = 2;
     pub const COLLIDER_EVENT_PERSIST: u32 = 4;
+    pub const CONTACT_ANNOUNCED: u32 = 0x8000_0000;
     pub const ISLAND_WAKE: u32 = 1;
     pub const ISLAND_ACTIVE: u32 = 2;
     pub const CONTACT_MAX_POINTS: u32 = 4;
