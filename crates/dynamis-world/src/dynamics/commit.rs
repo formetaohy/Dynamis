@@ -3,9 +3,9 @@ use super::stage::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY, Stage, shape_resourc
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_GRID_LEVELS,
-    COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
-    COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
+    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
+    COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS,
+    COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_sort::RadixSort;
 
@@ -152,11 +152,10 @@ impl Commit {
                     ("aabbs", whole(&buffers.collider_aabbs)),
                     ("entry_keys", whole(&buffers.grid_entry_keys)),
                     ("entry_colliders", whole(&buffers.grid_entry_colliders)),
-                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
+                    ("counters", whole(&buffers.counters)),
                     ("query_results", whole(&buffers.query_results)),
                     ("params", whole(&buffers.params)),
                     ("collider_owners", whole(&buffers.collider_owners)),
-                    ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
                 ],
                 &shape_resources(buffers),
             ),

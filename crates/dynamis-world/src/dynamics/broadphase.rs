@@ -2,10 +2,7 @@ use super::FrameParams;
 use super::stage::{GRID_INDEX, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_layout::{
-    COUNTER_COARSE_ACTIVE, COUNTER_ENTRIES, COUNTER_GRID_LEVELS, COUNTER_PAIRS,
-    COUNTER_SPILLOVER_PAIRS,
-};
+use dynamis_layout::COUNTER_ENTRIES;
 use dynamis_sort::RadixSort;
 
 pub(super) struct Broadphase {
@@ -24,15 +21,14 @@ impl Broadphase {
                 GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("entry_keys", whole(&buffers.grid_entry_keys)),
-                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
-                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
                     ("pair_major", whole(&buffers.pair_major)),
                     ("pair_minor", whole(&buffers.pair_minor)),
-                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
                     ("body_activity", whole(&buffers.body_activity)),
                     ("collider_owners", whole(&buffers.collider_owners)),
+                    ("aabbs", whole(&buffers.collider_aabbs)),
+                    ("entry_keys", whole(&buffers.grid_entry_keys)),
+                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
+                    ("counters", whole(&buffers.counters)),
                 ],
                 &[],
             ),
@@ -44,18 +40,14 @@ impl Broadphase {
                 GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("entry_keys", whole(&buffers.grid_entry_keys)),
-                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
-                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
                     ("pair_major", whole(&buffers.pair_major)),
                     ("pair_minor", whole(&buffers.pair_minor)),
-                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
                     ("aabbs", whole(&buffers.collider_aabbs)),
                     ("collider_owners", whole(&buffers.collider_owners)),
                     ("body_activity", whole(&buffers.body_activity)),
-                    ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
-                    ("active_coarse", buffers.counter(COUNTER_COARSE_ACTIVE)),
+                    ("entry_keys", whole(&buffers.grid_entry_keys)),
+                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
+                    ("counters", whole(&buffers.counters)),
                 ],
                 &[],
             ),

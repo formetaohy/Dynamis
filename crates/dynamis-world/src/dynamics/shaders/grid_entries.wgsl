@@ -2,17 +2,14 @@
 @group(0) @binding(4) var<storage, read> aabbs: array<Aabb>;
 @group(0) @binding(5) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(6) var<storage, read> body_activity: array<u32>;
-@group(0) @binding(7) var<storage, read_write> spillover: array<atomic<u32>>;
-@group(0) @binding(8) var<storage, read_write> levels: array<atomic<u32>>;
-@group(0) @binding(9) var<storage, read_write> active_coarse: array<atomic<u32>>;
 
 fn emit_entry(collider: u32, level: u32, coord: vec3i) {
-    let slot = atomicAdd(&entry_count[0], 1u);
+    let slot = counter_add(COUNTER_ENTRIES, 1u);
     if (slot < arrayLength(&entry_keys)) {
         entry_keys[slot] = cell_key(level, coord);
         entry_colliders[slot] = collider;
     } else {
-        atomicAdd(&spillover[0], 1u);
+        counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
     }
 }
 
@@ -27,12 +24,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let aabb = aabbs[collider_index];
-    let level = shape_levels(aabb, params.grid_cell_size);
-    atomicOr(&levels[0], 1u << level);
+    let cell = grid_base_cell();
+    let level = shape_levels(aabb, cell);
+    counter_or(COUNTER_GRID_LEVELS, 1u << level);
     if (level > 0u && body_activity[owner] != 0u) {
-        atomicAdd(&active_coarse[0], 1u);
+        counter_add(COUNTER_COARSE_ACTIVE, 1u);
     }
-    let cell_size = level_cell_size(level, params.grid_cell_size);
+    let cell_size = level_cell_size(level, cell);
     let min_cell = vec3i(floor(aabb.min / cell_size));
     let max_cell = vec3i(floor(aabb.max / cell_size));
     var cells = 0u;
@@ -40,7 +38,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
             for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
                 if (cells >= MAX_CELLS_PER_COLLIDER) {
-                    atomicAdd(&spillover[0], 1u);
+                    counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
                     continue;
                 }
                 cells = cells + 1u;

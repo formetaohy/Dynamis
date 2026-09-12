@@ -1,5 +1,7 @@
 use super::common::{DT, gravity_config, new_world, settle, settle_until, static_config};
-use dynamis_layout::{COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING};
+use dynamis_layout::{
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_SPILLOVER_PAIRS,
+};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
 const WIDE: f32 = 30.0;
@@ -279,5 +281,114 @@ fn a_reoriented_static_collider_pairs_at_its_new_pose() {
     assert!(
         stopped < 2.9,
         "an upright rod must stop the ball, got {stopped}"
+    );
+}
+
+fn sparse_grains(world: &mut dynamis_world::World, side: usize, spacing: f32) {
+    for index in 0..side * side * side {
+        let x = (index % side) as f32 * spacing;
+        let y = (index / side % side) as f32 * spacing;
+        let z = (index / (side * side)) as f32 * spacing;
+        world.spawn(BodyDesc::sphere(0.06).position([x, y, z]));
+    }
+}
+
+fn dense_grains(world: &mut dynamis_world::World, side: usize) {
+    sparse_grains(world, side, 0.1);
+}
+
+fn candidate_pairs(side: usize) -> (usize, u32) {
+    let mut world = new_world(static_config());
+    dense_grains(&mut world, side);
+    for _ in 0..3 {
+        world.step(DT);
+        world.wait();
+    }
+    let measured = *world.measured();
+    (side * side * side, measured[COUNTER_PAIRS])
+}
+
+#[test]
+fn a_dense_grain_cluster_pairs_with_its_neighbours_only() {
+    let (small_bodies, small_pairs) = candidate_pairs(6);
+    let (large_bodies, large_pairs) = candidate_pairs(10);
+    assert!(
+        small_pairs < 64 * small_bodies as u32,
+        "a grain lattice must not pair beyond its cell neighbourhood, got {small_pairs} pairs for {small_bodies} grains"
+    );
+    assert!(
+        large_pairs * 4 < small_pairs * 30,
+        "candidate pairs must grow with the grain count, not with the square of the density: {small_bodies} grains produced {small_pairs} pairs, {large_bodies} grains produced {large_pairs}"
+    );
+}
+
+#[test]
+fn a_dense_grain_cluster_stops_spilling_once_the_plan_catches_up() {
+    let mut world = new_world(static_config());
+    dense_grains(&mut world, 10);
+    for _ in 0..3 {
+        world.step(DT);
+        world.wait();
+    }
+    assert_eq!(
+        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        0,
+        "a settled grain lattice must fit the planned pair stream"
+    );
+    for _ in 0..3 {
+        world.step(DT);
+        world.wait();
+    }
+    assert_eq!(
+        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        0,
+        "a settled grain lattice must keep fitting the planned pair stream"
+    );
+}
+
+#[test]
+fn a_wide_query_reaches_grains_finer_than_the_query() {
+    let mut world = new_world(static_config());
+    sparse_grains(&mut world, 6, 1.0);
+    world.step(DT);
+    world.wait();
+    let center = [3.0, 3.0, 3.0];
+    let local = world.sphere_query(center, 0.2, &QueryFilter::default());
+    let wide = world.cuboid_query(center, [2.5, 2.5, 2.5], &QueryFilter::default());
+    world.flush_queries();
+    assert!(
+        world.query_hit(local).is_some(),
+        "a local query must reach the grain it covers"
+    );
+    assert!(
+        world.query_hit(wide).is_some(),
+        "a query spanning more cells than the per level budget must still reach the grains inside it"
+    );
+    assert!(
+        !world.query_overflow(local) && !world.query_overflow(wide),
+        "a sparse fine grid must answer wide queries without reporting overflow"
+    );
+}
+
+#[test]
+fn a_plane_carries_grains_far_below_its_grid_resolution() {
+    let mut world = new_world(gravity_config());
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
+    let far = world.spawn(
+        BodyDesc::sphere(0.0005)
+            .position([500.0, 0.5, 0.0])
+            .mass(1.0),
+    );
+    settle_until(&mut world, 240, |world| {
+        world.read_state(far).sleeping || { world.read_state(far).position[1] < 0.01 }
+    });
+    assert!(
+        world.measured()[COUNTER_CONTACTS] > 0,
+        "a plane must pair with grains far smaller than its extent"
+    );
+    assert!(
+        world.read_state(far).position[1] > -0.1,
+        "a grain must rest on the plane, got {}",
+        world.read_state(far).position[1]
     );
 }

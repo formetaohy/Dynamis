@@ -30,7 +30,6 @@ impl StepParamsRecord {
             restitution_threshold: config.restitution_threshold,
             max_velocity: config.max_velocity,
             max_angular_velocity: config.max_angular_velocity,
-            grid_cell_size: config.broadphase_cell_size,
             dynamic_count: dynamic_bodies,
             collider_count: colliders,
             sleep_velocity: config.sleep_velocity,

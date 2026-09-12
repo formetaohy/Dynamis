@@ -11,7 +11,6 @@ struct StepParams {
     restitution_threshold: f32,
     max_velocity: f32,
     max_angular_velocity: f32,
-    grid_cell_size: f32,
     dynamic_count: u32,
     sleep_velocity: f32,
     sleep_angular_velocity: f32,

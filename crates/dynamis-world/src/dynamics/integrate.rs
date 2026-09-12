@@ -52,6 +52,7 @@ impl Integrate {
                     ("colliders", whole(&buffers.colliders)),
                     ("collider_owners", whole(&buffers.collider_owners)),
                     ("aabbs", whole(&buffers.collider_aabbs)),
+                    ("counters", whole(&buffers.counters)),
                 ],
                 &shape_resources(buffers),
             ),

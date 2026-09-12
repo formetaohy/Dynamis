@@ -98,10 +98,6 @@ fn assert_config(config: &PhysicsConfig) {
         (0.0..=1.0).contains(&config.relaxation),
         "position relaxation must be within (0, 1]"
     );
-    assert!(
-        config.broadphase_cell_size > 0.0,
-        "broadphase cell size must be strictly positive"
-    );
 }
 
 impl World {

@@ -231,7 +231,6 @@ fn step_params_record_maps_config() {
         restitution_threshold: 2.0,
         max_velocity: 50.0,
         max_angular_velocity: 100.0,
-        broadphase_cell_size: 4.0,
         sleep_velocity: 0.3,
         sleep_angular_velocity: 0.4,
         sleep_time: 0.8,
@@ -275,7 +274,6 @@ fn step_params_record_maps_config() {
     assert_eq!(record.restitution_threshold, 2.0);
     assert_eq!(record.max_velocity, 50.0);
     assert_eq!(record.max_angular_velocity, 100.0);
-    assert_eq!(record.grid_cell_size, 4.0);
     assert_eq!(record.sleep_velocity, 0.3);
     assert_eq!(record.sleep_angular_velocity, 0.4);
     assert_eq!(record.sleep_time, 0.8);

@@ -111,6 +111,28 @@ fn shape_levels(bounds: Aabb, cell_size: f32) -> u32 {
     return level;
 }
 
+const GRID_SCALE_LIMIT: f32 = 1e12;
+const GRID_LEVEL_LIMIT: u32 = 30u;
+
+fn grid_scale_of(bounds: Aabb) -> f32 {
+    let extent = grid_extent_of(bounds);
+    if (extent <= 0.0) {
+        return 0.0;
+    }
+    return clamp(1.0 / extent, 1.0 / GRID_SCALE_LIMIT, GRID_SCALE_LIMIT);
+}
+
+fn grid_extent_of(bounds: Aabb) -> f32 {
+    return max(max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y), bounds.max.z - bounds.min.z);
+}
+
+fn grid_cell_size(scale_bits: u32, extent_bits: u32) -> f32 {
+    let scale = bitcast<f32>(scale_bits);
+    let extent = bitcast<f32>(extent_bits);
+    let finest = select(GRID_SCALE_LIMIT, 1.0 / scale, scale > 0.0);
+    return max(finest, extent * exp2(-f32(GRID_LEVEL_LIMIT)));
+}
+
 fn aabb_overlaps(first: Aabb, second: Aabb) -> bool {
     return all(first.min <= second.max) && all(second.min <= first.max);
 }

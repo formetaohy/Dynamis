@@ -1,9 +1,25 @@
 @group(0) @binding(0) var<storage, read_write> entry_keys: array<u32>;
 @group(0) @binding(1) var<storage, read_write> entry_colliders: array<u32>;
-@group(0) @binding(2) var<storage, read_write> entry_count: array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
+
+fn counter_load(slot: u32) -> u32 {
+    return atomicLoad(&counters[slot * COUNTER_STRIDE_WORDS]);
+}
+
+fn counter_add(slot: u32, value: u32) -> u32 {
+    return atomicAdd(&counters[slot * COUNTER_STRIDE_WORDS], value);
+}
+
+fn counter_or(slot: u32, value: u32) {
+    atomicOr(&counters[slot * COUNTER_STRIDE_WORDS], value);
+}
 
 fn entry_live() -> u32 {
-    return min(atomicLoad(&entry_count[0]), arrayLength(&entry_colliders));
+    return min(counter_load(COUNTER_ENTRIES), arrayLength(&entry_colliders));
+}
+
+fn grid_base_cell() -> f32 {
+    return grid_cell_size(counter_load(COUNTER_GRID_SCALE), counter_load(COUNTER_GRID_EXTENT));
 }
 
 fn entry_bounds(live: u32, key: u32) -> vec2u {
