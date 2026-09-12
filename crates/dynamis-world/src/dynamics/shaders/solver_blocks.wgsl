@@ -6,11 +6,9 @@
 @group(0) @binding(5) var<storage, read> segments: array<u32>;
 @group(0) @binding(6) var<storage, read_write> block_first_body: array<u32>;
 @group(0) @binding(7) var<storage, read_write> block_second_body: array<u32>;
-@group(0) @binding(8) var<storage, read_write> first_order_bodies: array<u32>;
-@group(0) @binding(9) var<storage, read_write> first_order_blocks: array<u32>;
-@group(0) @binding(10) var<storage, read_write> second_order_bodies: array<u32>;
-@group(0) @binding(11) var<storage, read_write> second_order_blocks: array<u32>;
-@group(0) @binding(12) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(8) var<storage, read_write> a_bodies: array<u32>;
+@group(0) @binding(9) var<storage, read_write> a_payload: array<u32>;
+@group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -22,16 +20,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     let stride = grid_stride(groups);
     for (var index = global_index(gid); index < live; index = index + stride) {
-        first_order_blocks[index] = index;
-        second_order_blocks[index] = index;
+        a_payload[index] = index;
         if (index < contact_blocks) {
             var contact = contacts[index];
             let first_body = collider_owners[contact.a];
             let second_body = collider_owners[contact.b];
             block_first_body[index] = first_body;
             block_second_body[index] = second_body;
-            first_order_bodies[index] = first_body;
-            second_order_bodies[index] = second_body;
+            a_bodies[index] = first_body;
             if (contact_block_resolves(contact)) {
                 let first = load_body(first_body);
                 let second = load_body(second_body);
@@ -52,8 +48,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
             let constraint = constraint_descs[index - contact_blocks];
             block_first_body[index] = constraint.a;
             block_second_body[index] = constraint.b;
-            first_order_bodies[index] = constraint.a;
-            second_order_bodies[index] = constraint.b;
+            a_bodies[index] = constraint.a;
         }
     }
 }

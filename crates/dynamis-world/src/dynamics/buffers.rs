@@ -4,18 +4,13 @@ use dynamis_layout::{
     BvhNodeRecord, COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
     ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
     QueryRecord, QueryResultHeaderRecord, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
-    SOLVER_CLASS_BUCKETS, SOLVER_CLASS_COUNT, SOLVER_CLASS_ROW_WORDS, ShapeSourceRecord,
-    StepParamsRecord, TriangleRecord,
+    ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_sort::{SortChannels, key_words};
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device, Queue};
 
 pub(crate) const COMPACT_BLOCK: u32 = 256;
-
-pub(crate) fn class_row_offset(class: u32) -> u64 {
-    u64::from(class) * u64::from(SOLVER_CLASS_ROW_WORDS) * 4
-}
 
 pub(crate) const EVENT_SLOTS: u32 = ReadbackRing::DEPTH as u32 + 2;
 
@@ -155,21 +150,6 @@ world_buffers! {
             size_of::<StepParamsRecord>() as u64,
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         ),
-        class_rounds: GpuBuffer = {
-            let row_bytes = u64::from(SOLVER_CLASS_ROW_WORDS) * 4;
-            let mut rounds = vec![0u32; (SOLVER_CLASS_COUNT * SOLVER_CLASS_ROW_WORDS) as usize];
-            for round in 0..SOLVER_CLASS_COUNT {
-                rounds[(round * SOLVER_CLASS_ROW_WORDS) as usize] = round;
-            }
-            let rounds_buffer = GpuBuffer::new(
-                device,
-                "solver class rounds",
-                u64::from(SOLVER_CLASS_COUNT) * row_bytes,
-                BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            );
-            rounds_buffer.write_at(queue, 0, bytemuck::cast_slice(&rounds));
-            rounds_buffer
-        },
         readback: ReadbackBuffers = ReadbackBuffers::new(device, demand),
     }
     streams {
@@ -214,23 +194,14 @@ world_buffers! {
         resting_index_minor: "resting index minor", 4, Contents::Preserve, demand.pairs;
         resting_index_slots: "resting index slots", 4, Contents::Preserve, demand.pairs;
         solver_segments: "solver segments", 4, Contents::Reset, SOLVER_BLOCK_KINDS;
-        solver_overflow: "solver overflow blocks", 4, Contents::Reset, 1;
         solver_a_bodies: "solver block bodies", 4, Contents::Reset, demand.blocks();
         solver_a_payload: "solver block payload", 4, Contents::Reset, demand.blocks();
         solver_b_bodies: "solver block second bodies", 4, Contents::Reset, demand.blocks();
         solver_b_blocks: "solver block second slots", 4, Contents::Reset, demand.blocks();
         solver_block_first_body: "solver block first owner", 4, Contents::Reset, demand.blocks();
         solver_block_second_body: "solver block second owner", 4, Contents::Reset, demand.blocks();
-        solver_class_tokens: "solver class tokens", 4, Contents::Reset, demand.blocks();
-        solver_class_blocks: "solver class blocks", 4, Contents::Reset, demand.blocks();
-        solver_class_counts: "solver class counts", 4, Contents::Reset, SOLVER_CLASS_BUCKETS;
-        solver_class_cursors: "solver class cursors", 4, Contents::Reset, SOLVER_CLASS_BUCKETS;
-        solver_class_bounds: "solver class bounds", 4, Contents::Reset,
-            SOLVER_CLASS_BUCKETS * SOLVER_CLASS_ROW_WORDS;
         solver_first_a: "solver first block", 4, Contents::Reset, demand.bodies;
         solver_first_b: "solver first second block", 4, Contents::Reset, demand.bodies;
-        solver_overflow_first_a: "solver overflow first block", 4, Contents::Reset, demand.bodies;
-        solver_overflow_first_b: "solver overflow first second block", 4, Contents::Reset, demand.bodies;
         solver_block_counts: "solver block counts", 4, Contents::Reset, demand.bodies;
         solver_contact_counts: "solver contact counts", 4, Contents::Reset, demand.bodies;
         solver_block_deltas: "solver block deltas", SOLVER_DELTA_BYTES, Contents::Reset, demand.blocks();
@@ -304,18 +275,6 @@ impl WorldBuffers {
 
     pub(crate) fn sort_capacity(&self) -> u32 {
         self.sort_scratch_major.slots()
-    }
-
-    pub(crate) fn overflow_count(&self) -> GpuSlot<'_> {
-        self.solver_overflow.slot()
-    }
-
-    pub(crate) fn class_round(&self, round: u32) -> GpuSlot<'_> {
-        GpuSlot::range(&self.class_rounds, class_row_offset(round), 4)
-    }
-
-    pub(crate) fn class_range(&self, class: u32) -> GpuSlot<'_> {
-        GpuSlot::range(self.solver_class_bounds.gpu(), class_row_offset(class), 8)
     }
 
     pub(crate) fn body_words(&self) -> u32 {

@@ -184,8 +184,7 @@ impl Pipeline {
             drop(islands);
 
             let mut prepare = self.open(encoder, Pass::SolverPrepare);
-            self.solver
-                .record_prepare(&mut prepare, buffers, params.body_count);
+            self.solver.record_prepare(&mut prepare, params.body_count);
             drop(prepare);
 
             let mut solver = self.open(encoder, Pass::Solver);

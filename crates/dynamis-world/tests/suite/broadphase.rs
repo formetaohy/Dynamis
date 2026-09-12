@@ -103,9 +103,14 @@ fn a_coarse_collider_links_to_finer_neighbours_across_levels() {
     );
     let block = world.spawn(BodyDesc::cuboid([1.0, 1.0, 1.0]).position([0.0, 3.0, 0.0]));
     let pebble = world.spawn(BodyDesc::sphere(0.3).position([0.0, 6.0, 0.0]));
-    settle_until(&mut world, 240, |world| {
-        world.measured()[COUNTER_CONTACTS] > 0 && world.read_state(block).sleeping
-    });
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_ENTRIES] > 0,
+        "a coarse collider must enter the grid"
+    );
+    assert_eq!(world.read_state(terrain).position[1], -0.5);
+    settle_until(&mut world, 240, |world| world.read_state(block).sleeping);
     assert!(
         (world.read_state(block).position[1] - 1.0).abs() < 0.2,
         "a fine block must rest on a coarse terrain, got {}",
@@ -116,7 +121,6 @@ fn a_coarse_collider_links_to_finer_neighbours_across_levels() {
         "the pebble must rest on the block, got {}",
         world.read_state(pebble).position[1]
     );
-    assert!(world.measured()[COUNTER_ENTRIES] > 0 && world.read_state(terrain).position[1] == -0.5);
 }
 
 #[test]

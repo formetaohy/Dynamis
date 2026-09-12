@@ -2,7 +2,6 @@ pub mod activity;
 pub mod broadphase;
 pub mod capabilities;
 pub mod capacity;
-pub mod class_partition;
 pub mod commands;
 pub mod common;
 pub mod compound;

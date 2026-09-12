@@ -10,7 +10,7 @@
 @group(0) @binding(9) var<storage, read_write> block_deltas: array<vec4f>;
 @group(0) @binding(10) var<storage, read> block_counts: array<u32>;
 @group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
-@group(0) @binding(12) var<storage, read> overflow_count: array<u32>;
+@group(0) @binding(12) var<storage, read> block_count: array<u32>;
 
 struct BlockPair {
     first: Body,
@@ -72,7 +72,7 @@ fn commit_block(
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = overflow_count[0];
+    let live = block_count[0];
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
@@ -87,9 +87,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn warm(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = overflow_count[0];
+    let live = block_count[0];
+    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
-        warm_contact_block(a_payload[slot], slot);
+        let block = a_payload[slot];
+        if (block < contact_blocks) {
+            warm_contact_block(block, slot);
+        } else {
+            commit_block(slot, 0u, 0u, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        }
     }
 }
