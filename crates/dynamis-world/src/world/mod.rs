@@ -1,3 +1,4 @@
+mod arena;
 mod backend;
 mod body;
 mod clock;
@@ -14,7 +15,7 @@ mod shape;
 pub(crate) mod shape_pool;
 mod step;
 
-use crate::dynamics::capacity::{Live, StreamCapacity};
+use crate::dynamics::capacity::{Live, ShapeCapacity, StreamCapacity};
 use backend::Backend;
 use body::Bodies;
 use clock::Clock;
@@ -137,6 +138,12 @@ impl World {
             entries: streams.entry_capacity(),
             pairs: streams.pair_capacity(),
             events: streams.event_capacity(),
+            shapes: ShapeCapacity {
+                sources: streams.shape_sources.slots(),
+                vertices: streams.shape_vertices.slots(),
+                triangles: streams.shape_triangles.slots(),
+                nodes: streams.shape_nodes.slots(),
+            },
         }
     }
 
@@ -162,17 +169,22 @@ impl World {
         }
     }
 
+    fn upload_shapes(&mut self, queue: &wgpu::Queue) {
+        let buffers = &self.backend.buffers;
+        self.shapes.pool.upload_pending(
+            queue,
+            &buffers.shape_sources,
+            &buffers.shape_vertices,
+            &buffers.shape_triangles,
+            &buffers.shape_nodes,
+        );
+        self.shapes.dirty = false;
+    }
+
     pub(crate) fn flush_rows(&mut self) {
         let queue = self.backend.gpu.queue().clone();
         if self.shapes.dirty {
-            self.shapes.pool.upload_pending(
-                &queue,
-                &self.backend.buffers.shape_sources,
-                &self.backend.buffers.shape_vertices,
-                &self.backend.buffers.shape_triangles,
-                &self.backend.buffers.shape_nodes,
-            );
-            self.shapes.dirty = false;
+            self.upload_shapes(&queue);
         }
         self.bodies.dirty.sort_unstable();
         self.bodies.dirty.dedup();
@@ -207,13 +219,13 @@ impl World {
 
     fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
         for cleared in self.colliders.take_cleared() {
-            let range = cleared.offset as usize..(cleared.offset + cleared.len) as usize;
+            let records = vec![ColliderRecord::cleared(); cleared.len as usize];
             let owners = vec![dynamis_layout::NO_BODY; cleared.len as usize];
             flush_pool_range(
                 &self.backend.buffers,
                 queue,
                 Some((cleared.offset, cleared.offset + cleared.len)),
-                &self.colliders.records()[range],
+                &records,
                 &owners,
             );
         }

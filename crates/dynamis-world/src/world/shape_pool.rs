@@ -1,80 +1,180 @@
+use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use crate::dynamics::buffers::ShapeUse;
 use crate::dynamics::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
+use crate::dynamics::capacity::ShapeCapacity;
+use bytemuck::Zeroable;
 use dynamis_layout::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;
 use std::mem::size_of;
 
+struct Geometry<T> {
+    arena: Arena,
+    rows: Vec<T>,
+    dirty: Vec<Run>,
+}
+
+impl<T: Copy> Geometry<T> {
+    const fn new() -> Self {
+        Self {
+            arena: Arena::new(),
+            rows: Vec::new(),
+            dirty: Vec::new(),
+        }
+    }
+
+    fn used(&self) -> u32 {
+        self.arena.used()
+    }
+
+    fn slice(&self, run: Run) -> &[T] {
+        &self.rows[run.span()]
+    }
+
+    fn take(&mut self, blank: T, values: &[T]) -> Run {
+        let run = self.arena.take(values.len() as u32);
+        self.rows.resize(self.arena.used() as usize, blank);
+        self.rows[run.span()].copy_from_slice(values);
+        self.dirty.push(run);
+        run
+    }
+
+    fn rewrite(&mut self, run: Run, blank: T, values: &[T]) -> Run {
+        if run.len as usize == values.len() {
+            self.rows[run.span()].copy_from_slice(values);
+            self.dirty.push(run);
+            return run;
+        }
+        self.release(run, blank);
+        self.take(blank, values)
+    }
+
+    fn release(&mut self, run: Run, blank: T) {
+        self.rows[run.span()].fill(blank);
+        self.arena.release(run);
+        self.rows.truncate(self.arena.used() as usize);
+    }
+
+    fn mark_all_dirty(&mut self) {
+        if self.used() > 0 {
+            self.dirty.push(Run {
+                offset: 0,
+                len: self.used(),
+            });
+        }
+    }
+
+    fn take_dirty(&mut self) -> Vec<Run> {
+        let live = self.arena.used();
+        let mut runs = std::mem::take(&mut self.dirty);
+        runs.retain_mut(|run| {
+            if run.offset >= live {
+                return false;
+            }
+            run.len = run.len.min(live - run.offset);
+            true
+        });
+        runs.sort_unstable_by_key(|run| run.offset);
+        let mut merged: Vec<Run> = Vec::with_capacity(runs.len());
+        for run in runs {
+            match merged.last_mut() {
+                Some(previous) if previous.offset + previous.len >= run.offset => {
+                    previous.len = previous.offset.max(run.offset + run.len) - previous.offset;
+                }
+                _ => merged.push(run),
+            }
+        }
+        merged
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Source {
+    kind: u32,
+    vertices: Run,
+    triangles: Run,
+    nodes: Run,
+    bounds: ([f32; 3], [f32; 3]),
+}
+
+impl Source {
+    const DEAD: Self = Self {
+        kind: 0,
+        vertices: Run::EMPTY,
+        triangles: Run::EMPTY,
+        nodes: Run::EMPTY,
+        bounds: ([0.0; 3], [0.0; 3]),
+    };
+
+    fn alive(&self) -> bool {
+        self.kind != 0
+    }
+}
+
 pub(crate) struct ShapePool {
     ids: IdSpace,
     refs: Vec<u32>,
-    records: Vec<ShapeSourceRecordStorage>,
-    pub(crate) vertices: Vec<[f32; 4]>,
-    triangles: Vec<TriangleRecord>,
-    nodes: Vec<BvhNodeRecord>,
-    uploaded_vertices: usize,
-    uploaded_triangles: usize,
-    uploaded_nodes: usize,
-}
-#[derive(Clone, Copy)]
-pub(crate) struct ShapeSourceRecordStorage {
-    pub kind: u32,
-    pub vertex_offset: u32,
-    pub vertex_count: u32,
-    pub triangle_offset: u32,
-    pub triangle_count: u32,
-    pub node_offset: u32,
-    pub node_count: u32,
-    pub bounds: ([f32; 3], [f32; 3]),
+    sources: Vec<Source>,
+    vertices: Geometry<[f32; 4]>,
+    triangles: Geometry<TriangleRecord>,
+    nodes: Geometry<BvhNodeRecord>,
 }
 
 impl ShapePool {
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             ids: IdSpace::new(),
             refs: Vec::new(),
-            records: Vec::new(),
-            vertices: Vec::new(),
-            triangles: Vec::new(),
-            nodes: Vec::new(),
-            uploaded_vertices: 0,
-            uploaded_triangles: 0,
-            uploaded_nodes: 0,
+            sources: Vec::new(),
+            vertices: Geometry::new(),
+            triangles: Geometry::new(),
+            nodes: Geometry::new(),
         }
     }
 
-    pub fn used(&self) -> ShapeUse {
-        ShapeUse {
-            sources: self.ids.len() as u32,
-            vertices: self.vertices.len() as u32,
-            triangles: self.triangles.len() as u32,
-            nodes: self.nodes.len() as u32,
+    pub(crate) fn used(&self) -> ShapeCapacity {
+        ShapeCapacity {
+            sources: self.sources.len() as u32,
+            vertices: self.vertices.used(),
+            triangles: self.triangles.used(),
+            nodes: self.nodes.used(),
         }
     }
 
-    pub fn record(&self, handle: ShapeSourceHandle) -> &ShapeSourceRecordStorage {
-        assert!(
-            (handle.id as usize) < self.records.len(),
-            "shape source handle is out of range"
-        );
+    pub(crate) fn bounds(&self, handle: ShapeSourceHandle) -> ([f32; 3], [f32; 3]) {
+        self.source(handle).bounds
+    }
+
+    fn source(&self, handle: ShapeSourceHandle) -> &Source {
+        let source = self
+            .sources
+            .get(handle.id as usize)
+            .unwrap_or_else(|| panic!("shape source handle {handle:?} is out of range"));
         assert!(
             self.ids.generation(handle.id) == handle.generation,
-            "shape source handle is stale"
+            "shape source handle {handle:?} is stale"
         );
         assert!(
-            self.records[handle.id as usize].kind != 0,
-            "shape source handle is not alive"
+            source.alive(),
+            "shape source handle {handle:?} is not alive"
         );
-        &self.records[handle.id as usize]
+        source
     }
 
-    pub fn retain(&mut self, handle: ShapeSourceHandle) {
-        self.record(handle);
+    fn grow_to(&mut self, id: u32) {
+        if self.sources.len() > id as usize {
+            return;
+        }
+        self.refs.resize(id as usize + 1, 0);
+        self.sources.resize(id as usize + 1, Source::DEAD);
+    }
+
+    pub(crate) fn retain(&mut self, handle: ShapeSourceHandle) {
+        self.source(handle);
         self.refs[handle.id as usize] += 1;
     }
 
-    pub fn release(&mut self, handle: ShapeSourceHandle) {
-        self.record(handle);
+    pub(crate) fn release(&mut self, handle: ShapeSourceHandle) {
+        self.source(handle);
         assert!(
             self.refs[handle.id as usize] > 0,
             "shape source refcount underflow"
@@ -82,230 +182,169 @@ impl ShapePool {
         self.refs[handle.id as usize] -= 1;
     }
 
-    pub fn remove(&mut self, handle: ShapeSourceHandle) {
-        self.record(handle);
+    pub(crate) fn remove(&mut self, handle: ShapeSourceHandle) {
+        let id = handle.id as usize;
+        let source = *self.source(handle);
         assert!(
-            self.refs[handle.id as usize] == 0,
+            self.refs[id] == 0,
             "shape source is still referenced by a live body"
         );
-        let id = handle.id as usize;
-        self.records[id].kind = 0;
+        self.vertices.release(source.vertices, [0.0; 4]);
+        self.triangles
+            .release(source.triangles, TriangleRecord::zeroed());
+        self.nodes.release(source.nodes, BvhNodeRecord::zeroed());
+        self.sources[id] = Source::DEAD;
         self.ids.release(handle.id);
     }
 
-    pub fn update_mesh(
-        &mut self,
-        handle: ShapeSourceHandle,
-        vertices: &[[f32; 3]],
-        triangles: &[[u32; 3]],
-    ) {
-        let record_index = handle.id as usize;
-        {
-            let record = self.record(handle);
-            assert!(
-                vertices.len() as u32 == record.vertex_count
-                    && triangles.len() as u32 == record.triangle_count,
-                "shape update must keep the exact vertex and triangle counts"
-            );
-        }
-        let node_offset = self.records[record_index].node_offset as usize;
-        let node_capacity = self.records[record_index].node_count as usize;
-        let nodes = build_bvh(vertices, triangles);
-        assert!(
-            nodes.len() <= node_capacity,
-            "shape update BVH exceeds the original node capacity"
-        );
-        for (index, vertex) in vertices.iter().enumerate() {
-            self.vertices[self.records[record_index].vertex_offset as usize + index] =
-                [vertex[0], vertex[1], vertex[2], 0.0];
-        }
-        for (index, triangle) in triangles.iter().enumerate() {
-            self.triangles[self.records[record_index].triangle_offset as usize + index] =
-                TriangleRecord {
-                    a: triangle[0],
-                    b: triangle[1],
-                    c: triangle[2],
-                    _pad0: 0,
-                };
-        }
-        for (index, node) in nodes.iter().enumerate() {
-            self.nodes[node_offset + index] = *node;
-        }
-        let (bounds_min, bounds_max) = bounds_of(vertices);
-        let record = &mut self.records[record_index];
-        record.node_count = nodes.len() as u32;
-        record.bounds = (bounds_min, bounds_max);
-    }
-
-    pub fn allocate(
+    pub(crate) fn allocate(
         &mut self,
         kind: u32,
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
-        assert!(
-            kind != dynamis_layout::SHAPE_HULL
-                || vertices.len() <= dynamis_layout::FEATURE_INDEX_LIMIT as usize,
-            "a hull must not exceed {} vertices so its features stay addressable",
-            dynamis_layout::FEATURE_INDEX_LIMIT
-        );
-        assert!(
-            triangles.len() <= dynamis_layout::FEATURE_TRIANGLE_MASK as usize,
-            "a shape source must not exceed {} triangles so its features stay addressable",
-            dynamis_layout::FEATURE_TRIANGLE_MASK
-        );
-        let (id, generation) = self.ids.acquire();
-        let (bounds_min, bounds_max) = bounds_of(vertices);
-        let vertex_offset = self.vertices.len() as u32;
-        let triangle_offset = self.triangles.len() as u32;
-        self.vertices
-            .extend(vertices.iter().map(|v| [v[0], v[1], v[2], 0.0]));
-        self.triangles
-            .extend(triangles.iter().map(|triangle| TriangleRecord {
-                a: triangle[0],
-                b: triangle[1],
-                c: triangle[2],
-                _pad0: 0,
-            }));
-        let node_offset = self.nodes.len() as u32;
+        validate_geometry(kind, vertices, triangles);
         let nodes = build_bvh(vertices, triangles);
-        let node_count = nodes.len() as u32;
-        self.nodes.extend(nodes);
-        while self.records.len() as u32 <= id {
-            self.refs.push(0);
-            self.records.push(ShapeSourceRecordStorage {
-                kind: 0,
-                vertex_offset: 0,
-                vertex_count: 0,
-                triangle_offset: 0,
-                triangle_count: 0,
-                node_offset: 0,
-                node_count: 0,
-                bounds: ([0.0; 3], [0.0; 3]),
-            });
-        }
-        self.records[id as usize] = ShapeSourceRecordStorage {
+        let bounds = bounds_of(vertices);
+        let (id, generation) = self.ids.acquire();
+        self.grow_to(id);
+        let vertex_rows = vertex_rows(vertices);
+        let triangle_rows = triangle_rows(triangles);
+        let vertex_run = self.vertices.take([0.0; 4], &vertex_rows);
+        let triangle_run = self
+            .triangles
+            .take(TriangleRecord::zeroed(), &triangle_rows);
+        let node_run = self.nodes.take(BvhNodeRecord::zeroed(), &nodes);
+        self.sources[id as usize] = Source {
             kind,
-            vertex_offset,
-            vertex_count: vertices.len() as u32,
-            triangle_offset,
-            triangle_count: triangles.len() as u32,
-            node_offset,
-            node_count,
-            bounds: (bounds_min, bounds_max),
+            vertices: vertex_run,
+            triangles: triangle_run,
+            nodes: node_run,
+            bounds,
         };
         ShapeSourceHandle { id, generation }
     }
 
-    pub fn layouts(&self) -> Vec<dynamis_layout::ShapeSourceRecord> {
-        self.records
+    pub(crate) fn update_mesh(
+        &mut self,
+        handle: ShapeSourceHandle,
+        vertices: &[[f32; 3]],
+        triangles: &[[u32; 3]],
+    ) {
+        let source = *self.source(handle);
+        validate_geometry(source.kind, vertices, triangles);
+        let nodes = build_bvh(vertices, triangles);
+        let bounds = bounds_of(vertices);
+        let vertex_rows = vertex_rows(vertices);
+        let triangle_rows = triangle_rows(triangles);
+        let vertex_run = self
+            .vertices
+            .rewrite(source.vertices, [0.0; 4], &vertex_rows);
+        let triangle_run =
+            self.triangles
+                .rewrite(source.triangles, TriangleRecord::zeroed(), &triangle_rows);
+        let node_run = self
+            .nodes
+            .rewrite(source.nodes, BvhNodeRecord::zeroed(), &nodes);
+        self.sources[handle.id as usize] = Source {
+            vertices: vertex_run,
+            triangles: triangle_run,
+            nodes: node_run,
+            bounds,
+            ..source
+        };
+    }
+
+    pub(crate) fn mark_all_dirty(&mut self) {
+        self.vertices.mark_all_dirty();
+        self.triangles.mark_all_dirty();
+        self.nodes.mark_all_dirty();
+    }
+
+    pub(crate) fn upload_pending(
+        &mut self,
+        queue: &wgpu::Queue,
+        sources_buffer: &dynamis_gpu::Stream,
+        vertices_buffer: &dynamis_gpu::Stream,
+        triangles_buffer: &dynamis_gpu::Stream,
+        nodes_buffer: &dynamis_gpu::Stream,
+    ) {
+        sources_buffer.write(queue, bytemuck::cast_slice(&self.layouts()));
+        for run in self.vertices.take_dirty() {
+            vertices_buffer.write_at(
+                queue,
+                run.offset as u64 * VERTEX_BYTES,
+                bytemuck::cast_slice(self.vertices.slice(run)),
+            );
+        }
+        for run in self.triangles.take_dirty() {
+            triangles_buffer.write_at(
+                queue,
+                run.offset as u64 * TRIANGLE_BYTES,
+                bytemuck::cast_slice(self.triangles.slice(run)),
+            );
+        }
+        for run in self.nodes.take_dirty() {
+            nodes_buffer.write_at(
+                queue,
+                run.offset as u64 * size_of::<BvhNodeRecord>() as u64,
+                bytemuck::cast_slice(self.nodes.slice(run)),
+            );
+        }
+    }
+
+    fn layouts(&self) -> Vec<dynamis_layout::ShapeSourceRecord> {
+        self.sources
             .iter()
-            .map(|record| dynamis_layout::ShapeSourceRecord {
-                kind: record.kind,
-                vertex_offset: record.vertex_offset,
-                vertex_count: record.vertex_count,
-                triangle_offset: record.triangle_offset,
-                triangle_count: record.triangle_count,
-                node_offset: record.node_offset,
-                node_count: record.node_count,
+            .map(|source| dynamis_layout::ShapeSourceRecord {
+                kind: source.kind,
+                vertex_offset: source.vertices.offset,
+                vertex_count: source.vertices.len,
+                triangle_offset: source.triangles.offset,
+                triangle_count: source.triangles.len,
+                node_offset: source.nodes.offset,
+                node_count: source.nodes.len,
                 _pad0: 0,
-                local_min: record.bounds.0,
+                local_min: source.bounds.0,
                 _pad1: 0.0,
-                local_max: record.bounds.1,
+                local_max: source.bounds.1,
                 _pad2: 0.0,
             })
             .collect()
     }
+}
 
-    pub fn upload_pending(
-        &mut self,
-        queue: &wgpu::Queue,
-        records_buffer: &dynamis_gpu::Stream,
-        vertices_buffer: &dynamis_gpu::Stream,
-        triangles_buffer: &dynamis_gpu::Stream,
-        nodes_buffer: &dynamis_gpu::Stream,
-    ) {
-        records_buffer.write(queue, bytemuck::cast_slice(&self.layouts()));
-        let pending_vertices = &self.vertices[self.uploaded_vertices..];
-        if !pending_vertices.is_empty() {
-            vertices_buffer.write_at(
-                queue,
-                self.uploaded_vertices as u64 * VERTEX_BYTES,
-                bytemuck::cast_slice(pending_vertices),
-            );
-            self.uploaded_vertices = self.vertices.len();
-        }
-        let pending_triangles = &self.triangles[self.uploaded_triangles..];
-        if !pending_triangles.is_empty() {
-            triangles_buffer.write_at(
-                queue,
-                self.uploaded_triangles as u64 * TRIANGLE_BYTES,
-                bytemuck::cast_slice(pending_triangles),
-            );
-            self.uploaded_triangles = self.triangles.len();
-        }
-        let pending_nodes = &self.nodes[self.uploaded_nodes..];
-        if !pending_nodes.is_empty() {
-            nodes_buffer.write_at(
-                queue,
-                (self.uploaded_nodes * size_of::<BvhNodeRecord>()) as u64,
-                bytemuck::cast_slice(pending_nodes),
-            );
-            self.uploaded_nodes = self.nodes.len();
-        }
-    }
+fn validate_geometry(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) {
+    assert!(
+        kind != dynamis_layout::SHAPE_HULL
+            || vertices.len() <= dynamis_layout::FEATURE_INDEX_LIMIT as usize,
+        "a hull must not exceed {} vertices so its features stay addressable",
+        dynamis_layout::FEATURE_INDEX_LIMIT
+    );
+    assert!(
+        triangles.len() <= dynamis_layout::FEATURE_TRIANGLE_MASK as usize,
+        "a shape source must not exceed {} triangles so its features stay addressable",
+        dynamis_layout::FEATURE_TRIANGLE_MASK
+    );
+}
 
-    pub fn reset_upload_cursor(&mut self) {
-        self.uploaded_vertices = 0;
-        self.uploaded_triangles = 0;
-        self.uploaded_nodes = 0;
-    }
+fn vertex_rows(vertices: &[[f32; 3]]) -> Vec<[f32; 4]> {
+    vertices
+        .iter()
+        .map(|vertex| [vertex[0], vertex[1], vertex[2], 0.0])
+        .collect()
+}
 
-    pub fn upload_update(
-        &mut self,
-        queue: &wgpu::Queue,
-        records_buffer: &dynamis_gpu::Stream,
-        vertices_buffer: &dynamis_gpu::Stream,
-        triangles_buffer: &dynamis_gpu::Stream,
-        nodes_buffer: &dynamis_gpu::Stream,
-        handle: dynamis_model::ShapeSourceHandle,
-    ) {
-        self.upload_pending(
-            queue,
-            records_buffer,
-            vertices_buffer,
-            triangles_buffer,
-            nodes_buffer,
-        );
-        let record = self.records[handle.id as usize];
-        if record.vertex_count > 0 {
-            let start = record.vertex_offset as usize;
-            let end = start + record.vertex_count as usize;
-            vertices_buffer.write_at(
-                queue,
-                (record.vertex_offset as u64) * VERTEX_BYTES,
-                bytemuck::cast_slice(&self.vertices[start..end]),
-            );
-        }
-        if record.triangle_count > 0 {
-            let start = record.triangle_offset as usize;
-            let end = start + record.triangle_count as usize;
-            triangles_buffer.write_at(
-                queue,
-                (record.triangle_offset as u64) * TRIANGLE_BYTES,
-                bytemuck::cast_slice(&self.triangles[start..end]),
-            );
-        }
-        if record.node_count > 0 {
-            let start = record.node_offset as usize;
-            let end = start + record.node_count as usize;
-            nodes_buffer.write_at(
-                queue,
-                (record.node_offset as u64) * size_of::<BvhNodeRecord>() as u64,
-                bytemuck::cast_slice(&self.nodes[start..end]),
-            );
-        }
-    }
+fn triangle_rows(triangles: &[[u32; 3]]) -> Vec<TriangleRecord> {
+    triangles
+        .iter()
+        .map(|triangle| TriangleRecord {
+            a: triangle[0],
+            b: triangle[1],
+            c: triangle[2],
+            _pad0: 0,
+        })
+        .collect()
 }
 
 fn bounds_of(vertices: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {

@@ -72,14 +72,7 @@ impl World {
         triangles: &[[u32; 3]],
     ) {
         self.shapes.pool.update_mesh(handle, vertices, triangles);
-        self.shapes.pool.upload_update(
-            self.backend.gpu.queue(),
-            &self.backend.buffers.shape_sources,
-            &self.backend.buffers.shape_vertices,
-            &self.backend.buffers.shape_triangles,
-            &self.backend.buffers.shape_nodes,
-            handle,
-        );
+        self.shapes.dirty = true;
     }
 
     pub fn update_height_field(
@@ -108,7 +101,7 @@ impl World {
     pub(super) fn shape_bounds(&self, shape: &Shape) -> Option<([f32; 3], [f32; 3])> {
         match shape {
             Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => {
-                Some(self.shapes.pool.record(*handle).bounds)
+                Some(self.shapes.pool.bounds(*handle))
             }
             _ => None,
         }

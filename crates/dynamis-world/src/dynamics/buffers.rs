@@ -1,3 +1,4 @@
+use crate::dynamics::capacity::ShapeCapacity;
 use dynamis_gpu::{Contents, GpuBuffer, GpuSlot, ReadbackRing, Stream};
 use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
@@ -34,14 +35,6 @@ const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeaderRecord>() as u64
 
 const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ShapeUse {
-    pub(crate) sources: u32,
-    pub(crate) vertices: u32,
-    pub(crate) triangles: u32,
-    pub(crate) nodes: u32,
-}
-
 pub(crate) struct Demand {
     pub(crate) bodies: u32,
     pub(crate) body_ids: u32,
@@ -53,7 +46,7 @@ pub(crate) struct Demand {
     pub(crate) entries: u32,
     pub(crate) pairs: u32,
     pub(crate) events: u32,
-    pub(crate) shapes: ShapeUse,
+    pub(crate) shapes: ShapeCapacity,
     pub(crate) sort: u32,
 }
 

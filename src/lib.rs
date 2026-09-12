@@ -24,5 +24,5 @@ pub use dynamis_model::{
     MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
 };
 pub use dynamis_world::{
-    ContactManifold, ContactPoint, QueryHandle, QueryHit, StreamCapacity, World,
+    ContactManifold, ContactPoint, QueryHandle, QueryHit, ShapeCapacity, StreamCapacity, World,
 };

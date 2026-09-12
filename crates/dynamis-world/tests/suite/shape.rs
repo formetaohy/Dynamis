@@ -488,3 +488,120 @@ fn a_small_off_center_mesh_floor_catches_a_ball_over_its_span() {
         "a small off-center mesh floor must catch the ball, got y={y}"
     );
 }
+
+fn grid_floor(half: f32, cells: u32) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+    let step = 2.0 * half / cells as f32;
+    let mut vertices = Vec::new();
+    for row in 0..=cells {
+        for col in 0..=cells {
+            vertices.push([-half + col as f32 * step, 0.0, -half + row as f32 * step]);
+        }
+    }
+    let mut triangles = Vec::new();
+    for row in 0..cells {
+        for col in 0..cells {
+            let a = row * (cells + 1) + col;
+            let b = a + 1;
+            let c = a + cells + 1;
+            let d = c + 1;
+            triangles.push([a, c, b]);
+            triangles.push([b, c, d]);
+        }
+    }
+    (vertices, triangles)
+}
+
+fn ray_height(world: &mut World, x: f32) -> Option<f32> {
+    let query = world.ray_query(
+        [x, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter::default(),
+    );
+    world.step(DT);
+    world.wait();
+    world.query_hit(query).map(|hit| hit.distance)
+}
+
+#[test]
+fn a_recycled_source_reuses_the_slots_it_released() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = grid_floor(4.0, 9);
+    let mut oldest = world.add_mesh(&vertices, &triangles);
+    let mut newest = world.add_mesh(&vertices, &triangles);
+    let mut planned = None;
+    for cycle in 0..12 {
+        world.remove_shape(oldest);
+        oldest = newest;
+        newest = world.add_mesh(&vertices, &triangles);
+        world.step(DT);
+        world.wait();
+        let room = world.stream_capacity().shapes;
+        match planned {
+            Some(planned) => assert_eq!(
+                room, planned,
+                "cycle {cycle} must reuse the slots the retired source released"
+            ),
+            None => planned = Some(room),
+        }
+    }
+    assert!(
+        world.stream_capacity().shapes.vertices < 3 * vertices.len() as u32,
+        "the plan must follow the sources that are alive, not the sources that ever were"
+    );
+}
+
+#[test]
+fn resizing_a_source_repossesses_its_slots() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = grid_floor(2.0, 4);
+    let source = world.add_mesh(&vertices, &triangles);
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(source))).mass(0.0));
+    assert!(
+        ray_height(&mut world, 3.5).is_none(),
+        "the original floor must not reach x = 3.5"
+    );
+
+    let (wider, wider_triangles) = grid_floor(4.0, 2);
+    world.update_mesh(source, &wider, &wider_triangles);
+    let hit = ray_height(&mut world, 3.5).expect("the resized floor must reach x = 3.5");
+    assert!(
+        (hit - 5.0).abs() < 1e-3,
+        "the resized floor must sit at y = 0, got {hit}"
+    );
+    assert!(
+        ray_height(&mut world, 4.5).is_none(),
+        "the resized floor must still stop at x = 4.0"
+    );
+}
+
+#[test]
+fn a_recycled_source_carries_the_replacement_geometry() {
+    let mut world = new_world(super::common::gravity_config());
+    let (vertices, triangles) = grid_floor(4.0, 3);
+    let low = world.add_mesh(&vertices, &triangles);
+    let floor = world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(low))).mass(0.0));
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
+    settle_until(&mut world, 150, |world| asleep(world));
+    let y = world.read_state(ball).position[1];
+    assert!(
+        (y - 0.5).abs() < 0.05,
+        "the ball must rest on the original floor, got y={y}"
+    );
+
+    world.remove(floor);
+    world.remove_shape(low);
+    let raised = vertices
+        .iter()
+        .map(|vertex| [vertex[0], 2.0, vertex[2]])
+        .collect::<Vec<_>>();
+    let high = world.add_mesh(&raised, &triangles);
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(high))).mass(0.0));
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
+    settle_until(&mut world, 150, |world| asleep(world));
+    let y = world.read_state(ball).position[1];
+    assert!(
+        (y - 2.5).abs() < 0.05,
+        "the recycled slots must serve the replacement floor, got y={y}"
+    );
+}

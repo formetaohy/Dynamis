@@ -1,4 +1,4 @@
-use crate::dynamics::buffers::{Demand, ShapeUse, WorldBuffers};
+use crate::dynamics::buffers::{Demand, WorldBuffers};
 use dynamis_layout::{
     COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES,
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_SPILLOVER_RESTING, Counters,
@@ -28,7 +28,15 @@ pub(crate) struct Live {
     pub(crate) body_commands: u32,
     pub(crate) constraint_commands: u32,
     pub(crate) queries: u32,
-    pub(crate) shapes: ShapeUse,
+    pub(crate) shapes: ShapeCapacity,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShapeCapacity {
+    pub sources: u32,
+    pub vertices: u32,
+    pub triangles: u32,
+    pub nodes: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +44,7 @@ pub struct StreamCapacity {
     pub entries: u32,
     pub pairs: u32,
     pub events: u32,
+    pub shapes: ShapeCapacity,
 }
 
 fn product(left: u32, right: u32, name: &str) -> u32 {
@@ -150,7 +159,7 @@ impl Capacity {
             entries: STREAM_FLOOR,
             pairs: STREAM_FLOOR,
             events: STREAM_FLOOR,
-            shapes: ShapeUse {
+            shapes: ShapeCapacity {
                 sources: MIN_SLOTS,
                 vertices: MIN_SLOTS,
                 triangles: MIN_SLOTS,
@@ -270,7 +279,7 @@ impl Capacity {
             live.queries.max(product(bodies, QUERIES_PER_BODY, "query")),
             STREAM_FLOOR,
         );
-        let shapes = ShapeUse {
+        let shapes = ShapeCapacity {
             sources: grown(
                 current.shape_sources.slots(),
                 live.shapes.sources,

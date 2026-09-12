@@ -62,14 +62,8 @@ impl World {
         );
         queue.submit([encoder.finish()]);
         self.upload_host_state();
-        self.shapes.pool.reset_upload_cursor();
-        self.shapes.pool.upload_pending(
-            &queue,
-            &self.backend.buffers.shape_sources,
-            &self.backend.buffers.shape_vertices,
-            &self.backend.buffers.shape_triangles,
-            &self.backend.buffers.shape_nodes,
-        );
+        self.shapes.pool.mark_all_dirty();
+        self.upload_shapes(&queue);
         self.backend.pipeline = Pipeline::new(&self.backend.gpu, &self.backend.buffers);
     }
 
