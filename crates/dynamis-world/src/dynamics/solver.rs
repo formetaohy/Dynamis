@@ -78,6 +78,7 @@ impl Solver {
                 ("a_bodies", whole(&buffers.solver_a_bodies)),
                 ("a_payload", whole(&buffers.solver_a_payload)),
                 ("collider_owners", whole(&buffers.collider_owners)),
+                ("target_speeds", whole(&buffers.contact_target_speeds)),
             ],
             &[],
         );
@@ -153,6 +154,7 @@ impl Solver {
                 ("block_deltas", whole(&buffers.solver_block_deltas)),
                 ("block_counts", whole(&buffers.solver_block_counts)),
                 ("collider_owners", whole(&buffers.collider_owners)),
+                ("target_speeds", whole(&buffers.contact_target_speeds)),
                 ("block_count", block_count),
             ],
             &[],

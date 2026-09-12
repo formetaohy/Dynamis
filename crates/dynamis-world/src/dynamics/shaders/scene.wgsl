@@ -487,7 +487,7 @@ fn scene_convex_manifold(
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
             let probe = plane_distance(i, scene.source, scene.scale, local);
             if (probe.distance <= margin) {
-                candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, 0.0);
+                candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, feature_triangle(i));
                 candidate_count = candidate_count + 1u;
                 if (candidate_count >= 8u) {
                     break;
@@ -511,7 +511,7 @@ fn scene_convex_manifold(
                 for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
                     let probe = plane_distance(node.left + i, scene.source, scene.scale, local);
                     if (probe.distance <= margin) {
-                        candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, 0.0);
+                        candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, feature_triangle(node.left + i));
                         candidate_count = candidate_count + 1u;
                     }
                 }
@@ -548,7 +548,7 @@ fn scene_convex_manifold(
             }
         }
         if (!merged) {
-            manifold_push(contact, point, candidates[i].depth);
+            manifold_push(contact, point, candidates[i].depth, candidates[i].feature);
         }
     }
     return contact.point_count > 0u;

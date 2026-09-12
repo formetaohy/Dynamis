@@ -9,6 +9,7 @@
 @group(0) @binding(8) var<storage, read_write> a_bodies: array<u32>;
 @group(0) @binding(9) var<storage, read_write> a_payload: array<u32>;
 @group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(11) var<storage, read_write> target_speeds: array<f32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -22,7 +23,7 @@ fn work(index: u32) {
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     a_payload[index] = index;
     if (index < contact_blocks) {
-        var contact = contacts[index];
+        let contact = contacts[index];
         let first_body = collider_owners[contact.a];
         let second_body = collider_owners[contact.b];
         block_first_body[index] = first_body;
@@ -40,9 +41,8 @@ fn work(index: u32) {
                 } else if (speed < -params.restitution_threshold) {
                     target_speed = -speed * contact.restitution;
                 }
-                contact.points[point_index].target_speed = target_speed;
+                target_speeds[index * CONTACT_MAX_POINTS + point_index] = target_speed;
             }
-            contacts[index] = contact;
         }
     } else {
         let constraint = constraint_descs[index - contact_blocks];

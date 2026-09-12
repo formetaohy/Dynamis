@@ -44,7 +44,7 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         var accumulated_tangent_2 = point.accumulated_tangent_2;
         let normal_speed = dot(relative_velocity(pair.first, pair.second, position, position), normal);
         let normal_mass = point_momentum_mass(pair.split_first, pair.split_second, position, position, normal);
-        let delta = (point.target_speed - normal_speed) / normal_mass;
+        let delta = (target_speeds[contact_index * CONTACT_MAX_POINTS + point_index] - normal_speed) / normal_mass;
         let next_normal = max(0.0, accumulated_normal + delta);
         impulses[point_index] = impulses[point_index] + vec4f(normal * (next_normal - accumulated_normal), 0.0);
         accumulated_normal = next_normal;

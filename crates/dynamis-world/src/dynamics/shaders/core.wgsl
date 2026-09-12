@@ -474,12 +474,63 @@ const FEATURE_MAX: u32 = 8u;
 const CLIP_MARGIN: f32 = 1e-4;
 const LINEAR_SUPPORT_VERTICES: u32 = 4096u;
 
-fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
+fn feature_point() -> u32 {
+    return FEATURE_POINT;
+}
+
+fn feature_pair(kind: u32, first: u32, second: u32) -> u32 {
+    return kind | (first << FEATURE_FIELD_BITS) | second;
+}
+
+fn feature_vertex(first: u32, second: u32) -> u32 {
+    return feature_pair(FEATURE_VERTEX, first, second);
+}
+
+fn feature_edge(first: u32, second: u32) -> u32 {
+    return feature_pair(FEATURE_EDGE, first, second);
+}
+
+fn feature_face(first: u32, second: u32) -> u32 {
+    return feature_pair(FEATURE_FACE, first, second);
+}
+
+fn feature_triangle(triangle: u32) -> u32 {
+    return FEATURE_TRIANGLE | triangle;
+}
+
+fn feature_field_clip(id: u32) -> u32 {
+    return FEATURE_CLIP | id;
+}
+
+fn feature_field_face(id: u32) -> u32 {
+    return FEATURE_FACE_BIT | id;
+}
+
+fn feature_mirror(feature: u32) -> u32 {
+    let kind = feature & FEATURE_KIND_MASK;
+    if (kind == FEATURE_POINT) {
+        return feature;
+    }
+    if (kind == FEATURE_TRIANGLE) {
+        return feature ^ FEATURE_TRIANGLE_SIDE;
+    }
+    let first = (feature >> FEATURE_FIELD_BITS) & FEATURE_FIELD_MASK;
+    let second = feature & FEATURE_FIELD_MASK;
+    return kind | (second << FEATURE_FIELD_BITS) | first;
+}
+
+fn contact_mirror_features(contact: ptr<function, Contact>) {
+    for (var index = 0u; index < (*contact).point_count; index = index + 1u) {
+        (*contact).points[index].feature = feature_mirror((*contact).points[index].feature);
+    }
+}
+
+fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32, feature: u32) {
     let count = (*contact).point_count;
     if (count >= CONTACT_MAX_POINTS) {
         return;
     }
-    (*contact).points[count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, 0.0);
+    (*contact).points[count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, feature);
     (*contact).point_count = count + 1u;
 }
 

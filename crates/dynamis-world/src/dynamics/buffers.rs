@@ -28,6 +28,7 @@ const BODY_FRESH_BYTES: u64 = 128;
 pub(crate) const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
 pub(crate) const TRIANGLE_BYTES: u64 = size_of::<TriangleRecord>() as u64;
 const QUERY_BYTES: u64 = size_of::<QueryRecord>() as u64;
+const CONTACT_TARGET_BYTES: u64 = 4 * dynamis_layout::CONTACT_MAX_POINTS as u64;
 const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeaderRecord>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
@@ -184,6 +185,7 @@ world_buffers! {
         compact_block_sums: "compact block sums", 4, Contents::Reset, demand.compact_blocks();
         compact_block_offsets: "compact block offsets", 4, Contents::Reset, demand.compact_blocks();
         contacts: "contacts", size_of::<ContactRecord>() as u64, Contents::Reset, demand.pairs;
+        contact_target_speeds: "contact target speeds", CONTACT_TARGET_BYTES, Contents::Reset, demand.pairs;
         contact_matched: "contact matched", 4, Contents::Reset, demand.pairs;
         contact_archive: "contact archive", size_of::<ContactRecord>() as u64, Contents::Preserve, demand.pairs;
         resting_contacts: "resting contacts", size_of::<ContactRecord>() as u64, Contents::Preserve, demand.pairs;

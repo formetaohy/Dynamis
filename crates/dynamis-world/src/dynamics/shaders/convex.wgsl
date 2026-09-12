@@ -570,9 +570,28 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     return result;
 }
 
-fn convex_sample_points(world: WorldShape, plane_adverse: vec3f, out_points: ptr<function, array<vec3f, 4>>) -> u32 {
+const BOX_INTERIOR_POINT: u32 = 8u;
+const SEGMENT_FAR_POINT: u32 = 0u;
+const SEGMENT_NEAR_POINT: u32 = 1u;
+const SEGMENT_CENTER_POINT: u32 = 2u;
+
+fn box_corner_id(face_axis: u32, face_sign: f32, first: f32, second: f32) -> u32 {
+    var id = 0u;
+    id = id | select(0u, 1u << face_axis, face_sign > 0.0);
+    id = id | select(0u, 1u << ((face_axis + 1u) % 3u), first > 0.0);
+    id = id | select(0u, 1u << ((face_axis + 2u) % 3u), second > 0.0);
+    return id;
+}
+
+fn convex_sample_points(
+    world: WorldShape,
+    plane_adverse: vec3f,
+    out_points: ptr<function, array<vec3f, 4>>,
+    out_ids: ptr<function, array<u32, 4>>,
+) -> u32 {
     if (world.kind == SHAPE_SPHERE) {
         (*out_points)[0] = world.center + plane_adverse * world.radius;
+        (*out_ids)[0] = 0u;
         return 1u;
     }
     if (world.kind == SHAPE_CUBOID) {
@@ -585,11 +604,13 @@ fn convex_sample_points(world: WorldShape, plane_adverse: vec3f, out_points: ptr
                 + axes[2] * select(-e.z, e.z, (i & 4u) != 0u);
             if (dot(corner - world.center, plane_adverse) < 0.0) {
                 (*out_points)[count] = corner;
+                (*out_ids)[count] = i;
                 count = count + 1u;
             }
         }
         if (count == 0u) {
             (*out_points)[0] = world.center - plane_adverse * min(min(e.x, e.y), e.z);
+            (*out_ids)[0] = BOX_INTERIOR_POINT;
             return 1u;
         }
         return count;
@@ -600,16 +621,21 @@ fn convex_sample_points(world: WorldShape, plane_adverse: vec3f, out_points: ptr
         let near = world.center + axis * world.half_height;
         if (dot(far - world.center, plane_adverse) < 0.0) {
             (*out_points)[0] = far;
+            (*out_ids)[0] = SEGMENT_FAR_POINT;
             (*out_points)[1] = world.center;
+            (*out_ids)[1] = SEGMENT_CENTER_POINT;
             return 2u;
         }
         (*out_points)[0] = near;
+        (*out_ids)[0] = SEGMENT_NEAR_POINT;
         (*out_points)[1] = world.center;
+        (*out_ids)[1] = SEGMENT_CENTER_POINT;
         return 2u;
     }
     let source = shape_sources[world.source];
     var best = vec3f(0.0);
     var best_dot = 3.402823466e38;
+    var best_id = 0u;
     for (var i = 0u; i < source.vertex_count; i = i + 1u) {
         let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
         let p = world.center + quat_rotate(world.rotation, local);
@@ -617,9 +643,11 @@ fn convex_sample_points(world: WorldShape, plane_adverse: vec3f, out_points: ptr
         if (s < best_dot) {
             best_dot = s;
             best = p;
+            best_id = i;
         }
     }
     (*out_points)[0] = best;
+    (*out_ids)[0] = best_id;
     return 1u;
 }
 
@@ -652,7 +680,18 @@ fn convex_hit_at(
     return ray_scaled_shape(static_target, start, direction, NO_HIT, expand);
 }
 
-fn box_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+const EMPTY_RING_FACE: u32 = FEATURE_INDEX_LIMIT;
+const CYLINDER_CAP_POINTS: u32 = 8u;
+const CYLINDER_SIDE_POINTS: u32 = 16u;
+const CYLINDER_SIDE_FACE: u32 = 2u;
+
+fn box_feature_ring(
+    world: WorldShape,
+    direction: vec3f,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
+    out_face: ptr<function, u32>,
+) -> u32 {
     let axes = world_rotated_axes(world);
     var best_axis = 0u;
     for (var i = 1u; i < 3u; i = i + 1u) {
@@ -668,9 +707,14 @@ fn box_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, arra
     let e1 = world.half_extents[(best_axis + 1u) % 3u];
     let e2 = world.half_extents[(best_axis + 2u) % 3u];
     (*out)[0] = center + u1 * e1 + u2 * e2;
+    (*out_ids)[0] = box_corner_id(best_axis, sign, 1.0, 1.0);
     (*out)[1] = center - u1 * e1 + u2 * e2;
+    (*out_ids)[1] = box_corner_id(best_axis, sign, -1.0, 1.0);
     (*out)[2] = center - u1 * e1 - u2 * e2;
+    (*out_ids)[2] = box_corner_id(best_axis, sign, -1.0, -1.0);
     (*out)[3] = center + u1 * e1 - u2 * e2;
+    (*out_ids)[3] = box_corner_id(best_axis, sign, 1.0, -1.0);
+    *out_face = feature_field_face(best_axis * 2u + select(0u, 1u, sign > 0.0));
     return 4u;
 }
 
@@ -678,11 +722,14 @@ fn ring_of(
     world: WorldShape,
     direction: vec3f,
     points: ptr<function, array<vec3f, 16>>,
+    ids: ptr<function, array<u32, 16>>,
     count: u32,
     out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
 ) -> u32 {
     if (count <= 1u) {
         (*out)[0] = support(world, direction);
+        (*out_ids)[0] = (*ids)[0];
         return 1u;
     }
     let n = sign_normalize(direction);
@@ -708,33 +755,48 @@ fn ring_of(
                 let tmp = points[i];
                 points[i] = points[j];
                 points[j] = tmp;
+                let tmp_id = ids[i];
+                ids[i] = ids[j];
+                ids[j] = tmp_id;
             }
         }
     }
     var keep = min(count, FEATURE_MAX);
     for (var i = 0u; i < keep; i = i + 1u) {
         (*out)[i] = points[i];
+        (*out_ids)[i] = ids[i];
     }
     return keep;
 }
 
-fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+fn hull_feature_ring(
+    world: WorldShape,
+    direction: vec3f,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
+    out_face: ptr<function, u32>,
+) -> u32 {
     let source = shape_sources[world.source];
     let d = quat_rotate(quat_conjugate(world.rotation), direction) * world.scale;
     let best_dot = dot(support_local(world, d), d);
     let extent = source.local_max - source.local_min;
     let eps = 1e-3 * max(max(extent.x, extent.y), extent.z) * max(max(world.scale.x, world.scale.y), world.scale.z);
     var points: array<vec3f, 16>;
+    var ids: array<u32, 16>;
     var count = 0u;
+    var first_id = EMPTY_RING_FACE;
     if (source.vertex_count <= LINEAR_SUPPORT_VERTICES) {
         for (var i = 0u; i < source.vertex_count && count < 16u; i = i + 1u) {
             let v = shape_vertices[source.vertex_offset + i].xyz;
             if (dot(v, d) >= best_dot - eps) {
                 points[count] = world.center + quat_rotate(world.rotation, v * world.scale);
+                ids[count] = i;
+                first_id = min(first_id, i);
                 count = count + 1u;
             }
         }
-        return ring_of(world, direction, &points, count, out);
+        *out_face = feature_field_face(first_id);
+        return ring_of(world, direction, &points, &ids, count, out, out_ids);
     }
     var stack: array<u32, 64>;
     var stack_count = 1u;
@@ -760,6 +822,8 @@ fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, arr
                             }
                             if (!seen) {
                                 points[count] = p;
+                                ids[count] = corners[c];
+                                first_id = min(first_id, corners[c]);
                                 count = count + 1u;
                             }
                         }
@@ -773,29 +837,42 @@ fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, arr
             }
         }
     }
-    return ring_of(world, direction, &points, count, out);
+    *out_face = feature_field_face(first_id);
+    return ring_of(world, direction, &points, &ids, count, out, out_ids);
 }
 
-fn cylinder_feature(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+fn cylinder_feature(
+    world: WorldShape,
+    direction: vec3f,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
+    out_face: ptr<function, u32>,
+) -> u32 {
     let axis = shape_axis(world);
     let alignment = dot(axis, normalize(direction));
     if (abs(alignment) > 0.93) {
         let sign = select(1.0, -1.0, alignment < 0.0);
+        let cap = select(0u, 1u, sign > 0.0);
         let cap_center = world.center + axis * world.half_height * sign;
         var u = normalize(cross(axis, vec3f(1.0, 0.0, 0.0)));
         if (length(cross(axis, vec3f(1.0, 0.0, 0.0))) < 1e-6) {
             u = normalize(cross(axis, vec3f(0.0, 0.0, 1.0)));
         }
         let v = cross(axis, u);
-        for (var i = 0u; i < 8u; i = i + 1u) {
+        for (var i = 0u; i < CYLINDER_CAP_POINTS; i = i + 1u) {
             let angle = f32(i) * 0.78539816;
             (*out)[i] = cap_center + (u * cos(angle) + v * sin(angle)) * world.radius;
+            (*out_ids)[i] = cap * CYLINDER_CAP_POINTS + i;
         }
-        return 8u;
+        *out_face = feature_field_face(cap);
+        return CYLINDER_CAP_POINTS;
     }
     let side = sign_normalize(direction - axis * dot(direction, axis));
     (*out)[0] = world.center + axis * world.half_height + side * world.radius;
+    (*out_ids)[0] = CYLINDER_SIDE_POINTS;
     (*out)[1] = world.center - axis * world.half_height + side * world.radius;
+    (*out_ids)[1] = CYLINDER_SIDE_POINTS + 1u;
+    *out_face = feature_field_face(CYLINDER_SIDE_FACE);
     return 2u;
 }
 
@@ -803,24 +880,28 @@ fn shape_feature(
     world: WorldShape,
     direction: vec3f,
     out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
+    out_face: ptr<function, u32>,
     flat: ptr<function, bool>,
 ) -> u32 {
     if (world.kind == SHAPE_CUBOID) {
         *flat = true;
-        return box_feature_ring(world, direction, out);
+        return box_feature_ring(world, direction, out, out_ids, out_face);
     }
     if (world.kind == SHAPE_HULL) {
-        let count = hull_feature_ring(world, direction, out);
+        let count = hull_feature_ring(world, direction, out, out_ids, out_face);
         *flat = count > 1u;
         return count;
     }
     if (world.kind == SHAPE_CYLINDER) {
-        let count = cylinder_feature(world, direction, out);
+        let count = cylinder_feature(world, direction, out, out_ids, out_face);
         *flat = count > 2u;
         return count;
     }
     *flat = false;
     (*out)[0] = support(world, direction);
+    (*out_ids)[0] = 0u;
+    *out_face = feature_field_face(0u);
     return 1u;
 }
 
@@ -844,11 +925,15 @@ fn convex_pair_manifold(
     contact: ptr<function, Contact>,
 ) -> bool {
     var first_points: array<vec3f, FEATURE_MAX>;
+    var first_ids: array<u32, FEATURE_MAX>;
     var second_points: array<vec3f, FEATURE_MAX>;
+    var second_ids: array<u32, FEATURE_MAX>;
+    var first_face = 0u;
+    var second_face = 0u;
     var first_flat = false;
     var second_flat = false;
-    let first_count = shape_feature(first, direction, &first_points, &first_flat);
-    let second_count = shape_feature(second, -direction, &second_points, &second_flat);
+    let first_count = shape_feature(first, direction, &first_points, &first_ids, &first_face, &first_flat);
+    let second_count = shape_feature(second, -direction, &second_points, &second_ids, &second_face, &second_flat);
     if (!first_flat && !second_flat) {
         return false;
     }
@@ -858,19 +943,24 @@ fn convex_pair_manifold(
     }
     var reference: array<vec3f, FEATURE_MAX>;
     var reference_count = 0u;
+    var reference_face = second_face;
     var incident: array<vec3f, FEATURE_MAX>;
+    var incident_ids: array<u32, FEATURE_MAX>;
     var incident_count = 0u;
     var ref_dir: vec3f;
     if (first_reference) {
         reference = first_points;
         reference_count = first_count;
+        reference_face = first_face;
         incident = second_points;
+        incident_ids = second_ids;
         incident_count = second_count;
         ref_dir = direction;
     } else {
         reference = second_points;
         reference_count = second_count;
         incident = first_points;
+        incident_ids = first_ids;
         incident_count = first_count;
         ref_dir = -direction;
     }
@@ -900,7 +990,18 @@ fn convex_pair_manifold(
                 }
             }
             if (kept) {
-                candidates[candidate_count] = ManifoldPoint(point - ref_dir * (depth * 0.5), depth, 0.0, 0.0, 0.0, 0.0);
+                candidates[candidate_count] = ManifoldPoint(
+                    point - ref_dir * (depth * 0.5),
+                    depth,
+                    0.0,
+                    0.0,
+                    0.0,
+                    select(
+                        feature_vertex(incident_ids[i], reference_face),
+                        feature_vertex(reference_face, incident_ids[i]),
+                        first_reference,
+                    ),
+                );
                 candidate_count = candidate_count + 1u;
             }
         }
@@ -909,7 +1010,7 @@ fn convex_pair_manifold(
         if (deepest_depth <= 0.0) {
             return false;
         }
-        manifold_push(contact, deepest - ref_dir * (deepest_depth * 0.5), deepest_depth);
+        manifold_push(contact, deepest - ref_dir * (deepest_depth * 0.5), deepest_depth, feature_point());
         return true;
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
@@ -922,7 +1023,7 @@ fn convex_pair_manifold(
         }
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
-        manifold_push(contact, candidates[i].position, candidates[i].depth);
+        manifold_push(contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
     }
     return true;
 }

@@ -13,6 +13,7 @@ pub struct ContactPoint {
     pub depth: f32,
     pub normal_impulse: f32,
     pub tangent_impulse: f32,
+    pub feature: u32,
 }
 
 pub struct ContactManifold {
@@ -290,6 +291,7 @@ fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
                 tangent_impulse: (point.accumulated_tangent_1 * point.accumulated_tangent_1
                     + point.accumulated_tangent_2 * point.accumulated_tangent_2)
                     .sqrt(),
+                feature: point.feature,
             })
             .collect(),
         step,

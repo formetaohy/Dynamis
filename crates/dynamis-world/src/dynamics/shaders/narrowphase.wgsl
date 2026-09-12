@@ -71,13 +71,14 @@ margin: f32,
     }
     let depth = radius_sum - distance;
     let point = first_center + normal * (first_collider.radius - depth * 0.5);
-    manifold_push(&contact, point, depth);
+    manifold_push(&contact, point, depth, feature_point());
     return contact;
 }
 
 struct BoxFace {
     normal: vec3f,
     clearance: f32,
+    index: u32,
 }
 
 fn box_nearest_face(point: vec3f, box_body: Body, box_collider: Collider) -> BoxFace {
@@ -96,6 +97,7 @@ fn box_nearest_face(point: vec3f, box_body: Body, box_collider: Collider) -> Box
     var face: BoxFace;
     face.normal = -quat_rotate(q, facing);
     face.clearance = clearance[axis];
+    face.index = axis * 2u + select(0u, 1u, local[axis] > 0.0);
     return face;
 }
 
@@ -122,7 +124,7 @@ margin: f32,
         return contact;
     }
     let point = closest - normal * (depth * 0.5);
-    manifold_push(&contact, point, depth);
+    manifold_push(&contact, point, depth, feature_point());
     return contact;
 }
 
@@ -152,7 +154,7 @@ margin: f32,
     let normal = sign_normalize(delta);
     let depth = radius_sum - distance;
     let point = closest - normal * (depth * 0.5);
-    manifold_push(&contact, point, depth);
+    manifold_push(&contact, point, depth, feature_point());
     return contact;
 }
 
@@ -216,7 +218,7 @@ margin: f32,
     let normal = sign_normalize(delta);
     let depth = radius_sum - distance;
     let point = (closest.start + closest.end) * 0.5;
-    manifold_push(&contact, point, depth);
+    manifold_push(&contact, point, depth, feature_point());
     return contact;
 }
 
@@ -229,7 +231,14 @@ fn box_support(body: Body, collider: Collider, direction: vec3f) -> vec3f {
     return point;
 }
 
-fn box_face(body: Body, collider: Collider, face_normal: vec3f, corners: ptr<function, array<vec3f, 4>>) -> vec3f {
+fn box_face(
+    body: Body,
+    collider: Collider,
+    face_normal: vec3f,
+    corners: ptr<function, array<vec3f, 4>>,
+    ids: ptr<function, array<u32, 4>>,
+    out_face: ptr<function, u32>,
+) -> vec3f {
     let axes = box_rotated_axes(body.state, collider);
     let center = box_center(body.state, collider);
     var axis = 0u;
@@ -253,10 +262,25 @@ fn box_face(body: Body, collider: Collider, face_normal: vec3f, corners: ptr<fun
     for (var index = 0u; index < 4u; index = index + 1u) {
         (*corners)[index] = face_center + edges[index];
     }
+    (*ids)[0] = box_corner_id(axis, sign, 1.0, 1.0);
+    (*ids)[1] = box_corner_id(axis, sign, -1.0, 1.0);
+    (*ids)[2] = box_corner_id(axis, sign, -1.0, -1.0);
+    (*ids)[3] = box_corner_id(axis, sign, 1.0, -1.0);
+    *out_face = axis * 2u + select(0u, 1u, sign > 0.0);
     return face_center;
 }
 
-fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_normal: vec3f, out_points: ptr<function, array<vec3f, 8>>) -> u32 {
+fn clip_polygon(
+    points: array<vec3f, 8>,
+    ids: array<u32, 8>,
+    count: u32,
+    plane_point: vec3f,
+    plane_normal: vec3f,
+    group: u32,
+    side: u32,
+    out_points: ptr<function, array<vec3f, 8>>,
+    out_ids: ptr<function, array<u32, 8>>,
+) -> u32 {
     var out_count = 0u;
     for (var i = 0u; i < count; i = i + 1u) {
         let current = points[i];
@@ -266,6 +290,7 @@ fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_n
         if (current_dist <= 0.0) {
             if (out_count < 8u) {
                 (*out_points)[out_count] = current;
+                (*out_ids)[out_count] = ids[i];
                 out_count = out_count + 1u;
             }
         }
@@ -273,6 +298,7 @@ fn clip_polygon(points: array<vec3f, 8>, count: u32, plane_point: vec3f, plane_n
             let t = current_dist / (current_dist - next_dist);
             if (out_count < 8u) {
                 (*out_points)[out_count] = current + (next - current) * t;
+                (*out_ids)[out_count] = feature_field_clip(group * 32u + side * 8u + i);
                 out_count = out_count + 1u;
             }
         }
@@ -343,6 +369,8 @@ margin: f32,
     }
     var edge_depth = 1e30;
     var edge_axis = face_axis;
+    var edge_first_axis = 0u;
+    var edge_second_axis = 0u;
     for (var i = 0u; i < 3u; i = i + 1u) {
         for (var j = 0u; j < 3u; j = j + 1u) {
             let crossed = cross(left.axes[i], right.axes[j]);
@@ -355,6 +383,8 @@ margin: f32,
             if (overlap < edge_depth) {
                 edge_depth = overlap;
                 edge_axis = axis;
+                edge_first_axis = i;
+                edge_second_axis = j;
             }
         }
     }
@@ -370,7 +400,7 @@ margin: f32,
     manifold_emit(&contact, signed);
     if (edge_axis_separates) {
         let point = (box_support(first, first_collider, signed) + box_support(second, second_collider, -signed)) * 0.5;
-        manifold_push(&contact, point, depth);
+        manifold_push(&contact, point, depth, feature_edge(edge_first_axis, edge_second_axis));
         return contact;
     }
     var reference = left;
@@ -382,7 +412,9 @@ margin: f32,
         ref_normal = -signed;
     }
     var ref_corners: array<vec3f, 4>;
-    let ref_center = box_face(reference.body, reference.collider, ref_normal, &ref_corners);
+    var ref_ids: array<u32, 4>;
+    var ref_face = 0u;
+    let ref_center = box_face(reference.body, reference.collider, ref_normal, &ref_corners, &ref_ids, &ref_face);
     var incident_axis = 0u;
     for (var i = 1u; i < 3u; i = i + 1u) {
         if (abs(dot(incident.axes[i], ref_normal)) > abs(dot(incident.axes[incident_axis], ref_normal))) {
@@ -391,11 +423,17 @@ margin: f32,
     }
     let incident_normal = incident.axes[incident_axis] * select(1.0, -1.0, dot(incident.axes[incident_axis], ref_normal) > 0.0);
     var incident_corners: array<vec3f, 4>;
-    box_face(incident.body, incident.collider, incident_normal, &incident_corners);
+    var incident_ids: array<u32, 4>;
+    var incident_face = 0u;
+    box_face(incident.body, incident.collider, incident_normal, &incident_corners, &incident_ids, &incident_face);
+    let ref_field = feature_field_face(ref_face);
     var polygon_a: array<vec3f, 8>;
     var polygon_b: array<vec3f, 8>;
+    var polygon_ids_a: array<u32, 8>;
+    var polygon_ids_b: array<u32, 8>;
     for (var i = 0u; i < 4u; i = i + 1u) {
         polygon_a[i] = incident_corners[i];
+        polygon_ids_a[i] = incident_ids[i];
     }
     var polygon_count = 4u;
     for (var side = 0u; side < 4u; side = side + 1u) {
@@ -403,9 +441,9 @@ margin: f32,
         let next = ref_corners[(side + 1u) % 4u];
         let plane_normal = normalize(cross(next - current, ref_normal));
         if (side % 2u == 0u) {
-            polygon_count = clip_polygon(polygon_a, polygon_count, current, plane_normal, &polygon_b);
+            polygon_count = clip_polygon(polygon_a, polygon_ids_a, polygon_count, current, plane_normal, incident_face, side, &polygon_b, &polygon_ids_b);
         } else {
-            polygon_count = clip_polygon(polygon_b, polygon_count, current, plane_normal, &polygon_a);
+            polygon_count = clip_polygon(polygon_b, polygon_ids_b, polygon_count, current, plane_normal, incident_face, side, &polygon_a, &polygon_ids_a);
         }
         if (polygon_count == 0u) {
             break;
@@ -416,7 +454,18 @@ margin: f32,
     for (var i = 0u; i < polygon_count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
         let point_depth = dot(ref_center - polygon_a[i], ref_normal);
         if (point_depth >= -margin) {
-            candidates[candidate_count] = ManifoldPoint(polygon_a[i] - ref_normal * (point_depth * 0.5), point_depth, 0.0, 0.0, 0.0, 0.0);
+            candidates[candidate_count] = ManifoldPoint(
+                polygon_a[i] - ref_normal * (point_depth * 0.5),
+                point_depth,
+                0.0,
+                0.0,
+                0.0,
+                select(
+                    feature_face(ref_field, polygon_ids_a[i]),
+                    feature_face(polygon_ids_a[i], ref_field),
+                    face_on_right,
+                ),
+            );
             candidate_count = candidate_count + 1u;
         }
     }
@@ -424,13 +473,24 @@ margin: f32,
         for (var i = 0u; i < 4u && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
             let point_depth = dot(ref_center - incident_corners[i], ref_normal);
             if (point_depth >= -margin) {
-                candidates[candidate_count] = ManifoldPoint(incident_corners[i] - ref_normal * (point_depth * 0.5), point_depth, 0.0, 0.0, 0.0, 0.0);
+                candidates[candidate_count] = ManifoldPoint(
+                    incident_corners[i] - ref_normal * (point_depth * 0.5),
+                    point_depth,
+                    0.0,
+                    0.0,
+                    0.0,
+                    select(
+                        feature_face(ref_field, incident_ids[i]),
+                        feature_face(incident_ids[i], ref_field),
+                        face_on_right,
+                    ),
+                );
                 candidate_count = candidate_count + 1u;
             }
         }
     }
     if (candidate_count == 0u) {
-        manifold_push(&contact, ref_center - ref_normal * (face_depth * 0.5), face_depth);
+        manifold_push(&contact, ref_center - ref_normal * (face_depth * 0.5), face_depth, feature_point());
         return contact;
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
@@ -443,7 +503,7 @@ margin: f32,
         }
     }
     for (var i = 0u; i < candidate_count; i = i + 1u) {
-        manifold_push(&contact, candidates[i].position, candidates[i].depth);
+        manifold_push(&contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
     }
     return contact;
 }
@@ -466,9 +526,9 @@ margin: f32,
         let distance = length(delta);
         var depth = capsule_collider.radius - distance;
         if (depth > -margin) {
+            let face = box_nearest_face(point, box_body, box_collider);
             var normal = sign_normalize(delta);
             if (distance <= 1e-6) {
-                let face = box_nearest_face(point, box_body, box_collider);
                 normal = face.normal;
                 depth = capsule_collider.radius + face.clearance;
             }
@@ -482,7 +542,14 @@ margin: f32,
             if (found) {
                 continue;
             }
-            candidates[candidate_count] = ManifoldPoint(contact_point, depth, 0.0, 0.0, 0.0, 0.0);
+            candidates[candidate_count] = ManifoldPoint(
+                contact_point,
+                depth,
+                0.0,
+                0.0,
+                0.0,
+                feature_vertex(feature_field_face(face.index), i),
+            );
             candidate_normals[candidate_count] = normal;
             candidate_count = candidate_count + 1u;
         }
@@ -501,14 +568,14 @@ margin: f32,
     manifold_emit(&contact, best_normal);
     var keep = min(candidate_count, 2u);
     for (var i = 0u; i < keep; i = i + 1u) {
-        manifold_push(&contact, candidates[i].position, candidates[i].depth);
+        manifold_push(&contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
     }
     return contact;
 }
 
 fn manifold_from_hit(contact: ptr<function, Contact>, hit: ShapeHit, margin: f32) {
     if (hit.distance <= margin) {
-        manifold_push(contact, hit.point, -hit.distance);
+        manifold_push(contact, hit.point, -hit.distance, feature_point());
     }
 }
 
@@ -519,11 +586,12 @@ fn plane_convex(plane: WorldShape, convex: WorldShape, margin: f32) -> Contact {
     let facing = select(n, -n, center_side < 0.0);
     manifold_emit(&contact, facing);
     var points: array<vec3f, 4>;
-    let count = convex_sample_points(convex, -facing, &points);
+    var ids: array<u32, 4>;
+    let count = convex_sample_points(convex, -facing, &points, &ids);
     for (var i = 0u; i < count; i = i + 1u) {
         let depth = dot(plane.center - points[i], facing);
         if (depth > -margin) {
-            manifold_push(&contact, points[i] + facing * (depth * 0.5), depth);
+            manifold_push(&contact, points[i] + facing * (depth * 0.5), depth, feature_vertex(feature_field_face(0u), ids[i]));
         }
     }
     return contact;
@@ -597,6 +665,7 @@ fn work(index: u32) {
             let swapped = plane_convex(scene, world_first, margin);
             contact = swapped;
             contact.normal = -contact.normal;
+            contact_mirror_features(&contact);
             generated = contact.point_count > 0u;
         } else {
             let hit = scene_convex_hit(scene, world_first);
@@ -607,6 +676,7 @@ fn work(index: u32) {
                     let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
                     manifold_from_hit(&contact, reversed_hit, margin);
                 }
+                contact_mirror_features(&contact);
             }
         }
     } else if (scaled_shape(first_collider) || scaled_shape(second_collider)) {
@@ -663,6 +733,7 @@ fn work(index: u32) {
             let swapped = box_capsule(second, second_collider, first, first_collider, margin);
             contact = swapped;
             contact.normal = -contact.normal;
+            contact_mirror_features(&contact);
             generated = true;
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
             contact = capsule_capsule(first, first_collider, second, second_collider, margin);

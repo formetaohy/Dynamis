@@ -38,6 +38,19 @@ declare_constants! {
     pub const ISLAND_WAKE: u32 = 1;
     pub const ISLAND_ACTIVE: u32 = 2;
     pub const CONTACT_MAX_POINTS: u32 = 4;
+    pub const FEATURE_POINT: u32 = 0;
+    pub const FEATURE_VERTEX: u32 = 1 << 28;
+    pub const FEATURE_EDGE: u32 = 2 << 28;
+    pub const FEATURE_FACE: u32 = 3 << 28;
+    pub const FEATURE_TRIANGLE: u32 = 4 << 28;
+    pub const FEATURE_KIND_MASK: u32 = 0xF000_0000;
+    pub const FEATURE_FIELD_BITS: u32 = 14;
+    pub const FEATURE_FIELD_MASK: u32 = (1 << FEATURE_FIELD_BITS) - 1;
+    pub const FEATURE_INDEX_LIMIT: u32 = 1 << 12;
+    pub const FEATURE_CLIP: u32 = 1 << 12;
+    pub const FEATURE_FACE_BIT: u32 = 1 << 13;
+    pub const FEATURE_TRIANGLE_SIDE: u32 = 1 << 27;
+    pub const FEATURE_TRIANGLE_MASK: u32 = FEATURE_TRIANGLE_SIDE - 1;
     pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
     pub const LEVEL_KEY_SHIFT: u32 = 27;
@@ -84,6 +97,19 @@ declare_constants! {
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER == MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS,
     "a collider budget must be the cube of its per axis span"
+);
+const _: () = assert!(
+    FEATURE_FIELD_BITS * 2 + 4 == 32,
+    "a pair feature must pack two fields below its kind"
+);
+const _: () = assert!(
+    FEATURE_INDEX_LIMIT <= FEATURE_CLIP && FEATURE_FACE_BIT <= FEATURE_FIELD_MASK,
+    "a shape point id must not collide with the shape tags"
+);
+const _: () = assert!(
+    FEATURE_KIND_MASK & FEATURE_FIELD_MASK == 0
+        && FEATURE_TRIANGLE & FEATURE_KIND_MASK == FEATURE_TRIANGLE,
+    "a feature kind must sit above its shape fields"
 );
 const _: () = assert!(
     CELL_HASH_MASK == (1 << LEVEL_KEY_SHIFT) - 1,

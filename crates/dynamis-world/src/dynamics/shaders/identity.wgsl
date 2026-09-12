@@ -1,6 +1,3 @@
-const NORMAL_MATCH: f32 = 0.7;
-const POINT_MATCH_DISTANCE: f32 = 0.05;
-
 fn contact_row_matches(state: BodyState, body_id: u32, generation: u32) -> bool {
     return state.body_id == body_id && state.generation == generation;
 }
@@ -41,41 +38,26 @@ fn contact_same_pair(held: Contact, current: Contact) -> bool {
 }
 
 fn contact_carries_over(held: Contact, current: Contact) -> bool {
-    return contact_same_roles(held, current) && dot(current.normal, held.normal) >= NORMAL_MATCH;
+    return contact_same_pair(held, current);
 }
 
-fn nearest_held_point(point: ManifoldPoint, held: Contact, taken: ptr<function, array<bool, CONTACT_MAX_POINTS>>) -> u32 {
-    var nearest = NO_SLOT;
-    var nearest_distance = POINT_MATCH_DISTANCE;
-    for (var index = 0u; index < held.point_count; index = index + 1u) {
-        if ((*taken)[index]) {
-            continue;
-        }
-        let span = distance(point.position, held.points[index].position);
-        if (span <= nearest_distance) {
-            nearest = index;
-            nearest_distance = span;
-        }
-    }
-    return nearest;
+fn feature_carries_over(held: u32, current: u32) -> bool {
+    return held == current || held == feature_mirror(current);
 }
 
 fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
     var relayed = current;
-    var taken: array<bool, CONTACT_MAX_POINTS>;
-    for (var index = 0u; index < CONTACT_MAX_POINTS; index = index + 1u) {
-        taken[index] = false;
-    }
     for (var point_index = 0u; point_index < current.point_count; point_index = point_index + 1u) {
-        let nearest = nearest_held_point(relayed.points[point_index], held, &taken);
-        if (nearest == NO_SLOT) {
-            continue;
+        for (var held_index = 0u; held_index < held.point_count; held_index = held_index + 1u) {
+            let held_point = held.points[held_index];
+            if (!feature_carries_over(held_point.feature, relayed.points[point_index].feature)) {
+                continue;
+            }
+            relayed.points[point_index].accumulated_normal = held_point.accumulated_normal;
+            relayed.points[point_index].accumulated_tangent_1 = held_point.accumulated_tangent_1;
+            relayed.points[point_index].accumulated_tangent_2 = held_point.accumulated_tangent_2;
+            break;
         }
-        taken[nearest] = true;
-        relayed.points[point_index].accumulated_normal = held.points[nearest].accumulated_normal;
-        relayed.points[point_index].accumulated_tangent_1 = held.points[nearest].accumulated_tangent_1;
-        relayed.points[point_index].accumulated_tangent_2 = held.points[nearest].accumulated_tangent_2;
     }
     return relayed;
 }
-

@@ -154,7 +154,7 @@ struct ManifoldPoint {
     accumulated_normal: f32,
     accumulated_tangent_1: f32,
     accumulated_tangent_2: f32,
-    target_speed: f32,
+    feature: u32,
 }
 
 struct Contact {

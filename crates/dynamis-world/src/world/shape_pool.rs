@@ -143,6 +143,17 @@ impl ShapePool {
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
+        assert!(
+            kind != dynamis_layout::SHAPE_HULL
+                || vertices.len() <= dynamis_layout::FEATURE_INDEX_LIMIT as usize,
+            "a hull must not exceed {} vertices so its features stay addressable",
+            dynamis_layout::FEATURE_INDEX_LIMIT
+        );
+        assert!(
+            triangles.len() <= dynamis_layout::FEATURE_TRIANGLE_MASK as usize,
+            "a shape source must not exceed {} triangles so its features stay addressable",
+            dynamis_layout::FEATURE_TRIANGLE_MASK
+        );
         let (id, generation) = self.ids.acquire();
         let (bounds_min, bounds_max) = bounds_of(vertices);
         let vertex_offset = self.vertices.len() as u32;
