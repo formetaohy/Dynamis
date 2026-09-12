@@ -1,6 +1,6 @@
 use super::ids::IdSpace;
+use crate::dynamics::buffers::ShapeUse;
 use crate::dynamics::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
-use crate::dynamics::capacity::ShapeReservation;
 use dynamis_layout::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;
 use std::mem::size_of;
@@ -43,8 +43,8 @@ impl ShapePool {
         }
     }
 
-    pub fn used(&self) -> ShapeReservation {
-        ShapeReservation {
+    pub fn used(&self) -> ShapeUse {
+        ShapeUse {
             sources: self.ids.len() as u32,
             vertices: self.vertices.len() as u32,
             triangles: self.triangles.len() as u32,
@@ -213,10 +213,10 @@ impl ShapePool {
     pub fn upload_pending(
         &mut self,
         queue: &wgpu::Queue,
-        records_buffer: &dynamis_gpu::GpuBuffer,
-        vertices_buffer: &dynamis_gpu::GpuBuffer,
-        triangles_buffer: &dynamis_gpu::GpuBuffer,
-        nodes_buffer: &dynamis_gpu::GpuBuffer,
+        records_buffer: &dynamis_gpu::Stream,
+        vertices_buffer: &dynamis_gpu::Stream,
+        triangles_buffer: &dynamis_gpu::Stream,
+        nodes_buffer: &dynamis_gpu::Stream,
     ) {
         records_buffer.write(queue, bytemuck::cast_slice(&self.layouts()));
         let pending_vertices = &self.vertices[self.uploaded_vertices..];
@@ -257,10 +257,10 @@ impl ShapePool {
     pub fn upload_update(
         &mut self,
         queue: &wgpu::Queue,
-        records_buffer: &dynamis_gpu::GpuBuffer,
-        vertices_buffer: &dynamis_gpu::GpuBuffer,
-        triangles_buffer: &dynamis_gpu::GpuBuffer,
-        nodes_buffer: &dynamis_gpu::GpuBuffer,
+        records_buffer: &dynamis_gpu::Stream,
+        vertices_buffer: &dynamis_gpu::Stream,
+        triangles_buffer: &dynamis_gpu::Stream,
+        nodes_buffer: &dynamis_gpu::Stream,
         handle: dynamis_model::ShapeSourceHandle,
     ) {
         self.upload_pending(

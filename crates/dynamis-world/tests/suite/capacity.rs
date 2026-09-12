@@ -127,3 +127,42 @@ fn a_narrowed_world_still_resolves_recycled_body_identities() {
         "a resting pair must not emit an end event after the streams narrowed"
     );
 }
+
+#[test]
+fn widening_one_stream_leaves_the_other_streams_allocated() {
+    let mut world = new_world(static_config());
+    let bodies = (0..PILE)
+        .map(|index| world.spawn(BodyDesc::sphere(6.0).position(spread_position(index, 20.0))))
+        .collect::<Vec<_>>();
+    settle(&mut world, 4);
+    let states = world.state_buffer().token();
+    let pairs = world.stream_capacity().pairs;
+    assert_eq!(
+        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        0,
+        "a spread pile must fit the pair stream"
+    );
+    for (index, body) in bodies.iter().enumerate() {
+        world.set_position(*body, spread_position(index, 1.0));
+    }
+    settle_until(&mut world, 120, |world| {
+        world.stream_capacity().pairs > pairs
+    });
+    assert!(
+        world.stream_capacity().pairs > pairs,
+        "the crowded pile must widen the pair stream"
+    );
+    assert_eq!(
+        world.state_buffer().token(),
+        states,
+        "widening a stream must leave the unrelated streams allocated"
+    );
+}
+
+fn spread_position(index: usize, spacing: f32) -> [f32; 3] {
+    [
+        (index % LATTICE) as f32 * spacing,
+        (index / LATTICE % LATTICE) as f32 * spacing,
+        (index / (LATTICE * LATTICE)) as f32 * spacing,
+    ]
+}

@@ -24,18 +24,15 @@ impl Broadphase {
                 GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
-                    (
-                        "entry_colliders",
-                        whole(&buffers.contacts.entries.colliders),
-                    ),
+                    ("entry_keys", whole(&buffers.grid_entry_keys)),
+                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
                     ("entry_count", buffers.counter(COUNTER_ENTRIES)),
-                    ("pair_major", whole(&buffers.contacts.pairs.major)),
-                    ("pair_minor", whole(&buffers.contacts.pairs.minor)),
+                    ("pair_major", whole(&buffers.pair_major)),
+                    ("pair_minor", whole(&buffers.pair_minor)),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
-                    ("body_activity", whole(&buffers.bodies.activity)),
-                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
+                    ("body_activity", whole(&buffers.body_activity)),
+                    ("collider_owners", whole(&buffers.collider_owners)),
                 ],
                 &[],
             ),
@@ -47,19 +44,16 @@ impl Broadphase {
                 GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
-                    (
-                        "entry_colliders",
-                        whole(&buffers.contacts.entries.colliders),
-                    ),
+                    ("entry_keys", whole(&buffers.grid_entry_keys)),
+                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
                     ("entry_count", buffers.counter(COUNTER_ENTRIES)),
-                    ("pair_major", whole(&buffers.contacts.pairs.major)),
-                    ("pair_minor", whole(&buffers.contacts.pairs.minor)),
+                    ("pair_major", whole(&buffers.pair_major)),
+                    ("pair_minor", whole(&buffers.pair_minor)),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
-                    ("aabbs", whole(&buffers.bodies.aabbs)),
-                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
-                    ("body_activity", whole(&buffers.bodies.activity)),
+                    ("aabbs", whole(&buffers.collider_aabbs)),
+                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("body_activity", whole(&buffers.body_activity)),
                     ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
                     ("active_coarse", buffers.counter(COUNTER_COARSE_ACTIVE)),
                 ],
@@ -77,8 +71,8 @@ impl Broadphase {
     ) {
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.keys,
-            &buffers.contacts.entries.colliders,
+            &buffers.grid_entry_keys,
+            &buffers.grid_entry_colliders,
         );
         sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
         self.cell_pairs

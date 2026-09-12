@@ -6,6 +6,7 @@ mod pipeline;
 mod readback;
 mod recorder;
 mod runtime;
+mod stream;
 mod submission;
 #[cfg(feature = "profile")]
 mod timing;
@@ -18,6 +19,7 @@ pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, Pi
 pub use readback::{BufferReadback, ReadbackRing};
 pub use recorder::ComputeRecorder;
 pub use runtime::GpuRuntime;
+pub use stream::{Contents, Stream};
 pub use submission::SubmissionEncoder;
 #[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};

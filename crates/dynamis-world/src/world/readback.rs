@@ -53,7 +53,7 @@ impl World {
         let constraints = self.constraints.alive.len() as u32;
         if constraints > 0 {
             encoder.copy_buffer_to_buffer(
-                self.backend.buffers.constraints.runtime.buffer(),
+                self.backend.buffers.constraint_runtime.buffer(),
                 0,
                 staging,
                 COUNTER_BYTES,
@@ -99,7 +99,7 @@ impl World {
         if bytes == 0 {
             return;
         }
-        let buffer = self.backend.buffers.bodies.states.buffer().clone();
+        let buffer = self.backend.buffers.body_states.buffer().clone();
         let records = self.read_range(&buffer, bytes);
         let step = self.clock.step.saturating_sub(1);
         for record in dynamis_layout::decode::<BodyStateRecord>(&records) {
@@ -115,19 +115,19 @@ impl World {
         self.wait();
         let step = self.clock.step.saturating_sub(1);
         let active = self.backend.measured[COUNTER_CONTACTS] as usize;
-        let capacity = (self.backend.buffers.contacts.resting.size()
+        let capacity = (self.backend.buffers.resting_contacts.size()
             / size_of::<ContactRecord>() as u64) as usize;
         let resting = (self.backend.measured[COUNTER_RESTING] as usize).min(capacity);
         let mut seen = HashSet::new();
         let mut manifolds = Vec::with_capacity(active + resting);
-        let active_buffer = self.backend.buffers.contacts.manifolds.buffer().clone();
+        let active_buffer = self.backend.buffers.contacts.buffer().clone();
         for record in self.read_manifolds(&active_buffer, active) {
             if seen.insert((record.a, record.b)) {
                 manifolds.push(manifold_of(&record, step));
             }
         }
-        let resting_buffer = self.backend.buffers.contacts.resting.buffer().clone();
-        let resting_live = self.backend.buffers.contacts.resting_live.buffer().clone();
+        let resting_buffer = self.backend.buffers.resting_contacts.buffer().clone();
+        let resting_live = self.backend.buffers.resting_live.buffer().clone();
         let live = self.read_range(&resting_live, resting as u64 * 4);
         for (index, record) in self
             .read_manifolds(&resting_buffer, resting)
@@ -265,7 +265,7 @@ impl World {
     }
 
     pub(crate) fn island_rounds(&self) -> u32 {
-        self.backend.reservation.bodies.max(2).ilog2() + 1
+        self.backend.buffers.body_row_count().max(2).ilog2() + 1
     }
 }
 

@@ -62,18 +62,17 @@ fn flush_pool_range(
     if records.is_empty() {
         return;
     }
-    buffers.bodies.colliders.write_at(
+    buffers.colliders.write_at(
         queue,
         start as u64 * std::mem::size_of::<ColliderRecord>() as u64,
         bytemuck::cast_slice(records),
     );
-    buffers.bodies.aabbs.write_at(
+    buffers.collider_aabbs.write_at(
         queue,
         start as u64 * std::mem::size_of::<dynamis_layout::AabbRecord>() as u64,
         bytemuck::cast_slice(aabbs),
     );
     buffers
-        .bodies
         .collider_owners
         .write_at(queue, start as u64 * 4, bytemuck::cast_slice(owners));
 }
@@ -116,7 +115,7 @@ impl World {
     pub fn new(gpu: GpuContext, config: PhysicsConfig) -> Self {
         assert_config(&config);
         let shapes = Shapes::new();
-        let backend = Backend::new(gpu, &shapes);
+        let backend = Backend::new(gpu);
         Self {
             config,
             clock: Clock::new(),
@@ -144,7 +143,12 @@ impl World {
     }
 
     pub fn stream_capacity(&self) -> StreamCapacity {
-        self.backend.reservation.streams()
+        let streams = &self.backend.buffers;
+        StreamCapacity {
+            entries: streams.entry_capacity(),
+            pairs: streams.pair_capacity(),
+            events: streams.event_capacity(),
+        }
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {
@@ -165,6 +169,7 @@ impl World {
             body_commands: self.bodies.commands.len() as u32,
             constraint_commands: self.constraints.commands.len() as u32,
             queries: self.queries.pending.len() as u32,
+            shapes: self.shapes.pool.used(),
         }
     }
 
@@ -173,10 +178,10 @@ impl World {
         if self.shapes.dirty {
             self.shapes.pool.upload_pending(
                 &queue,
-                &self.backend.buffers.shapes.sources,
-                &self.backend.buffers.shapes.vertices,
-                &self.backend.buffers.shapes.triangles,
-                &self.backend.buffers.shapes.nodes,
+                &self.backend.buffers.shape_sources,
+                &self.backend.buffers.shape_vertices,
+                &self.backend.buffers.shape_triangles,
+                &self.backend.buffers.shape_nodes,
             );
             self.shapes.dirty = false;
         }
@@ -188,9 +193,9 @@ impl World {
                 .iter()
                 .map(|slot| self.bodies.descriptors[self.bodies.alive[*slot as usize].id as usize])
                 .collect::<Vec<_>>();
-            self.backend.buffers.bodies.descriptors.write_at(
+            self.backend.buffers.body_descriptors.write_at(
                 &queue,
-                run[0] as u64 * self.backend.buffers.descriptor_row(),
+                run[0] as u64 * self.backend.buffers.body_descriptors.stride(),
                 bytemuck::cast_slice(&descriptors),
             );
         }
@@ -203,9 +208,9 @@ impl World {
                 .iter()
                 .map(|slot| self.constraints.records[*slot as usize])
                 .collect::<Vec<_>>();
-            self.backend.buffers.constraints.descriptors.write_at(
+            self.backend.buffers.constraint_descriptors.write_at(
                 &queue,
-                first as u64 * self.backend.buffers.constraint_row(),
+                first as u64 * self.backend.buffers.constraint_descriptors.stride(),
                 bytemuck::cast_slice(&records),
             );
         }
@@ -291,11 +296,11 @@ impl World {
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {
-        &self.backend.buffers.bodies.states
+        self.backend.buffers.body_states.gpu()
     }
 
     pub fn collider_buffer(&self) -> &GpuBuffer {
-        &self.backend.buffers.bodies.colliders
+        self.backend.buffers.colliders.gpu()
     }
 
     pub fn gpu(&self) -> &GpuContext {

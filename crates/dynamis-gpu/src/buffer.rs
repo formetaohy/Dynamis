@@ -99,6 +99,12 @@ impl GpuBuffer {
     }
 }
 
+impl<'a> From<&'a GpuBuffer> for GpuSlot<'a> {
+    fn from(buffer: &'a GpuBuffer) -> Self {
+        Self::whole(buffer)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct GpuSlot<'a> {
     buffer: &'a GpuBuffer,

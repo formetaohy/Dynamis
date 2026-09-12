@@ -284,7 +284,7 @@ impl SortBindGroups {
 }
 
 impl RadixSort {
-    pub fn new(context: &GpuContext, label: &str, reservation: u32) -> Self {
+    pub fn new(context: &GpuContext, label: &str, capacity: u32) -> Self {
         let device = context.device().clone();
         let row = context.workgroups_per_row();
         let prepare = declare_prepare(context, label, row);
@@ -306,8 +306,8 @@ impl RadixSort {
             )
         });
         assert!(
-            reservation < (1 << 30),
-            "a sort reserves at most 2^30 elements, got {reservation}"
+            capacity < (1 << 30),
+            "a sort stream holds at most 2^30 elements, got {capacity}"
         );
         Self {
             device,

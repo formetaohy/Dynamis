@@ -17,7 +17,6 @@ mod stage;
 mod timing;
 
 use buffers::WorldBuffers;
-use capacity::Reservation;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuTimer;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -106,9 +105,9 @@ pub(crate) struct Pipeline {
 }
 
 impl Pipeline {
-    pub(crate) fn new(context: &GpuContext, buffers: &WorldBuffers, plan: &Reservation) -> Self {
+    pub(crate) fn new(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         let per_row = context.workgroups_per_row();
-        let sort = RadixSort::new(context, "world sort", plan.sort());
+        let sort = RadixSort::new(context, "world sort", buffers.sort_capacity());
         #[cfg(feature = "profile")]
         let timer = context.supports_pass_timing().then(|| {
             GpuTimer::new(
@@ -239,8 +238,8 @@ impl Pipeline {
         let mut flush = ComputeRecorder::begin(encoder, "query flush", self.per_row);
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.keys,
-            &buffers.contacts.entries.colliders,
+            &buffers.grid_entry_keys,
+            &buffers.grid_entry_colliders,
         );
         self.sort
             .sort(&mut flush, &channels, 4, 0, buffers.entry_capacity());

@@ -5,8 +5,7 @@ use super::shader::{
 };
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
-    PipelineHandle,
+    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, GpuSlot, PipelineHandle,
 };
 use wgpu::{BindGroup, BindGroupEntry};
 
@@ -21,16 +20,16 @@ pub(super) const CORRECTIONS: &[&str] = &[CONTACT_CORRECTION_FRAGMENT];
 
 pub(super) const MAX_GRID_WORKGROUPS: u32 = 4096;
 
-pub(super) fn whole(buffer: &GpuBuffer) -> GpuSlot<'_> {
-    GpuSlot::whole(buffer)
+pub(super) fn whole<'a>(binding: impl Into<GpuSlot<'a>>) -> GpuSlot<'a> {
+    binding.into()
 }
 
-pub(super) fn shape_resources(buffers: &WorldBuffers) -> [&GpuBuffer; 4] {
+pub(super) fn shape_resources(buffers: &WorldBuffers) -> [(&'static str, GpuSlot<'_>); 4] {
     [
-        &buffers.shapes.sources,
-        &buffers.shapes.vertices,
-        &buffers.shapes.triangles,
-        &buffers.shapes.nodes,
+        ("shape_sources", buffers.shape_sources.slot()),
+        ("shape_vertices", buffers.shape_vertices.slot()),
+        ("shape_triangles", buffers.shape_triangles.slot()),
+        ("shape_nodes", buffers.shape_nodes.slot()),
     ]
 }
 
@@ -43,7 +42,7 @@ pub(super) struct Stage {
 
 struct StageBindings<'a> {
     slots: &'a [(&'a str, GpuSlot<'a>)],
-    shapes: &'a [&'a GpuBuffer],
+    shapes: &'a [(&'a str, GpuSlot<'a>)],
 }
 
 struct Bindings<'a> {
@@ -102,12 +101,12 @@ fn storage_entries<'a>(
 
 fn shape_entries<'a>(
     declarations: &[dynamis_gpu::ShaderBinding],
-    shapes: &'a [&'a GpuBuffer],
+    shapes: &[(&str, GpuSlot<'a>)],
 ) -> Vec<BindGroupEntry<'a>> {
-    let declared = ordered(declarations, 1);
     if shapes.is_empty() {
         return Vec::new();
     }
+    let declared = ordered(declarations, 1);
     assert!(
         declared.len() == shapes.len(),
         "the shader declares {} shape bindings but the stage provides {}",
@@ -116,10 +115,20 @@ fn shape_entries<'a>(
     );
     declared
         .iter()
-        .zip(shapes)
-        .map(|(declaration, buffer)| BindGroupEntry {
-            binding: declaration.binding,
-            resource: buffer.as_binding(),
+        .map(|declaration| {
+            let (_, slot) = shapes
+                .iter()
+                .find(|(name, _)| *name == declaration.name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the shader never declares the binding {:?}",
+                        declaration.name
+                    )
+                });
+            BindGroupEntry {
+                binding: declaration.binding,
+                resource: slot.as_binding(),
+            }
         })
         .collect()
 }
@@ -167,7 +176,7 @@ impl Stage {
         per_row: u32,
         fragments: &[&str],
         slots: &[(&str, GpuSlot)],
-        shapes: &[&GpuBuffer],
+        shapes: &[(&str, GpuSlot)],
     ) -> Self {
         Self::assemble(
             context,
@@ -187,7 +196,7 @@ impl Stage {
         per_row: u32,
         fragments: &[&str],
         slots: &[(&str, GpuSlot)],
-        shapes: &[&GpuBuffer],
+        shapes: &[(&str, GpuSlot)],
     ) -> Self {
         Self::assemble(
             context,

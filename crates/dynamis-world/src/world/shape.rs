@@ -74,10 +74,10 @@ impl World {
         self.shapes.pool.update_mesh(handle, vertices, triangles);
         self.shapes.pool.upload_update(
             self.backend.gpu.queue(),
-            &self.backend.buffers.shapes.sources,
-            &self.backend.buffers.shapes.vertices,
-            &self.backend.buffers.shapes.triangles,
-            &self.backend.buffers.shapes.nodes,
+            &self.backend.buffers.shape_sources,
+            &self.backend.buffers.shape_vertices,
+            &self.backend.buffers.shape_triangles,
+            &self.backend.buffers.shape_nodes,
             handle,
         );
     }

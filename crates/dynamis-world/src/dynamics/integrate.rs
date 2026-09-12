@@ -22,8 +22,8 @@ impl Integrate {
                 CORE,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.bodies.states)),
-                    ("body_descs", whole(&buffers.bodies.descriptors)),
+                    ("body_states", whole(&buffers.body_states)),
+                    ("body_descs", whole(&buffers.body_descriptors)),
                 ],
                 &[],
             ),
@@ -35,7 +35,7 @@ impl Integrate {
                 CORE,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.bodies.states)),
+                    ("body_states", whole(&buffers.body_states)),
                 ],
                 &[],
             ),
@@ -47,11 +47,11 @@ impl Integrate {
                 CORE,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.bodies.states)),
-                    ("body_descs", whole(&buffers.bodies.descriptors)),
-                    ("colliders", whole(&buffers.bodies.colliders)),
-                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
-                    ("aabbs", whole(&buffers.bodies.aabbs)),
+                    ("body_states", whole(&buffers.body_states)),
+                    ("body_descs", whole(&buffers.body_descriptors)),
+                    ("colliders", whole(&buffers.colliders)),
+                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("aabbs", whole(&buffers.collider_aabbs)),
                 ],
                 &shape_resources(buffers),
             ),
@@ -77,8 +77,8 @@ impl Integrate {
             let words = buffers.body_words();
             let channels = buffers.sort_lanes_dual(
                 buffers.counter(COUNTER_JOINTS),
-                &buffers.constraints.joint_major,
-                &buffers.constraints.joint_minor,
+                &buffers.joint_filter_major,
+                &buffers.joint_filter_minor,
             );
             sort.sort(
                 recorder,

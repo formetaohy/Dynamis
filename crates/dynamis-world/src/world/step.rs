@@ -119,23 +119,19 @@ impl World {
         let queue = self.backend.gpu.queue();
         self.backend
             .buffers
-            .bodies
-            .row_moves
+            .body_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
             .buffers
-            .bodies
-            .fresh_rows
+            .body_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.backend
             .buffers
-            .bodies
-            .edits
+            .body_edits
             .write(queue, bytemuck::cast_slice(&compiled.edits));
         self.backend
             .buffers
-            .bodies
-            .edit_runs
+            .body_edit_runs
             .write(queue, bytemuck::cast_slice(&compiled.runs));
         self.bodies.last_moves = compiled.moves.len() as u32;
     }
@@ -144,13 +140,11 @@ impl World {
         let queue = self.backend.gpu.queue();
         self.backend
             .buffers
-            .constraints
-            .row_moves
+            .constraint_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
             .buffers
-            .constraints
-            .fresh_rows
+            .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.constraints.last_moves = compiled.moves.len() as u32;
     }
@@ -159,7 +153,7 @@ impl World {
         if query_count == 0 {
             return None;
         }
-        self.backend.buffers.queries.records.write(
+        self.backend.buffers.query_records.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&self.queries.pending),
         );
@@ -191,7 +185,7 @@ impl World {
         let queries = match batch {
             Some(batch) => self.backend.buffers.readback.queries.enqueue(
                 &mut encoder,
-                self.backend.buffers.queries.results.buffer(),
+                self.backend.buffers.query_results.buffer(),
                 0,
                 self.queries.pending.len() as u64 * size_of::<QueryResultRecord>() as u64,
                 batch,

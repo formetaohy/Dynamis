@@ -188,6 +188,10 @@ impl ReadbackRing {
         self.size
     }
 
+    pub fn is_idle(&self) -> bool {
+        self.inflight == 0
+    }
+
     pub fn enqueue(
         &mut self,
         encoder: &mut SubmissionEncoder,

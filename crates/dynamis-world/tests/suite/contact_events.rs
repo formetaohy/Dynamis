@@ -153,3 +153,36 @@ fn persisted_touch_envokes_sink_per_frame() {
     );
     let _ = ground;
 }
+
+#[test]
+fn a_widening_step_keeps_only_real_events() {
+    let mut world = new_world(static_config());
+    let ground = world.spawn(BodyDesc::static_sphere(1.0));
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.2, 0.0]));
+    world.step(DT);
+    world.wait();
+    for index in 0..320 {
+        world.spawn(BodyDesc::sphere(0.5).position([
+            200.0 + (index % 20) as f32 * 20.0,
+            (index / 20) as f32 * 20.0,
+            0.0,
+        ]));
+    }
+    world.step(DT);
+    let events = world.drain_events();
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == ContactEventKind::Begin),
+        "the ball must announce its contact"
+    );
+    for event in events {
+        assert!(
+            event.first == ground
+                || event.first == ball
+                || event.second == ground
+                || event.second == ball,
+            "a widening step must not invent events, got {event:?}"
+        );
+    }
+}

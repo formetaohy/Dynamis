@@ -138,8 +138,7 @@ impl World {
         let device = self.backend.gpu.device().clone();
         self.backend
             .buffers
-            .queries
-            .records
+            .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let params = dynamis_layout::StepParamsRecord::new(
             &self.config,
@@ -185,7 +184,7 @@ impl World {
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
         let arrived = self.backend.buffers.readback.queries.enqueue(
             &mut encoder,
-            self.backend.buffers.queries.results.buffer(),
+            self.backend.buffers.query_results.buffer(),
             0,
             bytes,
             batch,
