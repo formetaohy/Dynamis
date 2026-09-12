@@ -6,10 +6,7 @@ fn work(index: u32) {
     var state = body_states[index];
     let desc = body_descs[index];
     if (state.sleeping != 0u) {
-        state.velocity = vec3f(0.0);
-        state.angular_velocity = vec3f(0.0);
-        state.force = vec3f(0.0);
-        state.torque = vec3f(0.0);
+        freeze_body(&state);
         body_states[index] = state;
         return;
     }

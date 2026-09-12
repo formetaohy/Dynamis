@@ -173,6 +173,16 @@ fn body_frozen(body: Body) -> Body {
     return frozen;
 }
 
+fn freeze_body(state: ptr<function, BodyState>) {
+    (*state).velocity = vec3f(0.0);
+    (*state).angular_velocity = vec3f(0.0);
+    (*state).force = vec3f(0.0);
+    (*state).torque = vec3f(0.0);
+    (*state).prev_position = (*state).position;
+    (*state).sleep_timer = 0.0;
+    (*state).sleeping = 1u;
+}
+
 fn body_is_movable(desc: BodyDescriptor) -> bool {
     return desc.inverse_mass > 0.0 || (desc.flags & BODY_KINEMATIC) != 0u;
 }

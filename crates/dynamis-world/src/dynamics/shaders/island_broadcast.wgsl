@@ -25,9 +25,7 @@ fn work(index: u32) {
         } else {
             state.sleep_timer = state.sleep_timer + params.dt;
             if (state.sleep_timer >= params.sleep_time) {
-                state.sleeping = 1u;
-                state.velocity = vec3f(0.0);
-                state.angular_velocity = vec3f(0.0);
+                freeze_body(&state);
                 atomicAdd(&slept_count[0], 1u);
             }
         }

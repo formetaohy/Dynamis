@@ -80,10 +80,7 @@ fn work(index: u32) {
             if (state.sleeping == 0u) {
                 atomicAdd(&slept_count[0], 1u);
             }
-            state.velocity = vec3f(0.0);
-            state.angular_velocity = vec3f(0.0);
-            state.sleep_timer = 0.0;
-            state.sleeping = 1u;
+            freeze_body(&state);
             atomicStore(&wake_flags[run.row], 0u);
         } else if (edit.kind == EDIT_WAKE) {
             if (state.sleeping != 0u) {

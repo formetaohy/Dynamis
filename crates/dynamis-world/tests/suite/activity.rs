@@ -346,3 +346,63 @@ fn removing_a_body_ends_only_its_own_resting_contacts() {
         "the sleeping ball must keep the ground contact it slept on"
     );
 }
+
+#[test]
+fn an_explicitly_slept_body_holds_the_pose_it_was_slept_at() {
+    let mut world = new_world(static_config());
+    let ball = world.spawn(
+        BodyDesc::sphere(0.4)
+            .position([0.0, 0.0, 0.0])
+            .velocity([12.0, 0.0, 0.0]),
+    );
+    settle(&mut world, 4);
+    let frozen = world.read_state(ball).position;
+    assert!(
+        frozen[0] > 0.0,
+        "the ball must be travelling before it sleeps"
+    );
+    world.sleep(ball);
+    settle(&mut world, 4);
+    let held = world.read_state(ball);
+    assert!(held.sleeping, "the slept ball must stay asleep");
+    assert!(held.velocity == [0.0; 3], "a slept ball must hold still");
+    assert_eq!(
+        held.position, frozen,
+        "sleeping a moving body must freeze the pose it sleeps at, {frozen:?} -> {:?}",
+        held.position
+    );
+}
+
+#[test]
+fn falling_asleep_holds_the_pose_the_body_slept_at() {
+    let config = PhysicsConfig {
+        sleep_time: 0.1,
+        ..static_config()
+    };
+    let mut world = new_world(config);
+    let ball = world.spawn(BodyDesc::sphere(0.4).velocity([0.15, 0.0, 0.0]));
+    let mut frozen = None;
+    for _ in 0..120 {
+        world.step(DT);
+        world.wait();
+        let state = world.read_state(ball);
+        if state.sleeping {
+            frozen = Some(state.position);
+            break;
+        }
+    }
+    let frozen = frozen.expect("the drifting ball must fall asleep");
+    assert!(
+        frozen[0] > 0.0,
+        "the sleeper must have travelled before it fell asleep"
+    );
+    world.step(DT);
+    world.wait();
+    let held = world.read_state(ball);
+    assert!(held.sleeping, "the sleeper must stay asleep");
+    assert_eq!(
+        held.position, frozen,
+        "falling asleep must not rewind the pose, {frozen:?} -> {:?}",
+        held.position
+    );
+}
