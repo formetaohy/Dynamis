@@ -1,9 +1,11 @@
 use super::Count;
-use super::Frame;
-use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::CORE;
+use super::streams::RigidStream;
+use crate::dynamics::Frame;
 use crate::dynamics::engine::{Stage, workgroups_of};
+use crate::dynamics::scene::SceneStream;
+use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
 
@@ -21,14 +23,14 @@ pub(super) struct Commands {
 }
 
 impl Commands {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, streams: &Streams) -> Self {
         Self {
             reset_counters: Stage::build(
                 context,
                 "reset_counters",
                 shader::workgroups(context, include_str!("shaders/reset_counters.wgsl"), CORE),
-                buffers,
-                &[("counters", StreamId::Counters.whole())],
+                streams,
+                &[("counters", SceneStream::Counters.whole())],
                 &[],
             ),
             body_move_gather: Stage::build(
@@ -40,13 +42,13 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("state_scratch", StreamId::BodyStateScratch.whole()),
-                    ("row_moves", StreamId::BodyRowMoves.whole()),
-                    ("fresh_rows", StreamId::BodyFreshRows.whole()),
-                    ("params", StreamId::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("state_scratch", RigidStream::BodyStateScratch.whole()),
+                    ("row_moves", SceneStream::BodyRowMoves.whole()),
+                    ("fresh_rows", SceneStream::BodyFreshRows.whole()),
+                    ("params", SceneStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -59,12 +61,12 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("state_scratch", StreamId::BodyStateScratch.whole()),
-                    ("row_moves", StreamId::BodyRowMoves.whole()),
-                    ("params", StreamId::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("state_scratch", RigidStream::BodyStateScratch.whole()),
+                    ("row_moves", SceneStream::BodyRowMoves.whole()),
+                    ("params", SceneStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -77,16 +79,16 @@ impl Commands {
                     CORE,
                     Count::EditRuns,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("edits", StreamId::BodyEdits.whole()),
-                    ("edit_runs", StreamId::BodyEditRuns.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("wake_flags", StreamId::WakeFlags.whole()),
-                    ("params", StreamId::Params.whole()),
-                    ("slept_count", buffers.counter(COUNTER_SLEPT)),
-                    ("woke_count", buffers.counter(COUNTER_WOKE)),
+                    ("edits", SceneStream::BodyEdits.whole()),
+                    ("edit_runs", SceneStream::BodyEditRuns.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("wake_flags", RigidStream::WakeFlags.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("slept_count", streams.scene.counter(COUNTER_SLEPT)),
+                    ("woke_count", streams.scene.counter(COUNTER_WOKE)),
                 ],
                 &[],
             ),
@@ -99,12 +101,12 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("row_moves", StreamId::BodyRowMoves.whole()),
-                    ("row_of_body", StreamId::BodyRowOfId.whole()),
-                    ("params", StreamId::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("row_moves", SceneStream::BodyRowMoves.whole()),
+                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
+                    ("params", SceneStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -117,12 +119,15 @@ impl Commands {
                     CORE,
                     Count::Constraints,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("constraint_descs", StreamId::ConstraintDescriptors.whole()),
-                    ("row_of_body", StreamId::BodyRowOfId.whole()),
-                    ("constraint_rows", StreamId::ConstraintRows.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    (
+                        "constraint_descs",
+                        SceneStream::ConstraintDescriptors.whole(),
+                    ),
+                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
+                    ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ],
                 &[],
             ),
@@ -135,13 +140,13 @@ impl Commands {
                     CORE,
                     Count::ConstraintMoves,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
-                    ("constraint_scratch", StreamId::ConstraintScratch.whole()),
-                    ("row_moves", StreamId::ConstraintRowMoves.whole()),
-                    ("fresh_rows", StreamId::ConstraintFreshRows.whole()),
-                    ("params", StreamId::Params.whole()),
+                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
+                    ("row_moves", SceneStream::ConstraintRowMoves.whole()),
+                    ("fresh_rows", SceneStream::ConstraintFreshRows.whole()),
+                    ("params", SceneStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -154,12 +159,12 @@ impl Commands {
                     CORE,
                     Count::ConstraintMoves,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
-                    ("constraint_scratch", StreamId::ConstraintScratch.whole()),
-                    ("row_moves", StreamId::ConstraintRowMoves.whole()),
-                    ("params", StreamId::Params.whole()),
+                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
+                    ("row_moves", SceneStream::ConstraintRowMoves.whole()),
+                    ("params", SceneStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -172,13 +177,13 @@ impl Commands {
                     CORE,
                     Count::Bodies,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("body_activity", StreamId::BodyActivity.whole()),
-                    ("active_count", buffers.counter(COUNTER_ACTIVE)),
+                    ("params", SceneStream::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("body_activity", RigidStream::BodyActivity.whole()),
+                    ("active_count", streams.scene.counter(COUNTER_ACTIVE)),
                 ],
                 &[],
             ),
@@ -191,66 +196,64 @@ impl Commands {
                     CORE,
                     Count::Constraints,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("constraint_descs", StreamId::ConstraintDescriptors.whole()),
-                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
-                    ("joint_major", StreamId::JointFilterMajor.whole()),
-                    ("joint_minor", StreamId::JointFilterMinor.whole()),
-                    ("joint_count", buffers.counter(COUNTER_JOINTS)),
-                    ("constraint_rows", StreamId::ConstraintRows.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    (
+                        "constraint_descs",
+                        SceneStream::ConstraintDescriptors.whole(),
+                    ),
+                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("joint_major", RigidStream::JointFilterMajor.whole()),
+                    ("joint_minor", RigidStream::JointFilterMinor.whole()),
+                    ("joint_count", streams.scene.counter(COUNTER_JOINTS)),
+                    ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn reset(&self, recorder: &mut ComputeRecorder, buffers: &RigidBuffers) {
+    pub(super) fn reset(&self, recorder: &mut ComputeRecorder, streams: &Streams) {
         self.reset_counters.record_workgroups(
             recorder,
-            buffers,
+            streams,
             workgroups_of(COUNTER_COUNT as u32),
         );
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
-        frame: &Frame,
-    ) {
-        self.reset(recorder, buffers);
-        self.record_moves(recorder, buffers, frame);
-        self.record_edits(recorder, buffers, frame);
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, streams: &Streams, frame: &Frame) {
+        self.reset(recorder, streams);
+        self.record_moves(recorder, streams, frame);
+        self.record_edits(recorder, streams, frame);
         self.constraint_rows
-            .record_rows(recorder, buffers, Count::Constraints.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
         self.joint_filter
-            .record_rows(recorder, buffers, Count::Constraints.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
         self.activity
-            .record_rows(recorder, buffers, Count::Bodies.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
     }
 
     pub(super) fn record_moves(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
     ) {
         self.body_move_gather
-            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
+            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
         self.body_move_scatter
-            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
+            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
         self.row_of_body
-            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
+            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
         self.constraint_move_gather.record_rows(
             recorder,
-            buffers,
+            streams,
             Count::ConstraintMoves.rows(&frame.params),
         );
         self.constraint_move_scatter.record_rows(
             recorder,
-            buffers,
+            streams,
             Count::ConstraintMoves.rows(&frame.params),
         );
     }
@@ -258,10 +261,10 @@ impl Commands {
     pub(super) fn record_edits(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
     ) {
         self.body_edits
-            .record_rows(recorder, buffers, Count::EditRuns.rows(&frame.params));
+            .record_rows(recorder, streams, Count::EditRuns.rows(&frame.params));
     }
 }

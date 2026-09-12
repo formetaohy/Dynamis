@@ -43,9 +43,9 @@ fn measured_counters(bytes: &[u8]) -> Counters {
 
 impl World {
     pub(crate) fn pack_step(&self, encoder: &mut wgpu::CommandEncoder) -> u64 {
-        let staging = self.backend.buffers.readback.pack.buffer();
+        let staging = self.backend.streams.readback.pack.buffer();
         encoder.copy_buffer_to_buffer(
-            self.backend.buffers.counters.buffer(),
+            self.backend.streams.scene.counters.buffer(),
             0,
             staging,
             0,
@@ -54,7 +54,7 @@ impl World {
         let constraints = self.constraints.alive.len() as u32;
         if constraints > 0 {
             encoder.copy_buffer_to_buffer(
-                self.backend.buffers.constraint_runtime.buffer(),
+                self.backend.streams.scene.constraint_runtime.buffer(),
                 0,
                 staging,
                 COUNTER_BYTES,
@@ -100,7 +100,7 @@ impl World {
         if bytes == 0 {
             return;
         }
-        let buffer = self.backend.buffers.body_states.buffer().clone();
+        let buffer = self.backend.streams.scene.body_states.buffer().clone();
         let records = self.read_range(&buffer, bytes);
         let step = self.clock.step.saturating_sub(1);
         for record in dynamis_layout::decode::<BodyStateRecord>(&records) {
@@ -116,19 +116,19 @@ impl World {
         self.wait();
         let step = self.clock.step.saturating_sub(1);
         let active = self.backend.measured[COUNTER_CONTACTS] as usize;
-        let capacity = (self.backend.buffers.resting_contacts.size()
+        let capacity = (self.backend.streams.rigid.resting_contacts.size()
             / size_of::<ContactRecord>() as u64) as usize;
         let resting = (self.backend.measured[COUNTER_RESTING] as usize).min(capacity);
         let mut seen = HashSet::new();
         let mut manifolds = Vec::with_capacity(active + resting);
-        let active_buffer = self.backend.buffers.contacts.buffer().clone();
+        let active_buffer = self.backend.streams.rigid.contacts.buffer().clone();
         for record in self.read_manifolds(&active_buffer, active) {
             if seen.insert((record.a, record.b)) {
                 manifolds.push(manifold_of(&record, step));
             }
         }
-        let resting_buffer = self.backend.buffers.resting_contacts.buffer().clone();
-        let resting_live = self.backend.buffers.resting_live.buffer().clone();
+        let resting_buffer = self.backend.streams.rigid.resting_contacts.buffer().clone();
+        let resting_live = self.backend.streams.rigid.resting_live.buffer().clone();
         let live = self.read_range(&resting_live, resting as u64 * 4);
         for (index, record) in self
             .read_manifolds(&resting_buffer, resting)
@@ -179,13 +179,13 @@ impl World {
 
     pub(crate) fn collect_readbacks(&mut self) {
         self.backend.gpu.poll();
-        for (step, bytes) in self.backend.buffers.readback.step.collect() {
+        for (step, bytes) in self.backend.streams.readback.step.collect() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self.backend.buffers.readback.events.collect() {
+        for (_, bytes) in self.backend.streams.readback.events.collect() {
             self.consume_events(&bytes);
         }
-        for (batch, bytes) in self.backend.buffers.readback.queries.collect() {
+        for (batch, bytes) in self.backend.streams.readback.queries.collect() {
             self.queries.pool.collect(batch, &bytes);
         }
         #[cfg(feature = "profile")]
@@ -195,13 +195,13 @@ impl World {
     }
 
     pub(crate) fn drain_readbacks(&mut self) {
-        for (step, bytes) in self.backend.buffers.readback.step.drain() {
+        for (step, bytes) in self.backend.streams.readback.step.drain() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self.backend.buffers.readback.events.drain() {
+        for (_, bytes) in self.backend.streams.readback.events.drain() {
             self.consume_events(&bytes);
         }
-        for (batch, bytes) in self.backend.buffers.readback.queries.drain() {
+        for (batch, bytes) in self.backend.streams.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
         #[cfg(feature = "profile")]
@@ -263,10 +263,6 @@ impl World {
 
     pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
         std::mem::take(&mut self.constraints.broken)
-    }
-
-    pub(crate) fn island_rounds(&self) -> u32 {
-        self.backend.buffers.body_row_count().max(2).ilog2() + 1
     }
 }
 

@@ -1,7 +1,10 @@
+use super::Frame;
 use super::engine::{self, Engine, domain_passes};
 use super::rigid::Count;
-use super::rigid::Frame;
-use super::rigid::buffers::{RigidBuffers, StreamId};
+use super::rigid::RigidStream;
+use super::scene::SceneStream;
+use super::streams::Streams;
+
 use super::rigid::shader;
 use super::rigid::shader::{CORE, GEOMETRY};
 use dynamis_gpu::GpuContext;
@@ -21,7 +24,7 @@ pub(crate) struct Ccd {
 }
 
 impl Ccd {
-    pub(crate) fn new(context: &GpuContext, buffers: &RigidBuffers, passes: CcdPasses) -> Self {
+    pub(crate) fn new(context: &GpuContext, streams: &Streams, passes: CcdPasses) -> Self {
         Self {
             passes,
             sweep: engine::Stage::build(
@@ -32,22 +35,22 @@ impl Ccd {
                     include_str!("rigid/shaders/ccd_sweep.wgsl"),
                     GEOMETRY,
                     "work",
-                    StreamId::PairMajor,
+                    RigidStream::PairMajor,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("colliders", StreamId::Colliders.whole()),
-                    ("pair_major", StreamId::PairMajor.whole()),
-                    ("pair_minor", StreamId::PairMinor.whole()),
-                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("collider_owners", StreamId::ColliderOwners.whole()),
-                    ("ccd_factor", StreamId::CcdFactor.whole()),
-                    ("ccd_impact", StreamId::CcdImpact.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("colliders", SceneStream::Colliders.whole()),
+                    ("pair_major", RigidStream::PairMajor.whole()),
+                    ("pair_minor", RigidStream::PairMinor.whole()),
+                    ("pair_count", streams.scene.counter(COUNTER_PAIRS)),
+                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("ccd_factor", RigidStream::CcdFactor.whole()),
+                    ("ccd_impact", RigidStream::CcdImpact.whole()),
                 ],
-                &RigidBuffers::shape_resources(),
+                &streams.scene.shape_resources(),
             ),
             apply: engine::Stage::build(
                 context,
@@ -58,12 +61,12 @@ impl Ccd {
                     CORE,
                     Count::Dynamic,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("ccd_factor", StreamId::CcdFactor.whole()),
-                    ("ccd_impact", StreamId::CcdImpact.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("ccd_factor", RigidStream::CcdFactor.whole()),
+                    ("ccd_impact", RigidStream::CcdImpact.whole()),
                 ],
                 &[],
             ),
@@ -74,16 +77,16 @@ impl Ccd {
         &self,
         engine: &Engine,
         encoder: &mut wgpu::CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
     ) {
         let mut sweep = engine.open(encoder, self.passes.sweep);
-        self.sweep.record_stream(&mut sweep, buffers);
+        self.sweep.record_stream(&mut sweep, streams);
         drop(sweep);
 
         let mut apply = engine.open(encoder, self.passes.apply);
         self.apply
-            .record_rows(&mut apply, buffers, Count::Dynamic.rows(&frame.params));
+            .record_rows(&mut apply, streams, Count::Dynamic.rows(&frame.params));
         drop(apply);
     }
 }

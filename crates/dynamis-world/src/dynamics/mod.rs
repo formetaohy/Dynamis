@@ -1,14 +1,27 @@
+mod capacity;
 mod ccd;
 mod engine;
+mod readback;
 pub(crate) mod rigid;
+pub(crate) mod scene;
+pub(crate) mod streams;
 
 use ccd::{Ccd, CcdPasses};
 use engine::Schedule;
-pub(crate) use rigid::Frame;
-use rigid::{Rigid, RigidPasses, RigidResolutionPasses, buffers::RigidBuffers};
+use rigid::{Rigid, RigidPasses, RigidResolutionPasses};
+use streams::Streams;
 
 use dynamis_gpu::GpuContext;
+use dynamis_layout::StepParamsRecord;
 use wgpu::CommandEncoder;
+
+pub(crate) use capacity::Live;
+pub use capacity::{ShapeCapacity, StreamCapacity};
+
+pub(crate) struct Frame {
+    pub(crate) params: StepParamsRecord,
+    pub(crate) query_count: u32,
+}
 
 pub(crate) struct Pipeline {
     engine: engine::Engine,
@@ -17,7 +30,7 @@ pub(crate) struct Pipeline {
 }
 
 impl Pipeline {
-    pub(crate) fn new(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(crate) fn new(context: &GpuContext, streams: &Streams) -> Self {
         let mut schedule = Schedule::new();
         let rigid = RigidPasses::claim(&mut schedule);
         let ccd = CcdPasses::claim(&mut schedule);
@@ -29,36 +42,36 @@ impl Pipeline {
                 #[cfg(feature = "profile")]
                 "dynamis step",
             ),
-            rigid: Rigid::new(context, buffers, rigid, resolution),
-            ccd: Ccd::new(context, buffers, ccd),
+            rigid: Rigid::new(context, streams, rigid, resolution),
+            ccd: Ccd::new(context, streams, ccd),
         }
     }
 
     pub(crate) fn encode(
         &self,
         encoder: &mut CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
         idle: bool,
         ccd_active: bool,
     ) {
         self.rigid
-            .encode(&self.engine, encoder, buffers, frame, idle);
+            .encode(&self.engine, encoder, streams, frame, idle);
         if ccd_active && !idle {
-            self.ccd.encode(&self.engine, encoder, buffers, frame);
+            self.ccd.encode(&self.engine, encoder, streams, frame);
         }
         self.rigid
-            .encode_resolution(&self.engine, encoder, buffers, frame, idle);
+            .encode_resolution(&self.engine, encoder, streams, frame, idle);
     }
 
     pub(crate) fn encode_queries(
         &self,
         encoder: &mut CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
     ) {
         self.rigid
-            .encode_queries(&self.engine, encoder, buffers, frame);
+            .encode_queries(&self.engine, encoder, streams, frame);
     }
 
     #[cfg(feature = "profile")]

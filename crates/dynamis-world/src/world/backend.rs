@@ -1,16 +1,15 @@
 use super::World;
 use crate::dynamics::Pipeline;
-use crate::dynamics::rigid::buffers::RigidBuffers;
-use crate::dynamics::rigid::capacity::Capacity;
+use crate::dynamics::streams::{Planning, Streams};
 use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
-    pub(crate) buffers: RigidBuffers,
+    pub(crate) streams: Streams,
     pub(crate) pipeline: Pipeline,
-    pub(crate) capacity: Capacity,
+    pub(crate) planning: Planning,
     pub(crate) measured: dynamis_layout::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) commanded_step: Option<u64>,
@@ -21,14 +20,14 @@ pub(crate) struct Backend {
 
 impl Backend {
     pub(crate) fn new(gpu: GpuContext) -> Self {
-        let demand = Capacity::minimum();
-        let buffers = RigidBuffers::new(gpu.device(), gpu.queue(), &demand);
-        let pipeline = Pipeline::new(&gpu, &buffers);
+        let plan = Planning::minimum();
+        let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
+        let pipeline = Pipeline::new(&gpu, &streams);
         Self {
             gpu,
-            buffers,
+            streams,
             pipeline,
-            capacity: Capacity::new(),
+            planning: Planning::new(),
             measured: [0; dynamis_layout::COUNTER_COUNT],
             measured_step: None,
             commanded_step: None,
@@ -42,14 +41,14 @@ impl Backend {
 impl World {
     pub(crate) fn apply_plan(&mut self) {
         let live = self.live();
-        let demand =
-            self.backend
-                .capacity
-                .demand(&self.backend.measured, &live, &self.backend.buffers);
-        if self.backend.buffers.matches(&demand) {
+        let plan = self
+            .backend
+            .planning
+            .plan(&self.backend.measured, &live, &self.backend.streams);
+        if self.backend.streams.matches(&plan) {
             return;
         }
-        if !self.backend.buffers.readback_matches(&demand) {
+        if !self.backend.streams.readback_matches(&plan) {
             self.sync_events();
             self.drain_readbacks();
         }
@@ -59,7 +58,7 @@ impl World {
             label: Some("dynamis buffer plan"),
         });
         assert!(
-            self.backend.buffers.reserve(&device, &mut encoder, &demand),
+            self.backend.streams.reserve(&device, &mut encoder, &plan),
             "a buffer plan that changes capacity must reallocate"
         );
         queue.submit([encoder.finish()]);

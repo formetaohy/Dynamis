@@ -1,6 +1,6 @@
 mod dynamics;
 mod world;
 
-pub use dynamics::rigid::capacity::{ShapeCapacity, StreamCapacity};
+pub use dynamics::{ShapeCapacity, StreamCapacity};
 pub use world::query_pool::{QueryHandle, QueryHit};
 pub use world::{ContactManifold, ContactPoint, World};

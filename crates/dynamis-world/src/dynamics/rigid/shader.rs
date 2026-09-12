@@ -50,7 +50,7 @@ fn shader_constants(per_row: u32) -> String {
     source.push_str(&format!("const WORKGROUPS_PER_ROW: u32 = {per_row}u;\n"));
     source.push_str(&format!(
         "const EVENT_SLOTS: u32 = {}u;\n",
-        crate::dynamics::rigid::buffers::EVENT_SLOTS
+        super::streams::EVENT_SLOTS
     ));
     source.push_str(&format!(
         "const COUNTER_STRIDE_WORDS: u32 = {}u;\n",

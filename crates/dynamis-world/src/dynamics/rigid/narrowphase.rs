@@ -1,7 +1,10 @@
-use super::buffers::{COMPACT_BLOCK, RigidBuffers, StreamId};
 use super::shader;
 use super::shader::{CORE, GEOMETRY};
+use super::streams::COMPACT_BLOCK;
+use super::streams::RigidStream;
 use crate::dynamics::engine::{MAX_DISPATCH_WORKGROUPS, Stage};
+use crate::dynamics::scene::SceneStream;
+use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_sort::RadixSort;
@@ -14,7 +17,7 @@ pub(super) struct Narrowphase {
 }
 
 impl Narrowphase {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, streams: &Streams) -> Self {
         Self {
             narrowphase: Stage::build(
                 context,
@@ -24,36 +27,36 @@ impl Narrowphase {
                     include_str!("shaders/narrowphase.wgsl"),
                     GEOMETRY,
                     "work",
-                    StreamId::PairMajor,
+                    RigidStream::PairMajor,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("colliders", StreamId::Colliders.whole()),
-                    ("pair_major", StreamId::PairMajor.whole()),
-                    ("pair_minor", StreamId::PairMinor.whole()),
-                    ("contacts_raw", StreamId::ContactsRaw.whole()),
-                    ("contact_valid", StreamId::ContactValid.whole()),
-                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("joint_major", StreamId::JointFilterMajor.whole()),
-                    ("joint_minor", StreamId::JointFilterMinor.whole()),
-                    ("joint_count", buffers.counter(COUNTER_JOINTS)),
-                    ("params", StreamId::Params.whole()),
-                    ("collider_owners", StreamId::ColliderOwners.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("colliders", SceneStream::Colliders.whole()),
+                    ("pair_major", RigidStream::PairMajor.whole()),
+                    ("pair_minor", RigidStream::PairMinor.whole()),
+                    ("contacts_raw", RigidStream::ContactsRaw.whole()),
+                    ("contact_valid", RigidStream::ContactValid.whole()),
+                    ("pair_count", streams.scene.counter(COUNTER_PAIRS)),
+                    ("joint_major", RigidStream::JointFilterMajor.whole()),
+                    ("joint_minor", RigidStream::JointFilterMinor.whole()),
+                    ("joint_count", streams.scene.counter(COUNTER_JOINTS)),
+                    ("params", SceneStream::Params.whole()),
+                    ("collider_owners", SceneStream::ColliderOwners.whole()),
                 ],
-                &RigidBuffers::shape_resources(),
+                &streams.scene.shape_resources(),
             ),
             compact_scan: Stage::build(
                 context,
                 "compact_scan",
                 shader::workgroups(context, include_str!("shaders/compact_scan.wgsl"), CORE),
-                buffers,
+                streams,
                 &[
-                    ("valid", StreamId::ContactValid.whole()),
-                    ("ranks", StreamId::CompactRanks.whole()),
-                    ("block_sums", StreamId::CompactBlockSums.whole()),
-                    ("count_holder", buffers.counter(COUNTER_PAIRS)),
+                    ("valid", RigidStream::ContactValid.whole()),
+                    ("ranks", RigidStream::CompactRanks.whole()),
+                    ("block_sums", RigidStream::CompactBlockSums.whole()),
+                    ("count_holder", streams.scene.counter(COUNTER_PAIRS)),
                 ],
                 &[],
             ),
@@ -61,12 +64,12 @@ impl Narrowphase {
                 context,
                 "compact_offsets",
                 shader::workgroups(context, include_str!("shaders/compact_offsets.wgsl"), CORE),
-                buffers,
+                streams,
                 &[
-                    ("block_sums", StreamId::CompactBlockSums.whole()),
-                    ("block_offsets", StreamId::CompactBlockOffsets.whole()),
-                    ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
+                    ("block_sums", RigidStream::CompactBlockSums.whole()),
+                    ("block_offsets", RigidStream::CompactBlockOffsets.whole()),
+                    ("contact_count", streams.scene.counter(COUNTER_CONTACTS)),
+                    ("pair_count", streams.scene.counter(COUNTER_PAIRS)),
                 ],
                 &[],
             ),
@@ -78,17 +81,17 @@ impl Narrowphase {
                     include_str!("shaders/compact_scatter.wgsl"),
                     CORE,
                     "work",
-                    StreamId::PairMajor,
+                    RigidStream::PairMajor,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("contacts_raw", StreamId::ContactsRaw.whole()),
-                    ("valid", StreamId::ContactValid.whole()),
-                    ("ranks", StreamId::CompactRanks.whole()),
-                    ("block_offsets", StreamId::CompactBlockOffsets.whole()),
-                    ("contacts", StreamId::Contacts.whole()),
-                    ("contact_matched", StreamId::ContactMatched.whole()),
-                    ("count_holder", buffers.counter(COUNTER_PAIRS)),
+                    ("contacts_raw", RigidStream::ContactsRaw.whole()),
+                    ("valid", RigidStream::ContactValid.whole()),
+                    ("ranks", RigidStream::CompactRanks.whole()),
+                    ("block_offsets", RigidStream::CompactBlockOffsets.whole()),
+                    ("contacts", RigidStream::Contacts.whole()),
+                    ("contact_matched", RigidStream::ContactMatched.whole()),
+                    ("count_holder", streams.scene.counter(COUNTER_PAIRS)),
                 ],
                 &[],
             ),
@@ -98,24 +101,24 @@ impl Narrowphase {
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         sort: &RadixSort,
     ) {
-        let words = buffers.collider_words();
-        let pairs = buffers.pair_capacity();
-        let channels = buffers.sort_lanes_dual(
-            buffers.counter(COUNTER_PAIRS),
-            StreamId::PairMajor.whole(),
-            StreamId::PairMinor.whole(),
+        let words = streams.scene.collider_words();
+        let pairs = streams.rigid.pair_capacity();
+        let channels = streams.sort_lanes_dual(
+            streams.scene.counter(COUNTER_PAIRS),
+            RigidStream::PairMajor.whole(),
+            RigidStream::PairMinor.whole(),
         );
         sort.sort(recorder, &channels, words, words, pairs);
-        self.narrowphase.record_stream(recorder, buffers);
+        self.narrowphase.record_stream(recorder, streams);
         self.compact_scan.record_workgroups(
             recorder,
-            buffers,
+            streams,
             pairs.div_ceil(COMPACT_BLOCK).min(MAX_DISPATCH_WORKGROUPS),
         );
-        self.compact_offsets.record_workgroups(recorder, buffers, 1);
-        self.compact_scatter.record_stream(recorder, buffers);
+        self.compact_offsets.record_workgroups(recorder, streams, 1);
+        self.compact_scatter.record_stream(recorder, streams);
     }
 }

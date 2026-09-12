@@ -1,5 +1,5 @@
 use super::World;
-use crate::dynamics::rigid::buffers::EVENT_SLOTS;
+use crate::dynamics::rigid::EVENT_SLOTS;
 use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 use std::collections::VecDeque;
@@ -47,12 +47,12 @@ impl World {
                 "event segment for step {step} was overwritten before step {} could copy it",
                 self.clock.step
             );
-            let segment = self.backend.buffers.events.size() / EVENT_SLOTS as u64;
+            let segment = self.backend.streams.rigid.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
-            let displaced = self.backend.buffers.readback.events.enqueue(
+            let displaced = self.backend.streams.readback.events.enqueue(
                 encoder,
-                self.backend.buffers.events.buffer(),
+                self.backend.streams.rigid.events.buffer(),
                 offset,
                 bytes,
                 step,
@@ -71,7 +71,7 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis event readback");
         self.copy_events(&mut encoder);
         encoder.submit(self.backend.gpu.queue());
-        for (_, bytes) in self.backend.buffers.readback.events.drain() {
+        for (_, bytes) in self.backend.streams.readback.events.drain() {
             self.consume_events(&bytes);
         }
     }

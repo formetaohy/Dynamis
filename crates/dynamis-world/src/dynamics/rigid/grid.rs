@@ -1,9 +1,11 @@
 use super::Count;
-use super::Frame;
-use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::GRID_INDEX;
+use super::streams::RigidStream;
+use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
+use crate::dynamics::scene::SceneStream;
+use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 
 pub(super) struct Grid {
@@ -11,7 +13,7 @@ pub(super) struct Grid {
 }
 
 impl Grid {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, streams: &Streams) -> Self {
         Self {
             grid_entries: Stage::build(
                 context,
@@ -22,28 +24,23 @@ impl Grid {
                     GRID_INDEX,
                     Count::Colliders,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("aabbs", StreamId::ColliderAabbs.whole()),
-                    ("collider_owners", StreamId::ColliderOwners.whole()),
-                    ("body_activity", StreamId::BodyActivity.whole()),
-                    ("entry_keys", StreamId::GridEntryKeys.whole()),
-                    ("entry_colliders", StreamId::GridEntryColliders.whole()),
-                    ("counters", StreamId::Counters.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("aabbs", RigidStream::ColliderAabbs.whole()),
+                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("body_activity", RigidStream::BodyActivity.whole()),
+                    ("entry_keys", RigidStream::GridEntryKeys.whole()),
+                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
-        frame: &Frame,
-    ) {
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, streams: &Streams, frame: &Frame) {
         self.grid_entries
-            .record_rows(recorder, buffers, Count::Colliders.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
     }
 }

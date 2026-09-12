@@ -1,9 +1,11 @@
 use super::Count;
-use super::Frame;
-use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::GRID_INDEX;
+use super::streams::RigidStream;
+use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
+use crate::dynamics::scene::SceneStream;
+use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_ENTRIES;
 use dynamis_sort::RadixSort;
@@ -14,7 +16,7 @@ pub(super) struct Broadphase {
 }
 
 impl Broadphase {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, streams: &Streams) -> Self {
         Self {
             cell_pairs: Stage::build(
                 context,
@@ -24,19 +26,19 @@ impl Broadphase {
                     include_str!("shaders/cell_pairs.wgsl"),
                     GRID_INDEX,
                     "work",
-                    StreamId::GridEntryKeys,
+                    RigidStream::GridEntryKeys,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("pair_major", StreamId::PairMajor.whole()),
-                    ("pair_minor", StreamId::PairMinor.whole()),
-                    ("body_activity", StreamId::BodyActivity.whole()),
-                    ("collider_owners", StreamId::ColliderOwners.whole()),
-                    ("aabbs", StreamId::ColliderAabbs.whole()),
-                    ("entry_keys", StreamId::GridEntryKeys.whole()),
-                    ("entry_colliders", StreamId::GridEntryColliders.whole()),
-                    ("counters", StreamId::Counters.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("pair_major", RigidStream::PairMajor.whole()),
+                    ("pair_minor", RigidStream::PairMinor.whole()),
+                    ("body_activity", RigidStream::BodyActivity.whole()),
+                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("aabbs", RigidStream::ColliderAabbs.whole()),
+                    ("entry_keys", RigidStream::GridEntryKeys.whole()),
+                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -49,17 +51,17 @@ impl Broadphase {
                     GRID_INDEX,
                     Count::Colliders,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("pair_major", StreamId::PairMajor.whole()),
-                    ("pair_minor", StreamId::PairMinor.whole()),
-                    ("aabbs", StreamId::ColliderAabbs.whole()),
-                    ("collider_owners", StreamId::ColliderOwners.whole()),
-                    ("body_activity", StreamId::BodyActivity.whole()),
-                    ("entry_keys", StreamId::GridEntryKeys.whole()),
-                    ("entry_colliders", StreamId::GridEntryColliders.whole()),
-                    ("counters", StreamId::Counters.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("pair_major", RigidStream::PairMajor.whole()),
+                    ("pair_minor", RigidStream::PairMinor.whole()),
+                    ("aabbs", RigidStream::ColliderAabbs.whole()),
+                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("body_activity", RigidStream::BodyActivity.whole()),
+                    ("entry_keys", RigidStream::GridEntryKeys.whole()),
+                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -69,18 +71,18 @@ impl Broadphase {
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
         sort: &RadixSort,
     ) {
-        let channels = buffers.sort_lanes(
-            buffers.counter(COUNTER_ENTRIES),
-            StreamId::GridEntryKeys.whole(),
-            StreamId::GridEntryColliders.whole(),
+        let channels = streams.sort_lanes(
+            streams.scene.counter(COUNTER_ENTRIES),
+            RigidStream::GridEntryKeys.whole(),
+            RigidStream::GridEntryColliders.whole(),
         );
-        sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
-        self.cell_pairs.record_stream(recorder, buffers);
+        sort.sort(recorder, &channels, 4, 0, streams.rigid.entry_capacity());
+        self.cell_pairs.record_stream(recorder, streams);
         self.level_links
-            .record_rows(recorder, buffers, Count::Colliders.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
     }
 }

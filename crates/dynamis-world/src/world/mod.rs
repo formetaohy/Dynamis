@@ -15,7 +15,9 @@ mod shape;
 pub(crate) mod shape_pool;
 mod step;
 
-use crate::dynamics::rigid::capacity::{Live, ShapeCapacity, StreamCapacity};
+use crate::dynamics::Live;
+use crate::dynamics::StreamCapacity;
+use crate::dynamics::scene::SceneStreams;
 use backend::Backend;
 use body::Bodies;
 use clock::Clock;
@@ -48,7 +50,7 @@ pub struct World {
 }
 
 fn flush_pool_range(
-    buffers: &crate::dynamics::rigid::buffers::RigidBuffers,
+    scene: &SceneStreams,
     queue: &wgpu::Queue,
     head: Option<(u32, u32)>,
     records: &[ColliderRecord],
@@ -61,12 +63,12 @@ fn flush_pool_range(
     if records.is_empty() {
         return;
     }
-    buffers.colliders.write_at(
+    scene.colliders.write_at(
         queue,
         start as u64 * std::mem::size_of::<ColliderRecord>() as u64,
         bytemuck::cast_slice(records),
     );
-    buffers
+    scene
         .collider_owners
         .write_at(queue, start as u64 * 4, bytemuck::cast_slice(owners));
 }
@@ -133,18 +135,7 @@ impl World {
     }
 
     pub fn stream_capacity(&self) -> StreamCapacity {
-        let streams = &self.backend.buffers;
-        StreamCapacity {
-            entries: streams.entry_capacity(),
-            pairs: streams.pair_capacity(),
-            events: streams.event_capacity(),
-            shapes: ShapeCapacity {
-                sources: streams.shape_sources.slots(),
-                vertices: streams.shape_vertices.slots(),
-                triangles: streams.shape_triangles.slots(),
-                nodes: streams.shape_nodes.slots(),
-            },
-        }
+        self.backend.streams.stream_capacity()
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {
@@ -170,13 +161,13 @@ impl World {
     }
 
     fn upload_shapes(&mut self, queue: &wgpu::Queue) {
-        let buffers = &self.backend.buffers;
+        let scene = &self.backend.streams.scene;
         self.shapes.pool.upload_pending(
             queue,
-            &buffers.shape_sources,
-            &buffers.shape_vertices,
-            &buffers.shape_triangles,
-            &buffers.shape_nodes,
+            &scene.shape_sources,
+            &scene.shape_vertices,
+            &scene.shape_triangles,
+            &scene.shape_nodes,
         );
         self.shapes.dirty = false;
     }
@@ -194,9 +185,9 @@ impl World {
                 .iter()
                 .map(|slot| self.bodies.descriptors[self.bodies.alive[*slot as usize].id as usize])
                 .collect::<Vec<_>>();
-            self.backend.buffers.body_descriptors.write_at(
+            self.backend.streams.scene.body_descriptors.write_at(
                 &queue,
-                run[0] as u64 * self.backend.buffers.body_descriptors.stride(),
+                run[0] as u64 * self.backend.streams.scene.body_descriptors.stride(),
                 bytemuck::cast_slice(&descriptors),
             );
         }
@@ -209,9 +200,9 @@ impl World {
                 .iter()
                 .map(|slot| self.constraints.records[*slot as usize])
                 .collect::<Vec<_>>();
-            self.backend.buffers.constraint_descriptors.write_at(
+            self.backend.streams.scene.constraint_descriptors.write_at(
                 &queue,
-                first as u64 * self.backend.buffers.constraint_descriptors.stride(),
+                first as u64 * self.backend.streams.scene.constraint_descriptors.stride(),
                 bytemuck::cast_slice(&records),
             );
         }
@@ -222,7 +213,7 @@ impl World {
             let records = vec![ColliderRecord::cleared(); cleared.len as usize];
             let owners = vec![dynamis_layout::NO_BODY; cleared.len as usize];
             flush_pool_range(
-                &self.backend.buffers,
+                &self.backend.streams.scene,
                 queue,
                 Some((cleared.offset, cleared.offset + cleared.len)),
                 &records,
@@ -245,7 +236,7 @@ impl World {
         for (run, row) in placed {
             let contiguous = head.is_some_and(|(_, end)| end == run.offset);
             if !contiguous {
-                flush_pool_range(&self.backend.buffers, queue, head, &records, &owners);
+                flush_pool_range(&self.backend.streams.scene, queue, head, &records, &owners);
                 head = Some((run.offset, run.offset));
                 records.clear();
                 owners.clear();
@@ -256,7 +247,7 @@ impl World {
             records.extend_from_slice(&self.colliders.records()[range]);
             owners.extend(std::iter::repeat_n(row, run.len as usize));
         }
-        flush_pool_range(&self.backend.buffers, queue, head, &records, &owners);
+        flush_pool_range(&self.backend.streams.scene, queue, head, &records, &owners);
     }
 
     pub(crate) fn write_declared_counters(&self) {
@@ -270,7 +261,7 @@ impl World {
             (COUNTER_CONSTRAINT_MOVES, self.constraints.last_moves),
         ];
         for (slot, value) in declared {
-            self.backend.buffers.counters.write_at(
+            self.backend.streams.scene.counters.write_at(
                 queue,
                 slot as u64 * dynamis_layout::COUNTER_STRIDE,
                 bytemuck::cast_slice(&[value]),
@@ -279,11 +270,11 @@ impl World {
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {
-        self.backend.buffers.body_states.gpu()
+        self.backend.streams.scene.body_states.gpu()
     }
 
     pub fn collider_buffer(&self) -> &GpuBuffer {
-        self.backend.buffers.colliders.gpu()
+        self.backend.streams.scene.colliders.gpu()
     }
 
     pub fn gpu(&self) -> &GpuContext {
@@ -299,6 +290,6 @@ impl World {
     }
 
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
-        (step % crate::dynamics::rigid::buffers::EVENT_SLOTS as u64) as u32
+        (step % crate::dynamics::rigid::EVENT_SLOTS as u64) as u32
     }
 }

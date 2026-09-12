@@ -1,9 +1,11 @@
 use super::Count;
-use super::Frame;
-use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::CORE;
+use super::streams::RigidStream;
+use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
+use crate::dynamics::scene::SceneStream;
+use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
 
@@ -13,7 +15,7 @@ pub(super) struct Sleep {
 }
 
 impl Sleep {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, streams: &Streams) -> Self {
         Self {
             island_aggregate: Stage::build(
                 context,
@@ -24,14 +26,14 @@ impl Sleep {
                     CORE,
                     Count::Dynamic,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("island_parents", StreamId::IslandParents.whole()),
-                    ("island_state", StreamId::IslandState.whole()),
-                    ("wake_flags", StreamId::WakeFlags.whole()),
+                    ("params", SceneStream::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("island_state", RigidStream::IslandState.whole()),
+                    ("wake_flags", RigidStream::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -44,19 +46,19 @@ impl Sleep {
                     CORE,
                     Count::Dynamic,
                 ),
-                buffers,
+                streams,
                 &[
-                    ("params", StreamId::Params.whole()),
-                    ("body_states", StreamId::BodyStates.whole()),
-                    ("body_descs", StreamId::BodyDescriptors.whole()),
-                    ("island_parents", StreamId::IslandParents.whole()),
-                    ("island_state", StreamId::IslandState.whole()),
-                    ("wake_flags", StreamId::WakeFlags.whole()),
-                    ("slept_count", buffers.counter(COUNTER_SLEPT)),
-                    ("woke_count", buffers.counter(COUNTER_WOKE)),
+                    ("params", SceneStream::Params.whole()),
+                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("island_state", RigidStream::IslandState.whole()),
+                    ("wake_flags", RigidStream::WakeFlags.whole()),
+                    ("slept_count", streams.scene.counter(COUNTER_SLEPT)),
+                    ("woke_count", streams.scene.counter(COUNTER_WOKE)),
                     (
                         "deferred_woke_count",
-                        buffers.counter(COUNTER_WOKE_DEFERRED),
+                        streams.scene.counter(COUNTER_WOKE_DEFERRED),
                     ),
                 ],
                 &[],
@@ -64,15 +66,10 @@ impl Sleep {
         }
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &RigidBuffers,
-        frame: &Frame,
-    ) {
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, streams: &Streams, frame: &Frame) {
         self.island_aggregate
-            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
         self.island_broadcast
-            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
     }
 }

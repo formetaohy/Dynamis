@@ -99,13 +99,12 @@ impl World {
                 self.event_slot_of(self.clock.step),
             ),
             query_count,
-            island_rounds: self.island_rounds(),
         }
     }
 
     fn write_step_records(&self, frame: &Frame) {
         self.write_declared_counters();
-        self.backend.buffers.params.write(
+        self.backend.streams.scene.params.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&[frame.params]),
         );
@@ -114,19 +113,23 @@ impl World {
     fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {
         let queue = self.backend.gpu.queue();
         self.backend
-            .buffers
+            .streams
+            .scene
             .body_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
-            .buffers
+            .streams
+            .scene
             .body_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.backend
-            .buffers
+            .streams
+            .scene
             .body_edits
             .write(queue, bytemuck::cast_slice(&compiled.edits));
         self.backend
-            .buffers
+            .streams
+            .scene
             .body_edit_runs
             .write(queue, bytemuck::cast_slice(&compiled.runs));
         self.bodies.last_moves = compiled.moves.len() as u32;
@@ -135,11 +138,13 @@ impl World {
     fn upload_constraint_commands(&mut self, compiled: &CompiledConstraintCommands) {
         let queue = self.backend.gpu.queue();
         self.backend
-            .buffers
+            .streams
+            .scene
             .constraint_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
-            .buffers
+            .streams
+            .scene
             .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.constraints.last_moves = compiled.moves.len() as u32;
@@ -149,7 +154,7 @@ impl World {
         if query_count == 0 {
             return None;
         }
-        self.backend.buffers.query_records.write(
+        self.backend.streams.scene.query_records.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&self.queries.pending),
         );
@@ -167,7 +172,7 @@ impl World {
         self.copy_events(&mut encoder);
         self.backend.pipeline.encode(
             &mut encoder,
-            &self.backend.buffers,
+            &self.backend.streams,
             frame,
             idle,
             self.ccd_active(),
@@ -175,17 +180,17 @@ impl World {
         #[cfg(feature = "profile")]
         let timings = self.backend.pipeline.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);
-        let pack = self.backend.buffers.readback.step.enqueue(
+        let pack = self.backend.streams.readback.step.enqueue(
             &mut encoder,
-            self.backend.buffers.readback.pack.buffer(),
+            self.backend.streams.readback.pack.buffer(),
             0,
             pack_bytes,
             step,
         );
         let queries = match batch {
-            Some(batch) => self.backend.buffers.readback.queries.enqueue(
+            Some(batch) => self.backend.streams.readback.queries.enqueue(
                 &mut encoder,
-                self.backend.buffers.query_results.buffer(),
+                self.backend.streams.scene.query_results.buffer(),
                 0,
                 self.queries.pending.len() as u64 * size_of::<QueryResultRecord>() as u64,
                 batch,

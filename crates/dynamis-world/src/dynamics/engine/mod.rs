@@ -1,11 +1,23 @@
+mod resource;
 mod schedule;
 mod stage;
+mod streams;
 
+pub(crate) use resource::{ResourceId, Resources, SlotRef};
 pub(crate) use schedule::{Schedule, domain_passes};
 pub(crate) use stage::{
-    Dispatch, MAX_DISPATCH_WORKGROUPS, Program, ResourceId, Resources, SlotRef, Stage,
-    WORKGROUP_SIZE, entry_rows, entry_stream, workgroups_of,
+    Dispatch, MAX_DISPATCH_WORKGROUPS, Program, Stage, WORKGROUP_SIZE, entry_rows, entry_stream,
+    workgroups_of,
 };
+pub(crate) use streams::{stream_usage, streams};
+
+use wgpu::BufferUsages;
+
+pub(crate) const STREAM: BufferUsages = BufferUsages::STORAGE
+    .union(BufferUsages::COPY_DST)
+    .union(BufferUsages::COPY_SRC);
+pub(crate) const UNIFORM: BufferUsages = BufferUsages::UNIFORM.union(BufferUsages::COPY_DST);
+pub(crate) const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
 
 #[cfg(feature = "profile")]
 use dynamis_gpu::SubmissionEncoder;

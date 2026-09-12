@@ -137,13 +137,15 @@ impl World {
         let queue = self.backend.gpu.queue().clone();
         let device = self.backend.gpu.device().clone();
         self.backend
-            .buffers
+            .streams
+            .scene
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
         let frame = self.frame(self.clock.sub_dt, count as u32);
         self.backend
-            .buffers
+            .streams
+            .scene
             .params
             .write(&queue, bytemuck::cast_slice(&[frame.params]));
         let batch = self.queries.next_batch;
@@ -152,11 +154,11 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query flush");
         self.backend
             .pipeline
-            .encode_queries(&mut encoder, &self.backend.buffers, &frame);
+            .encode_queries(&mut encoder, &self.backend.streams, &frame);
         let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
-        let arrived = self.backend.buffers.readback.queries.enqueue(
+        let arrived = self.backend.streams.readback.queries.enqueue(
             &mut encoder,
-            self.backend.buffers.query_results.buffer(),
+            self.backend.streams.scene.query_results.buffer(),
             0,
             bytes,
             batch,
@@ -165,7 +167,7 @@ impl World {
         if let Some((batch, bytes)) = arrived {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (batch, bytes) in self.backend.buffers.readback.queries.drain() {
+        for (batch, bytes) in self.backend.streams.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
         self.queries.pending.clear();

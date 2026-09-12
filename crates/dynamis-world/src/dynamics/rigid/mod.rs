@@ -1,7 +1,5 @@
 mod broadphase;
-pub(crate) mod buffers;
-pub(crate) mod capacity;
-
+mod capacity;
 mod commands;
 mod commit;
 mod grid;
@@ -11,11 +9,12 @@ mod narrowphase;
 pub(crate) mod shader;
 mod sleep;
 mod solver;
+mod streams;
 
+use crate::dynamics::Frame;
 use crate::dynamics::engine::{Engine, domain_passes};
+use crate::dynamics::streams::Streams;
 use broadphase::Broadphase;
-use buffers::RigidBuffers;
-use buffers::StreamId;
 use commands::Commands;
 use commit::Commit;
 use dynamis_gpu::GpuContext;
@@ -27,6 +26,9 @@ use islands::Islands;
 use narrowphase::Narrowphase;
 use sleep::Sleep;
 use solver::Solver;
+
+pub(crate) use capacity::Capacity;
+pub(crate) use streams::{DOMAIN, EVENT_SLOTS, RigidDemand, RigidStream, RigidStreams};
 
 domain_passes!(
     RigidPasses,
@@ -89,10 +91,8 @@ impl Count {
     }
 }
 
-pub(crate) struct Frame {
-    pub(crate) params: StepParamsRecord,
-    pub(crate) query_count: u32,
-    pub(crate) island_rounds: u32,
+fn island_rounds(streams: &Streams) -> u32 {
+    streams.scene.body_row_count().max(2).ilog2() + 1
 }
 
 pub(crate) struct Rigid {
@@ -113,23 +113,23 @@ pub(crate) struct Rigid {
 impl Rigid {
     pub(crate) fn new(
         context: &GpuContext,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         passes: RigidPasses,
         resolution: RigidResolutionPasses,
     ) -> Self {
-        let sort = RadixSort::new(context, "world sort", buffers.sort_capacity());
+        let sort = RadixSort::new(context, "world sort", streams.sort_capacity());
         Self {
             passes,
             resolution,
-            commands: Commands::build(context, buffers),
-            integrate: Integrate::build(context, buffers),
-            grid: Grid::build(context, buffers),
-            broadphase: Broadphase::build(context, buffers),
-            narrowphase: Narrowphase::build(context, buffers),
-            islands: Islands::build(context, buffers),
-            sleep: Sleep::build(context, buffers),
-            solver: Solver::build(context, buffers),
-            commit: Commit::build(context, buffers),
+            commands: Commands::build(context, streams),
+            integrate: Integrate::build(context, streams),
+            grid: Grid::build(context, streams),
+            broadphase: Broadphase::build(context, streams),
+            narrowphase: Narrowphase::build(context, streams),
+            islands: Islands::build(context, streams),
+            sleep: Sleep::build(context, streams),
+            solver: Solver::build(context, streams),
+            commit: Commit::build(context, streams),
             sort,
         }
     }
@@ -138,12 +138,12 @@ impl Rigid {
         &self,
         engine: &Engine,
         encoder: &mut wgpu::CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
         idle: bool,
     ) {
         let mut commands = engine.open(encoder, self.passes.commands);
-        self.commands.record(&mut commands, buffers, frame);
+        self.commands.record(&mut commands, streams, frame);
         drop(commands);
 
         if idle {
@@ -151,37 +151,38 @@ impl Rigid {
         }
         let mut integrate = engine.open(encoder, self.passes.integrate);
         self.integrate
-            .record(&mut integrate, buffers, frame, &self.sort);
+            .record(&mut integrate, streams, frame, &self.sort);
         drop(integrate);
 
         let mut grid = engine.open(encoder, self.passes.grid);
-        self.grid.record(&mut grid, buffers, frame);
+        self.grid.record(&mut grid, streams, frame);
         drop(grid);
 
         let mut broadphase = engine.open(encoder, self.passes.broadphase);
         self.broadphase
-            .record(&mut broadphase, buffers, frame, &self.sort);
+            .record(&mut broadphase, streams, frame, &self.sort);
         drop(broadphase);
 
         let mut narrowphase = engine.open(encoder, self.passes.narrowphase);
         self.narrowphase
-            .record(&mut narrowphase, buffers, &self.sort);
+            .record(&mut narrowphase, streams, &self.sort);
         drop(narrowphase);
 
         let mut islands = engine.open(encoder, self.passes.islands);
-        self.islands.record(&mut islands, buffers, frame);
+        self.islands
+            .record(&mut islands, streams, frame, island_rounds(streams));
         drop(islands);
 
         let mut prepare = engine.open(encoder, self.passes.solver_prepare);
-        self.solver.record_prepare(&mut prepare, buffers, frame);
+        self.solver.record_prepare(&mut prepare, streams, frame);
         drop(prepare);
 
         let mut solver = engine.open(encoder, self.passes.solver);
-        self.solver.record(&mut solver, buffers, frame, &self.sort);
+        self.solver.record(&mut solver, streams, frame, &self.sort);
         drop(solver);
 
         let mut advance = engine.open(encoder, self.passes.advance);
-        self.integrate.record_advance(&mut advance, buffers, frame);
+        self.integrate.record_advance(&mut advance, streams, frame);
         drop(advance);
     }
 
@@ -189,29 +190,29 @@ impl Rigid {
         &self,
         engine: &Engine,
         encoder: &mut wgpu::CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
         idle: bool,
     ) {
         if !idle {
             let mut position = engine.open(encoder, self.resolution.solver_position);
             self.solver
-                .record_position_iterations(&mut position, buffers, frame);
+                .record_position_iterations(&mut position, streams, frame);
             drop(position);
 
             let mut sleep = engine.open(encoder, self.resolution.sleep);
-            self.sleep.record(&mut sleep, buffers, frame);
+            self.sleep.record(&mut sleep, streams, frame);
             drop(sleep);
         }
         let mut commit = engine.open(encoder, self.resolution.commit);
-        self.commit.record(&mut commit, buffers, frame);
+        self.commit.record(&mut commit, streams, frame);
         drop(commit);
         if !idle {
             let mut gather = engine.open(encoder, self.resolution.resting_gather);
-            self.commit.record_gather(&mut gather, buffers);
+            self.commit.record_gather(&mut gather, streams);
             drop(gather);
             let mut index = engine.open(encoder, self.resolution.resting_index);
-            self.commit.record_index(&mut index, buffers, &self.sort);
+            self.commit.record_index(&mut index, streams, &self.sort);
             drop(index);
         }
     }
@@ -220,28 +221,28 @@ impl Rigid {
         &self,
         engine: &Engine,
         encoder: &mut wgpu::CommandEncoder,
-        buffers: &RigidBuffers,
+        streams: &Streams,
         frame: &Frame,
     ) {
         let mut commands =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query commands", engine.per_row());
-        self.commands.record_moves(&mut commands, buffers, frame);
-        self.commands.record_edits(&mut commands, buffers, frame);
-        self.commands.reset(&mut commands, buffers);
+        self.commands.record_moves(&mut commands, streams, frame);
+        self.commands.record_edits(&mut commands, streams, frame);
+        self.commands.reset(&mut commands, streams);
         self.integrate
-            .record_broadphase(&mut commands, buffers, frame);
-        self.grid.record(&mut commands, buffers, frame);
+            .record_broadphase(&mut commands, streams, frame);
+        self.grid.record(&mut commands, streams, frame);
         drop(commands);
 
         let mut flush =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query flush", engine.per_row());
-        let channels = buffers.sort_lanes(
-            buffers.counter(COUNTER_ENTRIES),
-            StreamId::GridEntryKeys.whole(),
-            StreamId::GridEntryColliders.whole(),
+        let channels = streams.sort_lanes(
+            streams.scene.counter(COUNTER_ENTRIES),
+            RigidStream::GridEntryKeys.whole(),
+            RigidStream::GridEntryColliders.whole(),
         );
         self.sort
-            .sort(&mut flush, &channels, 4, 0, buffers.entry_capacity());
-        self.commit.record_query(&mut flush, buffers, frame);
+            .sort(&mut flush, &channels, 4, 0, streams.rigid.entry_capacity());
+        self.commit.record_query(&mut flush, streams, frame);
     }
 }
