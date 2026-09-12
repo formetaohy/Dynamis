@@ -117,7 +117,6 @@ impl QueryPool {
                     step,
                 })
                 .collect();
-            hits[index].sort_unstable_by(|left, right| left.distance.total_cmp(&right.distance));
             overflow[index] = spilled != 0;
         }
         batch.outcome = Some(QueryOutcome { hits, overflow });

@@ -683,3 +683,155 @@ fn query_after_teleport_sees_the_new_position() {
         "stale entries must not answer for the old position"
     );
 }
+
+#[test]
+fn truncated_ray_query_keeps_the_closest_hits() {
+    let mut world = new_world(static_config());
+    let nearest = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
+    let middle = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
+    let _farthest = query_static(&mut world, 0.5, [0.0, 0.0, 6.0]);
+    let single_handle = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 1,
+            ..QueryFilter::default()
+        },
+    );
+    let pair_handle = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 2,
+            ..QueryFilter::default()
+        },
+    );
+    world.step(DT);
+    world.wait();
+    let single = world.query_hits(single_handle);
+    assert_eq!(single.len(), 1);
+    assert_eq!(single[0].body, nearest);
+    assert!((single[0].distance - 1.5).abs() < 1e-3);
+    assert!(world.query_overflow(single_handle));
+    let pair = world.query_hits(pair_handle);
+    assert_eq!(pair.len(), 2);
+    assert_eq!(pair[0].body, nearest);
+    assert_eq!(pair[1].body, middle);
+    assert!((pair[1].distance - 3.5).abs() < 1e-3);
+    assert!(world.query_overflow(pair_handle));
+}
+
+#[test]
+fn truncated_sweep_query_keeps_the_closest_obstacle() {
+    let mut world = new_world(static_config());
+    let _near_wall = world.spawn(
+        BodyDesc::cuboid([0.25, 3.0, 4.0])
+            .mass(0.0)
+            .position([2.0, 1.5, 0.0]),
+    );
+    let _far_wall = world.spawn(
+        BodyDesc::cuboid([0.25, 3.0, 4.0])
+            .mass(0.0)
+            .position([8.0, 1.5, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    let handle = world.sweep_query(
+        &Shape::sphere(0.4),
+        [0.0, 0.0, 0.0, 1.0],
+        [1.3, 0.95, 0.0],
+        [1.0, 0.0, 0.0],
+        10.0,
+        &QueryFilter {
+            max_hits: 1,
+            ..QueryFilter::default()
+        },
+    );
+    world.flush_queries();
+    let hit = world.query_hit(handle).expect("sweep must hit a wall");
+    assert!(
+        hit.distance < 1.0,
+        "truncated sweep must stop at the nearest wall, got {}",
+        hit.distance
+    );
+}
+
+#[test]
+fn exact_hit_count_reports_no_overflow_and_keeps_order() {
+    let mut world = new_world(static_config());
+    let near = query_static(&mut world, 0.4, [0.0, 0.0, 2.0]);
+    let middle = query_static(&mut world, 0.4, [0.0, 0.0, 2.7]);
+    let far = query_static(&mut world, 0.4, [0.0, 0.0, 3.4]);
+    let exact = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 3,
+            ..QueryFilter::default()
+        },
+    );
+    let capped = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 2,
+            ..QueryFilter::default()
+        },
+    );
+    world.step(DT);
+    world.wait();
+    let hits = world.query_hits(exact);
+    assert_eq!(
+        hits.iter().map(|hit| hit.body).collect::<Vec<_>>(),
+        vec![near, middle, far]
+    );
+    assert!(!world.query_overflow(exact));
+    let hits = world.query_hits(capped);
+    assert_eq!(
+        hits.iter().map(|hit| hit.body).collect::<Vec<_>>(),
+        vec![near, middle]
+    );
+    assert!(world.query_overflow(capped));
+}
+
+#[test]
+fn queries_do_not_inherit_candidates_from_earlier_queries() {
+    let mut world = new_world(static_config());
+    let first_target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
+    let _second = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
+    let _third = query_static(&mut world, 0.5, [0.0, 0.0, 6.0]);
+    let far_target = query_static(&mut world, 0.5, [10.0, 0.0, 2.0]);
+    let first = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 4,
+            ..QueryFilter::default()
+        },
+    );
+    world.flush_queries();
+    assert_eq!(
+        world.query_hit(first).map(|hit| hit.body),
+        Some(first_target)
+    );
+    let second = world.ray_query(
+        [10.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            max_hits: 4,
+            ..QueryFilter::default()
+        },
+    );
+    world.flush_queries();
+    assert_eq!(
+        world.query_hit(second).map(|hit| hit.body),
+        Some(far_target),
+        "a later query must not answer with an earlier query's candidates"
+    );
+}

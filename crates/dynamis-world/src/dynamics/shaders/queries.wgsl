@@ -19,7 +19,6 @@ var<workgroup> candidate_count: atomic<u32>;
 var<workgroup> overflow_flag: atomic<u32>;
 
 fn bitonic_sort(local_invocation: u32) {
-    let total = min(atomicLoad(&candidate_count), CANDIDATES_PER_QUERY);
     var k = 2u;
     loop {
         if (k > CANDIDATES_PER_QUERY) {
@@ -37,7 +36,10 @@ fn bitonic_sort(local_invocation: u32) {
                     let ascending = (index & k) == 0u;
                     let a = candidates[index];
                     let b = candidates[i];
-                    let out_of_order = select(a > b, a < b, ascending);
+                    var out_of_order = a > b;
+                    if (!ascending) {
+                        out_of_order = a < b;
+                    }
                     if (out_of_order) {
                         candidates[index] = b;
                         candidates[i] = a;
@@ -293,21 +295,67 @@ fn query_world_aabb(query: Query) -> Aabb {
     return world_aabb_of(shape);
 }
 
-fn emit_hit(batch: u32, query: Query, body: Body, collider: Collider, collider_index: u32, distance: f32, point: vec3f, normal: vec3f) {
-    var slot = 0u;
-    loop {
-        let current = atomicLoad(&query_results[batch].header.count);
-        if (current >= query.max_hits || current >= MAX_HITS_PER_QUERY) {
-            atomicStore(&query_results[batch].header.overflow, 1u);
-            return;
-        }
-        let exchanged = atomicCompareExchangeWeak(&query_results[batch].header.count, current, current + 1u);
-        if (exchanged.exchanged) {
-            slot = current;
-            break;
-        }
+const NO_KEY: u32 = 0xFFFFFFFFu;
+const NO_CANDIDATE: u32 = 0xFFFFFFFFu;
+const CANDIDATES_PER_THREAD: u32 = (CANDIDATES_PER_QUERY + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+
+fn hit_key(distance: f32) -> u32 {
+    let bits = bitcast<u32>(distance);
+    if ((bits & 0x80000000u) != 0u) {
+        return ~bits;
     }
-    query_results[batch].hits[slot] = QueryHit(body.state.body_id, body.state.generation, distance, collider_index, point, 0.0, normal, 0.0);
+    return bits | 0x80000000u;
+}
+
+fn candidate_index_of(invocation: u32, slot: u32) -> u32 {
+    return invocation + slot * WORKGROUP_SIZE;
+}
+
+fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
+    if (query.kind == QUERY_RAY) {
+        return ray_hit(query, body, collider);
+    }
+    var normal = vec3f(0.0);
+    let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
+    if (query.kind == QUERY_SWEEP) {
+        let static_target = world_collider(body.state, collider);
+        let distance = select(
+            sweep_convex(query, static_target, &normal),
+            sweep_world_geom(query, static_target, &normal),
+            is_world_geom,
+        );
+        if (distance < NO_HIT) {
+            return ShapeHit(distance, query.origin + normalize(query.direction) * distance, normal);
+        }
+        return no_hit();
+    }
+    if (query.kind == QUERY_SPHERE || query.kind == QUERY_POINT) {
+        let separation = select(
+            overlap_hit(query, body, collider, &normal),
+            overlap_world_geom(query, body, collider, &normal),
+            is_world_geom,
+        );
+        if (separation < NO_HIT) {
+            return ShapeHit(separation, world_collider(body.state, collider).center, normal);
+        }
+        return no_hit();
+    }
+    if (is_world_geom) {
+        let separation = overlap_world_geom(query, body, collider, &normal);
+        if (separation < NO_HIT) {
+            return ShapeHit(separation, world_collider(body.state, collider).center, normal);
+        }
+        return no_hit();
+    }
+    let world = world_collider(body.state, collider);
+    let probe = query_shape_world(query, query.origin);
+    var simplex: array<SimplexPoint, 4>;
+    var count = 0u;
+    let closest = convex_closest(probe, world, &simplex, &count);
+    if (closest.penetrating) {
+        return ShapeHit(0.0, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+    }
+    return no_hit();
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -320,6 +368,8 @@ fn main(
     if (invocation_id.x == 0u) {
         atomicStore(&query_results[batch].header.count, 0u);
         atomicStore(&query_results[batch].header.overflow, 0u);
+        atomicStore(&query_results[batch].header.round_key, NO_KEY);
+        atomicStore(&query_results[batch].header.round_collider, NO_KEY);
     }
     workgroupBarrier();
     atomicStore(&candidate_count, 0u);
@@ -336,72 +386,95 @@ fn main(
     if (invocation_id.x == 0u && atomicLoad(&overflow_flag) != 0u) {
         atomicStore(&query_results[batch].header.overflow, 1u);
     }
+    let candidate_total = min(atomicLoad(&candidate_count), CANDIDATES_PER_QUERY);
+    for (var index = invocation_id.x; index < CANDIDATES_PER_QUERY; index = index + WORKGROUP_SIZE) {
+        if (index >= candidate_total) {
+            candidates[index] = NO_CANDIDATE;
+        }
+    }
+    workgroupBarrier();
     bitonic_sort(invocation_id.x);
     workgroupBarrier();
-    let candidate_total = min(atomicLoad(&candidate_count), CANDIDATES_PER_QUERY);
+    var keys: array<u32, CANDIDATES_PER_THREAD>;
+    var best_key = NO_KEY;
+    var best_collider = NO_KEY;
     var candidate_index = invocation_id.x;
+    var slot_index = 0u;
     while (candidate_index < candidate_total) {
         let collider_slot = candidates[candidate_index];
-        if (candidate_index > 0u && collider_slot == candidates[candidate_index - 1u]) {
-            candidate_index = candidate_index + WORKGROUP_SIZE;
-            continue;
-        }
-        let body = load_body(collider_owners[collider_slot]);
-        let collider = colliders[collider_slot];
-        if (!body_passes(body, collider, query)) {
-            candidate_index = candidate_index + WORKGROUP_SIZE;
-            continue;
-        }
-        var hit = no_hit();
-        var normal = vec3f(0.0);
-        if (query.kind == QUERY_RAY) {
-            hit = ray_hit(query, body, collider);
-        } else if (query.kind == QUERY_SWEEP) {
-            let static_target = world_collider(body.state, collider);
-            let moving_probe = query_shape_world(query, query.origin);
-            let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
-            let distance = select(
-                sweep_convex(query, static_target, &normal),
-                sweep_world_geom(query, static_target, &normal),
-                is_world_geom,
-            );
-            if (distance < NO_HIT) {
-                let point = query.origin + normalize(query.direction) * distance;
-                hit = ShapeHit(distance, point, normal);
-            }
-        } else if (query.kind == QUERY_SPHERE || query.kind == QUERY_POINT) {
-            let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
-            let separation = select(
-                overlap_hit(query, body, collider, &normal),
-                overlap_world_geom(query, body, collider, &normal),
-                is_world_geom,
-            );
-            if (separation < NO_HIT) {
-                let point = world_collider(body.state, collider).center;
-                hit = ShapeHit(separation, point, normal);
-            }
-        } else {
-            let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
-            if (is_world_geom) {
-                let separation = overlap_world_geom(query, body, collider, &normal);
-                if (separation < NO_HIT) {
-                    let point = world_collider(body.state, collider).center;
-                    hit = ShapeHit(separation, point, normal);
-                }
-            } else {
-                let world = world_collider(body.state, collider);
-                let probe = query_shape_world(query, query.origin);
-                var simplex: array<SimplexPoint, 4>;
-                var count = 0u;
-                let closest = convex_closest(probe, world, &simplex, &count);
-                if (closest.penetrating) {
-                    hit = ShapeHit(0.0, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+        let duplicate = candidate_index > 0u && collider_slot == candidates[candidate_index - 1u];
+        keys[slot_index] = NO_KEY;
+        if (!duplicate) {
+            let body = load_body(collider_owners[collider_slot]);
+            let collider = colliders[collider_slot];
+            if (body_passes(body, collider, query)) {
+                let hit = resolve_hit(query, body, collider);
+                if (hit.distance < NO_HIT) {
+                    let key = hit_key(hit.distance);
+                    keys[slot_index] = key;
+                    atomicAdd(&query_results[batch].header.count, 1u);
+                    if (key < best_key) {
+                        best_key = key;
+                        best_collider = collider_slot;
+                    } else if (key == best_key) {
+                        best_collider = min(best_collider, collider_slot);
+                    }
                 }
             }
         }
-        if (hit.distance < NO_HIT) {
-            emit_hit(batch, query, body, collider, collider.slot, hit.distance, hit.point, hit.normal);
-        }
+        slot_index = slot_index + 1u;
         candidate_index = candidate_index + WORKGROUP_SIZE;
+    }
+    let capacity = min(query.max_hits, MAX_HITS_PER_QUERY);
+    storageBarrier();
+    let total_hits = atomicLoad(&query_results[batch].header.count);
+    let emitted_total = min(total_hits, capacity);
+    var round = 0u;
+    loop {
+        if (round >= emitted_total) {
+            break;
+        }
+        if (invocation_id.x == 0u) {
+            atomicStore(&query_results[batch].header.round_key, NO_KEY);
+            atomicStore(&query_results[batch].header.round_collider, NO_KEY);
+        }
+        storageBarrier();
+        atomicMin(&query_results[batch].header.round_key, best_key);
+        storageBarrier();
+        let chosen_key = atomicLoad(&query_results[batch].header.round_key);
+        if (chosen_key == NO_KEY) {
+            break;
+        }
+        if (best_key == chosen_key) {
+            atomicMin(&query_results[batch].header.round_collider, best_collider);
+        }
+        storageBarrier();
+        let chosen_collider = atomicLoad(&query_results[batch].header.round_collider);
+        if (best_key == chosen_key && best_collider == chosen_collider) {
+            let body = load_body(collider_owners[chosen_collider]);
+            let collider = colliders[chosen_collider];
+            let hit = resolve_hit(query, body, collider);
+            query_results[batch].hits[round] = QueryHit(body.state.body_id, body.state.generation, hit.distance, collider.slot, hit.point, 0.0, hit.normal, 0.0);
+            best_key = NO_KEY;
+            best_collider = NO_KEY;
+            for (var slot = 0u; slot < slot_index; slot = slot + 1u) {
+                if (keys[slot] == chosen_key) {
+                    keys[slot] = NO_KEY;
+                }
+                if (keys[slot] < best_key) {
+                    best_key = keys[slot];
+                    best_collider = candidates[candidate_index_of(invocation_id.x, slot)];
+                } else if (keys[slot] == best_key) {
+                    best_collider = min(best_collider, candidates[candidate_index_of(invocation_id.x, slot)]);
+                }
+            }
+        }
+        round = round + 1u;
+        storageBarrier();
+    }
+    if (invocation_id.x == 0u) {
+        let spilling = atomicLoad(&query_results[batch].header.overflow) != 0u;
+        atomicStore(&query_results[batch].header.count, emitted_total);
+        atomicStore(&query_results[batch].header.overflow, select(0u, 1u, spilling || emitted_total < total_hits));
     }
 }
