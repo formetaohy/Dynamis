@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::CORE;
-use crate::dynamics::engine::{Stage, whole};
+use crate::dynamics::engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
 use dynamis_sort::RadixSort;
@@ -26,10 +26,11 @@ impl Integrate {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
                 ],
                 &[],
             ),
@@ -42,10 +43,11 @@ impl Integrate {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("ccd_factor", whole(&buffers.ccd_factor)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("ccd_factor", StreamId::CcdFactor.whole()),
                 ],
                 &[],
             ),
@@ -58,28 +60,39 @@ impl Integrate {
                     CORE,
                     Count::Colliders,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("colliders", whole(&buffers.colliders)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
-                    ("aabbs", whole(&buffers.collider_aabbs)),
-                    ("counters", whole(&buffers.counters)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("colliders", StreamId::Colliders.whole()),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
+                    ("aabbs", StreamId::ColliderAabbs.whole()),
+                    ("counters", StreamId::Counters.whole()),
                 ],
-                &buffers.shape_resources(),
+                &RigidBuffers::shape_resources(),
             ),
         }
     }
 
-    pub(super) fn record_advance(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+    pub(super) fn record_advance(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
         self.advance
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
     }
 
-    pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+    pub(super) fn record_broadphase(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
         self.broadphase_aabb
-            .record_rows(recorder, Count::Colliders.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Colliders.rows(&frame.params));
     }
 
     pub(super) fn record(
@@ -93,8 +106,8 @@ impl Integrate {
             let words = buffers.body_words();
             let channels = buffers.sort_lanes_dual(
                 buffers.counter(COUNTER_JOINTS),
-                &buffers.joint_filter_major,
-                &buffers.joint_filter_minor,
+                StreamId::JointFilterMajor.whole(),
+                StreamId::JointFilterMinor.whole(),
             );
             sort.sort(
                 recorder,
@@ -105,8 +118,8 @@ impl Integrate {
             );
         }
         self.integrate
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
         self.broadphase_aabb
-            .record_rows(recorder, Count::Colliders.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Colliders.rows(&frame.params));
     }
 }

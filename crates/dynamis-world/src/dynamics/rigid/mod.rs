@@ -15,6 +15,7 @@ mod solver;
 use crate::dynamics::engine::Engine;
 use broadphase::Broadphase;
 use buffers::RigidBuffers;
+use buffers::StreamId;
 use ccd::Ccd;
 use commands::Commands;
 use commit::Commit;
@@ -146,7 +147,7 @@ impl Rigid {
         idle: bool,
     ) {
         let mut commands = engine.open(encoder, Pass::Commands.index());
-        self.commands.record(&mut commands, frame);
+        self.commands.record(&mut commands, buffers, frame);
         drop(commands);
 
         if !idle {
@@ -156,7 +157,7 @@ impl Rigid {
             drop(integrate);
 
             let mut grid = engine.open(encoder, Pass::Grid.index());
-            self.grid.record(&mut grid, frame);
+            self.grid.record(&mut grid, buffers, frame);
             drop(grid);
 
             let mut broadphase = engine.open(encoder, Pass::Broadphase.index());
@@ -170,11 +171,11 @@ impl Rigid {
             drop(narrowphase);
 
             let mut islands = engine.open(encoder, Pass::Islands.index());
-            self.islands.record(&mut islands, frame);
+            self.islands.record(&mut islands, buffers, frame);
             drop(islands);
 
             let mut prepare = engine.open(encoder, Pass::SolverPrepare.index());
-            self.solver.record_prepare(&mut prepare, frame);
+            self.solver.record_prepare(&mut prepare, buffers, frame);
             drop(prepare);
 
             let mut solver = engine.open(encoder, Pass::Solver.index());
@@ -182,24 +183,25 @@ impl Rigid {
             drop(solver);
 
             let mut impact = engine.open(encoder, Pass::Impact.index());
-            self.integrate.record_advance(&mut impact, frame);
-            self.ccd.record(&mut impact, frame);
+            self.integrate.record_advance(&mut impact, buffers, frame);
+            self.ccd.record(&mut impact, buffers, frame);
             drop(impact);
 
             let mut position = engine.open(encoder, Pass::SolverPosition.index());
-            self.solver.record_position_iterations(&mut position, frame);
+            self.solver
+                .record_position_iterations(&mut position, buffers, frame);
             drop(position);
 
             let mut sleep = engine.open(encoder, Pass::Sleep.index());
-            self.sleep.record(&mut sleep, frame);
+            self.sleep.record(&mut sleep, buffers, frame);
             drop(sleep);
         }
         let mut commit = engine.open(encoder, Pass::Commit.index());
-        self.commit.record(&mut commit, frame);
+        self.commit.record(&mut commit, buffers, frame);
         drop(commit);
         if !idle {
             let mut gather = engine.open(encoder, Pass::RestingGather.index());
-            self.commit.record_gather(&mut gather);
+            self.commit.record_gather(&mut gather, buffers);
             drop(gather);
             let mut index = engine.open(encoder, Pass::RestingIndex.index());
             self.commit.record_index(&mut index, buffers, &self.sort);
@@ -216,22 +218,23 @@ impl Rigid {
     ) {
         let mut commands =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query commands", engine.per_row());
-        self.commands.record_moves(&mut commands, frame);
-        self.commands.record_edits(&mut commands, frame);
-        self.commands.reset(&mut commands);
-        self.integrate.record_broadphase(&mut commands, frame);
-        self.grid.record(&mut commands, frame);
+        self.commands.record_moves(&mut commands, buffers, frame);
+        self.commands.record_edits(&mut commands, buffers, frame);
+        self.commands.reset(&mut commands, buffers);
+        self.integrate
+            .record_broadphase(&mut commands, buffers, frame);
+        self.grid.record(&mut commands, buffers, frame);
         drop(commands);
 
         let mut flush =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query flush", engine.per_row());
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.grid_entry_keys,
-            &buffers.grid_entry_colliders,
+            StreamId::GridEntryKeys.whole(),
+            StreamId::GridEntryColliders.whole(),
         );
         self.sort
             .sort(&mut flush, &channels, 4, 0, buffers.entry_capacity());
-        self.commit.record_query(&mut flush, frame);
+        self.commit.record_query(&mut flush, buffers, frame);
     }
 }

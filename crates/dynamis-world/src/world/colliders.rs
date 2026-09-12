@@ -1,10 +1,9 @@
 use super::arena::{Arena, Run};
-use dynamis_layout::{ColliderRecord, NO_BODY};
+use dynamis_layout::ColliderRecord;
 
 pub(crate) struct ColliderPool {
     arena: Arena,
     records: Vec<ColliderRecord>,
-    owners: Vec<u32>,
     runs: Vec<Run>,
     cleared: Vec<Run>,
 }
@@ -14,7 +13,6 @@ impl ColliderPool {
         Self {
             arena: Arena::new(),
             records: Vec::new(),
-            owners: Vec::new(),
             runs: Vec::new(),
             cleared: Vec::new(),
         }
@@ -30,10 +28,6 @@ impl ColliderPool {
 
     pub(crate) fn records(&self) -> &[ColliderRecord] {
         &self.records
-    }
-
-    pub(crate) fn owners(&self) -> &[u32] {
-        &self.owners
     }
 
     pub(crate) fn take_cleared(&mut self) -> Vec<Run> {
@@ -60,9 +54,7 @@ impl ColliderPool {
         }
         let run = self.runs[id as usize];
         for (slot, record) in records.iter().enumerate() {
-            let index = run.offset as usize + slot;
-            self.records[index] = *record;
-            self.owners[index] = id;
+            self.records[run.offset as usize + slot] = *record;
         }
     }
 
@@ -70,7 +62,6 @@ impl ColliderPool {
         let run = self.arena.take(len);
         self.records
             .resize(self.arena.used() as usize, ColliderRecord::cleared());
-        self.owners.resize(self.arena.used() as usize, NO_BODY);
         run
     }
 
@@ -81,11 +72,9 @@ impl ColliderPool {
         self.runs[id as usize] = Run::EMPTY;
         for index in run.span() {
             self.records[index] = ColliderRecord::cleared();
-            self.owners[index] = NO_BODY;
         }
         self.arena.release(run);
         self.records.truncate(self.arena.used() as usize);
-        self.owners.truncate(self.arena.used() as usize);
         self.cleared.push(run);
     }
 }

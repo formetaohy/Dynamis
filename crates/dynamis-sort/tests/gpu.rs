@@ -65,12 +65,12 @@ impl Channels {
     fn lanes(&self) -> SortChannels<'_> {
         SortChannels {
             count: GpuSlot::whole(&self.count),
-            major: &self.major,
-            minor: &self.minor,
-            payload: &self.payload,
-            scratch_major: &self.scratch_major,
-            scratch_minor: &self.scratch_minor,
-            scratch_payload: &self.scratch_payload,
+            major: GpuSlot::whole(&self.major),
+            minor: GpuSlot::whole(&self.minor),
+            payload: GpuSlot::whole(&self.payload),
+            scratch_major: GpuSlot::whole(&self.scratch_major),
+            scratch_minor: GpuSlot::whole(&self.scratch_minor),
+            scratch_payload: GpuSlot::whole(&self.scratch_payload),
         }
     }
 }

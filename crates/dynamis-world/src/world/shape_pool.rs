@@ -54,15 +54,6 @@ impl<T: Copy> Geometry<T> {
         self.rows.truncate(self.arena.used() as usize);
     }
 
-    fn mark_all_dirty(&mut self) {
-        if self.used() > 0 {
-            self.dirty.push(Run {
-                offset: 0,
-                len: self.used(),
-            });
-        }
-    }
-
     fn take_dirty(&mut self) -> Vec<Run> {
         let live = self.arena.used();
         let mut runs = std::mem::take(&mut self.dirty);
@@ -253,12 +244,6 @@ impl ShapePool {
             bounds,
             ..source
         };
-    }
-
-    pub(crate) fn mark_all_dirty(&mut self) {
-        self.vertices.mark_all_dirty();
-        self.triangles.mark_all_dirty();
-        self.nodes.mark_all_dirty();
     }
 
     pub(crate) fn upload_pending(

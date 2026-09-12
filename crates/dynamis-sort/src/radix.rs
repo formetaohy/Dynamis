@@ -2,34 +2,7 @@ use dynamis_gpu::{
     BindingSpec, ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
     PipelineHandle, ShaderBinding, parse_bindings,
 };
-use wgpu::{BindGroup, BindGroupEntry, BindingResource, Device};
-
-#[derive(Clone, Copy)]
-enum Resource<'a> {
-    Whole(&'a GpuBuffer),
-    Slot(GpuSlot<'a>),
-}
-
-impl<'a> From<&'a GpuBuffer> for Resource<'a> {
-    fn from(buffer: &'a GpuBuffer) -> Self {
-        Self::Whole(buffer)
-    }
-}
-
-impl<'a> From<GpuSlot<'a>> for Resource<'a> {
-    fn from(slot: GpuSlot<'a>) -> Self {
-        Self::Slot(slot)
-    }
-}
-
-impl<'a> Resource<'a> {
-    fn as_binding(&self) -> BindingResource<'a> {
-        match self {
-            Self::Whole(buffer) => buffer.as_binding(),
-            Self::Slot(slot) => slot.as_binding(),
-        }
-    }
-}
+use wgpu::{BindGroup, BindGroupEntry, Device};
 
 const THREADS: u32 = 256;
 const BINS: u32 = 256;
@@ -54,7 +27,7 @@ impl Declared {
         self.handle.pipeline()
     }
 
-    fn group(&self, device: &Device, resources: &[(&str, Resource<'_>)]) -> BindGroup {
+    fn group(&self, device: &Device, resources: &[(&str, GpuSlot<'_>)]) -> BindGroup {
         assert!(
             self.bindings.len() == resources.len(),
             "the shader declares {} bindings but the sort provides {}",
@@ -110,35 +83,35 @@ pub fn key_words(elements: u32) -> u32 {
 
 pub struct SortChannels<'a> {
     pub count: GpuSlot<'a>,
-    pub major: &'a GpuBuffer,
-    pub minor: &'a GpuBuffer,
-    pub payload: &'a GpuBuffer,
-    pub scratch_major: &'a GpuBuffer,
-    pub scratch_minor: &'a GpuBuffer,
-    pub scratch_payload: &'a GpuBuffer,
+    pub major: GpuSlot<'a>,
+    pub minor: GpuSlot<'a>,
+    pub payload: GpuSlot<'a>,
+    pub scratch_major: GpuSlot<'a>,
+    pub scratch_minor: GpuSlot<'a>,
+    pub scratch_payload: GpuSlot<'a>,
 }
 
 #[derive(PartialEq, Eq)]
 struct ChannelsKey {
     count: (u64, u64, u64),
-    major: u64,
-    minor: u64,
-    payload: u64,
-    scratch_major: u64,
-    scratch_minor: u64,
-    scratch_payload: u64,
+    major: (u64, u64, u64),
+    minor: (u64, u64, u64),
+    payload: (u64, u64, u64),
+    scratch_major: (u64, u64, u64),
+    scratch_minor: (u64, u64, u64),
+    scratch_payload: (u64, u64, u64),
 }
 
 impl ChannelsKey {
     fn of(channels: &SortChannels<'_>) -> Self {
         Self {
             count: channels.count.identity(),
-            major: channels.major.token(),
-            minor: channels.minor.token(),
-            payload: channels.payload.token(),
-            scratch_major: channels.scratch_major.token(),
-            scratch_minor: channels.scratch_minor.token(),
-            scratch_payload: channels.scratch_payload.token(),
+            major: channels.major.identity(),
+            minor: channels.minor.identity(),
+            payload: channels.payload.identity(),
+            scratch_major: channels.scratch_major.identity(),
+            scratch_minor: channels.scratch_minor.identity(),
+            scratch_payload: channels.scratch_payload.identity(),
         }
     }
 }
@@ -223,12 +196,12 @@ impl SortBindGroups {
             prepare.group(
                 device,
                 &[
-                    ("keys_lo", channels.minor.into()),
-                    ("keys_hi", channels.major.into()),
-                    ("histogram", (&histograms[parity]).into()),
-                    ("histogram_free", (&histograms[1 - parity]).into()),
-                    ("rows", rows.into()),
-                    ("count_holder", channels.count.into()),
+                    ("keys_lo", channels.minor),
+                    ("keys_hi", channels.major),
+                    ("histogram", GpuSlot::whole(&histograms[parity])),
+                    ("histogram_free", GpuSlot::whole(&histograms[1 - parity])),
+                    ("rows", GpuSlot::whole(rows)),
+                    ("count_holder", channels.count),
                 ],
             )
         });
@@ -236,10 +209,10 @@ impl SortBindGroups {
             aggregate.group(
                 device,
                 &[
-                    ("keys_lo", in_minor[source].into()),
-                    ("keys_hi", in_major[source].into()),
-                    ("rows", rows.into()),
-                    ("count_holder", channels.count.into()),
+                    ("keys_lo", in_minor[source]),
+                    ("keys_hi", in_major[source]),
+                    ("rows", GpuSlot::whole(rows)),
+                    ("count_holder", channels.count),
                 ],
             )
         });
@@ -248,15 +221,15 @@ impl SortBindGroups {
                 binning.group(
                     device,
                     &[
-                        ("keys_lo", in_minor[source].into()),
-                        ("keys_hi", in_major[source].into()),
-                        ("payload_in", in_payload[source].into()),
-                        ("histogram", (&histograms[parity]).into()),
-                        ("rows", rows.into()),
-                        ("keys_lo_out", out_minor[source].into()),
-                        ("keys_hi_out", out_major[source].into()),
-                        ("payload_out", out_payload[source].into()),
-                        ("count_holder", channels.count.into()),
+                        ("keys_lo", in_minor[source]),
+                        ("keys_hi", in_major[source]),
+                        ("payload_in", in_payload[source]),
+                        ("histogram", GpuSlot::whole(&histograms[parity])),
+                        ("rows", GpuSlot::whole(rows)),
+                        ("keys_lo_out", out_minor[source]),
+                        ("keys_hi_out", out_major[source]),
+                        ("payload_out", out_payload[source]),
+                        ("count_holder", channels.count),
                     ],
                 )
             })
@@ -264,13 +237,13 @@ impl SortBindGroups {
         let copy_group = copy.group(
             device,
             &[
-                ("keys_lo_in", channels.scratch_minor.into()),
-                ("keys_hi_in", channels.scratch_major.into()),
-                ("payload_in", channels.scratch_payload.into()),
-                ("keys_lo_out", channels.minor.into()),
-                ("keys_hi_out", channels.major.into()),
-                ("payload_out", channels.payload.into()),
-                ("count_holder", channels.count.into()),
+                ("keys_lo_in", channels.scratch_minor),
+                ("keys_hi_in", channels.scratch_major),
+                ("payload_in", channels.scratch_payload),
+                ("keys_lo_out", channels.minor),
+                ("keys_hi_out", channels.major),
+                ("payload_out", channels.payload),
+                ("count_holder", channels.count),
             ],
         );
         Self {

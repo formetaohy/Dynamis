@@ -49,8 +49,10 @@ impl World {
         if self.backend.buffers.matches(&demand) {
             return;
         }
-        self.sync_events();
-        self.drain_readbacks();
+        if !self.backend.buffers.readback_matches(&demand) {
+            self.sync_events();
+            self.drain_readbacks();
+        }
         let device = self.backend.gpu.device().clone();
         let queue = self.backend.gpu.queue().clone();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -61,47 +63,5 @@ impl World {
             "a buffer plan that changes capacity must reallocate"
         );
         queue.submit([encoder.finish()]);
-        self.upload_host_state();
-        self.shapes.pool.mark_all_dirty();
-        self.upload_shapes(&queue);
-        self.backend.pipeline = Pipeline::new(&self.backend.gpu, &self.backend.buffers);
-    }
-
-    fn upload_host_state(&self) {
-        let queue = self.backend.gpu.queue();
-        let buffers = &self.backend.buffers;
-        let mut descriptors = Vec::with_capacity(self.bodies.alive.len());
-        for handle in &self.bodies.alive {
-            descriptors.push(self.bodies.descriptors[handle.id as usize]);
-        }
-        buffers
-            .body_descriptors
-            .write(queue, bytemuck::cast_slice(&descriptors));
-        buffers
-            .colliders
-            .write(queue, bytemuck::cast_slice(self.colliders.records()));
-        let owners = self
-            .colliders
-            .owners()
-            .iter()
-            .map(|id| {
-                if *id == dynamis_layout::NO_BODY {
-                    return dynamis_layout::NO_BODY;
-                }
-                let row = self.bodies.index_of[*id as usize];
-                if row == u32::MAX {
-                    dynamis_layout::NO_BODY
-                } else {
-                    row
-                }
-            })
-            .collect::<Vec<_>>();
-        buffers
-            .collider_owners
-            .write(queue, bytemuck::cast_slice(&owners));
-        buffers.constraint_descriptors.write(
-            queue,
-            bytemuck::cast_slice(&self.constraints.records[..self.constraints.alive.len()]),
-        );
     }
 }

@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::CORE;
-use crate::dynamics::engine::{Stage, whole, workgroups_of};
+use crate::dynamics::engine::{Stage, workgroups_of};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
 
@@ -27,7 +27,8 @@ impl Commands {
                 context,
                 "reset_counters",
                 shader::workgroups(context, include_str!("shaders/reset_counters.wgsl"), CORE),
-                &[("counters", whole(&buffers.counters))],
+                buffers,
+                &[("counters", StreamId::Counters.whole())],
                 &[],
             ),
             body_move_gather: Stage::build(
@@ -39,12 +40,13 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
+                buffers,
                 &[
-                    ("body_states", whole(&buffers.body_states)),
-                    ("state_scratch", whole(&buffers.body_state_scratch)),
-                    ("row_moves", whole(&buffers.body_row_moves)),
-                    ("fresh_rows", whole(&buffers.body_fresh_rows)),
-                    ("params", whole(&buffers.params)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("state_scratch", StreamId::BodyStateScratch.whole()),
+                    ("row_moves", StreamId::BodyRowMoves.whole()),
+                    ("fresh_rows", StreamId::BodyFreshRows.whole()),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -57,11 +59,12 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
+                buffers,
                 &[
-                    ("body_states", whole(&buffers.body_states)),
-                    ("state_scratch", whole(&buffers.body_state_scratch)),
-                    ("row_moves", whole(&buffers.body_row_moves)),
-                    ("params", whole(&buffers.params)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("state_scratch", StreamId::BodyStateScratch.whole()),
+                    ("row_moves", StreamId::BodyRowMoves.whole()),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -74,13 +77,14 @@ impl Commands {
                     CORE,
                     Count::EditRuns,
                 ),
+                buffers,
                 &[
-                    ("edits", whole(&buffers.body_edits)),
-                    ("edit_runs", whole(&buffers.body_edit_runs)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
-                    ("params", whole(&buffers.params)),
+                    ("edits", StreamId::BodyEdits.whole()),
+                    ("edit_runs", StreamId::BodyEditRuns.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
+                    ("params", StreamId::Params.whole()),
                     ("slept_count", buffers.counter(COUNTER_SLEPT)),
                     ("woke_count", buffers.counter(COUNTER_WOKE)),
                 ],
@@ -95,11 +99,12 @@ impl Commands {
                     CORE,
                     Count::BodyMoves,
                 ),
+                buffers,
                 &[
-                    ("body_states", whole(&buffers.body_states)),
-                    ("row_moves", whole(&buffers.body_row_moves)),
-                    ("row_of_body", whole(&buffers.body_row_of_id)),
-                    ("params", whole(&buffers.params)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("row_moves", StreamId::BodyRowMoves.whole()),
+                    ("row_of_body", StreamId::BodyRowOfId.whole()),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -112,11 +117,12 @@ impl Commands {
                     CORE,
                     Count::Constraints,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("constraint_descs", whole(&buffers.constraint_descriptors)),
-                    ("row_of_body", whole(&buffers.body_row_of_id)),
-                    ("constraint_rows", whole(&buffers.constraint_rows)),
+                    ("params", StreamId::Params.whole()),
+                    ("constraint_descs", StreamId::ConstraintDescriptors.whole()),
+                    ("row_of_body", StreamId::BodyRowOfId.whole()),
+                    ("constraint_rows", StreamId::ConstraintRows.whole()),
                 ],
                 &[],
             ),
@@ -129,12 +135,13 @@ impl Commands {
                     CORE,
                     Count::ConstraintMoves,
                 ),
+                buffers,
                 &[
-                    ("constraint_runtime", whole(&buffers.constraint_runtime)),
-                    ("constraint_scratch", whole(&buffers.constraint_scratch)),
-                    ("row_moves", whole(&buffers.constraint_row_moves)),
-                    ("fresh_rows", whole(&buffers.constraint_fresh_rows)),
-                    ("params", whole(&buffers.params)),
+                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
+                    ("constraint_scratch", StreamId::ConstraintScratch.whole()),
+                    ("row_moves", StreamId::ConstraintRowMoves.whole()),
+                    ("fresh_rows", StreamId::ConstraintFreshRows.whole()),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -147,11 +154,12 @@ impl Commands {
                     CORE,
                     Count::ConstraintMoves,
                 ),
+                buffers,
                 &[
-                    ("constraint_runtime", whole(&buffers.constraint_runtime)),
-                    ("constraint_scratch", whole(&buffers.constraint_scratch)),
-                    ("row_moves", whole(&buffers.constraint_row_moves)),
-                    ("params", whole(&buffers.params)),
+                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
+                    ("constraint_scratch", StreamId::ConstraintScratch.whole()),
+                    ("row_moves", StreamId::ConstraintRowMoves.whole()),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -164,11 +172,12 @@ impl Commands {
                     CORE,
                     Count::Bodies,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("body_activity", whole(&buffers.body_activity)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("body_activity", StreamId::BodyActivity.whole()),
                     ("active_count", buffers.counter(COUNTER_ACTIVE)),
                 ],
                 &[],
@@ -182,52 +191,77 @@ impl Commands {
                     CORE,
                     Count::Constraints,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("constraint_descs", whole(&buffers.constraint_descriptors)),
-                    ("constraint_runtime", whole(&buffers.constraint_runtime)),
-                    ("joint_major", whole(&buffers.joint_filter_major)),
-                    ("joint_minor", whole(&buffers.joint_filter_minor)),
+                    ("params", StreamId::Params.whole()),
+                    ("constraint_descs", StreamId::ConstraintDescriptors.whole()),
+                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
+                    ("joint_major", StreamId::JointFilterMajor.whole()),
+                    ("joint_minor", StreamId::JointFilterMinor.whole()),
                     ("joint_count", buffers.counter(COUNTER_JOINTS)),
-                    ("constraint_rows", whole(&buffers.constraint_rows)),
+                    ("constraint_rows", StreamId::ConstraintRows.whole()),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn reset(&self, recorder: &mut ComputeRecorder) {
-        self.reset_counters
-            .record_workgroups(recorder, workgroups_of(COUNTER_COUNT as u32));
+    pub(super) fn reset(&self, recorder: &mut ComputeRecorder, buffers: &RigidBuffers) {
+        self.reset_counters.record_workgroups(
+            recorder,
+            buffers,
+            workgroups_of(COUNTER_COUNT as u32),
+        );
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
-        self.reset(recorder);
-        self.record_moves(recorder, frame);
-        self.record_edits(recorder, frame);
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
+        self.reset(recorder, buffers);
+        self.record_moves(recorder, buffers, frame);
+        self.record_edits(recorder, buffers, frame);
         self.constraint_rows
-            .record_rows(recorder, Count::Constraints.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Constraints.rows(&frame.params));
         self.joint_filter
-            .record_rows(recorder, Count::Constraints.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Constraints.rows(&frame.params));
         self.activity
-            .record_rows(recorder, Count::Bodies.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Bodies.rows(&frame.params));
     }
 
-    pub(super) fn record_moves(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+    pub(super) fn record_moves(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
         self.body_move_gather
-            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
         self.body_move_scatter
-            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
         self.row_of_body
-            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
-        self.constraint_move_gather
-            .record_rows(recorder, Count::ConstraintMoves.rows(&frame.params));
-        self.constraint_move_scatter
-            .record_rows(recorder, Count::ConstraintMoves.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::BodyMoves.rows(&frame.params));
+        self.constraint_move_gather.record_rows(
+            recorder,
+            buffers,
+            Count::ConstraintMoves.rows(&frame.params),
+        );
+        self.constraint_move_scatter.record_rows(
+            recorder,
+            buffers,
+            Count::ConstraintMoves.rows(&frame.params),
+        );
     }
 
-    pub(super) fn record_edits(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+    pub(super) fn record_edits(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
         self.body_edits
-            .record_rows(recorder, Count::EditRuns.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::EditRuns.rows(&frame.params));
     }
 }

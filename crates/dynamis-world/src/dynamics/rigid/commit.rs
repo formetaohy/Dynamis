@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY};
-use crate::dynamics::engine::{Stage, whole};
+use crate::dynamics::engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
@@ -34,23 +34,24 @@ impl Commit {
                     include_str!("shaders/thaw_contacts.wgsl"),
                     CONTACT,
                     "work",
-                    buffers.resting_capacity(),
+                    StreamId::RestingContacts,
                 ),
+                buffers,
                 &[
-                    ("resting", whole(&buffers.resting_contacts)),
-                    ("resting_live", whole(&buffers.resting_live)),
-                    ("resting_next", whole(&buffers.resting_next)),
-                    ("resting_free", whole(&buffers.resting_free)),
+                    ("resting", StreamId::RestingContacts.whole()),
+                    ("resting_live", StreamId::RestingLive.whole()),
+                    ("resting_next", StreamId::RestingNext.whole()),
+                    ("resting_free", StreamId::RestingFree.whole()),
                     ("resting_count", buffers.counter(COUNTER_RESTING)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("row_of_body", whole(&buffers.body_row_of_id)),
-                    ("body_activity", whole(&buffers.body_activity)),
-                    ("contacts", whole(&buffers.contacts)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("row_of_body", StreamId::BodyRowOfId.whole()),
+                    ("body_activity", StreamId::BodyActivity.whole()),
+                    ("contacts", StreamId::Contacts.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("events", whole(&buffers.events)),
+                    ("events", StreamId::Events.whole()),
                     ("event_count", buffers.counter(COUNTER_EVENTS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_EVENTS)),
-                    ("params", whole(&buffers.params)),
+                    ("params", StreamId::Params.whole()),
                 ],
                 &[],
             ),
@@ -62,15 +63,16 @@ impl Commit {
                     include_str!("shaders/resting_gather.wgsl"),
                     IDENTITY,
                     "work",
-                    buffers.resting_capacity(),
+                    StreamId::RestingContacts,
                 ),
+                buffers,
                 &[
-                    ("resting", whole(&buffers.resting_contacts)),
+                    ("resting", StreamId::RestingContacts.whole()),
                     ("resting_count", buffers.counter(COUNTER_RESTING)),
-                    ("resting_live", whole(&buffers.resting_live)),
-                    ("index_major", whole(&buffers.resting_index_major)),
-                    ("index_minor", whole(&buffers.resting_index_minor)),
-                    ("index_slots", whole(&buffers.resting_index_slots)),
+                    ("resting_live", StreamId::RestingLive.whole()),
+                    ("index_major", StreamId::RestingIndexMajor.whole()),
+                    ("index_minor", StreamId::RestingIndexMinor.whole()),
+                    ("index_slots", StreamId::RestingIndexSlots.whole()),
                     ("gathered", buffers.counter(COUNTER_RESTING_GATHER)),
                 ],
                 &[],
@@ -79,6 +81,7 @@ impl Commit {
                 context,
                 "resting_commit",
                 shader::workgroups(context, include_str!("shaders/resting_commit.wgsl"), CORE),
+                buffers,
                 &[
                     ("slept", buffers.counter(COUNTER_SLEPT)),
                     ("gathered", buffers.counter(COUNTER_RESTING_GATHER)),
@@ -96,20 +99,21 @@ impl Commit {
                     include_str!("shaders/freeze_contacts.wgsl"),
                     CORE,
                     "work",
-                    buffers.contact_capacity(),
+                    StreamId::Contacts,
                 ),
+                buffers,
                 &[
-                    ("contacts", whole(&buffers.contacts)),
+                    ("contacts", StreamId::Contacts.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("resting", whole(&buffers.resting_contacts)),
-                    ("resting_live", whole(&buffers.resting_live)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("resting", StreamId::RestingContacts.whole()),
+                    ("resting_live", StreamId::RestingLive.whole()),
                     ("resting_count", buffers.counter(COUNTER_RESTING)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_RESTING)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("resting_next", whole(&buffers.resting_next)),
-                    ("resting_free", whole(&buffers.resting_free)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("resting_next", StreamId::RestingNext.whole()),
+                    ("resting_free", StreamId::RestingFree.whole()),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
                 ],
                 &[],
             ),
@@ -121,11 +125,12 @@ impl Commit {
                     include_str!("shaders/contact_archive.wgsl"),
                     CORE,
                     "work",
-                    buffers.contact_capacity(),
+                    StreamId::Contacts,
                 ),
+                buffers,
                 &[
-                    ("contacts", whole(&buffers.contacts)),
-                    ("archive", whole(&buffers.contact_archive)),
+                    ("contacts", StreamId::Contacts.whole()),
+                    ("archive", StreamId::ContactArchive.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
                 ],
                 &[],
@@ -138,10 +143,11 @@ impl Commit {
                     include_str!("shaders/archive_count_sync.wgsl"),
                     CORE,
                 ),
+                buffers,
                 &[
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
                     ("archive_count", buffers.counter(COUNTER_ARCHIVED)),
-                    ("contacts", whole(&buffers.contacts)),
+                    ("contacts", StreamId::Contacts.whole()),
                 ],
                 &[],
             ),
@@ -154,9 +160,10 @@ impl Commit {
                     CORE,
                     Count::Bodies,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
+                    ("params", StreamId::Params.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -168,40 +175,53 @@ impl Commit {
                     include_str!("shaders/queries.wgsl"),
                     GEOMETRY_INDEX,
                 ),
+                buffers,
                 &[
-                    ("queries", whole(&buffers.query_records)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("colliders", whole(&buffers.colliders)),
-                    ("aabbs", whole(&buffers.collider_aabbs)),
-                    ("entry_keys", whole(&buffers.grid_entry_keys)),
-                    ("entry_colliders", whole(&buffers.grid_entry_colliders)),
-                    ("counters", whole(&buffers.counters)),
-                    ("query_results", whole(&buffers.query_results)),
-                    ("params", whole(&buffers.params)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("queries", StreamId::QueryRecords.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("colliders", StreamId::Colliders.whole()),
+                    ("aabbs", StreamId::ColliderAabbs.whole()),
+                    ("entry_keys", StreamId::GridEntryKeys.whole()),
+                    ("entry_colliders", StreamId::GridEntryColliders.whole()),
+                    ("counters", StreamId::Counters.whole()),
+                    ("query_results", StreamId::QueryResults.whole()),
+                    ("params", StreamId::Params.whole()),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
                 ],
-                &buffers.shape_resources(),
+                &RigidBuffers::shape_resources(),
             ),
         }
     }
 
-    pub(super) fn record_query(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
-        self.query.record_workgroups(recorder, frame.query_count);
+    pub(super) fn record_query(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
+        self.query
+            .record_workgroups(recorder, buffers, frame.query_count);
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
-        self.thaw_contacts.record_stream(recorder);
-        self.contact_archive.record_stream(recorder);
-        self.archive_count_sync.record_workgroups(recorder, 1);
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
+        self.thaw_contacts.record_stream(recorder, buffers);
+        self.contact_archive.record_stream(recorder, buffers);
+        self.archive_count_sync
+            .record_workgroups(recorder, buffers, 1);
         self.static_wake_clear
-            .record_rows(recorder, Count::Bodies.rows(&frame.params));
-        self.freeze_contacts.record_stream(recorder);
-        self.record_query(recorder, frame);
+            .record_rows(recorder, buffers, Count::Bodies.rows(&frame.params));
+        self.freeze_contacts.record_stream(recorder, buffers);
+        self.record_query(recorder, buffers, frame);
     }
 
-    pub(super) fn record_gather(&self, recorder: &mut ComputeRecorder) {
-        self.resting_gather.record_stream(recorder);
+    pub(super) fn record_gather(&self, recorder: &mut ComputeRecorder, buffers: &RigidBuffers) {
+        self.resting_gather.record_stream(recorder, buffers);
     }
 
     pub(super) fn record_index(
@@ -210,13 +230,13 @@ impl Commit {
         buffers: &RigidBuffers,
         sort: &RadixSort,
     ) {
-        self.resting_commit.record_workgroups(recorder, 1);
+        self.resting_commit.record_workgroups(recorder, buffers, 1);
         let words = buffers.collider_words();
         let channels = buffers.sort_keyed(
             buffers.counter(COUNTER_RESTING_GATHER),
-            &buffers.resting_index_major,
-            &buffers.resting_index_minor,
-            &buffers.resting_index_slots,
+            StreamId::RestingIndexMajor.whole(),
+            StreamId::RestingIndexMinor.whole(),
+            StreamId::RestingIndexSlots.whole(),
         );
         sort.sort(
             recorder,

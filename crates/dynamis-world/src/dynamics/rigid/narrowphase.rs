@@ -1,7 +1,7 @@
-use super::buffers::{COMPACT_BLOCK, RigidBuffers};
+use super::buffers::{COMPACT_BLOCK, RigidBuffers, StreamId};
 use super::shader;
 use super::shader::{CORE, GEOMETRY};
-use crate::dynamics::engine::{MAX_DISPATCH_WORKGROUPS, Stage, whole};
+use crate::dynamics::engine::{MAX_DISPATCH_WORKGROUPS, Stage};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_sort::RadixSort;
@@ -24,33 +24,35 @@ impl Narrowphase {
                     include_str!("shaders/narrowphase.wgsl"),
                     GEOMETRY,
                     "work",
-                    buffers.pair_capacity(),
+                    StreamId::PairMajor,
                 ),
+                buffers,
                 &[
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("colliders", whole(&buffers.colliders)),
-                    ("pair_major", whole(&buffers.pair_major)),
-                    ("pair_minor", whole(&buffers.pair_minor)),
-                    ("contacts_raw", whole(&buffers.contacts_raw)),
-                    ("contact_valid", whole(&buffers.contact_valid)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("colliders", StreamId::Colliders.whole()),
+                    ("pair_major", StreamId::PairMajor.whole()),
+                    ("pair_minor", StreamId::PairMinor.whole()),
+                    ("contacts_raw", StreamId::ContactsRaw.whole()),
+                    ("contact_valid", StreamId::ContactValid.whole()),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("joint_major", whole(&buffers.joint_filter_major)),
-                    ("joint_minor", whole(&buffers.joint_filter_minor)),
+                    ("joint_major", StreamId::JointFilterMajor.whole()),
+                    ("joint_minor", StreamId::JointFilterMinor.whole()),
                     ("joint_count", buffers.counter(COUNTER_JOINTS)),
-                    ("params", whole(&buffers.params)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("params", StreamId::Params.whole()),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
                 ],
-                &buffers.shape_resources(),
+                &RigidBuffers::shape_resources(),
             ),
             compact_scan: Stage::build(
                 context,
                 "compact_scan",
                 shader::workgroups(context, include_str!("shaders/compact_scan.wgsl"), CORE),
+                buffers,
                 &[
-                    ("valid", whole(&buffers.contact_valid)),
-                    ("ranks", whole(&buffers.compact_ranks)),
-                    ("block_sums", whole(&buffers.compact_block_sums)),
+                    ("valid", StreamId::ContactValid.whole()),
+                    ("ranks", StreamId::CompactRanks.whole()),
+                    ("block_sums", StreamId::CompactBlockSums.whole()),
                     ("count_holder", buffers.counter(COUNTER_PAIRS)),
                 ],
                 &[],
@@ -59,9 +61,10 @@ impl Narrowphase {
                 context,
                 "compact_offsets",
                 shader::workgroups(context, include_str!("shaders/compact_offsets.wgsl"), CORE),
+                buffers,
                 &[
-                    ("block_sums", whole(&buffers.compact_block_sums)),
-                    ("block_offsets", whole(&buffers.compact_block_offsets)),
+                    ("block_sums", StreamId::CompactBlockSums.whole()),
+                    ("block_offsets", StreamId::CompactBlockOffsets.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
                 ],
@@ -75,15 +78,16 @@ impl Narrowphase {
                     include_str!("shaders/compact_scatter.wgsl"),
                     CORE,
                     "work",
-                    buffers.pair_capacity(),
+                    StreamId::PairMajor,
                 ),
+                buffers,
                 &[
-                    ("contacts_raw", whole(&buffers.contacts_raw)),
-                    ("valid", whole(&buffers.contact_valid)),
-                    ("ranks", whole(&buffers.compact_ranks)),
-                    ("block_offsets", whole(&buffers.compact_block_offsets)),
-                    ("contacts", whole(&buffers.contacts)),
-                    ("contact_matched", whole(&buffers.contact_matched)),
+                    ("contacts_raw", StreamId::ContactsRaw.whole()),
+                    ("valid", StreamId::ContactValid.whole()),
+                    ("ranks", StreamId::CompactRanks.whole()),
+                    ("block_offsets", StreamId::CompactBlockOffsets.whole()),
+                    ("contacts", StreamId::Contacts.whole()),
+                    ("contact_matched", StreamId::ContactMatched.whole()),
                     ("count_holder", buffers.counter(COUNTER_PAIRS)),
                 ],
                 &[],
@@ -101,16 +105,17 @@ impl Narrowphase {
         let pairs = buffers.pair_capacity();
         let channels = buffers.sort_lanes_dual(
             buffers.counter(COUNTER_PAIRS),
-            &buffers.pair_major,
-            &buffers.pair_minor,
+            StreamId::PairMajor.whole(),
+            StreamId::PairMinor.whole(),
         );
         sort.sort(recorder, &channels, words, words, pairs);
-        self.narrowphase.record_stream(recorder);
+        self.narrowphase.record_stream(recorder, buffers);
         self.compact_scan.record_workgroups(
             recorder,
+            buffers,
             pairs.div_ceil(COMPACT_BLOCK).min(MAX_DISPATCH_WORKGROUPS),
         );
-        self.compact_offsets.record_workgroups(recorder, 1);
-        self.compact_scatter.record_stream(recorder);
+        self.compact_offsets.record_workgroups(recorder, buffers, 1);
+        self.compact_scatter.record_stream(recorder, buffers);
     }
 }

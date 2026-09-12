@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::CORE;
-use crate::dynamics::engine::{Stage, whole};
+use crate::dynamics::engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
 
@@ -24,13 +24,14 @@ impl Sleep {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("island_parents", whole(&buffers.island_parents)),
-                    ("island_state", whole(&buffers.island_state)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("island_parents", StreamId::IslandParents.whole()),
+                    ("island_state", StreamId::IslandState.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -43,13 +44,14 @@ impl Sleep {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("island_parents", whole(&buffers.island_parents)),
-                    ("island_state", whole(&buffers.island_state)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("island_parents", StreamId::IslandParents.whole()),
+                    ("island_state", StreamId::IslandState.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
                     ("slept_count", buffers.counter(COUNTER_SLEPT)),
                     ("woke_count", buffers.counter(COUNTER_WOKE)),
                     (
@@ -62,10 +64,15 @@ impl Sleep {
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
         self.island_aggregate
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
         self.island_broadcast
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
     }
 }

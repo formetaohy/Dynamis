@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::{CONTACT, CORE, IDENTITY};
-use crate::dynamics::engine::{Stage, whole};
+use crate::dynamics::engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING_INDEX,
@@ -30,21 +30,22 @@ impl Islands {
                     include_str!("shaders/contact_relay.wgsl"),
                     CONTACT,
                     "work",
-                    buffers.archive_capacity(),
+                    StreamId::ContactArchive,
                 ),
+                buffers,
                 &[
-                    ("archive", whole(&buffers.contact_archive)),
+                    ("archive", StreamId::ContactArchive.whole()),
                     ("archive_count", buffers.counter(COUNTER_ARCHIVED)),
-                    ("contacts", whole(&buffers.contacts)),
+                    ("contacts", StreamId::Contacts.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("contact_matched", whole(&buffers.contact_matched)),
-                    ("events", whole(&buffers.events)),
+                    ("contact_matched", StreamId::ContactMatched.whole()),
+                    ("events", StreamId::Events.whole()),
                     ("event_count", buffers.counter(COUNTER_EVENTS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_EVENTS)),
-                    ("params", whole(&buffers.params)),
-                    ("row_of_body", whole(&buffers.body_row_of_id)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
+                    ("params", StreamId::Params.whole()),
+                    ("row_of_body", StreamId::BodyRowOfId.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
                 ],
                 &[],
             ),
@@ -56,21 +57,22 @@ impl Islands {
                     include_str!("shaders/contact_begin.wgsl"),
                     CONTACT,
                     "work",
-                    buffers.contact_capacity(),
+                    StreamId::Contacts,
                 ),
+                buffers,
                 &[
-                    ("contacts", whole(&buffers.contacts)),
+                    ("contacts", StreamId::Contacts.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("contact_matched", whole(&buffers.contact_matched)),
-                    ("events", whole(&buffers.events)),
+                    ("contact_matched", StreamId::ContactMatched.whole()),
+                    ("events", StreamId::Events.whole()),
                     ("event_count", buffers.counter(COUNTER_EVENTS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_EVENTS)),
-                    ("params", whole(&buffers.params)),
-                    ("resting", whole(&buffers.resting_contacts)),
-                    ("resting_live", whole(&buffers.resting_live)),
-                    ("resting_major", whole(&buffers.resting_index_major)),
-                    ("resting_minor", whole(&buffers.resting_index_minor)),
-                    ("resting_slots", whole(&buffers.resting_index_slots)),
+                    ("params", StreamId::Params.whole()),
+                    ("resting", StreamId::RestingContacts.whole()),
+                    ("resting_live", StreamId::RestingLive.whole()),
+                    ("resting_major", StreamId::RestingIndexMajor.whole()),
+                    ("resting_minor", StreamId::RestingIndexMinor.whole()),
+                    ("resting_slots", StreamId::RestingIndexSlots.whole()),
                     ("resting_index", buffers.counter(COUNTER_RESTING_INDEX)),
                 ],
                 &[],
@@ -84,10 +86,11 @@ impl Islands {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("island_parents", whole(&buffers.island_parents)),
-                    ("island_state", whole(&buffers.island_state)),
+                    ("params", StreamId::Params.whole()),
+                    ("island_parents", StreamId::IslandParents.whole()),
+                    ("island_state", StreamId::IslandState.whole()),
                 ],
                 &[],
             ),
@@ -99,17 +102,18 @@ impl Islands {
                     include_str!("shaders/island_link_contacts.wgsl"),
                     IDENTITY,
                     "work",
-                    buffers.contact_capacity(),
+                    StreamId::Contacts,
                 ),
+                buffers,
                 &[
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("contacts", whole(&buffers.contacts)),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("contacts", StreamId::Contacts.whole()),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
-                    ("island_parents", whole(&buffers.island_parents)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
-                    ("params", whole(&buffers.params)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
+                    ("island_parents", StreamId::IslandParents.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
+                    ("params", StreamId::Params.whole()),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
                 ],
                 &[],
             ),
@@ -122,14 +126,15 @@ impl Islands {
                     CORE,
                     Count::Constraints,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("constraint_runtime", whole(&buffers.constraint_runtime)),
-                    ("island_parents", whole(&buffers.island_parents)),
-                    ("wake_flags", whole(&buffers.wake_flags)),
-                    ("constraint_rows", whole(&buffers.constraint_rows)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("constraint_runtime", StreamId::ConstraintRuntime.whole()),
+                    ("island_parents", StreamId::IslandParents.whole()),
+                    ("wake_flags", StreamId::WakeFlags.whole()),
+                    ("constraint_rows", StreamId::ConstraintRows.whole()),
                 ],
                 &[],
             ),
@@ -142,26 +147,35 @@ impl Islands {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("island_parents", whole(&buffers.island_parents)),
+                    ("params", StreamId::Params.whole()),
+                    ("island_parents", StreamId::IslandParents.whole()),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
-        self.contact_relay.record_stream(recorder);
-        self.contact_begin.record_stream(recorder);
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
+        self.contact_relay.record_stream(recorder, buffers);
+        self.contact_begin.record_stream(recorder, buffers);
         self.island_init
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
-        self.island_link_contacts.record_stream(recorder);
-        self.island_link_constraints
-            .record_rows(recorder, Count::Constraints.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
+        self.island_link_contacts.record_stream(recorder, buffers);
+        self.island_link_constraints.record_rows(
+            recorder,
+            buffers,
+            Count::Constraints.rows(&frame.params),
+        );
         for _ in 0..frame.island_rounds {
             self.island_jump
-                .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+                .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
         }
     }
 }

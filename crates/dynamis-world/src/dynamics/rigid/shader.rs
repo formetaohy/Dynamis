@@ -1,5 +1,7 @@
 use super::Count;
-use crate::dynamics::engine::{Dispatch, Program, WORKGROUP_SIZE, entry_rows, entry_stream};
+use crate::dynamics::engine::{
+    Dispatch, Program, ResourceId, WORKGROUP_SIZE, entry_rows, entry_stream,
+};
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
 
@@ -62,7 +64,7 @@ pub(super) fn rows(context: &GpuContext, body: &str, fragments: &[&str], count: 
     source.push_str(&entry_rows(count.field()));
     Program {
         source: source.into(),
-        dispatch: Dispatch::rows(),
+        dispatch: Dispatch::Rows,
         warm: false,
     }
 }
@@ -72,13 +74,13 @@ pub(super) fn stream(
     body: &str,
     fragments: &[&str],
     kernel: &str,
-    slots: u32,
+    extent: impl Into<ResourceId>,
 ) -> Program {
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_stream("main", kernel));
     Program {
         source: source.into(),
-        dispatch: Dispatch::stream(slots),
+        dispatch: Dispatch::Stream(extent.into()),
         warm: false,
     }
 }
@@ -88,14 +90,14 @@ pub(super) fn stream_warm(
     body: &str,
     fragments: &[&str],
     kernel: &str,
-    slots: u32,
+    extent: impl Into<ResourceId>,
 ) -> Program {
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_stream("main", kernel));
     source.push_str(&entry_stream("warm", "warm_start"));
     Program {
         source: source.into(),
-        dispatch: Dispatch::stream(slots),
+        dispatch: Dispatch::Stream(extent.into()),
         warm: true,
     }
 }
@@ -103,7 +105,7 @@ pub(super) fn stream_warm(
 pub(super) fn workgroups(context: &GpuContext, body: &str, fragments: &[&str]) -> Program {
     Program {
         source: assemble(context, body, fragments).into(),
-        dispatch: Dispatch::workgroups(),
+        dispatch: Dispatch::Workgroups,
         warm: false,
     }
 }

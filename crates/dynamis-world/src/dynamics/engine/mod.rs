@@ -1,8 +1,8 @@
 mod stage;
 
 pub(crate) use stage::{
-    Dispatch, MAX_DISPATCH_WORKGROUPS, Program, Stage, WORKGROUP_SIZE, entry_rows, entry_stream,
-    whole, workgroups_of,
+    Dispatch, MAX_DISPATCH_WORKGROUPS, Program, ResourceId, Resources, SlotRef, Stage,
+    WORKGROUP_SIZE, entry_rows, entry_stream, workgroups_of,
 };
 
 #[cfg(feature = "profile")]

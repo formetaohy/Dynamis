@@ -1,8 +1,10 @@
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, GpuSlot, PipelineHandle,
+    ShaderBinding,
 };
+use std::cell::{RefCell, RefMut};
 use std::sync::Arc;
-use wgpu::{BindGroup, BindGroupEntry};
+use wgpu::{BindGroup, BindGroupEntry, Device};
 
 pub(crate) const WORKGROUP_SIZE: u32 = 64;
 
@@ -46,27 +48,67 @@ fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) gr
     )
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum Dispatch {
-    Rows,
-    Stream { workgroups: u32 },
-    Workgroups,
-}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResourceId(u32);
 
-impl Dispatch {
-    pub(crate) fn rows() -> Self {
-        Self::Rows
+impl ResourceId {
+    pub(crate) const fn new(index: u32) -> Self {
+        Self(index)
     }
 
-    pub(crate) fn stream(slots: u32) -> Self {
-        Self::Stream {
-            workgroups: workgroups_of(slots).min(MAX_DISPATCH_WORKGROUPS),
+    pub(crate) const fn index(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SlotRef {
+    Whole(ResourceId),
+    Range {
+        resource: ResourceId,
+        offset: u64,
+        size: u64,
+    },
+}
+
+impl SlotRef {
+    pub(crate) const fn whole(resource: ResourceId) -> Self {
+        Self::Whole(resource)
+    }
+
+    pub(crate) const fn range(resource: ResourceId, offset: u64, size: u64) -> Self {
+        Self::Range {
+            resource,
+            offset,
+            size,
         }
     }
 
-    pub(crate) fn workgroups() -> Self {
-        Self::Workgroups
+    pub(crate) fn resolve<R: Resources>(self, resources: &R) -> GpuSlot<'_> {
+        match self {
+            Self::Whole(resource) => resources.whole(resource),
+            Self::Range {
+                resource,
+                offset,
+                size,
+            } => resources.range(resource, offset, size),
+        }
     }
+}
+
+pub(crate) trait Resources {
+    fn slots(&self, resource: ResourceId) -> u32;
+
+    fn whole(&self, resource: ResourceId) -> GpuSlot<'_>;
+
+    fn range(&self, resource: ResourceId, offset: u64, size: u64) -> GpuSlot<'_>;
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Dispatch {
+    Rows,
+    Stream(ResourceId),
+    Workgroups,
 }
 
 pub(crate) struct Program {
@@ -75,93 +117,247 @@ pub(crate) struct Program {
     pub(crate) warm: bool,
 }
 
-pub(crate) fn whole<'a>(binding: impl Into<GpuSlot<'a>>) -> GpuSlot<'a> {
-    binding.into()
+#[derive(Clone, Copy)]
+struct Binding {
+    index: u32,
+    slot: SlotRef,
 }
 
-struct Warm {
-    pipeline: PipelineHandle,
-    workgroups: u32,
+struct Bound {
+    identity: Vec<(u64, u64, u64)>,
+    storage: BindGroup,
+    shapes: Option<BindGroup>,
+}
+
+impl Bound {
+    fn of<R: Resources>(
+        pipeline: &PipelineHandle,
+        device: &Device,
+        resources: &R,
+        storage: &[Binding],
+        shapes: &[Binding],
+    ) -> Self {
+        let identity = storage
+            .iter()
+            .chain(shapes)
+            .map(|binding| binding.slot.resolve(resources).identity())
+            .collect();
+        let group = pipeline.create_bind_group(device, 0, &entries(resources, storage));
+        let shape_group = (!shapes.is_empty())
+            .then(|| pipeline.create_bind_group(device, 1, &entries(resources, shapes)));
+        Self {
+            identity,
+            storage: group,
+            shapes: shape_group,
+        }
+    }
+
+    fn matches<R: Resources>(
+        &self,
+        resources: &R,
+        storage: &[Binding],
+        shapes: &[Binding],
+    ) -> bool {
+        let declared = storage.iter().chain(shapes);
+        self.identity.len() == storage.len() + shapes.len()
+            && self
+                .identity
+                .iter()
+                .zip(declared)
+                .all(|(cached, binding)| *cached == binding.slot.resolve(resources).identity())
+    }
+}
+
+fn entries<'a, R: Resources>(resources: &'a R, bindings: &[Binding]) -> Vec<BindGroupEntry<'a>> {
+    bindings
+        .iter()
+        .map(|binding| BindGroupEntry {
+            binding: binding.index,
+            resource: binding.slot.resolve(resources).as_binding(),
+        })
+        .collect()
 }
 
 pub(crate) struct Stage {
+    device: Device,
     pipeline: PipelineHandle,
     dispatch: Dispatch,
-    warm: Option<Warm>,
-    bind_group: BindGroup,
-    shapes_group: Option<BindGroup>,
+    warm: Option<PipelineHandle>,
+    storage: Vec<Binding>,
+    shapes: Vec<Binding>,
+    bound: RefCell<Bound>,
 }
 
-struct StageBindings<'a> {
-    slots: &'a [(&'a str, GpuSlot<'a>)],
-    shapes: &'a [(&'a str, GpuSlot<'a>)],
-}
-
-struct Bindings<'a> {
-    groups: Vec<Vec<BindingSpec>>,
-    storage: Vec<BindGroupEntry<'a>>,
-    shapes: Vec<BindGroupEntry<'a>>,
-}
-
-impl<'a> Bindings<'a> {
-    fn of(label: &str, source: &str, declared: StageBindings<'a>) -> Self {
-        let StageBindings { slots, shapes } = declared;
-        let declarations = dynamis_gpu::parse_bindings(source);
-        let storage = storage_entries(&declarations, slots);
-        assert!(
-            storage.len() == specs_of(&declarations, 0).len(),
-            "stage {label:?} declares {} bindings but provides {}",
-            specs_of(&declarations, 0).len(),
-            storage.len()
-        );
-        let shape_entries = shape_entries(&declarations, shapes);
+impl Stage {
+    pub(crate) fn build<R: Resources>(
+        context: &GpuContext,
+        label: &str,
+        program: Program,
+        resources: &R,
+        slots: &[(&'static str, SlotRef)],
+        shapes: &[(&'static str, SlotRef)],
+    ) -> Self {
+        let Program {
+            source,
+            dispatch,
+            warm,
+        } = program;
+        let declarations = dynamis_gpu::parse_bindings(&source);
+        let storage = storage_bindings(label, &declarations, slots);
+        let shapes = shape_bindings(label, &declarations, shapes);
         let mut groups = vec![specs_of(&declarations, 0)];
         if !shapes.is_empty() {
             groups.push(specs_of(&declarations, 1));
         }
+        let layout = groups.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let pipeline = context.declare(ComputeProgram::new(label, source.clone(), "main", &layout));
+        let warm = warm.then(|| {
+            context.declare(ComputeProgram::new(
+                &format!("{label} warm"),
+                source,
+                "warm",
+                &layout,
+            ))
+        });
+        let bound = Bound::of(&pipeline, context.device(), resources, &storage, &shapes);
         Self {
-            groups,
+            device: context.device().clone(),
+            pipeline,
+            dispatch,
+            warm,
             storage,
-            shapes: shape_entries,
+            shapes,
+            bound: RefCell::new(bound),
         }
+    }
+
+    pub(crate) fn record_rows<R: Resources>(
+        &self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+        rows: u32,
+    ) {
+        assert!(
+            matches!(self.dispatch, Dispatch::Rows),
+            "an element stage derives its dispatch from its own row count"
+        );
+        self.record(recorder, resources, &self.pipeline, workgroups_of(rows));
+    }
+
+    pub(crate) fn record_stream<R: Resources>(
+        &self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+    ) {
+        self.record(
+            recorder,
+            resources,
+            &self.pipeline,
+            self.stream_workgroups(resources),
+        );
+    }
+
+    pub(crate) fn record_warm<R: Resources>(&self, recorder: &mut ComputeRecorder, resources: &R) {
+        let warm = self
+            .warm
+            .as_ref()
+            .expect("a warm recording requires a warm entry point");
+        self.record(recorder, resources, warm, self.stream_workgroups(resources));
+    }
+
+    fn stream_workgroups<R: Resources>(&self, resources: &R) -> u32 {
+        let Dispatch::Stream(resource) = self.dispatch else {
+            panic!("a streaming stage declares its own stream extent");
+        };
+        workgroups_of(resources.slots(resource)).min(MAX_DISPATCH_WORKGROUPS)
+    }
+
+    pub(crate) fn record_workgroups<R: Resources>(
+        &self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+        workgroups: u32,
+    ) {
+        assert!(
+            matches!(self.dispatch, Dispatch::Workgroups),
+            "a workgroup stage takes an explicit dispatch count"
+        );
+        self.record(recorder, resources, &self.pipeline, workgroups);
+    }
+
+    fn record<R: Resources>(
+        &self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+        pipeline: &PipelineHandle,
+        workgroups: u32,
+    ) {
+        let bound = self.bind(resources);
+        let compiled = pipeline.pipeline();
+        match &bound.shapes {
+            Some(shapes) => recorder.record(compiled, &[&bound.storage, shapes], workgroups),
+            None => recorder.record(compiled, &[&bound.storage], workgroups),
+        }
+    }
+
+    fn bind<R: Resources>(&self, resources: &R) -> RefMut<'_, Bound> {
+        let mut current = self.bound.borrow_mut();
+        if !current.matches(resources, &self.storage, &self.shapes) {
+            *current = Bound::of(
+                &self.pipeline,
+                &self.device,
+                resources,
+                &self.storage,
+                &self.shapes,
+            );
+        }
+        current
     }
 }
 
-fn storage_entries<'a>(
-    declarations: &[dynamis_gpu::ShaderBinding],
-    slots: &[(&str, GpuSlot<'a>)],
-) -> Vec<BindGroupEntry<'a>> {
-    let mut storage = Vec::with_capacity(slots.len());
+fn storage_bindings(
+    label: &str,
+    declarations: &[ShaderBinding],
+    slots: &[(&'static str, SlotRef)],
+) -> Vec<Binding> {
+    let mut bindings = Vec::with_capacity(slots.len());
     for (name, slot) in slots {
         let declaration = declarations
             .iter()
             .find(|entry| entry.group == 0 && entry.name == *name)
-            .unwrap_or_else(|| panic!("the shader never declares the binding {name:?}"));
+            .unwrap_or_else(|| panic!("stage {label:?} declares no binding {name:?}"));
         assert!(
-            !storage
+            !bindings
                 .iter()
-                .any(|entry: &BindGroupEntry| entry.binding == declaration.binding),
-            "the shader binding {name:?} is bound twice"
+                .any(|binding: &Binding| binding.index == declaration.binding),
+            "stage {label:?} binds {name:?} twice"
         );
-        storage.push(BindGroupEntry {
-            binding: declaration.binding,
-            resource: slot.as_binding(),
+        bindings.push(Binding {
+            index: declaration.binding,
+            slot: *slot,
         });
     }
-    storage
+    assert!(
+        bindings.len() == specs_of(declarations, 0).len(),
+        "stage {label:?} declares {} bindings but provides {}",
+        specs_of(declarations, 0).len(),
+        bindings.len()
+    );
+    bindings
 }
 
-fn shape_entries<'a>(
-    declarations: &[dynamis_gpu::ShaderBinding],
-    shapes: &[(&str, GpuSlot<'a>)],
-) -> Vec<BindGroupEntry<'a>> {
+fn shape_bindings(
+    label: &str,
+    declarations: &[ShaderBinding],
+    shapes: &[(&'static str, SlotRef)],
+) -> Vec<Binding> {
     if shapes.is_empty() {
         return Vec::new();
     }
     let declared = ordered(declarations, 1);
     assert!(
         declared.len() == shapes.len(),
-        "the shader declares {} shape bindings but the stage provides {}",
+        "stage {label:?} declares {} shape bindings but provides {}",
         declared.len(),
         shapes.len()
     );
@@ -173,22 +369,19 @@ fn shape_entries<'a>(
                 .find(|(name, _)| *name == declaration.name)
                 .unwrap_or_else(|| {
                     panic!(
-                        "the shader never declares the binding {:?}",
+                        "stage {label:?} declares no shape binding {:?}",
                         declaration.name
                     )
                 });
-            BindGroupEntry {
-                binding: declaration.binding,
-                resource: slot.as_binding(),
+            Binding {
+                index: declaration.binding,
+                slot: *slot,
             }
         })
         .collect()
 }
 
-fn ordered(
-    declarations: &[dynamis_gpu::ShaderBinding],
-    group: u32,
-) -> Vec<&dynamis_gpu::ShaderBinding> {
+fn ordered(declarations: &[ShaderBinding], group: u32) -> Vec<&ShaderBinding> {
     let mut declared = declarations
         .iter()
         .filter(|entry| entry.group == group)
@@ -204,7 +397,7 @@ fn ordered(
     declared
 }
 
-fn specs_of(declarations: &[dynamis_gpu::ShaderBinding], group: u32) -> Vec<BindingSpec> {
+fn specs_of(declarations: &[ShaderBinding], group: u32) -> Vec<BindingSpec> {
     ordered(declarations, group)
         .into_iter()
         .map(|entry| {
@@ -218,93 +411,4 @@ fn specs_of(declarations: &[dynamis_gpu::ShaderBinding], group: u32) -> Vec<Bind
             }
         })
         .collect()
-}
-
-impl Stage {
-    pub(crate) fn build(
-        context: &GpuContext,
-        label: &str,
-        program: Program,
-        slots: &[(&str, GpuSlot)],
-        shapes: &[(&str, GpuSlot)],
-    ) -> Self {
-        let Program {
-            source,
-            dispatch,
-            warm,
-        } = program;
-        let resolved = Bindings::of(label, &source, StageBindings { slots, shapes });
-        let groups = resolved
-            .groups
-            .iter()
-            .map(|group| group.as_slice())
-            .collect::<Vec<_>>();
-        let pipeline = context.declare(ComputeProgram::new(label, source.clone(), "main", &groups));
-        let warm = warm.then(|| Warm {
-            pipeline: context.declare(ComputeProgram::new(
-                &format!("{label} warm"),
-                source,
-                "warm",
-                &groups,
-            )),
-            workgroups: match dispatch {
-                Dispatch::Stream { workgroups } => workgroups,
-                _ => panic!("a warm entry point must stream"),
-            },
-        });
-        let bind_group = pipeline.create_bind_group(context.device(), 0, &resolved.storage);
-        let shapes_group = (!resolved.shapes.is_empty())
-            .then(|| pipeline.create_bind_group(context.device(), 1, &resolved.shapes));
-        Self {
-            pipeline,
-            dispatch,
-            warm,
-            bind_group,
-            shapes_group,
-        }
-    }
-
-    pub(crate) fn record_rows(&self, recorder: &mut ComputeRecorder, rows: u32) {
-        assert!(
-            matches!(self.dispatch, Dispatch::Rows),
-            "an element stage derives its dispatch from its own row count"
-        );
-        self.record_handle(recorder, &self.pipeline, workgroups_of(rows));
-    }
-
-    pub(crate) fn record_stream(&self, recorder: &mut ComputeRecorder) {
-        let Dispatch::Stream { workgroups } = self.dispatch else {
-            panic!("a streaming stage captures its dispatch from its stream capacity");
-        };
-        self.record_handle(recorder, &self.pipeline, workgroups);
-    }
-
-    pub(crate) fn record_warm(&self, recorder: &mut ComputeRecorder) {
-        let warm = self
-            .warm
-            .as_ref()
-            .expect("a warm recording requires a warm entry point");
-        self.record_handle(recorder, &warm.pipeline, warm.workgroups);
-    }
-
-    pub(crate) fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
-        assert!(
-            matches!(self.dispatch, Dispatch::Workgroups),
-            "a workgroup stage takes an explicit dispatch count"
-        );
-        self.record_handle(recorder, &self.pipeline, workgroups);
-    }
-
-    fn record_handle(
-        &self,
-        recorder: &mut ComputeRecorder,
-        pipeline: &PipelineHandle,
-        workgroups: u32,
-    ) {
-        let compiled = pipeline.pipeline();
-        match &self.shapes_group {
-            Some(shapes) => recorder.record(compiled, &[&self.bind_group, shapes], workgroups),
-            None => recorder.record(compiled, &[&self.bind_group], workgroups),
-        }
-    }
 }

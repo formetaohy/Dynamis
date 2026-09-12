@@ -1,9 +1,9 @@
 use super::Count;
 use super::Frame;
-use super::buffers::RigidBuffers;
+use super::buffers::{RigidBuffers, StreamId};
 use super::shader;
 use super::shader::{CORE, GEOMETRY};
-use crate::dynamics::engine::{Stage, whole};
+use crate::dynamics::engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_PAIRS;
 
@@ -23,21 +23,22 @@ impl Ccd {
                     include_str!("shaders/ccd_sweep.wgsl"),
                     GEOMETRY,
                     "work",
-                    buffers.pair_capacity(),
+                    StreamId::PairMajor,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("body_descs", whole(&buffers.body_descriptors)),
-                    ("colliders", whole(&buffers.colliders)),
-                    ("pair_major", whole(&buffers.pair_major)),
-                    ("pair_minor", whole(&buffers.pair_minor)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("body_descs", StreamId::BodyDescriptors.whole()),
+                    ("colliders", StreamId::Colliders.whole()),
+                    ("pair_major", StreamId::PairMajor.whole()),
+                    ("pair_minor", StreamId::PairMinor.whole()),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("collider_owners", whole(&buffers.collider_owners)),
-                    ("ccd_factor", whole(&buffers.ccd_factor)),
-                    ("ccd_impact", whole(&buffers.ccd_impact)),
+                    ("collider_owners", StreamId::ColliderOwners.whole()),
+                    ("ccd_factor", StreamId::CcdFactor.whole()),
+                    ("ccd_impact", StreamId::CcdImpact.whole()),
                 ],
-                &buffers.shape_resources(),
+                &RigidBuffers::shape_resources(),
             ),
             apply: Stage::build(
                 context,
@@ -48,20 +49,26 @@ impl Ccd {
                     CORE,
                     Count::Dynamic,
                 ),
+                buffers,
                 &[
-                    ("params", whole(&buffers.params)),
-                    ("body_states", whole(&buffers.body_states)),
-                    ("ccd_factor", whole(&buffers.ccd_factor)),
-                    ("ccd_impact", whole(&buffers.ccd_impact)),
+                    ("params", StreamId::Params.whole()),
+                    ("body_states", StreamId::BodyStates.whole()),
+                    ("ccd_factor", StreamId::CcdFactor.whole()),
+                    ("ccd_impact", StreamId::CcdImpact.whole()),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
-        self.sweep.record_stream(recorder);
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &RigidBuffers,
+        frame: &Frame,
+    ) {
+        self.sweep.record_stream(recorder, buffers);
         self.apply
-            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
     }
 }
