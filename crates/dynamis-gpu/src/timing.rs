@@ -22,14 +22,14 @@ pub struct GpuTimer {
     query_set: QuerySet,
     resolved: Buffer,
     readback: ReadbackRing,
-    labels: &'static [&'static str],
+    labels: Vec<&'static str>,
     period_ns: f32,
 }
 
 impl GpuTimer {
     pub fn new(
         device: &Device,
-        labels: &'static [&'static str],
+        labels: &[&'static str],
         period_ns: f32,
         label_prefix: &str,
     ) -> Self {
@@ -59,7 +59,7 @@ impl GpuTimer {
             query_set,
             resolved,
             readback,
-            labels,
+            labels: labels.to_vec(),
             period_ns,
         }
     }

@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{Count, Coverage, GRID_INDEX, Slots, Stage, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::GRID_INDEX;
+use crate::dynamics::engine::{Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_ENTRIES;
 use dynamis_sort::RadixSort;
@@ -11,17 +14,18 @@ pub(super) struct Broadphase {
 }
 
 impl Broadphase {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             cell_pairs: Stage::build(
                 context,
                 "cell_pairs",
-                include_str!("shaders/cell_pairs.wgsl"),
-                GRID_INDEX,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Entries,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/cell_pairs.wgsl"),
+                    GRID_INDEX,
+                    "work",
+                    buffers.entry_capacity(),
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("pair_major", whole(&buffers.pair_major)),
@@ -38,9 +42,12 @@ impl Broadphase {
             level_links: Stage::build(
                 context,
                 "level_links",
-                include_str!("shaders/level_links.wgsl"),
-                GRID_INDEX,
-                Coverage::Live(Count::Colliders),
+                shader::rows(
+                    context,
+                    include_str!("shaders/level_links.wgsl"),
+                    GRID_INDEX,
+                    Count::Colliders,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("pair_major", whole(&buffers.pair_major)),
@@ -60,7 +67,7 @@ impl Broadphase {
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
+        buffers: &RigidBuffers,
         frame: &Frame,
         sort: &RadixSort,
     ) {
@@ -70,7 +77,8 @@ impl Broadphase {
             &buffers.grid_entry_colliders,
         );
         sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
-        self.cell_pairs.record(recorder, buffers, frame);
-        self.level_links.record(recorder, buffers, frame);
+        self.cell_pairs.record_stream(recorder);
+        self.level_links
+            .record_rows(recorder, Count::Colliders.rows(&frame.params));
     }
 }

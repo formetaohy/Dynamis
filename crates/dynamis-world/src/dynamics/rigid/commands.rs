@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{CORE, Count, Coverage, Stage, whole, workgroups_of};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::CORE;
+use crate::dynamics::engine::{Stage, whole, workgroups_of};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
 
@@ -18,23 +21,24 @@ pub(super) struct Commands {
 }
 
 impl Commands {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             reset_counters: Stage::build(
                 context,
                 "reset_counters",
-                include_str!("shaders/reset_counters.wgsl"),
-                CORE,
-                Coverage::Workgroups,
+                shader::workgroups(context, include_str!("shaders/reset_counters.wgsl"), CORE),
                 &[("counters", whole(&buffers.counters))],
                 &[],
             ),
             body_move_gather: Stage::build(
                 context,
                 "body_move_gather",
-                include_str!("shaders/body_move_gather.wgsl"),
-                CORE,
-                Coverage::Live(Count::BodyMoves),
+                shader::rows(
+                    context,
+                    include_str!("shaders/body_move_gather.wgsl"),
+                    CORE,
+                    Count::BodyMoves,
+                ),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("state_scratch", whole(&buffers.body_state_scratch)),
@@ -47,9 +51,12 @@ impl Commands {
             body_move_scatter: Stage::build(
                 context,
                 "body_move_scatter",
-                include_str!("shaders/body_move_scatter.wgsl"),
-                CORE,
-                Coverage::Live(Count::BodyMoves),
+                shader::rows(
+                    context,
+                    include_str!("shaders/body_move_scatter.wgsl"),
+                    CORE,
+                    Count::BodyMoves,
+                ),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("state_scratch", whole(&buffers.body_state_scratch)),
@@ -61,9 +68,12 @@ impl Commands {
             body_edits: Stage::build(
                 context,
                 "body_edits",
-                include_str!("shaders/body_edits.wgsl"),
-                CORE,
-                Coverage::Live(Count::EditRuns),
+                shader::rows(
+                    context,
+                    include_str!("shaders/body_edits.wgsl"),
+                    CORE,
+                    Count::EditRuns,
+                ),
                 &[
                     ("edits", whole(&buffers.body_edits)),
                     ("edit_runs", whole(&buffers.body_edit_runs)),
@@ -79,9 +89,12 @@ impl Commands {
             row_of_body: Stage::build(
                 context,
                 "row_of_body",
-                include_str!("shaders/row_of_body.wgsl"),
-                CORE,
-                Coverage::Live(Count::BodyMoves),
+                shader::rows(
+                    context,
+                    include_str!("shaders/row_of_body.wgsl"),
+                    CORE,
+                    Count::BodyMoves,
+                ),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("row_moves", whole(&buffers.body_row_moves)),
@@ -93,9 +106,12 @@ impl Commands {
             constraint_rows: Stage::build(
                 context,
                 "constraint_rows",
-                include_str!("shaders/constraint_rows.wgsl"),
-                CORE,
-                Coverage::Live(Count::Constraints),
+                shader::rows(
+                    context,
+                    include_str!("shaders/constraint_rows.wgsl"),
+                    CORE,
+                    Count::Constraints,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("constraint_descs", whole(&buffers.constraint_descriptors)),
@@ -107,9 +123,12 @@ impl Commands {
             constraint_move_gather: Stage::build(
                 context,
                 "constraint_move_gather",
-                include_str!("shaders/constraint_move_gather.wgsl"),
-                CORE,
-                Coverage::Live(Count::ConstraintMoves),
+                shader::rows(
+                    context,
+                    include_str!("shaders/constraint_move_gather.wgsl"),
+                    CORE,
+                    Count::ConstraintMoves,
+                ),
                 &[
                     ("constraint_runtime", whole(&buffers.constraint_runtime)),
                     ("constraint_scratch", whole(&buffers.constraint_scratch)),
@@ -122,9 +141,12 @@ impl Commands {
             constraint_move_scatter: Stage::build(
                 context,
                 "constraint_move_scatter",
-                include_str!("shaders/constraint_move_scatter.wgsl"),
-                CORE,
-                Coverage::Live(Count::ConstraintMoves),
+                shader::rows(
+                    context,
+                    include_str!("shaders/constraint_move_scatter.wgsl"),
+                    CORE,
+                    Count::ConstraintMoves,
+                ),
                 &[
                     ("constraint_runtime", whole(&buffers.constraint_runtime)),
                     ("constraint_scratch", whole(&buffers.constraint_scratch)),
@@ -136,9 +158,12 @@ impl Commands {
             activity: Stage::build(
                 context,
                 "activity",
-                include_str!("shaders/activity.wgsl"),
-                CORE,
-                Coverage::Live(Count::Bodies),
+                shader::rows(
+                    context,
+                    include_str!("shaders/activity.wgsl"),
+                    CORE,
+                    Count::Bodies,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -151,9 +176,12 @@ impl Commands {
             joint_filter: Stage::build(
                 context,
                 "joint_filter",
-                include_str!("shaders/joint_filter.wgsl"),
-                CORE,
-                Coverage::Live(Count::Constraints),
+                shader::rows(
+                    context,
+                    include_str!("shaders/joint_filter.wgsl"),
+                    CORE,
+                    Count::Constraints,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("constraint_descs", whole(&buffers.constraint_descriptors)),
@@ -173,40 +201,33 @@ impl Commands {
             .record_workgroups(recorder, workgroups_of(COUNTER_COUNT as u32));
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
         self.reset(recorder);
-        self.record_moves(recorder, buffers, frame);
-        self.record_edits(recorder, buffers, frame);
-        self.constraint_rows.record(recorder, buffers, frame);
-        self.joint_filter.record(recorder, buffers, frame);
-        self.activity.record(recorder, buffers, frame);
+        self.record_moves(recorder, frame);
+        self.record_edits(recorder, frame);
+        self.constraint_rows
+            .record_rows(recorder, Count::Constraints.rows(&frame.params));
+        self.joint_filter
+            .record_rows(recorder, Count::Constraints.rows(&frame.params));
+        self.activity
+            .record_rows(recorder, Count::Bodies.rows(&frame.params));
     }
 
-    pub(super) fn record_moves(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.body_move_gather.record(recorder, buffers, frame);
-        self.body_move_scatter.record(recorder, buffers, frame);
-        self.row_of_body.record(recorder, buffers, frame);
-        self.constraint_move_gather.record(recorder, buffers, frame);
+    pub(super) fn record_moves(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.body_move_gather
+            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
+        self.body_move_scatter
+            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
+        self.row_of_body
+            .record_rows(recorder, Count::BodyMoves.rows(&frame.params));
+        self.constraint_move_gather
+            .record_rows(recorder, Count::ConstraintMoves.rows(&frame.params));
         self.constraint_move_scatter
-            .record(recorder, buffers, frame);
+            .record_rows(recorder, Count::ConstraintMoves.rows(&frame.params));
     }
 
-    pub(super) fn record_edits(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.body_edits.record(recorder, buffers, frame);
+    pub(super) fn record_edits(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.body_edits
+            .record_rows(recorder, Count::EditRuns.rows(&frame.params));
     }
 }

@@ -1,7 +1,7 @@
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use crate::dynamics::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
-use crate::dynamics::capacity::ShapeCapacity;
+use crate::dynamics::rigid::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
+use crate::dynamics::rigid::capacity::ShapeCapacity;
 use bytemuck::Zeroable;
 use dynamis_layout::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;

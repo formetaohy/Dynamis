@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{CONTACT, CORE, Count, Coverage, IDENTITY, Slots, Stage, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::{CONTACT, CORE, IDENTITY};
+use crate::dynamics::engine::{Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING_INDEX,
@@ -17,17 +20,18 @@ pub(super) struct Islands {
 }
 
 impl Islands {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             contact_relay: Stage::build(
                 context,
                 "contact_relay",
-                include_str!("shaders/contact_relay.wgsl"),
-                CONTACT,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Archive,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/contact_relay.wgsl"),
+                    CONTACT,
+                    "work",
+                    buffers.archive_capacity(),
+                ),
                 &[
                     ("archive", whole(&buffers.contact_archive)),
                     ("archive_count", buffers.counter(COUNTER_ARCHIVED)),
@@ -47,12 +51,13 @@ impl Islands {
             contact_begin: Stage::build(
                 context,
                 "contact_begin",
-                include_str!("shaders/contact_begin.wgsl"),
-                CONTACT,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Contacts,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/contact_begin.wgsl"),
+                    CONTACT,
+                    "work",
+                    buffers.contact_capacity(),
+                ),
                 &[
                     ("contacts", whole(&buffers.contacts)),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
@@ -73,9 +78,12 @@ impl Islands {
             island_init: Stage::build(
                 context,
                 "island_init",
-                include_str!("shaders/island_init.wgsl"),
-                CORE,
-                Coverage::Live(Count::Dynamic),
+                shader::rows(
+                    context,
+                    include_str!("shaders/island_init.wgsl"),
+                    CORE,
+                    Count::Dynamic,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("island_parents", whole(&buffers.island_parents)),
@@ -86,12 +94,13 @@ impl Islands {
             island_link_contacts: Stage::build(
                 context,
                 "island_link_contacts",
-                include_str!("shaders/island_link_contacts.wgsl"),
-                IDENTITY,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Contacts,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/island_link_contacts.wgsl"),
+                    IDENTITY,
+                    "work",
+                    buffers.contact_capacity(),
+                ),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("body_descs", whole(&buffers.body_descriptors)),
@@ -107,9 +116,12 @@ impl Islands {
             island_link_constraints: Stage::build(
                 context,
                 "island_link_constraints",
-                include_str!("shaders/island_link_constraints.wgsl"),
-                CORE,
-                Coverage::Live(Count::Constraints),
+                shader::rows(
+                    context,
+                    include_str!("shaders/island_link_constraints.wgsl"),
+                    CORE,
+                    Count::Constraints,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -124,9 +136,12 @@ impl Islands {
             island_jump: Stage::build(
                 context,
                 "island_jump",
-                include_str!("shaders/island_jump.wgsl"),
-                CORE,
-                Coverage::Live(Count::Dynamic),
+                shader::rows(
+                    context,
+                    include_str!("shaders/island_jump.wgsl"),
+                    CORE,
+                    Count::Dynamic,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("island_parents", whole(&buffers.island_parents)),
@@ -136,20 +151,17 @@ impl Islands {
         }
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.contact_relay.record(recorder, buffers, frame);
-        self.contact_begin.record(recorder, buffers, frame);
-        self.island_init.record(recorder, buffers, frame);
-        self.island_link_contacts.record(recorder, buffers, frame);
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.contact_relay.record_stream(recorder);
+        self.contact_begin.record_stream(recorder);
+        self.island_init
+            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+        self.island_link_contacts.record_stream(recorder);
         self.island_link_constraints
-            .record(recorder, buffers, frame);
+            .record_rows(recorder, Count::Constraints.rows(&frame.params));
         for _ in 0..frame.island_rounds {
-            self.island_jump.record(recorder, buffers, frame);
+            self.island_jump
+                .record_rows(recorder, Count::Dynamic.rows(&frame.params));
         }
     }
 }

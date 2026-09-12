@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{BLOCKS, CORE, Count, Coverage, POSITION_CORRECTION, Slots, Stage, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::{BLOCKS, CORE, POSITION_CORRECTION};
+use crate::dynamics::engine::{Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_BLOCKS, COUNTER_CONTACTS};
 use dynamis_sort::RadixSort;
@@ -18,15 +21,18 @@ pub(super) struct Solver {
 }
 
 impl Solver {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         let segments = buffers.solver_segments.slot();
         let block_count = buffers.counter(COUNTER_BLOCKS);
         let reset = Stage::build(
             context,
             "solver reset",
-            include_str!("shaders/solver_reset.wgsl"),
-            CORE,
-            Coverage::Live(Count::Bodies),
+            shader::rows(
+                context,
+                include_str!("shaders/solver_reset.wgsl"),
+                CORE,
+                Count::Bodies,
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("first_a", whole(&buffers.solver_first_a)),
@@ -41,9 +47,7 @@ impl Solver {
         let total = Stage::build(
             context,
             "solver total",
-            include_str!("shaders/solver_total.wgsl"),
-            CORE,
-            Coverage::Workgroups,
+            shader::workgroups(context, include_str!("shaders/solver_total.wgsl"), CORE),
             &[
                 ("params", whole(&buffers.params)),
                 ("contacts", whole(&buffers.contacts)),
@@ -57,12 +61,13 @@ impl Solver {
         let blocks = Stage::build(
             context,
             "solver blocks",
-            include_str!("shaders/solver_blocks.wgsl"),
-            CORE,
-            Coverage::Stream {
-                kernel: "work",
-                slots: Slots::Blocks,
-            },
+            shader::stream(
+                context,
+                include_str!("shaders/solver_blocks.wgsl"),
+                CORE,
+                "work",
+                buffers.block_capacity(),
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("body_states", whole(&buffers.body_states)),
@@ -85,12 +90,13 @@ impl Solver {
         let pair_order = Stage::build(
             context,
             "solver pair order",
-            include_str!("shaders/solver_pair_order.wgsl"),
-            CORE,
-            Coverage::Stream {
-                kernel: "work",
-                slots: Slots::Blocks,
-            },
+            shader::stream(
+                context,
+                include_str!("shaders/solver_pair_order.wgsl"),
+                CORE,
+                "work",
+                buffers.block_capacity(),
+            ),
             &[
                 ("a_payload", whole(&buffers.solver_a_payload)),
                 (
@@ -106,12 +112,13 @@ impl Solver {
         let boundaries = Stage::build(
             context,
             "solver boundaries",
-            include_str!("shaders/solver_boundaries.wgsl"),
-            CORE,
-            Coverage::Stream {
-                kernel: "work",
-                slots: Slots::Blocks,
-            },
+            shader::stream(
+                context,
+                include_str!("shaders/solver_boundaries.wgsl"),
+                CORE,
+                "work",
+                buffers.block_capacity(),
+            ),
             &[
                 ("segments", segments),
                 ("a_bodies", whole(&buffers.solver_a_bodies)),
@@ -126,21 +133,16 @@ impl Solver {
             ],
             &[],
         );
-        let block_solve = Stage::build_warm(
+        let block_solve = Stage::build(
             context,
             "solver_block_solve",
-            include_str!("shaders/solver_block_solve.wgsl"),
-            BLOCKS,
-            [
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Blocks,
-                },
-                Coverage::Stream {
-                    kernel: "warm_start",
-                    slots: Slots::Blocks,
-                },
-            ],
+            shader::stream_warm(
+                context,
+                include_str!("shaders/solver_block_solve.wgsl"),
+                BLOCKS,
+                "work",
+                buffers.block_capacity(),
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("body_states", whole(&buffers.body_states)),
@@ -163,9 +165,12 @@ impl Solver {
         let block_apply = Stage::build(
             context,
             "solver block apply",
-            include_str!("shaders/solver_block_apply.wgsl"),
-            CORE,
-            Coverage::Live(Count::Dynamic),
+            shader::rows(
+                context,
+                include_str!("shaders/solver_block_apply.wgsl"),
+                CORE,
+                Count::Dynamic,
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("body_states", whole(&buffers.body_states)),
@@ -183,12 +188,13 @@ impl Solver {
         let position_block = Stage::build(
             context,
             "position block",
-            include_str!("shaders/position_block.wgsl"),
-            POSITION_CORRECTION,
-            Coverage::Stream {
-                kernel: "work",
-                slots: Slots::Blocks,
-            },
+            shader::stream(
+                context,
+                include_str!("shaders/position_block.wgsl"),
+                POSITION_CORRECTION,
+                "work",
+                buffers.block_capacity(),
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("body_states", whole(&buffers.body_states)),
@@ -213,9 +219,12 @@ impl Solver {
         let position_apply = Stage::build(
             context,
             "position apply",
-            include_str!("shaders/position_apply.wgsl"),
-            CORE,
-            Coverage::Live(Count::Dynamic),
+            shader::rows(
+                context,
+                include_str!("shaders/position_apply.wgsl"),
+                CORE,
+                Count::Dynamic,
+            ),
             &[
                 ("params", whole(&buffers.params)),
                 ("body_states", whole(&buffers.body_states)),
@@ -247,27 +256,23 @@ impl Solver {
         }
     }
 
-    pub(super) fn record_prepare(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.reset.record(recorder, buffers, frame);
+    pub(super) fn record_prepare(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.reset
+            .record_rows(recorder, Count::Bodies.rows(&frame.params));
         self.total.record_workgroups(recorder, 1);
     }
 
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
+        buffers: &RigidBuffers,
         frame: &Frame,
         sort: &RadixSort,
     ) {
         let blocks = buffers.block_capacity();
         let words = buffers.body_words();
         let block_count = buffers.counter(COUNTER_BLOCKS);
-        self.blocks.record(recorder, buffers, frame);
+        self.blocks.record_stream(recorder);
         sort.sort(
             recorder,
             &buffers.sort_lanes(
@@ -279,7 +284,7 @@ impl Solver {
             0,
             blocks,
         );
-        self.pair_order.record(recorder, buffers, frame);
+        self.pair_order.record_stream(recorder);
         sort.sort(
             recorder,
             &buffers.sort_lanes(
@@ -291,24 +296,22 @@ impl Solver {
             0,
             blocks,
         );
-        self.boundaries.record(recorder, buffers, frame);
-        self.block_solve.record_warm(recorder, buffers, frame);
-        self.block_apply.record(recorder, buffers, frame);
+        self.boundaries.record_stream(recorder);
+        self.block_solve.record_warm(recorder);
+        self.block_apply
+            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
         for _ in 0..frame.params.solve_iterations {
-            self.block_solve.record(recorder, buffers, frame);
-            self.block_apply.record(recorder, buffers, frame);
+            self.block_solve.record_stream(recorder);
+            self.block_apply
+                .record_rows(recorder, Count::Dynamic.rows(&frame.params));
         }
     }
 
-    pub(super) fn record_position_iterations(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
+    pub(super) fn record_position_iterations(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
         for _ in 0..frame.params.position_iterations {
-            self.position_block.record(recorder, buffers, frame);
-            self.position_apply.record(recorder, buffers, frame);
+            self.position_block.record_stream(recorder);
+            self.position_apply
+                .record_rows(recorder, Count::Dynamic.rows(&frame.params));
         }
     }
 }

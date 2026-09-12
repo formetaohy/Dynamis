@@ -1,14 +1,14 @@
 use super::World;
 use crate::dynamics::Pipeline;
-use crate::dynamics::buffers::WorldBuffers;
-use crate::dynamics::capacity::Capacity;
+use crate::dynamics::rigid::buffers::RigidBuffers;
+use crate::dynamics::rigid::capacity::Capacity;
 use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
-    pub(crate) buffers: WorldBuffers,
+    pub(crate) buffers: RigidBuffers,
     pub(crate) pipeline: Pipeline,
     pub(crate) capacity: Capacity,
     pub(crate) measured: dynamis_layout::Counters,
@@ -22,7 +22,7 @@ pub(crate) struct Backend {
 impl Backend {
     pub(crate) fn new(gpu: GpuContext) -> Self {
         let demand = Capacity::minimum();
-        let buffers = WorldBuffers::new(gpu.device(), gpu.queue(), &demand);
+        let buffers = RigidBuffers::new(gpu.device(), gpu.queue(), &demand);
         let pipeline = Pipeline::new(&gpu, &buffers);
         Self {
             gpu,

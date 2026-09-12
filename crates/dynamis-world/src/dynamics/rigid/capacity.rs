@@ -1,4 +1,4 @@
-use crate::dynamics::buffers::{Demand, WorldBuffers};
+use super::buffers::{Demand, RigidBuffers};
 use dynamis_layout::{
     COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES,
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_SPILLOVER_RESTING, Counters,
@@ -173,7 +173,7 @@ impl Capacity {
         &mut self,
         measured: &Counters,
         live: &Live,
-        current: &WorldBuffers,
+        current: &RigidBuffers,
     ) -> Demand {
         self.cooldown = self.cooldown.saturating_sub(1);
         let open = self.cooldown == 0;
@@ -234,7 +234,7 @@ impl Capacity {
     fn live_demand(
         &self,
         live: &Live,
-        current: &WorldBuffers,
+        current: &RigidBuffers,
         idle: bool,
         entries: u32,
         pairs: u32,

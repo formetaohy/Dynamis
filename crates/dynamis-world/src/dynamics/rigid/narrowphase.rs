@@ -1,8 +1,7 @@
-use super::Frame;
-use super::stage::{
-    CORE, Coverage, GEOMETRY, MAX_GRID_WORKGROUPS, Slots, Stage, shape_resources, whole,
-};
-use crate::dynamics::buffers::{COMPACT_BLOCK, WorldBuffers};
+use super::buffers::{COMPACT_BLOCK, RigidBuffers};
+use super::shader;
+use super::shader::{CORE, GEOMETRY};
+use crate::dynamics::engine::{MAX_DISPATCH_WORKGROUPS, Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_sort::RadixSort;
@@ -15,17 +14,18 @@ pub(super) struct Narrowphase {
 }
 
 impl Narrowphase {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             narrowphase: Stage::build(
                 context,
                 "narrowphase",
-                include_str!("shaders/narrowphase.wgsl"),
-                GEOMETRY,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Pairs,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/narrowphase.wgsl"),
+                    GEOMETRY,
+                    "work",
+                    buffers.pair_capacity(),
+                ),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("body_descs", whole(&buffers.body_descriptors)),
@@ -41,14 +41,12 @@ impl Narrowphase {
                     ("params", whole(&buffers.params)),
                     ("collider_owners", whole(&buffers.collider_owners)),
                 ],
-                &shape_resources(buffers),
+                &buffers.shape_resources(),
             ),
             compact_scan: Stage::build(
                 context,
                 "compact_scan",
-                include_str!("shaders/compact_scan.wgsl"),
-                CORE,
-                Coverage::Workgroups,
+                shader::workgroups(context, include_str!("shaders/compact_scan.wgsl"), CORE),
                 &[
                     ("valid", whole(&buffers.contact_valid)),
                     ("ranks", whole(&buffers.compact_ranks)),
@@ -60,9 +58,7 @@ impl Narrowphase {
             compact_offsets: Stage::build(
                 context,
                 "compact_offsets",
-                include_str!("shaders/compact_offsets.wgsl"),
-                CORE,
-                Coverage::Workgroups,
+                shader::workgroups(context, include_str!("shaders/compact_offsets.wgsl"), CORE),
                 &[
                     ("block_sums", whole(&buffers.compact_block_sums)),
                     ("block_offsets", whole(&buffers.compact_block_offsets)),
@@ -74,12 +70,13 @@ impl Narrowphase {
             compact_scatter: Stage::build(
                 context,
                 "compact_scatter",
-                include_str!("shaders/compact_scatter.wgsl"),
-                CORE,
-                Coverage::Stream {
-                    kernel: "work",
-                    slots: Slots::Pairs,
-                },
+                shader::stream(
+                    context,
+                    include_str!("shaders/compact_scatter.wgsl"),
+                    CORE,
+                    "work",
+                    buffers.pair_capacity(),
+                ),
                 &[
                     ("contacts_raw", whole(&buffers.contacts_raw)),
                     ("valid", whole(&buffers.contact_valid)),
@@ -97,8 +94,7 @@ impl Narrowphase {
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
+        buffers: &RigidBuffers,
         sort: &RadixSort,
     ) {
         let words = buffers.collider_words();
@@ -109,12 +105,12 @@ impl Narrowphase {
             &buffers.pair_minor,
         );
         sort.sort(recorder, &channels, words, words, pairs);
-        self.narrowphase.record(recorder, buffers, frame);
+        self.narrowphase.record_stream(recorder);
         self.compact_scan.record_workgroups(
             recorder,
-            pairs.div_ceil(COMPACT_BLOCK).min(MAX_GRID_WORKGROUPS),
+            pairs.div_ceil(COMPACT_BLOCK).min(MAX_DISPATCH_WORKGROUPS),
         );
         self.compact_offsets.record_workgroups(recorder, 1);
-        self.compact_scatter.record(recorder, buffers, frame);
+        self.compact_scatter.record_stream(recorder);
     }
 }

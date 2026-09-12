@@ -15,7 +15,7 @@ mod shape;
 pub(crate) mod shape_pool;
 mod step;
 
-use crate::dynamics::capacity::{Live, ShapeCapacity, StreamCapacity};
+use crate::dynamics::rigid::capacity::{Live, ShapeCapacity, StreamCapacity};
 use backend::Backend;
 use body::Bodies;
 use clock::Clock;
@@ -48,7 +48,7 @@ pub struct World {
 }
 
 fn flush_pool_range(
-    buffers: &crate::dynamics::buffers::WorldBuffers,
+    buffers: &crate::dynamics::rigid::buffers::RigidBuffers,
     queue: &wgpu::Queue,
     head: Option<(u32, u32)>,
     records: &[ColliderRecord],
@@ -299,6 +299,6 @@ impl World {
     }
 
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
-        (step % crate::dynamics::buffers::EVENT_SLOTS as u64) as u32
+        (step % crate::dynamics::rigid::buffers::EVENT_SLOTS as u64) as u32
     }
 }

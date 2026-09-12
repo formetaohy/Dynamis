@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{CORE, Count, Coverage, Stage, shape_resources, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::CORE;
+use crate::dynamics::engine::{Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
 use dynamis_sort::RadixSort;
@@ -12,14 +15,17 @@ pub(super) struct Integrate {
 }
 
 impl Integrate {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             integrate: Stage::build(
                 context,
                 "integrate",
-                include_str!("shaders/integrate.wgsl"),
-                CORE,
-                Coverage::Live(Count::Dynamic),
+                shader::rows(
+                    context,
+                    include_str!("shaders/integrate.wgsl"),
+                    CORE,
+                    Count::Dynamic,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -30,9 +36,12 @@ impl Integrate {
             advance: Stage::build(
                 context,
                 "advance",
-                include_str!("shaders/advance.wgsl"),
-                CORE,
-                Coverage::Live(Count::Dynamic),
+                shader::rows(
+                    context,
+                    include_str!("shaders/advance.wgsl"),
+                    CORE,
+                    Count::Dynamic,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -43,9 +52,12 @@ impl Integrate {
             broadphase_aabb: Stage::build(
                 context,
                 "broadphase_aabb",
-                include_str!("shaders/broadphase_aabb.wgsl"),
-                CORE,
-                Coverage::Live(Count::Colliders),
+                shader::rows(
+                    context,
+                    include_str!("shaders/broadphase_aabb.wgsl"),
+                    CORE,
+                    Count::Colliders,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -55,33 +67,25 @@ impl Integrate {
                     ("aabbs", whole(&buffers.collider_aabbs)),
                     ("counters", whole(&buffers.counters)),
                 ],
-                &shape_resources(buffers),
+                &buffers.shape_resources(),
             ),
         }
     }
 
-    pub(super) fn record_advance(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.advance.record(recorder, buffers, frame);
+    pub(super) fn record_advance(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.advance
+            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
     }
 
-    pub(super) fn record_broadphase(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.broadphase_aabb.record(recorder, buffers, frame);
+    pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.broadphase_aabb
+            .record_rows(recorder, Count::Colliders.rows(&frame.params));
     }
 
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
+        buffers: &RigidBuffers,
         frame: &Frame,
         sort: &RadixSort,
     ) {
@@ -100,7 +104,9 @@ impl Integrate {
                 buffers.constraint_capacity(),
             );
         }
-        self.integrate.record(recorder, buffers, frame);
-        self.broadphase_aabb.record(recorder, buffers, frame);
+        self.integrate
+            .record_rows(recorder, Count::Dynamic.rows(&frame.params));
+        self.broadphase_aabb
+            .record_rows(recorder, Count::Colliders.rows(&frame.params));
     }
 }

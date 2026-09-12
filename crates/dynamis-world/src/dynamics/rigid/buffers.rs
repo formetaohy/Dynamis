@@ -1,4 +1,4 @@
-use crate::dynamics::capacity::ShapeCapacity;
+use super::capacity::ShapeCapacity;
 use dynamis_gpu::{Contents, GpuBuffer, GpuSlot, ReadbackRing, Stream};
 use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
@@ -79,12 +79,12 @@ macro_rules! world_buffers {
         extras { $( $extra:ident: $extra_ty:ty = $extra_init:expr, )* }
         streams { $( $name:ident: $label:literal, $stride:expr, $contents:expr, $slots:expr; )* }
     ) => {
-        pub(crate) struct WorldBuffers {
+        pub(crate) struct RigidBuffers {
             $( pub(crate) $extra: $extra_ty, )*
             $( pub(crate) $name: Stream, )*
         }
 
-        impl WorldBuffers {
+        impl RigidBuffers {
             pub(crate) fn new($device: &Device, $queue: &Queue, $demand: &Demand) -> Self {
                 Self {
                     $( $extra: $extra_init, )*
@@ -224,7 +224,16 @@ world_buffers! {
     }
 }
 
-impl WorldBuffers {
+impl RigidBuffers {
+    pub(crate) fn shape_resources(&self) -> [(&'static str, GpuSlot<'_>); 4] {
+        [
+            ("shape_sources", self.shape_sources.slot()),
+            ("shape_vertices", self.shape_vertices.slot()),
+            ("shape_triangles", self.shape_triangles.slot()),
+            ("shape_nodes", self.shape_nodes.slot()),
+        ]
+    }
+
     pub(crate) fn counter(&self, slot: usize) -> GpuSlot<'_> {
         GpuSlot::range(self.counters.gpu(), slot as u64 * COUNTER_STRIDE, 4)
     }

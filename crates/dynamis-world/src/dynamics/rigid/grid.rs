@@ -1,6 +1,9 @@
+use super::Count;
 use super::Frame;
-use super::stage::{Count, Coverage, GRID_INDEX, Stage, whole};
-use crate::dynamics::buffers::WorldBuffers;
+use super::buffers::RigidBuffers;
+use super::shader;
+use super::shader::GRID_INDEX;
+use crate::dynamics::engine::{Stage, whole};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 
 pub(super) struct Grid {
@@ -8,14 +11,17 @@ pub(super) struct Grid {
 }
 
 impl Grid {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
         Self {
             grid_entries: Stage::build(
                 context,
                 "grid_entries",
-                include_str!("shaders/grid_entries.wgsl"),
-                GRID_INDEX,
-                Coverage::Live(Count::Colliders),
+                shader::rows(
+                    context,
+                    include_str!("shaders/grid_entries.wgsl"),
+                    GRID_INDEX,
+                    Count::Colliders,
+                ),
                 &[
                     ("params", whole(&buffers.params)),
                     ("aabbs", whole(&buffers.collider_aabbs)),
@@ -30,12 +36,8 @@ impl Grid {
         }
     }
 
-    pub(super) fn record(
-        &self,
-        recorder: &mut ComputeRecorder,
-        buffers: &WorldBuffers,
-        frame: &Frame,
-    ) {
-        self.grid_entries.record(recorder, buffers, frame);
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.grid_entries
+            .record_rows(recorder, Count::Colliders.rows(&frame.params));
     }
 }
