@@ -14,6 +14,7 @@ mod rows;
 mod shape;
 pub(crate) mod shape_pool;
 mod step;
+mod view;
 
 use crate::dynamics::Live;
 use crate::dynamics::StreamCapacity;
@@ -33,6 +34,7 @@ use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
 use query::Queries;
 use shape::Shapes;
+use view::View;
 
 pub use readback::{ContactManifold, ContactPoint};
 
@@ -47,6 +49,7 @@ pub struct World {
     shapes: Shapes,
     queries: Queries,
     events: Events,
+    view: View,
 }
 
 fn flush_pool_range(
@@ -118,6 +121,7 @@ impl World {
             shapes,
             queries: Queries::new(),
             events: Events::new(),
+            view: View::new(),
         }
     }
 

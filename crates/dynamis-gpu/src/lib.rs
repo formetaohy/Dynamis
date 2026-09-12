@@ -16,7 +16,7 @@ pub use buffer::{GpuBuffer, GpuSlot};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
 pub use library::{WarmupBudget, WarmupProgress};
 pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, PipelineHandle};
-pub use readback::{BufferReadback, ReadbackRing};
+pub use readback::{Readback, read_regions};
 pub use recorder::ComputeRecorder;
 pub use runtime::GpuRuntime;
 pub use stream::{Contents, Stream};

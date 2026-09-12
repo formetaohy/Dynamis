@@ -163,7 +163,7 @@ impl World {
             bytes,
             batch,
         );
-        encoder.submit(&queue);
+        self.submit(encoder);
         if let Some((batch, bytes)) = arrived {
             self.queries.pool.collect(batch, &bytes);
         }

@@ -1,7 +1,7 @@
 mod common;
 
 use common::shared;
-use dynamis_gpu::{BufferReadback, Contents, Stream, SubmissionEncoder};
+use dynamis_gpu::{Contents, Stream, SubmissionEncoder, read_regions};
 use wgpu::BufferUsages;
 
 const STREAM_USAGE: BufferUsages = BufferUsages::STORAGE
@@ -14,8 +14,12 @@ fn seed(stream: &Stream, values: &[u32]) {
 
 fn read(stream: &Stream, words: u64) -> Vec<u32> {
     let context = shared();
-    let mut readback = BufferReadback::new(context.device(), "stream probe", (words * 4).max(4));
-    let bytes = readback.read(context.queue(), stream.buffer(), 0, words * 4);
+    let bytes = read_regions(
+        context.device(),
+        context.queue(),
+        "stream probe",
+        &[(stream.buffer(), 0, words * 4)],
+    );
     bytemuck::cast_slice(&bytes).to_vec()
 }
 

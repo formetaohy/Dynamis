@@ -1,4 +1,4 @@
-use crate::{ReadbackRing, SubmissionEncoder};
+use crate::{Readback, SubmissionEncoder};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, ComputePassTimestampWrites, Device, QUERY_SIZE,
     QuerySet, QuerySetDescriptor, QueryType,
@@ -21,7 +21,7 @@ impl GpuPassTiming {
 pub struct GpuTimer {
     query_set: QuerySet,
     resolved: Buffer,
-    readback: ReadbackRing,
+    readback: Readback,
     labels: Vec<&'static str>,
     period_ns: f32,
 }
@@ -50,10 +50,11 @@ impl GpuTimer {
             usage: BufferUsages::QUERY_RESOLVE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        let readback = ReadbackRing::new(
+        let readback = Readback::new(
             device,
             &format!("{label_prefix} timestamp readback"),
             resolved_bytes,
+            Readback::DEPTH,
         );
         Self {
             query_set,

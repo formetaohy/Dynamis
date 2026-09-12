@@ -24,7 +24,6 @@ pub(crate) struct Bodies {
     pub(crate) kinematic: Vec<bool>,
     pub(crate) ccd_count: u32,
     pub(crate) states: Vec<Option<BodyState>>,
-    pub(crate) states_ready: bool,
     pub(crate) device_count: u32,
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) dirty: Vec<u32>,
@@ -47,7 +46,6 @@ impl Bodies {
             kinematic: Vec::new(),
             ccd_count: 0,
             states: Vec::new(),
-            states_ready: true,
             device_count: 0,
             commands: Vec::new(),
             dirty: Vec::new(),
@@ -213,8 +211,8 @@ impl World {
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
         assert!(
-            self.bodies.states_ready,
-            "body states require synchronize_states() after stepping"
+            self.states_current(),
+            "body states require poll() or wait() after stepping"
         );
         self.bodies.states[handle.id as usize].expect("body state is unavailable")
     }
@@ -658,8 +656,8 @@ impl World {
 impl World {
     pub(crate) fn state_snapshot(&self, id: usize) -> Option<BodyState> {
         assert!(
-            self.bodies.states_ready,
-            "body states require synchronize_states() after stepping"
+            self.states_current(),
+            "body states require poll() or wait() after stepping"
         );
         self.bodies.states[id]
     }

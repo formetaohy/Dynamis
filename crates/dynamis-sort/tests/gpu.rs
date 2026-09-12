@@ -1,4 +1,4 @@
-use dynamis_gpu::{BufferReadback, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, WarmupBudget};
+use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, WarmupBudget, read_regions};
 use dynamis_sort::{RadixSort, SortChannels, key_words};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
@@ -15,8 +15,12 @@ fn shared() -> &'static GpuContext {
 
 fn read_u32s(context: &GpuContext, buffer: &GpuBuffer, words: usize) -> Vec<u32> {
     let bytes = (words * 4) as u64;
-    let mut readback = BufferReadback::new(context.device(), "sort readback", bytes);
-    let data = readback.read(context.queue(), buffer.buffer(), 0, bytes);
+    let data = read_regions(
+        context.device(),
+        context.queue(),
+        "sort readback",
+        &[(buffer.buffer(), 0, bytes)],
+    );
     let (chunks, remainder) = data.as_chunks::<4>();
     assert!(
         remainder.is_empty(),

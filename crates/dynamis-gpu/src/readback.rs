@@ -10,28 +10,22 @@ use wgpu::{
 
 const READBACK_TIMEOUT: Duration = Duration::from_secs(30);
 
-struct PendingRead {
+struct Pending {
     sequence: u64,
     bytes: BufferAddress,
     submission: Arc<OnceLock<SubmissionIndex>>,
     completion: Receiver<Result<(), BufferAsyncError>>,
 }
 
-pub struct BufferReadback {
-    device: Device,
+struct Slot {
     label: String,
     staging: Buffer,
-    pending: Option<PendingRead>,
+    pending: Option<Pending>,
 }
 
-impl BufferReadback {
-    pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
-        assert!(
-            size > 0 && size.is_multiple_of(4),
-            "readback size must be positive and word aligned"
-        );
+impl Slot {
+    fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
         Self {
-            device: device.clone(),
             label: label.to_owned(),
             staging: device.create_buffer(&BufferDescriptor {
                 label: Some(label),
@@ -43,35 +37,16 @@ impl BufferReadback {
         }
     }
 
-    pub fn size(&self) -> BufferAddress {
-        self.staging.size()
-    }
-
     fn is_sealed(&self) -> bool {
         self.pending
             .as_ref()
             .is_some_and(|pending| pending.submission.get().is_some())
     }
 
-    pub fn read(
-        &mut self,
-        queue: &Queue,
-        source: &Buffer,
-        source_offset: BufferAddress,
-        bytes: BufferAddress,
-    ) -> Vec<u8> {
-        let mut encoder = SubmissionEncoder::new(&self.device, &self.label);
-        self.record(&mut encoder, source, source_offset, bytes, 0);
-        encoder.submit(queue);
-        self.wait().1
-    }
-
     fn record(
         &mut self,
         encoder: &mut SubmissionEncoder,
-        source: &Buffer,
-        source_offset: BufferAddress,
-        bytes: BufferAddress,
+        regions: &[(&Buffer, BufferAddress, BufferAddress)],
         sequence: u64,
     ) {
         assert!(
@@ -79,27 +54,34 @@ impl BufferReadback {
             "readback {} is still in use",
             self.label
         );
+        let mut at = 0;
+        for (source, source_offset, bytes) in regions {
+            assert!(
+                *bytes > 0 && bytes.is_multiple_of(4),
+                "readback length must be positive and word aligned"
+            );
+            assert!(
+                source_offset.is_multiple_of(4),
+                "readback source offset must be word aligned"
+            );
+            assert!(
+                *source_offset <= source.size() && *bytes <= source.size() - source_offset,
+                "readback exceeds source buffer"
+            );
+            encoder.copy_buffer_to_buffer(source, *source_offset, &self.staging, at, *bytes);
+            at += bytes;
+        }
         assert!(
-            bytes > 0 && bytes.is_multiple_of(4),
-            "readback length must be positive and word aligned"
-        );
-        assert!(
-            source_offset.is_multiple_of(4),
-            "readback source offset must be word aligned"
-        );
-        assert!(bytes <= self.size(), "readback exceeds staging capacity");
-        assert!(
-            source_offset <= source.size() && bytes <= source.size() - source_offset,
-            "readback exceeds source buffer"
+            at > 0 && at <= self.staging.size(),
+            "readback exceeds staging capacity"
         );
         let (sender, completion) = mpsc::channel();
-        encoder.copy_buffer_to_buffer(source, source_offset, &self.staging, 0, bytes);
-        encoder.map_buffer_on_submit(&self.staging, MapMode::Read, ..bytes, move |result| {
+        encoder.map_buffer_on_submit(&self.staging, MapMode::Read, ..at, move |result| {
             let _ = sender.send(result);
         });
-        self.pending = Some(PendingRead {
+        self.pending = Some(Pending {
             sequence,
-            bytes,
+            bytes: at,
             submission: encoder.submission(),
             completion,
         });
@@ -117,7 +99,7 @@ impl BufferReadback {
         }
     }
 
-    fn wait(&mut self) -> (u64, Vec<u8>) {
+    fn wait(&mut self, device: &Device) -> (u64, Vec<u8>) {
         let pending = self
             .pending
             .as_ref()
@@ -129,7 +111,7 @@ impl BufferReadback {
             )
         });
         let deadline = Instant::now() + READBACK_TIMEOUT;
-        self.device
+        device
             .poll(PollType::Wait {
                 submission_index: Some(submission),
                 timeout: Some(READBACK_TIMEOUT),
@@ -159,25 +141,30 @@ impl BufferReadback {
     }
 }
 
-pub struct ReadbackRing {
+pub struct Readback {
     device: Device,
     label: String,
     size: BufferAddress,
-    slots: VecDeque<BufferReadback>,
+    slots: VecDeque<Slot>,
     inflight: usize,
     last_sequence: Option<u64>,
 }
 
-impl ReadbackRing {
+impl Readback {
     pub const DEPTH: usize = 4;
 
-    pub fn new(device: &Device, label: &str, size: BufferAddress) -> Self {
+    pub fn new(device: &Device, label: &str, size: BufferAddress, depth: usize) -> Self {
+        assert!(
+            size > 0 && size.is_multiple_of(4),
+            "readback size must be positive and word aligned"
+        );
+        assert!(depth > 0, "a readback needs at least one staging slot");
         Self {
             device: device.clone(),
             label: label.to_owned(),
             size,
-            slots: (0..Self::DEPTH)
-                .map(|index| BufferReadback::new(device, &format!("{label} slot {index}"), size))
+            slots: (0..depth)
+                .map(|index| Slot::new(device, &format!("{label} slot {index}"), size))
                 .collect(),
             inflight: 0,
             last_sequence: None,
@@ -200,13 +187,23 @@ impl ReadbackRing {
         bytes: BufferAddress,
         sequence: u64,
     ) -> Option<(u64, Vec<u8>)> {
+        self.enqueue_regions(encoder, &[(source, source_offset, bytes)], sequence)
+    }
+
+    pub fn enqueue_regions(
+        &mut self,
+        encoder: &mut SubmissionEncoder,
+        regions: &[(&Buffer, BufferAddress, BufferAddress)],
+        sequence: u64,
+    ) -> Option<(u64, Vec<u8>)> {
         assert!(
             self.last_sequence
                 .is_none_or(|previous| sequence > previous),
-            "readback sequences must increase"
+            "readback {} sequences must increase",
+            self.label
         );
         let displaced = self.reclaim();
-        self.slots[self.inflight].record(encoder, source, source_offset, bytes, sequence);
+        self.slots[self.inflight].record(encoder, regions, sequence);
         self.inflight += 1;
         self.last_sequence = Some(sequence);
         displaced
@@ -227,7 +224,7 @@ impl ReadbackRing {
     pub fn drain(&mut self) -> Vec<(u64, Vec<u8>)> {
         let mut completed = Vec::with_capacity(self.inflight);
         while self.inflight > 0 {
-            let entry = self.slots[0].wait();
+            let entry = self.slots[0].wait(&self.device);
             self.retire();
             completed.push(entry);
         }
@@ -240,23 +237,47 @@ impl ReadbackRing {
         }
         if !self.slots[0].is_sealed() {
             let index = self.slots.len();
-            self.slots.push_back(BufferReadback::new(
+            self.slots.push_back(Slot::new(
                 &self.device,
                 &format!("{} slot {index}", self.label),
                 self.size,
             ));
             return None;
         }
-        let mut oldest = self.slots.pop_front().expect("readback ring holds a slot");
-        let entry = oldest.wait();
+        let mut oldest = self.slots.pop_front().expect("readback holds a slot");
+        let entry = oldest.wait(&self.device);
         self.slots.push_back(oldest);
         self.inflight -= 1;
         Some(entry)
     }
 
     fn retire(&mut self) {
-        let slot = self.slots.pop_front().expect("readback ring holds a slot");
+        let slot = self.slots.pop_front().expect("readback holds a slot");
         self.slots.push_back(slot);
         self.inflight -= 1;
+        if self.inflight == 0 {
+            self.last_sequence = None;
+        }
     }
+}
+
+pub fn read_regions(
+    device: &Device,
+    queue: &Queue,
+    label: &str,
+    regions: &[(&Buffer, BufferAddress, BufferAddress)],
+) -> Vec<u8> {
+    let bytes: BufferAddress = regions.iter().map(|region| region.2).sum();
+    let mut readback = Readback::new(device, label, bytes, 1);
+    let mut encoder = SubmissionEncoder::new(device, label);
+    assert!(
+        readback.enqueue_regions(&mut encoder, regions, 0).is_none(),
+        "a one shot read requires an idle readback"
+    );
+    encoder.submit(queue);
+    readback
+        .drain()
+        .pop()
+        .expect("a one shot read retires exactly once")
+        .1
 }

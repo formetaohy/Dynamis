@@ -70,7 +70,7 @@ impl World {
         let device = self.backend.gpu.device().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis event readback");
         self.copy_events(&mut encoder);
-        encoder.submit(self.backend.gpu.queue());
+        self.submit(encoder);
         for (_, bytes) in self.backend.streams.readback.events.drain() {
             self.consume_events(&bytes);
         }

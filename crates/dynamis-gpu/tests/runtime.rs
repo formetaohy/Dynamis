@@ -1,4 +1,4 @@
-use dynamis_gpu::{Backends, BufferReadback, GpuBuffer, GpuContext, GpuRequest, GpuRuntime};
+use dynamis_gpu::{Backends, GpuBuffer, GpuContext, GpuRequest, GpuRuntime, read_regions};
 use std::sync::Barrier;
 use wgpu::BufferUsages;
 
@@ -40,9 +40,13 @@ fn concurrent_cold_start_and_backend_discovery_share_one_runtime() {
                     );
                     let expected = (worker as u32).to_le_bytes();
                     buffer.write(context.queue(), &expected);
-                    let mut readback = BufferReadback::new(context.device(), "runtime probe", 4);
                     assert_eq!(
-                        readback.read(context.queue(), buffer.buffer(), 0, 4),
+                        read_regions(
+                            context.device(),
+                            context.queue(),
+                            "runtime probe",
+                            &[(buffer.buffer(), 0, 4)]
+                        ),
                         expected
                     );
                     context.assert_alive();

@@ -1,9 +1,9 @@
 pub use dynamis_character::{Character, CharacterDesc};
 pub use dynamis_gpu::{
-    AdapterInfo, Backend, Backends, BindingKind, BindingSpec, BufferReadback, ComputePipeline,
-    ComputeProgram, ComputeRecorder, DeviceLost, DeviceType, Features, GpuBuffer, GpuContext,
-    GpuRequest, GpuRuntime, GpuSlot, GpuUnavailable, Limits, LimitsPolicy, PipelineHandle,
-    PowerPreference, ReadbackRing, SubmissionEncoder, WarmupBudget, WarmupProgress,
+    AdapterInfo, Backend, Backends, BindingKind, BindingSpec, ComputePipeline, ComputeProgram,
+    ComputeRecorder, DeviceLost, DeviceType, Features, GpuBuffer, GpuContext, GpuRequest,
+    GpuRuntime, GpuSlot, GpuUnavailable, Limits, LimitsPolicy, PipelineHandle, PowerPreference,
+    Readback, SubmissionEncoder, WarmupBudget, WarmupProgress,
 };
 #[cfg(feature = "profile")]
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};

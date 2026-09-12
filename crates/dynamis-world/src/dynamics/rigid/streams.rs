@@ -1,5 +1,5 @@
 use crate::dynamics::engine::streams;
-use dynamis_gpu::{Contents, ReadbackRing};
+use dynamis_gpu::{Contents, Readback};
 use dynamis_layout::{
     AabbRecord, BodyStateRecord, CONTACT_MAX_POINTS, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
@@ -8,7 +8,7 @@ use std::mem::size_of;
 
 pub(crate) const DOMAIN: u32 = 1;
 
-pub(crate) const EVENT_SLOTS: u32 = ReadbackRing::DEPTH as u32 + 2;
+pub(crate) const EVENT_SLOTS: u32 = Readback::DEPTH as u32 + 2;
 pub(crate) const COMPACT_BLOCK: u32 = 256;
 
 const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;

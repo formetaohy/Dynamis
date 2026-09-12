@@ -1,9 +1,10 @@
 use super::World;
 use crate::dynamics::Pipeline;
 use crate::dynamics::streams::{Planning, Streams};
-use dynamis_gpu::GpuContext;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
+use dynamis_gpu::{GpuContext, SubmissionEncoder};
+use wgpu::SubmissionIndex;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
@@ -13,7 +14,8 @@ pub(crate) struct Backend {
     pub(crate) measured: dynamis_layout::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) commanded_step: Option<u64>,
-    pub(crate) state_readback: Option<dynamis_gpu::BufferReadback>,
+    pub(crate) inspect: Option<dynamis_gpu::Readback>,
+    pub(crate) submissions: u64,
     #[cfg(feature = "profile")]
     pub(crate) pass_timings: Vec<GpuPassTiming>,
 }
@@ -31,7 +33,8 @@ impl Backend {
             measured: [0; dynamis_layout::COUNTER_COUNT],
             measured_step: None,
             commanded_step: None,
-            state_readback: None,
+            inspect: None,
+            submissions: 0,
             #[cfg(feature = "profile")]
             pass_timings: Vec::new(),
         }
@@ -39,6 +42,15 @@ impl Backend {
 }
 
 impl World {
+    pub fn submissions(&self) -> u64 {
+        self.backend.submissions
+    }
+
+    pub(crate) fn submit(&mut self, encoder: SubmissionEncoder) -> SubmissionIndex {
+        self.backend.submissions += 1;
+        encoder.submit(self.backend.gpu.queue())
+    }
+
     pub(crate) fn apply_plan(&mut self) {
         let live = self.live();
         let plan = self
@@ -53,14 +65,11 @@ impl World {
             self.drain_readbacks();
         }
         let device = self.backend.gpu.device().clone();
-        let queue = self.backend.gpu.queue().clone();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dynamis buffer plan"),
-        });
+        let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");
         assert!(
             self.backend.streams.reserve(&device, &mut encoder, &plan),
             "a buffer plan that changes capacity must reallocate"
         );
-        queue.submit([encoder.finish()]);
+        self.submit(encoder);
     }
 }

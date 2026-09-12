@@ -15,6 +15,7 @@ pub mod event;
 pub mod joint_precision;
 pub mod mass;
 pub mod material;
+pub mod observation;
 pub mod query;
 pub mod rotation;
 pub mod shape;

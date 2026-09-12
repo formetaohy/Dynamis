@@ -1,7 +1,7 @@
 mod common;
 
 use common::shared;
-use dynamis_gpu::{BufferReadback, GpuBuffer, ReadbackRing, SubmissionEncoder};
+use dynamis_gpu::{GpuBuffer, Readback, SubmissionEncoder, read_regions};
 use std::sync::Barrier;
 use wgpu::BufferUsages;
 
@@ -20,16 +20,17 @@ fn recording_and_polling_never_maps_an_unsubmitted_copy() {
     let source = source();
     let expected = [11u8; 8];
     source.write_at(context.queue(), 4, &expected);
-    let mut ring = ReadbackRing::new(context.device(), "deferred mapping", 8);
+    let mut readback = Readback::new(context.device(), "deferred mapping", 8, Readback::DEPTH);
     let mut encoder = SubmissionEncoder::new(context.device(), "deferred copy");
     assert!(
-        ring.enqueue(&mut encoder, source.buffer(), 4, 8, 0)
+        readback
+            .enqueue(&mut encoder, source.buffer(), 4, 8, 0)
             .is_none()
     );
     context.poll();
-    assert!(ring.collect().is_empty());
+    assert!(readback.collect().is_empty());
     encoder.submit(context.queue());
-    assert_eq!(ring.drain(), vec![(0, expected.to_vec())]);
+    assert_eq!(readback.drain(), vec![(0, expected.to_vec())]);
 }
 
 #[test]
@@ -39,17 +40,24 @@ fn readbacks_retain_their_own_submission_and_retire_in_sequence_order() {
     let second = source();
     first.write(context.queue(), &[1u8; 8]);
     second.write(context.queue(), &[2u8; 8]);
-    let mut ring = ReadbackRing::new(context.device(), "ordered", 8);
+    let mut readback = Readback::new(context.device(), "ordered", 8, Readback::DEPTH);
     let mut earlier = SubmissionEncoder::new(context.device(), "earlier sequence");
     let mut later = SubmissionEncoder::new(context.device(), "later sequence");
-    ring.enqueue(&mut earlier, first.buffer(), 0, 8, 0);
-    ring.enqueue(&mut later, second.buffer(), 0, 8, 1);
+    readback.enqueue(&mut earlier, first.buffer(), 0, 8, 0);
+    readback.enqueue(&mut later, second.buffer(), 0, 8, 1);
     later.submit(context.queue());
-    let mut fence = BufferReadback::new(context.device(), "later fence", 8);
-    assert_eq!(fence.read(context.queue(), second.buffer(), 0, 8), [2u8; 8]);
-    assert!(ring.collect().is_empty());
+    assert_eq!(
+        read_regions(
+            context.device(),
+            context.queue(),
+            "ordered fence",
+            &[(second.buffer(), 0, 8)]
+        ),
+        [2u8; 8]
+    );
+    assert!(readback.collect().is_empty());
     earlier.submit(context.queue());
-    assert_eq!(ring.drain(), vec![(0, vec![1u8; 8]), (1, vec![2u8; 8])]);
+    assert_eq!(readback.drain(), vec![(0, vec![1u8; 8]), (1, vec![2u8; 8])]);
 }
 
 #[test]
@@ -58,28 +66,29 @@ fn a_batch_larger_than_the_pool_grows_the_pool_without_waiting_on_unsubmitted_sl
     let source = source();
     let expected = [7u8; 4];
     source.write(context.queue(), &expected);
-    let mut ring = ReadbackRing::new(context.device(), "burst ring", 4);
+    let mut readback = Readback::new(context.device(), "burst ring", 4, 2);
     let mut encoder = SubmissionEncoder::new(context.device(), "burst copies");
-    let reads = ReadbackRing::DEPTH as u64 + 2;
+    let reads = Readback::DEPTH as u64 + 2;
     for sequence in 0..reads {
         assert!(
-            ring.enqueue(&mut encoder, source.buffer(), 0, 4, sequence)
+            readback
+                .enqueue(&mut encoder, source.buffer(), 0, 4, sequence)
                 .is_none(),
             "a slot whose encoder is still being recorded must never be waited on"
         );
     }
     encoder.submit(context.queue());
     assert_eq!(
-        ring.drain(),
+        readback.drain(),
         (0..reads)
             .map(|sequence| (sequence, expected.to_vec()))
             .collect::<Vec<_>>()
     );
 
     let mut reused = SubmissionEncoder::new(context.device(), "reused copies");
-    ring.enqueue(&mut reused, source.buffer(), 0, 4, reads);
+    readback.enqueue(&mut reused, source.buffer(), 0, 4, reads);
     reused.submit(context.queue());
-    assert_eq!(ring.drain(), vec![(reads, expected.to_vec())]);
+    assert_eq!(readback.drain(), vec![(reads, expected.to_vec())]);
 }
 
 #[test]
@@ -87,11 +96,39 @@ fn a_batch_larger_than_the_pool_grows_the_pool_without_waiting_on_unsubmitted_sl
 fn waiting_on_a_discarded_encoder_fails_fast() {
     let context = shared();
     let source = source();
-    let mut ring = ReadbackRing::new(context.device(), "discarded ring", 4);
+    let mut readback = Readback::new(context.device(), "discarded ring", 4, Readback::DEPTH);
     let mut encoder = SubmissionEncoder::new(context.device(), "discarded copy");
-    ring.enqueue(&mut encoder, source.buffer(), 0, 4, 0);
+    readback.enqueue(&mut encoder, source.buffer(), 0, 4, 0);
     drop(encoder);
-    ring.drain();
+    readback.drain();
+}
+
+#[test]
+#[should_panic(expected = "sequences must increase")]
+fn a_readback_rejects_a_sequence_that_does_not_advance() {
+    let context = shared();
+    let source = source();
+    source.write(context.queue(), &[5u8; 4]);
+    let mut readback = Readback::new(context.device(), "stalled sequence", 4, Readback::DEPTH);
+    let mut encoder = SubmissionEncoder::new(context.device(), "stalled copies");
+    readback.enqueue(&mut encoder, source.buffer(), 0, 4, 3);
+    readback.enqueue(&mut encoder, source.buffer(), 0, 4, 3);
+}
+
+#[test]
+fn read_regions_concatenates_every_region_in_one_submission() {
+    let context = shared();
+    let source = source();
+    source.write(context.queue(), &[1u8; 32]);
+    assert_eq!(
+        read_regions(
+            context.device(),
+            context.queue(),
+            "concatenated probe",
+            &[(source.buffer(), 8, 4), (source.buffer(), 0, 8)]
+        ),
+        vec![1u8; 12]
+    );
 }
 
 #[test]
@@ -104,8 +141,7 @@ fn parallel_submissions_recycle_slots_without_losing_or_mixing_results() {
             let start = &start;
             scope.spawn(move || {
                 let source = source();
-                let mut ring = ReadbackRing::new(context.device(), "parallel ring", 16);
-                let mut synchronous = BufferReadback::new(context.device(), "parallel sync", 16);
+                let mut readback = Readback::new(context.device(), "parallel ring", 16, 4);
                 let mut expected = Vec::new();
                 let mut received = Vec::new();
                 start.wait();
@@ -115,25 +151,30 @@ fn parallel_submissions_recycle_slots_without_losing_or_mixing_results() {
                     source.write_at(context.queue(), 4, &data);
                     let mut encoder = SubmissionEncoder::new(context.device(), "parallel copy");
                     if let Some(displaced) =
-                        ring.enqueue(&mut encoder, source.buffer(), 4, bytes as u64, sequence)
+                        readback.enqueue(&mut encoder, source.buffer(), 4, bytes as u64, sequence)
                     {
                         received.push(displaced);
                     }
                     encoder.submit(context.queue());
                     if sequence % 7 == 0 {
                         assert_eq!(
-                            synchronous.read(context.queue(), source.buffer(), 4, bytes as u64),
+                            read_regions(
+                                context.device(),
+                                context.queue(),
+                                "parallel probe",
+                                &[(source.buffer(), 4, bytes as u64)]
+                            ),
                             data
                         );
                         context.poll();
-                        received.extend(ring.collect());
+                        received.extend(readback.collect());
                     }
                     expected.push((sequence, data));
                 }
-                received.extend(ring.drain());
+                received.extend(readback.drain());
                 assert_eq!(received, expected);
-                assert!(ring.collect().is_empty());
-                assert!(ring.drain().is_empty());
+                assert!(readback.collect().is_empty());
+                assert!(readback.drain().is_empty());
             });
         }
     });

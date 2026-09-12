@@ -58,7 +58,6 @@ impl World {
         self.bodies.device_count = frame.params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
-        self.bodies.states_ready = false;
     }
 
     pub(crate) fn apply_pending_commands(&mut self) {
@@ -166,7 +165,6 @@ impl World {
 
     fn encode_step(&mut self, frame: &Frame, batch: Option<u64>, step: u64, idle: bool) {
         let device = self.backend.gpu.device().clone();
-        let queue = self.backend.gpu.queue().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
         self.copy_events(&mut encoder);
@@ -180,6 +178,7 @@ impl World {
         #[cfg(feature = "profile")]
         let timings = self.backend.pipeline.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);
+        self.write_states(&mut encoder, step);
         let pack = self.backend.streams.readback.step.enqueue(
             &mut encoder,
             self.backend.streams.readback.pack.buffer(),
@@ -197,7 +196,7 @@ impl World {
             ),
             None => None,
         };
-        encoder.submit(&queue);
+        self.submit(encoder);
         #[cfg(feature = "profile")]
         if let Some((_step, timings)) = timings {
             self.backend.pass_timings = timings;

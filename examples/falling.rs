@@ -55,9 +55,12 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
     example
         .world
         .update(ctx.time.delta_secs(), PHYSICS_STEP, MAX_SUBSTEPS);
-    example.world.synchronize_states();
+    example.world.poll();
+    let mut sleeping = 0;
     for (body, mesh) in &example.bodies {
-        let state = example.world.read_state(*body);
+        let Some(state) = example.world.try_state(*body) else {
+            continue;
+        };
         let transform = ctx.mesh_transform(*mesh);
         transform.translation = Vec3::from(state.position);
         transform.rotation = Quat::from_xyzw(
@@ -67,12 +70,8 @@ fn update(ctx: &mut AppContext, example: &mut Example) {
             state.orientation[3],
         );
         transform.scale = Vec3::ONE;
+        sleeping += u32::from(state.sleeping);
     }
-    let sleeping = example
-        .bodies
-        .iter()
-        .filter(|(body, _)| example.world.read_state(*body).sleeping)
-        .count();
     ctx.hud = format!(
         "bodies: {}   sleeping: {}   fps: {:.0}",
         example.world.count(),
