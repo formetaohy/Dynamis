@@ -14,12 +14,20 @@ pub struct ShapeCapacity {
     pub nodes: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SoftCapacity {
+    pub particles: u32,
+    pub links: u32,
+    pub adjacency: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StreamCapacity {
     pub entries: u32,
     pub pairs: u32,
     pub events: u32,
     pub shapes: ShapeCapacity,
+    pub soft: SoftCapacity,
 }
 
 pub(crate) struct Live {
@@ -32,6 +40,9 @@ pub(crate) struct Live {
     pub(crate) constraint_commands: u32,
     pub(crate) queries: u32,
     pub(crate) shapes: ShapeCapacity,
+    pub(crate) particles: u32,
+    pub(crate) links: u32,
+    pub(crate) adjacency: u32,
 }
 
 pub(crate) fn product(left: u32, right: u32, name: &str) -> u32 {

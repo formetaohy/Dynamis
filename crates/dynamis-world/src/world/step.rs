@@ -53,8 +53,9 @@ impl World {
                     .commanded_step
                     .is_none_or(|commanded| commanded <= measured)
         });
-        let idle = quiet && self.constraints.alive.is_empty() && query_count == 0;
-        self.encode_step(&frame, batch, step, idle);
+        let soft_active = self.soft_active();
+        let idle = quiet && self.constraints.alive.is_empty() && query_count == 0 && !soft_active;
+        self.encode_step(&frame, batch, step, idle, soft_active);
         self.bodies.device_count = frame.params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
@@ -163,7 +164,14 @@ impl World {
         Some(batch)
     }
 
-    fn encode_step(&mut self, frame: &Frame, batch: Option<u64>, step: u64, idle: bool) {
+    fn encode_step(
+        &mut self,
+        frame: &Frame,
+        batch: Option<u64>,
+        step: u64,
+        idle: bool,
+        soft_active: bool,
+    ) {
         let device = self.backend.gpu.device().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
@@ -174,6 +182,7 @@ impl World {
             frame,
             idle,
             self.ccd_active(),
+            soft_active,
         );
         #[cfg(feature = "profile")]
         let timings = self.backend.pipeline.capture_timings(&mut encoder, step);

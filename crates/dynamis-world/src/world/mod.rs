@@ -13,6 +13,7 @@ mod readback;
 mod rows;
 mod shape;
 pub(crate) mod shape_pool;
+mod soft;
 mod step;
 mod view;
 
@@ -34,6 +35,7 @@ use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
 use query::Queries;
 use shape::Shapes;
+use soft::SoftBodies;
 use view::View;
 
 pub use readback::{ContactManifold, ContactPoint};
@@ -50,6 +52,7 @@ pub struct World {
     queries: Queries,
     events: Events,
     view: View,
+    soft: SoftBodies,
 }
 
 fn flush_pool_range(
@@ -101,6 +104,14 @@ fn assert_config(config: &PhysicsConfig) {
         "position iterations must be strictly positive"
     );
     assert!(
+        config.soft_iterations > 0,
+        "soft iterations must be strictly positive"
+    );
+    assert!(
+        config.soft_compliance >= 0.0,
+        "soft link compliance must be non-negative"
+    );
+    assert!(
         (0.0..=1.0).contains(&config.relaxation),
         "position relaxation must be within (0, 1]"
     );
@@ -122,6 +133,7 @@ impl World {
             queries: Queries::new(),
             events: Events::new(),
             view: View::new(),
+            soft: SoftBodies::new(),
         }
     }
 
@@ -151,6 +163,7 @@ impl World {
     }
 
     pub(crate) fn live(&self) -> Live {
+        let (particles, links, adjacency) = self.soft.used();
         Live {
             bodies: self.bodies.alive.len() as u32,
             colliders: self.colliders.live(),
@@ -161,7 +174,14 @@ impl World {
             constraint_commands: self.constraints.commands.len() as u32,
             queries: self.queries.pending.len() as u32,
             shapes: self.shapes.pool.used(),
+            particles,
+            links,
+            adjacency,
         }
+    }
+
+    pub(crate) fn soft_active(&self) -> bool {
+        self.soft.count() > 0
     }
 
     fn upload_shapes(&mut self, queue: &wgpu::Queue) {
@@ -181,6 +201,7 @@ impl World {
         if self.shapes.dirty {
             self.upload_shapes(&queue);
         }
+        self.soft.upload(&queue, &self.backend.streams.soft);
         self.bodies.dirty.sort_unstable();
         self.bodies.dirty.dedup();
         let dirty = std::mem::take(&mut self.bodies.dirty);
@@ -294,6 +315,6 @@ impl World {
     }
 
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
-        (step % crate::dynamics::rigid::EVENT_SLOTS as u64) as u32
+        (step % crate::dynamics::EVENT_SLOTS as u64) as u32
     }
 }

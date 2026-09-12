@@ -23,6 +23,8 @@ impl StepParamsRecord {
             body_count: bodies,
             solve_iterations: config.solve_iterations,
             position_iterations: config.position_iterations,
+            soft_iterations: config.soft_iterations,
+            soft_compliance: config.soft_compliance,
             constraint_count: constraints,
             relaxation: config.relaxation,
             slop: config.slop,
@@ -43,7 +45,6 @@ impl StepParamsRecord {
             constraint_move_count: streams.constraint_moves,
             event_slot,
             _pad3: 0,
-            ..<Self as bytemuck::Zeroable>::zeroed()
         }
     }
 }

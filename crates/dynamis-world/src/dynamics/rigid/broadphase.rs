@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::GRID_INDEX;
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::GRID_INDEX;
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_ENTRIES;
@@ -23,7 +23,7 @@ impl Broadphase {
                 "cell_pairs",
                 shader::stream(
                     context,
-                    include_str!("shaders/cell_pairs.wgsl"),
+                    include_str!("../shaders/cell_pairs.wgsl"),
                     GRID_INDEX,
                     "work",
                     RigidStream::GridEntryKeys,
@@ -47,7 +47,7 @@ impl Broadphase {
                 "level_links",
                 shader::rows(
                     context,
-                    include_str!("shaders/level_links.wgsl"),
+                    include_str!("../shaders/level_links.wgsl"),
                     GRID_INDEX,
                     Count::Colliders,
                 ),

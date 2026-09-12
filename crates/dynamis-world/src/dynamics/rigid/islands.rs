@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::{CONTACT, CORE, IDENTITY};
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::{CONTACT, CORE, IDENTITY};
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -29,7 +29,7 @@ impl Islands {
                 "contact_relay",
                 shader::stream(
                     context,
-                    include_str!("shaders/contact_relay.wgsl"),
+                    include_str!("../shaders/contact_relay.wgsl"),
                     CONTACT,
                     "work",
                     RigidStream::ContactArchive,
@@ -56,7 +56,7 @@ impl Islands {
                 "contact_begin",
                 shader::stream(
                     context,
-                    include_str!("shaders/contact_begin.wgsl"),
+                    include_str!("../shaders/contact_begin.wgsl"),
                     CONTACT,
                     "work",
                     RigidStream::Contacts,
@@ -87,7 +87,7 @@ impl Islands {
                 "island_init",
                 shader::rows(
                     context,
-                    include_str!("shaders/island_init.wgsl"),
+                    include_str!("../shaders/island_init.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),
@@ -104,7 +104,7 @@ impl Islands {
                 "island_link_contacts",
                 shader::stream(
                     context,
-                    include_str!("shaders/island_link_contacts.wgsl"),
+                    include_str!("../shaders/island_link_contacts.wgsl"),
                     IDENTITY,
                     "work",
                     RigidStream::Contacts,
@@ -127,7 +127,7 @@ impl Islands {
                 "island_link_constraints",
                 shader::rows(
                     context,
-                    include_str!("shaders/island_link_constraints.wgsl"),
+                    include_str!("../shaders/island_link_constraints.wgsl"),
                     CORE,
                     Count::Constraints,
                 ),
@@ -148,7 +148,7 @@ impl Islands {
                 "island_jump",
                 shader::rows(
                     context,
-                    include_str!("shaders/island_jump.wgsl"),
+                    include_str!("../shaders/island_jump.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),

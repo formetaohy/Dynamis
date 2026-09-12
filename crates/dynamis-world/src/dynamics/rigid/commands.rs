@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::CORE;
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::{Stage, workgroups_of};
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::CORE;
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
@@ -28,7 +28,11 @@ impl Commands {
             reset_counters: Stage::build(
                 context,
                 "reset_counters",
-                shader::workgroups(context, include_str!("shaders/reset_counters.wgsl"), CORE),
+                shader::workgroups(
+                    context,
+                    include_str!("../shaders/reset_counters.wgsl"),
+                    CORE,
+                ),
                 streams,
                 &[("counters", SceneStream::Counters.whole())],
                 &[],
@@ -38,7 +42,7 @@ impl Commands {
                 "body_move_gather",
                 shader::rows(
                     context,
-                    include_str!("shaders/body_move_gather.wgsl"),
+                    include_str!("../shaders/body_move_gather.wgsl"),
                     CORE,
                     Count::BodyMoves,
                 ),
@@ -57,7 +61,7 @@ impl Commands {
                 "body_move_scatter",
                 shader::rows(
                     context,
-                    include_str!("shaders/body_move_scatter.wgsl"),
+                    include_str!("../shaders/body_move_scatter.wgsl"),
                     CORE,
                     Count::BodyMoves,
                 ),
@@ -75,7 +79,7 @@ impl Commands {
                 "body_edits",
                 shader::rows(
                     context,
-                    include_str!("shaders/body_edits.wgsl"),
+                    include_str!("../shaders/body_edits.wgsl"),
                     CORE,
                     Count::EditRuns,
                 ),
@@ -97,7 +101,7 @@ impl Commands {
                 "row_of_body",
                 shader::rows(
                     context,
-                    include_str!("shaders/row_of_body.wgsl"),
+                    include_str!("../shaders/row_of_body.wgsl"),
                     CORE,
                     Count::BodyMoves,
                 ),
@@ -115,7 +119,7 @@ impl Commands {
                 "constraint_rows",
                 shader::rows(
                     context,
-                    include_str!("shaders/constraint_rows.wgsl"),
+                    include_str!("../shaders/constraint_rows.wgsl"),
                     CORE,
                     Count::Constraints,
                 ),
@@ -136,7 +140,7 @@ impl Commands {
                 "constraint_move_gather",
                 shader::rows(
                     context,
-                    include_str!("shaders/constraint_move_gather.wgsl"),
+                    include_str!("../shaders/constraint_move_gather.wgsl"),
                     CORE,
                     Count::ConstraintMoves,
                 ),
@@ -155,7 +159,7 @@ impl Commands {
                 "constraint_move_scatter",
                 shader::rows(
                     context,
-                    include_str!("shaders/constraint_move_scatter.wgsl"),
+                    include_str!("../shaders/constraint_move_scatter.wgsl"),
                     CORE,
                     Count::ConstraintMoves,
                 ),
@@ -173,7 +177,7 @@ impl Commands {
                 "activity",
                 shader::rows(
                     context,
-                    include_str!("shaders/activity.wgsl"),
+                    include_str!("../shaders/activity.wgsl"),
                     CORE,
                     Count::Bodies,
                 ),
@@ -192,7 +196,7 @@ impl Commands {
                 "joint_filter",
                 shader::rows(
                     context,
-                    include_str!("shaders/joint_filter.wgsl"),
+                    include_str!("../shaders/joint_filter.wgsl"),
                     CORE,
                     Count::Constraints,
                 ),

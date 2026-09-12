@@ -4,19 +4,24 @@ mod engine;
 mod readback;
 pub(crate) mod rigid;
 pub(crate) mod scene;
+pub(crate) mod shader;
+pub(crate) mod soft;
 pub(crate) mod streams;
 
 use ccd::{Ccd, CcdPasses};
 use engine::Schedule;
 use rigid::{Rigid, RigidPasses, RigidResolutionPasses};
+use soft::{Soft, SoftPasses};
 use streams::Streams;
 
-use dynamis_gpu::GpuContext;
+use dynamis_gpu::{GpuContext, Readback};
 use dynamis_layout::StepParamsRecord;
 use wgpu::CommandEncoder;
 
 pub(crate) use capacity::Live;
-pub use capacity::{ShapeCapacity, StreamCapacity};
+pub use capacity::{ShapeCapacity, SoftCapacity, StreamCapacity};
+
+pub(crate) const EVENT_SLOTS: u32 = Readback::DEPTH as u32 + 2;
 
 pub(crate) struct Frame {
     pub(crate) params: StepParamsRecord,
@@ -27,6 +32,7 @@ pub(crate) struct Pipeline {
     engine: engine::Engine,
     rigid: Rigid,
     ccd: Ccd,
+    soft: Soft,
 }
 
 impl Pipeline {
@@ -34,6 +40,7 @@ impl Pipeline {
         let mut schedule = Schedule::new();
         let rigid = RigidPasses::claim(&mut schedule);
         let ccd = CcdPasses::claim(&mut schedule);
+        let soft = SoftPasses::claim(&mut schedule);
         let resolution = RigidResolutionPasses::claim(&mut schedule);
         Self {
             engine: engine::Engine::new(
@@ -44,6 +51,7 @@ impl Pipeline {
             ),
             rigid: Rigid::new(context, streams, rigid, resolution),
             ccd: Ccd::new(context, streams, ccd),
+            soft: Soft::new(context, streams, soft),
         }
     }
 
@@ -54,11 +62,15 @@ impl Pipeline {
         frame: &Frame,
         idle: bool,
         ccd_active: bool,
+        soft_active: bool,
     ) {
         self.rigid
             .encode(&self.engine, encoder, streams, frame, idle);
         if ccd_active && !idle {
             self.ccd.encode(&self.engine, encoder, streams, frame);
+        }
+        if soft_active && !idle {
+            self.soft.encode(&self.engine, encoder, streams, frame);
         }
         self.rigid
             .encode_resolution(&self.engine, encoder, streams, frame, idle);

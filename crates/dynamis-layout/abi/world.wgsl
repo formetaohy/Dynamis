@@ -25,7 +25,26 @@ struct StepParams {
     position_iterations: u32,
     contact_margin: f32,
     collider_count: u32,
+    soft_iterations: u32,
+    soft_compliance: f32,
     _pad3: u32,
+}
+
+struct SoftParticle {
+    position: vec4f,
+    prev_position: vec4f,
+    velocity: vec4f,
+    neighbour_offset: u32,
+    neighbour_count: u32,
+    owner: u32,
+    generation: u32,
+}
+
+struct SoftLink {
+    first: u32,
+    second: u32,
+    rest: f32,
+    _pad0: f32,
 }
 
 struct BodyState {

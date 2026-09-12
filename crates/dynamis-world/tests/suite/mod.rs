@@ -19,6 +19,7 @@ pub mod observation;
 pub mod query;
 pub mod rotation;
 pub mod shape;
+pub mod soft;
 #[cfg(feature = "profile")]
 pub mod timing;
 pub mod warmup;

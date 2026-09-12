@@ -6,7 +6,6 @@ mod grid;
 mod integrate;
 mod islands;
 mod narrowphase;
-pub(crate) mod shader;
 mod sleep;
 mod solver;
 mod streams;
@@ -28,7 +27,7 @@ use sleep::Sleep;
 use solver::Solver;
 
 pub(crate) use capacity::Capacity;
-pub(crate) use streams::{DOMAIN, EVENT_SLOTS, RigidDemand, RigidStream, RigidStreams};
+pub(crate) use streams::{DOMAIN, RigidDemand, RigidStream, RigidStreams};
 
 domain_passes!(
     RigidPasses,

@@ -1,9 +1,9 @@
-use super::shader;
-use super::shader::{CORE, GEOMETRY};
 use super::streams::COMPACT_BLOCK;
 use super::streams::RigidStream;
 use crate::dynamics::engine::{MAX_DISPATCH_WORKGROUPS, Stage};
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::{CORE, GEOMETRY};
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
@@ -24,7 +24,7 @@ impl Narrowphase {
                 "narrowphase",
                 shader::stream(
                     context,
-                    include_str!("shaders/narrowphase.wgsl"),
+                    include_str!("../shaders/narrowphase.wgsl"),
                     GEOMETRY,
                     "work",
                     RigidStream::PairMajor,
@@ -50,7 +50,7 @@ impl Narrowphase {
             compact_scan: Stage::build(
                 context,
                 "compact_scan",
-                shader::workgroups(context, include_str!("shaders/compact_scan.wgsl"), CORE),
+                shader::workgroups(context, include_str!("../shaders/compact_scan.wgsl"), CORE),
                 streams,
                 &[
                     ("valid", RigidStream::ContactValid.whole()),
@@ -63,7 +63,11 @@ impl Narrowphase {
             compact_offsets: Stage::build(
                 context,
                 "compact_offsets",
-                shader::workgroups(context, include_str!("shaders/compact_offsets.wgsl"), CORE),
+                shader::workgroups(
+                    context,
+                    include_str!("../shaders/compact_offsets.wgsl"),
+                    CORE,
+                ),
                 streams,
                 &[
                     ("block_sums", RigidStream::CompactBlockSums.whole()),
@@ -78,7 +82,7 @@ impl Narrowphase {
                 "compact_scatter",
                 shader::stream(
                     context,
-                    include_str!("shaders/compact_scatter.wgsl"),
+                    include_str!("../shaders/compact_scatter.wgsl"),
                     CORE,
                     "work",
                     RigidStream::PairMajor,

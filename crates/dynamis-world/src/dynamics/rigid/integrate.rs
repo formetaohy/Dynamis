@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::CORE;
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::CORE;
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
@@ -24,7 +24,7 @@ impl Integrate {
                 "integrate",
                 shader::rows(
                     context,
-                    include_str!("shaders/integrate.wgsl"),
+                    include_str!("../shaders/integrate.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),
@@ -41,7 +41,7 @@ impl Integrate {
                 "advance",
                 shader::rows(
                     context,
-                    include_str!("shaders/advance.wgsl"),
+                    include_str!("../shaders/advance.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),
@@ -58,7 +58,7 @@ impl Integrate {
                 "broadphase_aabb",
                 shader::rows(
                     context,
-                    include_str!("shaders/broadphase_aabb.wgsl"),
+                    include_str!("../shaders/broadphase_aabb.wgsl"),
                     CORE,
                     Count::Colliders,
                 ),

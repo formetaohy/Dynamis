@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-const ABI: &str = "abi/rigid.wgsl";
+const ABI: &str = "abi/world.wgsl";
 const CONSTANTS: &str = "src/constant.rs";
 const OUTPUT: &str = "records.rs";
 const RECORD_SUFFIX: &str = "Record";

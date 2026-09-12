@@ -21,8 +21,10 @@ pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
     ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, MassProperties,
-    MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
+    MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle, SoftBodyDesc,
+    SoftBodyHandle,
 };
 pub use dynamis_world::{
-    ContactManifold, ContactPoint, QueryHandle, QueryHit, ShapeCapacity, StreamCapacity, World,
+    ContactManifold, ContactPoint, QueryHandle, QueryHit, ShapeCapacity, SoftCapacity,
+    StreamCapacity, World,
 };

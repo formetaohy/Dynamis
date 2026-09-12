@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::CORE;
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::CORE;
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
@@ -22,7 +22,7 @@ impl Sleep {
                 "island_aggregate",
                 shader::rows(
                     context,
-                    include_str!("shaders/island_aggregate.wgsl"),
+                    include_str!("../shaders/island_aggregate.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),
@@ -42,7 +42,7 @@ impl Sleep {
                 "island_broadcast",
                 shader::rows(
                     context,
-                    include_str!("shaders/island_broadcast.wgsl"),
+                    include_str!("../shaders/island_broadcast.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),

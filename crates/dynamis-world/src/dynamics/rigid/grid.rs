@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::GRID_INDEX;
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::GRID_INDEX;
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 
@@ -20,7 +20,7 @@ impl Grid {
                 "grid_entries",
                 shader::rows(
                     context,
-                    include_str!("shaders/grid_entries.wgsl"),
+                    include_str!("../shaders/grid_entries.wgsl"),
                     GRID_INDEX,
                     Count::Colliders,
                 ),

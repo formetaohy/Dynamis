@@ -1,7 +1,7 @@
-use super::Count;
 use crate::dynamics::engine::{
     Dispatch, Program, ResourceId, WORKGROUP_SIZE, entry_rows, entry_stream,
 };
+use crate::dynamics::rigid::Count;
 use dynamis_gpu::GpuContext;
 use dynamis_layout::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
 
@@ -50,7 +50,7 @@ fn shader_constants(per_row: u32) -> String {
     source.push_str(&format!("const WORKGROUPS_PER_ROW: u32 = {per_row}u;\n"));
     source.push_str(&format!(
         "const EVENT_SLOTS: u32 = {}u;\n",
-        super::streams::EVENT_SLOTS
+        crate::dynamics::EVENT_SLOTS
     ));
     source.push_str(&format!(
         "const COUNTER_STRIDE_WORDS: u32 = {}u;\n",

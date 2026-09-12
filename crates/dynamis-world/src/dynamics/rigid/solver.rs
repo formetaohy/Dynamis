@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::{BLOCKS, CORE, POSITION_CORRECTION};
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::{BLOCKS, CORE, POSITION_CORRECTION};
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_BLOCKS, COUNTER_CONTACTS};
@@ -31,7 +31,7 @@ impl Solver {
             "solver reset",
             shader::rows(
                 context,
-                include_str!("shaders/solver_reset.wgsl"),
+                include_str!("../shaders/solver_reset.wgsl"),
                 CORE,
                 Count::Bodies,
             ),
@@ -50,7 +50,7 @@ impl Solver {
         let total = Stage::build(
             context,
             "solver total",
-            shader::workgroups(context, include_str!("shaders/solver_total.wgsl"), CORE),
+            shader::workgroups(context, include_str!("../shaders/solver_total.wgsl"), CORE),
             streams,
             &[
                 ("params", SceneStream::Params.whole()),
@@ -67,7 +67,7 @@ impl Solver {
             "solver blocks",
             shader::stream(
                 context,
-                include_str!("shaders/solver_blocks.wgsl"),
+                include_str!("../shaders/solver_blocks.wgsl"),
                 CORE,
                 "work",
                 RigidStream::SolverAPayload,
@@ -100,7 +100,7 @@ impl Solver {
             "solver pair order",
             shader::stream(
                 context,
-                include_str!("shaders/solver_pair_order.wgsl"),
+                include_str!("../shaders/solver_pair_order.wgsl"),
                 CORE,
                 "work",
                 RigidStream::SolverAPayload,
@@ -123,7 +123,7 @@ impl Solver {
             "solver boundaries",
             shader::stream(
                 context,
-                include_str!("shaders/solver_boundaries.wgsl"),
+                include_str!("../shaders/solver_boundaries.wgsl"),
                 CORE,
                 "work",
                 RigidStream::SolverAPayload,
@@ -148,7 +148,7 @@ impl Solver {
             "solver_block_solve",
             shader::stream_warm(
                 context,
-                include_str!("shaders/solver_block_solve.wgsl"),
+                include_str!("../shaders/solver_block_solve.wgsl"),
                 BLOCKS,
                 "work",
                 RigidStream::SolverAPayload,
@@ -181,7 +181,7 @@ impl Solver {
             "solver block apply",
             shader::rows(
                 context,
-                include_str!("shaders/solver_block_apply.wgsl"),
+                include_str!("../shaders/solver_block_apply.wgsl"),
                 CORE,
                 Count::Dynamic,
             ),
@@ -205,7 +205,7 @@ impl Solver {
             "position block",
             shader::stream(
                 context,
-                include_str!("shaders/position_block.wgsl"),
+                include_str!("../shaders/position_block.wgsl"),
                 POSITION_CORRECTION,
                 "work",
                 RigidStream::SolverAPayload,
@@ -240,7 +240,7 @@ impl Solver {
             "position apply",
             shader::rows(
                 context,
-                include_str!("shaders/position_apply.wgsl"),
+                include_str!("../shaders/position_apply.wgsl"),
                 CORE,
                 Count::Dynamic,
             ),

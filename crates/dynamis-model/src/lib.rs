@@ -6,6 +6,7 @@ mod event;
 mod mass;
 mod query;
 mod shape;
+mod soft;
 
 pub use body::{BodyDesc, BodyHandle, BodyState};
 pub use collider::{ColliderDesc, ContactEventMode};
@@ -21,3 +22,4 @@ pub use mass::{
 };
 pub use query::QueryFilter;
 pub use shape::{Shape, ShapeSourceHandle};
+pub use soft::{SoftBodyDesc, SoftBodyHandle};

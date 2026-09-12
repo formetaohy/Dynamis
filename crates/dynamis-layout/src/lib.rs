@@ -7,13 +7,14 @@ mod decode;
 mod param;
 mod query;
 mod row;
+mod soft;
 
 mod records {
     include!(concat!(env!("OUT_DIR"), "/records.rs"));
 }
 mod wgsl;
 
-pub const ABI_WGSL: &str = include_str!("../abi/rigid.wgsl");
+pub const ABI_WGSL: &str = include_str!("../abi/world.wgsl");
 
 pub use constant::{
     BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
@@ -50,4 +51,5 @@ pub use counter::{
 pub use decode::decode;
 pub use param::{FrameCounts, RowStreams};
 pub use records::*;
+pub use soft::SoftParticleInit;
 pub use wgsl::constants_wgsl;

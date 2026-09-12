@@ -1,8 +1,9 @@
-use super::capacity::{Live, ShapeCapacity, StreamCapacity};
+use super::capacity::{Live, ShapeCapacity, SoftCapacity, StreamCapacity};
 use super::engine::{ResourceId, Resources, SlotRef};
 use super::readback::ReadbackBuffers;
 use super::rigid::{self, RigidDemand, RigidStream, RigidStreams};
 use super::scene::{self, SceneDemand, SceneStreams};
+use super::soft::{self, SoftDemand, SoftStreams};
 use dynamis_gpu::GpuSlot;
 use dynamis_layout::Counters;
 use dynamis_sort::SortChannels;
@@ -11,6 +12,7 @@ use wgpu::{CommandEncoder, Device, Queue};
 pub(crate) struct Plan {
     pub(crate) scene: SceneDemand,
     pub(crate) rigid: RigidDemand,
+    pub(crate) soft: SoftDemand,
 }
 
 pub(crate) struct Planning {
@@ -20,6 +22,7 @@ pub(crate) struct Planning {
 pub(crate) struct Streams {
     pub(crate) scene: SceneStreams,
     pub(crate) rigid: RigidStreams,
+    pub(crate) soft: SoftStreams,
     pub(crate) readback: ReadbackBuffers,
     generation: u64,
 }
@@ -29,6 +32,7 @@ impl Streams {
         Self {
             scene: SceneStreams::new(device, queue, &plan.scene),
             rigid: RigidStreams::new(device, queue, &plan.rigid),
+            soft: SoftStreams::new(device, queue, &plan.soft),
             readback: ReadbackBuffers::new(device, plan),
             generation: 0,
         }
@@ -37,6 +41,7 @@ impl Streams {
     pub(crate) fn matches(&self, plan: &Plan) -> bool {
         self.scene.matches(&plan.scene)
             && self.rigid.matches(&plan.rigid)
+            && self.soft.matches(&plan.soft)
             && self.readback.matches(plan)
     }
 
@@ -52,6 +57,7 @@ impl Streams {
     ) -> bool {
         let changed = self.scene.reserve(device, encoder, &plan.scene)
             | self.rigid.reserve(device, encoder, &plan.rigid)
+            | self.soft.reserve(device, encoder, &plan.soft)
             | self.readback.reserve(device, plan);
         if changed {
             self.generation = self
@@ -72,6 +78,11 @@ impl Streams {
                 vertices: self.scene.shape_vertices.slots(),
                 triangles: self.scene.shape_triangles.slots(),
                 nodes: self.scene.shape_nodes.slots(),
+            },
+            soft: SoftCapacity {
+                particles: self.soft.particles.slots(),
+                links: self.soft.links.slots(),
+                adjacency: self.soft.adjacency.slots(),
             },
         }
     }
@@ -156,6 +167,7 @@ impl Resources for Streams {
         match resource.domain() {
             scene::DOMAIN => self.scene.slots(resource.local()),
             rigid::DOMAIN => self.rigid.slots(resource.local()),
+            soft::DOMAIN => self.soft.slots(resource.local()),
             domain => panic!("resource domain {domain} is outside the stream composition"),
         }
     }
@@ -164,6 +176,7 @@ impl Resources for Streams {
         match resource.domain() {
             scene::DOMAIN => self.scene.whole(resource.local()),
             rigid::DOMAIN => self.rigid.whole(resource.local()),
+            soft::DOMAIN => self.soft.whole(resource.local()),
             domain => panic!("resource domain {domain} is outside the stream composition"),
         }
     }
@@ -172,6 +185,7 @@ impl Resources for Streams {
         match resource.domain() {
             scene::DOMAIN => self.scene.range(resource.local(), offset, size),
             rigid::DOMAIN => self.rigid.range(resource.local(), offset, size),
+            soft::DOMAIN => self.soft.range(resource.local(), offset, size),
             domain => panic!("resource domain {domain} is outside the stream composition"),
         }
     }
@@ -188,12 +202,14 @@ impl Planning {
         Plan {
             scene: scene::floor(),
             rigid: rigid::Capacity::floor(),
+            soft: soft::floor(),
         }
     }
 
     pub(crate) fn plan(&mut self, measured: &Counters, live: &Live, streams: &Streams) -> Plan {
         let (rigid, idle) = self.rigid.plan(measured, live, &streams.rigid);
         let scene = scene::demand(live, idle, &streams.scene);
-        Plan { scene, rigid }
+        let soft = soft::plan(live, idle, scene.bodies, &streams.soft);
+        Plan { scene, rigid, soft }
     }
 }

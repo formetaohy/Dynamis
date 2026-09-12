@@ -5,8 +5,8 @@ use super::rigid::RigidStream;
 use super::scene::SceneStream;
 use super::streams::Streams;
 
-use super::rigid::shader;
-use super::rigid::shader::{CORE, GEOMETRY};
+use crate::dynamics::shader;
+use crate::dynamics::shader::{CORE, GEOMETRY};
 use dynamis_gpu::GpuContext;
 use dynamis_layout::COUNTER_PAIRS;
 
@@ -32,7 +32,7 @@ impl Ccd {
                 "ccd_sweep",
                 shader::stream(
                     context,
-                    include_str!("rigid/shaders/ccd_sweep.wgsl"),
+                    include_str!("shaders/ccd_sweep.wgsl"),
                     GEOMETRY,
                     "work",
                     RigidStream::PairMajor,
@@ -57,7 +57,7 @@ impl Ccd {
                 "ccd_apply",
                 shader::rows(
                     context,
-                    include_str!("rigid/shaders/ccd_apply.wgsl"),
+                    include_str!("shaders/ccd_apply.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),

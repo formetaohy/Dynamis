@@ -7,10 +7,11 @@ use dynamis_layout::{
     ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
     EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
-    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
-    SHAPE_SPHERE, StepParamsRecord, dof_driven, dof_limited, dof_locked,
+    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
+    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
+    RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SoftLinkRecord, SoftParticleInit, SoftParticleRecord,
+    StepParamsRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
@@ -227,6 +228,8 @@ fn step_params_record_maps_config() {
         angular_damping: 0.25,
         solve_iterations: 7,
         position_iterations: 5,
+        soft_iterations: 6,
+        soft_compliance: 0.002,
         relaxation: 0.4,
         slop: 0.01,
         contact_margin: 0.03,
@@ -270,6 +273,8 @@ fn step_params_record_maps_config() {
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.solve_iterations, 7);
     assert_eq!(record.position_iterations, 5);
+    assert_eq!(record.soft_iterations, 6);
+    assert_eq!(record.soft_compliance, 0.002);
     assert_eq!(record.relaxation, 0.4);
     assert_eq!(record.slop, 0.01);
     assert_eq!(record.contact_margin, 0.03);
@@ -589,4 +594,34 @@ fn dof_flag_helpers_round_trip_every_index() {
         mask | (dynamis_layout::DOF_LOCKED << index)
     });
     assert_eq!(flags & locked_mask, 0);
+}
+
+#[test]
+fn soft_particle_packs_its_scalar_lanes() {
+    let particle = SoftParticleRecord::build(SoftParticleInit {
+        position: [1.0, 2.0, 3.0],
+        prev_position: [4.0, 5.0, 6.0],
+        velocity: [7.0, 8.0, 9.0],
+        radius: 0.25,
+        inverse_mass: 2.0,
+        neighbour_offset: 5,
+        neighbour_count: 3,
+        owner: 11,
+        generation: 4,
+    });
+    assert_eq!(particle.position, [1.0, 2.0, 3.0, 0.25]);
+    assert_eq!(particle.prev_position, [4.0, 5.0, 6.0, 2.0]);
+    assert_eq!(particle.velocity, [7.0, 8.0, 9.0, 0.0]);
+    assert_eq!(particle.neighbour_offset, 5);
+    assert_eq!(particle.neighbour_count, 3);
+    assert_eq!(particle.owner, 11);
+    assert_eq!(particle.generation, 4);
+    assert_eq!(particle.radius(), 0.25);
+    assert_eq!(particle.inverse_mass(), 2.0);
+
+    let cleared = SoftParticleRecord::cleared();
+    assert_eq!(cleared.owner, NO_BODY);
+    let link = SoftLinkRecord::build(0, 1, 0.5);
+    assert_eq!((link.first, link.second, link.rest), (0, 1, 0.5));
+    assert_eq!(SoftLinkRecord::cleared().first, NO_SLOT);
 }

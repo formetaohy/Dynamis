@@ -1,10 +1,10 @@
 use super::Count;
-use super::shader;
-use super::shader::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY};
 use super::streams::RigidStream;
 use crate::dynamics::Frame;
 use crate::dynamics::engine::Stage;
 use crate::dynamics::scene::SceneStream;
+use crate::dynamics::shader;
+use crate::dynamics::shader::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY};
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -33,7 +33,7 @@ impl Commit {
                 "thaw_contacts",
                 shader::stream(
                     context,
-                    include_str!("shaders/thaw_contacts.wgsl"),
+                    include_str!("../shaders/thaw_contacts.wgsl"),
                     CONTACT,
                     "work",
                     RigidStream::RestingContacts,
@@ -62,7 +62,7 @@ impl Commit {
                 "resting_gather",
                 shader::stream(
                     context,
-                    include_str!("shaders/resting_gather.wgsl"),
+                    include_str!("../shaders/resting_gather.wgsl"),
                     IDENTITY,
                     "work",
                     RigidStream::RestingContacts,
@@ -82,7 +82,11 @@ impl Commit {
             resting_commit: Stage::build(
                 context,
                 "resting_commit",
-                shader::workgroups(context, include_str!("shaders/resting_commit.wgsl"), CORE),
+                shader::workgroups(
+                    context,
+                    include_str!("../shaders/resting_commit.wgsl"),
+                    CORE,
+                ),
                 streams,
                 &[
                     ("slept", streams.scene.counter(COUNTER_SLEPT)),
@@ -101,7 +105,7 @@ impl Commit {
                 "freeze_contacts",
                 shader::stream(
                     context,
-                    include_str!("shaders/freeze_contacts.wgsl"),
+                    include_str!("../shaders/freeze_contacts.wgsl"),
                     CORE,
                     "work",
                     RigidStream::Contacts,
@@ -130,7 +134,7 @@ impl Commit {
                 "contact_archive",
                 shader::stream(
                     context,
-                    include_str!("shaders/contact_archive.wgsl"),
+                    include_str!("../shaders/contact_archive.wgsl"),
                     CORE,
                     "work",
                     RigidStream::Contacts,
@@ -148,7 +152,7 @@ impl Commit {
                 "archive_count_sync",
                 shader::workgroups(
                     context,
-                    include_str!("shaders/archive_count_sync.wgsl"),
+                    include_str!("../shaders/archive_count_sync.wgsl"),
                     CORE,
                 ),
                 streams,
@@ -164,7 +168,7 @@ impl Commit {
                 "static_wake_clear",
                 shader::rows(
                     context,
-                    include_str!("shaders/static_wake_clear.wgsl"),
+                    include_str!("../shaders/static_wake_clear.wgsl"),
                     CORE,
                     Count::Bodies,
                 ),
@@ -180,7 +184,7 @@ impl Commit {
                 "query",
                 shader::workgroups(
                     context,
-                    include_str!("shaders/queries.wgsl"),
+                    include_str!("../shaders/queries.wgsl"),
                     GEOMETRY_INDEX,
                 ),
                 streams,

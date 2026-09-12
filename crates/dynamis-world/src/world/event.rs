@@ -1,5 +1,5 @@
 use super::World;
-use crate::dynamics::rigid::EVENT_SLOTS;
+use crate::dynamics::EVENT_SLOTS;
 use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 use std::collections::VecDeque;
