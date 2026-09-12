@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle_until};
+use super::common::{DT, gravity_config, new_world, settle, settle_until, static_config};
 use dynamis_layout::{COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -11,6 +11,11 @@ fn wide_static_floor(world: &mut dynamis_world::World) {
             .mass(0.0)
             .position([0.0, -0.5, 0.0]),
     );
+}
+
+fn quarter_turn_z() -> [f32; 4] {
+    let half = std::f32::consts::FRAC_PI_4;
+    [0.0, 0.0, half.sin(), half.cos()]
 }
 
 fn crowd_above(world: &mut dynamis_world::World, height: f32, radius: f32) {
@@ -224,5 +229,55 @@ fn overlapping_coarse_colliders_repel_each_other() {
     assert!(
         (resting - 8.0).abs() < 0.3,
         "a coarse body must rest on a coarser floor, got {resting}"
+    );
+}
+
+#[test]
+fn a_teleported_static_collider_pairs_at_its_new_pose() {
+    let mut world = new_world(gravity_config());
+    let platform = world.spawn(
+        BodyDesc::cuboid([0.5, 0.5, 0.5])
+            .mass(0.0)
+            .position([50.0, 0.5, 0.0]),
+    );
+    let ball = world.spawn(BodyDesc::sphere(0.25).position([0.0, 3.0, 0.0]));
+    settle(&mut world, 30);
+    world.set_position(platform, [0.0, 0.5, 0.0]);
+    settle_until(&mut world, 180, |world| world.read_state(ball).sleeping);
+    let resting = world.read_state(ball).position[1];
+    assert!(
+        (resting - 1.25).abs() < 0.1,
+        "a teleported static collider must catch the fall, ball rests at {resting}"
+    );
+}
+
+#[test]
+fn a_reoriented_static_collider_pairs_at_its_new_pose() {
+    let mut world = new_world(static_config());
+    let rod = world.spawn(
+        BodyDesc::cuboid([2.0, 0.05, 0.05])
+            .mass(0.0)
+            .position([0.0, 0.0, 3.0]),
+    );
+    let ball = world.spawn(
+        BodyDesc::sphere(0.3)
+            .position([0.0, 0.6, 0.0])
+            .velocity([0.0, 0.0, 4.0]),
+    );
+    settle(&mut world, 60);
+    assert!(
+        world.read_state(ball).position[2] > 3.5,
+        "a rod lying flat lets the ball pass above it, got {}",
+        world.read_state(ball).position[2]
+    );
+
+    world.set_position(ball, [0.0, 0.6, 0.0]);
+    world.set_velocity(ball, [0.0, 0.0, 4.0]);
+    world.set_orientation(rod, quarter_turn_z());
+    settle(&mut world, 60);
+    let stopped = world.read_state(ball).position[2];
+    assert!(
+        stopped < 2.9,
+        "an upright rod must stop the ball, got {stopped}"
     );
 }

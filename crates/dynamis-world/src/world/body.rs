@@ -1,10 +1,9 @@
 use super::World;
 use super::commands::BodyCommand;
 use super::ids::IdSpace;
-use crate::world::static_aabb;
 use bytemuck::Zeroable;
 use dynamis_layout::{
-    AabbRecord, BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
+    BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
     PATCH_POSITION, PATCH_VELOCITY,
 };
@@ -237,26 +236,6 @@ impl World {
 
     fn is_static_id(&self, id: usize) -> bool {
         self.bodies.masses[id] <= 0.0 && !self.bodies.kinematic[id]
-    }
-
-    fn observed_pose(&self, id: usize) -> ([f32; 3], [f32; 4]) {
-        match self.bodies.states[id] {
-            Some(state) => (state.position, state.orientation),
-            None => panic!("static body has no observed pose"),
-        }
-    }
-
-    pub(super) fn aabb_block_of(&self, id: usize) -> Vec<AabbRecord> {
-        if !self.is_static_id(id) {
-            return vec![AabbRecord::empty(); self.bodies.collider_descs[id].len()];
-        }
-        let (position, orientation) = self.observed_pose(id);
-        static_aabb::static_aabbs(
-            position,
-            orientation,
-            &self.collider_block_of(id),
-            &self.shapes.pool,
-        )
     }
 
     fn patch_descriptor(
@@ -596,8 +575,7 @@ impl World {
 
     pub(crate) fn repool_colliders(&mut self, id: u32) {
         let records = self.collider_block_of(id as usize);
-        let aabbs = self.aabb_block_of(id as usize);
-        self.colliders.assign(id, &records, &aabbs);
+        self.colliders.assign(id, &records);
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {

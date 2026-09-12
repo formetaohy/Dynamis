@@ -86,9 +86,6 @@ impl World {
         buffers
             .colliders
             .write(queue, bytemuck::cast_slice(self.colliders.records()));
-        buffers
-            .collider_aabbs
-            .write(queue, bytemuck::cast_slice(self.colliders.aabbs()));
         let owners = self
             .colliders
             .owners()

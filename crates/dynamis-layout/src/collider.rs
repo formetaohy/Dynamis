@@ -1,9 +1,9 @@
+use crate::ColliderRecord;
 use crate::constant::{
     COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR, NO_COLLISION_FILTER,
     SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
     SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
-use crate::{AabbRecord, ColliderRecord};
 use dynamis_model::{ColliderDesc, ContactEventMode, Shape};
 
 impl ColliderRecord {
@@ -113,16 +113,5 @@ fn shape_kind(shape: &Shape) -> u32 {
         Shape::Mesh(_) => SHAPE_MESH,
         Shape::HeightField(_) => SHAPE_HEIGHTFIELD,
         Shape::Plane => SHAPE_PLANE,
-    }
-}
-
-impl AabbRecord {
-    pub const fn empty() -> Self {
-        Self {
-            min: [f32::MAX; 3],
-            _pad0: 0.0,
-            max: [f32::MIN; 3],
-            _pad1: 0.0,
-        }
     }
 }

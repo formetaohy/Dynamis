@@ -12,7 +12,6 @@ mod readback;
 mod rows;
 mod shape;
 pub(crate) mod shape_pool;
-pub(crate) mod static_aabb;
 mod step;
 
 use crate::dynamics::capacity::{Live, StreamCapacity};
@@ -52,7 +51,6 @@ fn flush_pool_range(
     queue: &wgpu::Queue,
     head: Option<(u32, u32)>,
     records: &[ColliderRecord],
-    aabbs: &[dynamis_layout::AabbRecord],
     owners: &[u32],
 ) {
     let Some((start, end)) = head else {
@@ -66,11 +64,6 @@ fn flush_pool_range(
         queue,
         start as u64 * std::mem::size_of::<ColliderRecord>() as u64,
         bytemuck::cast_slice(records),
-    );
-    buffers.collider_aabbs.write_at(
-        queue,
-        start as u64 * std::mem::size_of::<dynamis_layout::AabbRecord>() as u64,
-        bytemuck::cast_slice(aabbs),
     );
     buffers
         .collider_owners
@@ -224,8 +217,7 @@ impl World {
                 &self.backend.buffers,
                 queue,
                 Some((cleared.offset, cleared.offset + cleared.len)),
-                &self.colliders.records()[range.clone()],
-                &self.colliders.aabbs()[range],
+                &self.colliders.records()[range],
                 &owners,
             );
         }
@@ -240,40 +232,23 @@ impl World {
         }
         placed.sort_unstable_by_key(|(run, _)| run.offset);
         let mut records = Vec::new();
-        let mut aabbs = Vec::new();
         let mut owners = Vec::new();
         let mut head: Option<(u32, u32)> = None;
         for (run, row) in placed {
             let contiguous = head.is_some_and(|(_, end)| end == run.offset);
             if !contiguous {
-                flush_pool_range(
-                    &self.backend.buffers,
-                    queue,
-                    head,
-                    &records,
-                    &aabbs,
-                    &owners,
-                );
+                flush_pool_range(&self.backend.buffers, queue, head, &records, &owners);
                 head = Some((run.offset, run.offset));
                 records.clear();
-                aabbs.clear();
                 owners.clear();
             }
             let (_, end) = head.expect("a pool range is open");
             head = Some((head.expect("a pool range is open").0, end + run.len));
             let range = run.offset as usize..(run.offset + run.len) as usize;
-            records.extend_from_slice(&self.colliders.records()[range.clone()]);
-            aabbs.extend_from_slice(&self.colliders.aabbs()[range]);
+            records.extend_from_slice(&self.colliders.records()[range]);
             owners.extend(std::iter::repeat_n(row, run.len as usize));
         }
-        flush_pool_range(
-            &self.backend.buffers,
-            queue,
-            head,
-            &records,
-            &aabbs,
-            &owners,
-        );
+        flush_pool_range(&self.backend.buffers, queue, head, &records, &owners);
     }
 
     pub(crate) fn write_declared_counters(&self) {

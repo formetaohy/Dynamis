@@ -68,10 +68,6 @@ impl ShapePool {
         &self.records[handle.id as usize]
     }
 
-    pub(crate) fn record_by_index(&self, id: usize) -> &ShapeSourceRecordStorage {
-        &self.records[id]
-    }
-
     pub fn retain(&mut self, handle: ShapeSourceHandle) {
         self.record(handle);
         self.refs[handle.id as usize] += 1;

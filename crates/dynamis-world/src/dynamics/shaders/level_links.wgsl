@@ -61,14 +61,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (collider >= params.collider_count) {
         return;
     }
-    let aabb = aabbs[collider];
-    if (aabb.min.x > aabb.max.x) {
-        return;
-    }
     let owner = collider_owners[collider];
     if (owner == NO_BODY) {
         return;
     }
+    let aabb = aabbs[collider];
     let level = shape_levels(aabb, params.grid_cell_size);
     let awake = body_activity[owner] != 0u;
     if (!awake && atomicLoad(&active_coarse[0]) == 0u) {

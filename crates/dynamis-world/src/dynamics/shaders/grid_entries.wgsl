@@ -22,14 +22,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (collider_index >= params.collider_count) {
         return;
     }
-    let aabb = aabbs[collider_index];
-    if (aabb.min.x > aabb.max.x) {
-        return;
-    }
     let owner = collider_owners[collider_index];
     if (owner == NO_BODY) {
         return;
     }
+    let aabb = aabbs[collider_index];
     let level = shape_levels(aabb, params.grid_cell_size);
     atomicOr(&levels[0], 1u << level);
     if (level > 0u && body_activity[owner] != 0u) {

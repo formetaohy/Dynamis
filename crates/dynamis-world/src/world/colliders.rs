@@ -1,4 +1,4 @@
-use dynamis_layout::{AabbRecord, ColliderRecord, NO_BODY};
+use dynamis_layout::{ColliderRecord, NO_BODY};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ColliderRun {
@@ -8,7 +8,6 @@ pub(crate) struct ColliderRun {
 
 pub(crate) struct ColliderPool {
     records: Vec<ColliderRecord>,
-    aabbs: Vec<AabbRecord>,
     owners: Vec<u32>,
     runs: Vec<ColliderRun>,
     free: Vec<ColliderRun>,
@@ -20,7 +19,6 @@ impl ColliderPool {
     pub(crate) const fn new() -> Self {
         Self {
             records: Vec::new(),
-            aabbs: Vec::new(),
             owners: Vec::new(),
             runs: Vec::new(),
             free: Vec::new(),
@@ -39,10 +37,6 @@ impl ColliderPool {
 
     pub(crate) fn records(&self) -> &[ColliderRecord] {
         &self.records
-    }
-
-    pub(crate) fn aabbs(&self) -> &[AabbRecord] {
-        &self.aabbs
     }
 
     pub(crate) fn owners(&self) -> &[u32] {
@@ -66,7 +60,6 @@ impl ColliderPool {
         }
         self.records
             .resize(rows as usize, ColliderRecord::cleared());
-        self.aabbs.resize(rows as usize, AabbRecord::empty());
         self.owners.resize(rows as usize, NO_BODY);
     }
 
@@ -96,10 +89,9 @@ impl ColliderPool {
         }
     }
 
-    pub(crate) fn assign(&mut self, id: u32, records: &[ColliderRecord], aabbs: &[AabbRecord]) {
+    pub(crate) fn assign(&mut self, id: u32, records: &[ColliderRecord]) {
         let len = records.len() as u32;
         assert!(len > 0, "a collider run must hold at least one collider");
-        assert_eq!(len as usize, aabbs.len(), "a run pairs records with aabbs");
         if self.runs.len() <= id as usize {
             self.runs
                 .resize(id as usize + 1, ColliderRun { offset: 0, len: 0 });
@@ -117,7 +109,6 @@ impl ColliderPool {
         for slot in 0..len {
             let index = (run.offset + slot) as usize;
             self.records[index] = records[slot as usize];
-            self.aabbs[index] = aabbs[slot as usize];
             self.owners[index] = id;
         }
     }
@@ -130,7 +121,6 @@ impl ColliderPool {
         for index in run.offset..run.offset + run.len {
             let index = index as usize;
             self.records[index] = ColliderRecord::cleared();
-            self.aabbs[index] = AabbRecord::empty();
             self.owners[index] = NO_BODY;
         }
         self.cleared.push(run);
