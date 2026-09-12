@@ -2,6 +2,25 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 
+const GYROSCOPIC_ITERATIONS: u32 = 3u;
+
+fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
+    if (inertia_is_isotropic(desc)) {
+        return spin;
+    }
+    let body_spin = quat_rotate(quat_conjugate(q), spin);
+    let momentum = inertia_local(desc, body_spin);
+    if (all(cross(body_spin, momentum) == vec3f(0.0))) {
+        return spin;
+    }
+    var solved = momentum;
+    for (var iteration = 0u; iteration < GYROSCOPIC_ITERATIONS; iteration = iteration + 1u) {
+        let midpoint = 0.5 * (momentum + solved);
+        solved = rotate_about(-inverse_inertia_local(desc, midpoint) * params.dt, momentum);
+    }
+    return quat_rotate(q, inverse_inertia_local(desc, solved));
+}
+
 fn work(index: u32) {
     var state = body_states[index];
     let desc = body_descs[index];
@@ -27,7 +46,8 @@ fn work(index: u32) {
         state.velocity =
             state.velocity + (params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass) * params.dt;
         state.angular_velocity =
-            state.angular_velocity + apply_inverse_inertia_of(desc, q, state.torque * params.dt);
+            gyroscopic_spin(desc, q, state.angular_velocity)
+            + apply_inverse_inertia_of(desc, q, state.torque * params.dt);
     }
     let speed = length(state.velocity);
     if (speed > params.max_velocity) {

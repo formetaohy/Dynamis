@@ -154,6 +154,16 @@ fn quat_rotate(q: vec4f, v: vec3f) -> vec3f {
     return 2.0 * dot(u, v) * u + (s * s - dot(u, u)) * v + 2.0 * s * cross(u, v);
 }
 
+fn rotate_about(rotation: vec3f, v: vec3f) -> vec3f {
+    let angle = length(rotation);
+    if (angle < 1e-8) {
+        return v;
+    }
+    let axis = rotation / angle;
+    let offset = cross(axis, v);
+    return v + sin(angle) * offset + (1.0 - cos(angle)) * cross(axis, offset);
+}
+
 fn sign_normalize(v: vec3f) -> vec3f {
     let n = length(v);
     if (n > 1e-8) {
@@ -259,13 +269,28 @@ fn body_com_of(state: BodyState, desc: BodyDescriptor) -> vec3f {
     return state.position + quat_rotate(state.orientation, desc.com);
 }
 
-fn inverse_inertia_local(desc: BodyDescriptor, v: vec3f) -> vec3f {
-    let i = desc.inverse_inertia;
+fn symmetric_apply(tensor: array<f32, 6>, v: vec3f) -> vec3f {
     return vec3f(
-        i[0] * v.x + i[1] * v.y + i[2] * v.z,
-        i[1] * v.x + i[3] * v.y + i[4] * v.z,
-        i[2] * v.x + i[4] * v.y + i[5] * v.z,
+        tensor[0] * v.x + tensor[1] * v.y + tensor[2] * v.z,
+        tensor[1] * v.x + tensor[3] * v.y + tensor[4] * v.z,
+        tensor[2] * v.x + tensor[4] * v.y + tensor[5] * v.z,
     );
+}
+
+fn inertia_local(desc: BodyDescriptor, v: vec3f) -> vec3f {
+    return symmetric_apply(desc.inertia, v);
+}
+
+fn inertia_is_isotropic(desc: BodyDescriptor) -> bool {
+    return desc.inertia[1] == 0.0
+        && desc.inertia[2] == 0.0
+        && desc.inertia[4] == 0.0
+        && desc.inertia[0] == desc.inertia[3]
+        && desc.inertia[3] == desc.inertia[5];
+}
+
+fn inverse_inertia_local(desc: BodyDescriptor, v: vec3f) -> vec3f {
+    return symmetric_apply(desc.inverse_inertia, v);
 }
 
 fn apply_inverse_inertia_of(desc: BodyDescriptor, q: vec4f, v: vec3f) -> vec3f {

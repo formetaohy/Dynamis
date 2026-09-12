@@ -95,8 +95,9 @@ impl BodyDescriptorRecord {
             _pad4: 0,
             com: mass.com,
             _pad2: 0.0,
+            inertia: mass.inertia,
             inverse_inertia: mass.inverse_inertia,
-            _pad3: [0.0; 2],
+            _pad3: [0.0; 4],
         }
     }
 }

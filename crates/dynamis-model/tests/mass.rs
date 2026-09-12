@@ -1,4 +1,33 @@
-use dynamis_model::{BodyDesc, ColliderDesc, MassSource, Shape, compute_mass_properties};
+use dynamis_model::{
+    BodyDesc, ColliderDesc, MassProperties, MassSource, Shape, compute_mass_properties,
+};
+
+fn matrix_of(tensor: [f32; 6]) -> [[f32; 3]; 3] {
+    [
+        [tensor[0], tensor[1], tensor[2]],
+        [tensor[1], tensor[3], tensor[4]],
+        [tensor[2], tensor[4], tensor[5]],
+    ]
+}
+
+fn assert_mutual_inverse(properties: &MassProperties) {
+    let tensor = matrix_of(properties.inertia);
+    let inverse = matrix_of(properties.inverse_inertia);
+    for (row, entries) in tensor.iter().enumerate() {
+        for (other, column) in inverse.iter().enumerate() {
+            let expected = if row == other { 1.0 } else { 0.0 };
+            let product = entries
+                .iter()
+                .zip(column)
+                .map(|(left, right)| left * right)
+                .sum::<f32>();
+            assert!(
+                (product - expected).abs() < 1e-4,
+                "inertia and its inverse must be reciprocal, entry ({row}, {other}) is {product}"
+            );
+        }
+    }
+}
 
 fn inverse_mass(inv: [f32; 6], axis: usize) -> f32 {
     let xx = inv[0];
@@ -19,17 +48,24 @@ fn analytic_sphere_inertia_matches_closed_form() {
     assert_eq!(mass.inverse_inertia[1], 0.0);
     assert_eq!(mass.inverse_inertia[2], 0.0);
     assert_eq!(mass.inverse_inertia[4], 0.0);
+    let expected = 0.4 * 2.0 * 0.25;
+    assert!((mass.inertia[0] - expected).abs() < 1e-6);
+    assert!(mass.inertia[0] == mass.inertia[3]);
+    assert!(mass.inertia[3] == mass.inertia[5]);
+    assert_mutual_inverse(&mass);
 }
 
 #[test]
 fn static_and_sensor_only_bodies_carry_no_inertia() {
     let static_body = BodyDesc::static_sphere(0.5).mass_properties(|_| None);
     assert_eq!(static_body.com, [0.0; 3]);
+    assert_eq!(static_body.inertia, [0.0; 6]);
     assert_eq!(static_body.inverse_inertia, [0.0; 6]);
 
     let sensor_only =
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).sensor(true)).mass_properties(|_| None);
     assert_eq!(sensor_only.com, [0.0; 3]);
+    assert_eq!(sensor_only.inertia, [0.0; 6]);
     assert_eq!(sensor_only.inverse_inertia, [0.0; 6]);
 }
 
@@ -49,6 +85,9 @@ fn dumbell_parallel_axis_matches_closed_form() {
     let expected_inv_x = 1.0 / (2.0 * sphere_i);
     assert!((inverse_mass(properties.inverse_inertia, 0) - expected_inv_x).abs() < 1e-4);
     assert!((inverse_mass(properties.inverse_inertia, 2) - expected_inv_z).abs() < 1e-4);
+    assert!((properties.inertia[0] - 2.0 * sphere_i).abs() < 1e-4);
+    assert!((properties.inertia[5] - 2.0 * axis_i).abs() < 1e-4);
+    assert_mutual_inverse(&properties);
 }
 
 #[test]
@@ -86,7 +125,26 @@ fn inertia_override_bypasses_composite() {
         .inertia([2.0, 0.0, 0.0, 2.0, 0.0, 2.0]);
     let properties = desc.mass_properties(|_| None);
     assert_eq!(properties.com, [3.0, 0.0, 0.0]);
+    assert_eq!(properties.inertia, [2.0, 0.0, 0.0, 2.0, 0.0, 2.0]);
     assert!((inverse_mass(properties.inverse_inertia, 0) - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn rotated_composites_keep_inertia_and_its_inverse_reciprocal() {
+    let rotation = [0.1825742, 0.3651484, 0.5477226, 0.7302967];
+    let desc = BodyDesc::new(ColliderDesc::new(Shape::cuboid([0.5, 0.25, 1.0])).rotation(rotation))
+        .collider(
+            ColliderDesc::new(Shape::sphere(0.4))
+                .offset([0.75, 0.5, -0.25])
+                .rotation(rotation),
+        )
+        .mass(2.5);
+    let properties = desc.mass_properties(|_| None);
+    assert!(
+        properties.inertia[1].abs() > 1e-4,
+        "a rotated compound must carry off diagonal inertia"
+    );
+    assert_mutual_inverse(&properties);
 }
 
 #[test]

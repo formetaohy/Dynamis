@@ -16,6 +16,7 @@ pub mod joint_precision;
 pub mod mass;
 pub mod material;
 pub mod query;
+pub mod rotation;
 pub mod shape;
 #[cfg(feature = "profile")]
 pub mod timing;

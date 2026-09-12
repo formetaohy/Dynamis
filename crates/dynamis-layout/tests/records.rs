@@ -31,6 +31,7 @@ fn body_descriptor_encodes_the_host_owned_half() {
         &desc,
         MassProperties {
             com: [0.5, 0.0, 0.0],
+            inertia: [1.0, 0.25, 0.0, 2.0, 0.0, 3.0],
             inverse_inertia: [1.0, 0.0, 0.0, 2.0, 0.0, 3.0],
         },
         &PhysicsConfig::default(),
@@ -47,6 +48,7 @@ fn body_descriptor_encodes_the_host_owned_half() {
     assert_eq!(record.sleep_velocity, 0.1);
     assert_eq!(record.sleep_angular_velocity, 0.2);
     assert_eq!(record.com, [0.5, 0.0, 0.0]);
+    assert_eq!(record.inertia, [1.0, 0.25, 0.0, 2.0, 0.0, 3.0]);
     assert_eq!(record.inverse_inertia, [1.0, 0.0, 0.0, 2.0, 0.0, 3.0]);
 
     let dynamic = BodyDescriptorRecord::build(

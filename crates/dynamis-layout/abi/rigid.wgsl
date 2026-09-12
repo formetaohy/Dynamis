@@ -63,8 +63,9 @@ struct BodyDescriptor {
     _pad4: u32,
     com: vec3f,
     _pad2: f32,
+    inertia: array<f32, 6>,
     inverse_inertia: array<f32, 6>,
-    _pad3: array<f32, 2>,
+    _pad3: array<f32, 4>,
 }
 
 struct RowMove {

@@ -43,18 +43,23 @@ pub fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
+pub fn quat_conjugate(q: [f32; 4]) -> [f32; 4] {
+    [-q[0], -q[1], -q[2], q[3]]
+}
+
 pub fn quat_rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let u = [q[0], q[1], q[2]];
     let s = q[3];
     let dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let square = u[0] * u[0] + u[1] * u[1] + u[2] * u[2];
     let cross = [
         u[1] * v[2] - u[2] * v[1],
         u[2] * v[0] - u[0] * v[2],
         u[0] * v[1] - u[1] * v[0],
     ];
     [
-        v[0] + 2.0 * (s * cross[0] + dot * u[0] - u[0] * u[0] * v[0]),
-        v[1] + 2.0 * (s * cross[1] + dot * u[1] - u[1] * u[1] * v[1]),
-        v[2] + 2.0 * (s * cross[2] + dot * u[2] - u[2] * u[2] * v[2]),
+        v[0] + 2.0 * (s * cross[0] + dot * u[0] - square * v[0]),
+        v[1] + 2.0 * (s * cross[1] + dot * u[1] - square * v[1]),
+        v[2] + 2.0 * (s * cross[2] + dot * u[2] - square * v[2]),
     ]
 }

@@ -3,6 +3,7 @@ use crate::shape::Shape;
 
 pub struct MassProperties {
     pub com: [f32; 3],
+    pub inertia: [f32; 6],
     pub inverse_inertia: [f32; 6],
 }
 
@@ -10,7 +11,16 @@ impl MassProperties {
     pub fn zeroed() -> Self {
         Self {
             com: [0.0; 3],
+            inertia: [0.0; 6],
             inverse_inertia: [0.0; 6],
+        }
+    }
+
+    fn of(com: [f32; 3], inertia: [f32; 6]) -> Self {
+        Self {
+            com,
+            inverse_inertia: inertia_inverse(inertia),
+            inertia,
         }
     }
 }
@@ -29,10 +39,7 @@ pub fn mass_properties_of_intent(
     bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
 ) -> MassProperties {
     if let Some(inertia) = inertia {
-        return MassProperties {
-            com: com.unwrap_or([0.0; 3]),
-            inverse_inertia: inertia_inverse(inertia),
-        };
+        return MassProperties::of(com.unwrap_or([0.0; 3]), inertia);
     }
     compute_mass_properties(colliders, MassSource::Fixed(mass), com, bounds)
 }
@@ -98,10 +105,7 @@ pub fn compute_mass_properties(
         inertia[4] += translated[4];
         inertia[5] += translated[5];
     }
-    MassProperties {
-        com,
-        inverse_inertia: inertia_inverse(inertia),
-    }
+    MassProperties::of(com, inertia)
 }
 
 pub fn solid_volume_of(
@@ -240,29 +244,26 @@ fn inertia_rotate(inertia: [f32; 6], q: [f32; 4]) -> [f32; 6] {
 }
 
 pub(crate) fn inertia_inverse(inertia: [f32; 6]) -> [f32; 6] {
-    let m = sym_to_mat(inertia);
-    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    assert!(det > 0.0, "inertia tensor must be positive definite");
-    let inverse = [
-        [
-            (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / det,
-            (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det,
-            (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det,
-        ],
-        [
-            (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det,
-            (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det,
-            (m[0][1] * m[1][0] - m[0][0] * m[1][2]) / det,
-        ],
-        [
-            (m[0][1] * m[2][2] - m[0][2] * m[2][1]) / det,
-            (m[0][2] * m[1][1] - m[0][1] * m[1][2]) / det,
-            (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det,
-        ],
-    ];
-    mat_to_sym(inverse)
+    let [xx, xy, xz, yy, yz, zz] = inertia;
+    let cofactor_xx = yy * zz - yz * yz;
+    let cofactor_xy = xz * yz - xy * zz;
+    let cofactor_xz = xy * yz - xz * yy;
+    let cofactor_yy = xx * zz - xz * xz;
+    let cofactor_yz = xy * xz - xx * yz;
+    let cofactor_zz = xx * yy - xy * xy;
+    let determinant = xx * cofactor_xx + xy * cofactor_xy + xz * cofactor_xz;
+    assert!(
+        determinant > 0.0,
+        "inertia tensor must be positive definite"
+    );
+    [
+        cofactor_xx / determinant,
+        cofactor_xy / determinant,
+        cofactor_xz / determinant,
+        cofactor_yy / determinant,
+        cofactor_yz / determinant,
+        cofactor_zz / determinant,
+    ]
 }
 
 fn mat_from_quat(q: [f32; 4]) -> [[f32; 3]; 3] {
