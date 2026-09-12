@@ -163,10 +163,11 @@ fn solve_contact_correction(contact_index: u32, slot: u32) {
 
 fn solve_constraint_correction(constraint_index: u32, slot: u32) {
     let constraint = constraint_descs[constraint_index];
+    let rows = constraint_rows[constraint_index];
     var total = pair_zero();
     if (constraint_runtime[constraint_index].broken == 0u) {
-        let first_loaded = load_body(constraint.a);
-        let second_loaded = load_body(constraint.b);
+        let first_loaded = load_body(rows.first_row);
+        let second_loaded = load_body(rows.second_row);
         var first = first_loaded;
         var second = second_loaded;
         if (body_is_inert(first_loaded)) {
@@ -316,8 +317,8 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
             }
         }
         if (pair_holds(total)) {
-            atomicAdd(&contributions[constraint.a], 1u);
-            atomicAdd(&contributions[constraint.b], 1u);
+            atomicAdd(&contributions[rows.first_row], 1u);
+            atomicAdd(&contributions[rows.second_row], 1u);
         }
     }
     store_block_correction(slot, total);

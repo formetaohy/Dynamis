@@ -293,6 +293,34 @@ fn constraint_handle_reuse_bumps_generation() {
 }
 
 #[test]
+fn removing_either_endpoint_of_a_constraint_panics() {
+    let mut world = new_world(static_config());
+    let first = world.spawn(BodyDesc::sphere(0.2));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let joint = world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.remove(second))).is_err(),
+        "removing a joined body must panic on either endpoint"
+    );
+    world.remove_constraint(joint);
+    world.remove(second);
+    assert_eq!(world.count(), 1);
+}
+
+#[test]
+fn removing_an_unjoined_body_ignores_live_constraint_ids() {
+    let mut world = new_world(static_config());
+    let loose = world.spawn(BodyDesc::sphere(0.2));
+    let first = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 0.0, 0.0]));
+    let joint = world.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    assert_eq!(joint.id, loose.id);
+    world.remove(loose);
+    assert_eq!(world.count(), 2);
+    assert_eq!(world.constraint_bodies(joint), (first, second));
+}
+
+#[test]
 fn constraint_misuse_panics() {
     let mut world = new_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));

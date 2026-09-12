@@ -11,6 +11,7 @@
 @group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(11) var<storage, read_write> contributions: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read> block_count: array<u32>;
+@group(0) @binding(13) var<storage, read> constraint_rows: array<ConstraintRows>;
 
 fn extent() -> u32 {
     return block_count[0];

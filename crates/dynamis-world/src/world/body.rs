@@ -161,7 +161,6 @@ impl World {
         self.bodies.alive.swap(first as usize, second as usize);
         self.bodies.index_of[self.bodies.alive[first as usize].id as usize] = first;
         self.bodies.index_of[self.bodies.alive[second as usize].id as usize] = second;
-        self.remap_constraint_slots(first, second);
         self.bodies
             .commands
             .push(BodyCommand::Swap { first, second });

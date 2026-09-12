@@ -10,6 +10,7 @@ pub(super) struct Commands {
     body_move_scatter: Stage,
     body_edits: Stage,
     row_of_body: Stage,
+    constraint_rows: Stage,
     constraint_move_gather: Stage,
     constraint_move_scatter: Stage,
     joint_filter: Stage,
@@ -89,6 +90,20 @@ impl Commands {
                 ],
                 &[],
             ),
+            constraint_rows: Stage::build(
+                context,
+                "constraint_rows",
+                include_str!("shaders/constraint_rows.wgsl"),
+                CORE,
+                Coverage::Live(Count::Constraints),
+                &[
+                    ("params", whole(&buffers.params)),
+                    ("constraint_descs", whole(&buffers.constraint_descriptors)),
+                    ("row_of_body", whole(&buffers.body_row_of_id)),
+                    ("constraint_rows", whole(&buffers.constraint_rows)),
+                ],
+                &[],
+            ),
             constraint_move_gather: Stage::build(
                 context,
                 "constraint_move_gather",
@@ -146,6 +161,7 @@ impl Commands {
                     ("joint_major", whole(&buffers.joint_filter_major)),
                     ("joint_minor", whole(&buffers.joint_filter_minor)),
                     ("joint_count", buffers.counter(COUNTER_JOINTS)),
+                    ("constraint_rows", whole(&buffers.constraint_rows)),
                 ],
                 &[],
             ),
@@ -166,6 +182,7 @@ impl Commands {
         self.reset(recorder);
         self.record_moves(recorder, buffers, frame);
         self.record_edits(recorder, buffers, frame);
+        self.constraint_rows.record(recorder, buffers, frame);
         self.joint_filter.record(recorder, buffers, frame);
         self.activity.record(recorder, buffers, frame);
     }

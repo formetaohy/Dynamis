@@ -489,6 +489,81 @@ fn dynamic_spawn_shuttles_around_static_slots() {
 }
 
 #[test]
+fn constraint_endpoints_survive_row_churn() {
+    let mut world = new_world(static_config());
+    let anchor = world.spawn(BodyDesc::static_sphere(0.2));
+    let first = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 0.0, 0.0]));
+    let hold = world.add_constraint(
+        anchor,
+        first,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    let tie = world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    for round in 0..4usize {
+        let burst = (0..32)
+            .map(|index| {
+                world.spawn(BodyDesc::sphere(0.1).position([
+                    index as f32 * 0.5,
+                    3.0 + round as f32,
+                    0.0,
+                ]))
+            })
+            .collect::<Vec<_>>();
+        world.step(DT);
+        world.wait();
+        for (index, handle) in burst.iter().enumerate() {
+            if index % 2 == 0 {
+                world.remove(*handle);
+            }
+        }
+        world.step(DT);
+        world.wait();
+        assert_eq!(world.constraint_bodies(hold), (anchor, first));
+        assert_eq!(world.constraint_bodies(tie), (first, second));
+        assert_eq!(world.body_constraints(anchor), vec![hold]);
+        assert_eq!(world.body_constraints(first), vec![hold, tie]);
+        assert_eq!(world.body_constraints(second), vec![tie]);
+    }
+}
+
+#[test]
+fn body_constraints_track_constraint_removal() {
+    let mut world = new_world(static_config());
+    let hub = world.spawn(BodyDesc::sphere(0.2));
+    let leaves = (0..3)
+        .map(|index| world.spawn(BodyDesc::sphere(0.2).position([index as f32 + 1.0, 0.0, 0.0])))
+        .collect::<Vec<_>>();
+    let joints = leaves
+        .iter()
+        .map(|leaf| {
+            world.add_constraint(
+                hub,
+                *leaf,
+                ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(world.body_constraints(hub), joints);
+    world.remove_constraint(joints[1]);
+    assert_eq!(world.body_constraints(hub), vec![joints[0], joints[2]]);
+    assert!(world.body_constraints(leaves[1]).is_empty());
+    assert_eq!(world.constraint_bodies(joints[2]), (hub, leaves[2]));
+    world.remove_constraint(joints[0]);
+    world.remove_constraint(joints[2]);
+    assert!(world.body_constraints(hub).is_empty());
+    world.remove(hub);
+    for leaf in leaves {
+        world.remove(leaf);
+    }
+    assert_eq!(world.count(), 0);
+}
+
+#[test]
 fn mass_migration_keeps_constraints_attached() {
     let mut world = new_world(static_config());
     let pick = world.spawn(BodyDesc::sphere(0.2));

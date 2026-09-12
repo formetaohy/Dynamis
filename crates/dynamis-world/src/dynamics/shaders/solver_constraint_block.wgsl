@@ -217,18 +217,19 @@ fn dof_limit_row(index: u32) -> u32 {
 fn solve_constraint_block(constraint_index: u32, slot: u32) {
     var runtime = constraint_runtime[constraint_index];
     let constraint = constraint_descs[constraint_index];
+    let rows = constraint_rows[constraint_index];
     if ((constraint.flags & CONSTRAINT_WARM_START) == 0u) {
         for (var index = 0u; index < CONSTRAINT_ACCUMULATOR_SLOTS; index = index + 1u) {
             runtime.accumulated[index] = 0.0;
         }
     }
     if (runtime.broken != 0u) {
-        commit_block(slot, constraint.a, constraint.b, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, rows.first_row, rows.second_row, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
-    let pair = block_bodies(constraint.a, constraint.b);
+    let pair = block_bodies(rows.first_row, rows.second_row);
     if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
-        commit_block(slot, constraint.a, constraint.b, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, rows.first_row, rows.second_row, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
     var first = pair.first;
@@ -619,15 +620,15 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     constraint_runtime[constraint_index] = runtime;
     let breach_now = constraint_breach(anchor_a, anchor_b, constraint);
     if (first_sleeping && !second_sleeping && breach_now) {
-        atomicOr(&wake_flags[constraint.a], 1u);
+        atomicOr(&wake_flags[rows.first_row], 1u);
     }
     if (second_sleeping && !first_sleeping && breach_now) {
-        atomicOr(&wake_flags[constraint.b], 1u);
+        atomicOr(&wake_flags[rows.second_row], 1u);
     }
     commit_block(
         slot,
-        constraint.a,
-        constraint.b,
+        rows.first_row,
+        rows.second_row,
         first.state.velocity - pair.first.state.velocity,
         first.state.angular_velocity - pair.first.state.angular_velocity,
         second.state.velocity - pair.second.state.velocity,

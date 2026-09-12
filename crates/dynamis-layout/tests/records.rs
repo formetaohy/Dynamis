@@ -163,8 +163,8 @@ fn constraint_record_encodes_kinds_and_options() {
         4,
     );
     assert_eq!(ball.kind, CONSTRAINT_BALL);
-    assert_eq!(ball.a, 3);
-    assert_eq!(ball.b, 4);
+    assert_eq!(ball.first_body_id, 3);
+    assert_eq!(ball.second_body_id, 4);
     assert_eq!(ball.anchor_a, [1.0, 0.0, 0.0]);
     assert_eq!(ball.anchor_b, [0.0, 2.0, 0.0]);
     assert_eq!(
@@ -423,8 +423,8 @@ fn body_edit_runs_address_their_rows() {
 fn constraint_command_encodes() {
     let record = ConstraintDescriptorRecord::build(&ConstraintDesc::ball([0.0; 3], [0.0; 3]), 1, 2);
     assert_eq!(record.kind, CONSTRAINT_BALL);
-    assert_eq!(record.a, 1);
-    assert_eq!(record.b, 2);
+    assert_eq!(record.first_body_id, 1);
+    assert_eq!(record.second_body_id, 2);
 }
 
 #[test]

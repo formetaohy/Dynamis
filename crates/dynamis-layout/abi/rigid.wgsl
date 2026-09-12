@@ -177,8 +177,8 @@ struct Contact {
 
 struct ConstraintDescriptor {
     kind: u32,
-    a: u32,
-    b: u32,
+    first_body_id: u32,
+    second_body_id: u32,
     flags: u32,
     anchor_a: vec3f,
     _pad1: f32,
@@ -241,6 +241,11 @@ struct ConstraintRuntime {
     constraint_id: u32,
     generation: u32,
     _pad0: u32,
+}
+
+struct ConstraintRows {
+    first_row: u32,
+    second_row: u32,
 }
 
 struct Query {

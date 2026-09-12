@@ -12,6 +12,7 @@ pub(crate) struct Constraints {
     pub(crate) ids: IdSpace,
     pub(crate) index_of: Vec<u32>,
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
+    pub(crate) attached: Vec<Vec<u32>>,
     pub(crate) commands: Vec<ConstraintCommand>,
     pub(crate) dirty: Vec<u32>,
     pub(crate) last_moves: u32,
@@ -26,6 +27,7 @@ impl Constraints {
             ids: IdSpace::new(),
             index_of: Vec::new(),
             records: Vec::new(),
+            attached: Vec::new(),
             commands: Vec::new(),
             dirty: Vec::new(),
             last_moves: 0,
@@ -39,6 +41,29 @@ impl Constraints {
         if rows > self.index_of.len() {
             self.index_of.resize(rows, u32::MAX);
         }
+    }
+
+    pub(crate) fn attached_to(&self, body_id: u32) -> &[u32] {
+        self.attached
+            .get(body_id as usize)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn attach_to(&mut self, body_id: u32, constraint_id: u32) {
+        let index = body_id as usize;
+        if self.attached.len() <= index {
+            self.attached.resize(index + 1, Vec::new());
+        }
+        self.attached[index].push(constraint_id);
+    }
+
+    fn detach_from(&mut self, body_id: u32, constraint_id: u32) {
+        let attached = &mut self.attached[body_id as usize];
+        let slot = attached
+            .iter()
+            .position(|id| *id == constraint_id)
+            .expect("an attached constraint must exist");
+        attached.swap_remove(slot);
     }
 
     fn attach(&mut self, handle: ConstraintHandle, record: ConstraintDescriptorRecord) -> u32 {
@@ -88,12 +113,10 @@ impl World {
         let (id, generation) = self.constraints.ids.acquire();
         self.constraints.grow_to(id);
         let handle = ConstraintHandle { id, generation };
-        let record = ConstraintDescriptorRecord::build(
-            &desc,
-            self.bodies.index_of[first.id as usize],
-            self.bodies.index_of[second.id as usize],
-        );
+        let record = ConstraintDescriptorRecord::build(&desc, first.id, second.id);
         let slot = self.constraints.attach(handle, record);
+        self.constraints.attach_to(first.id, handle.id);
+        self.constraints.attach_to(second.id, handle.id);
         self.constraints.dirty.push(slot);
         self.constraints.commands.push(ConstraintCommand::Add {
             slot,
@@ -112,7 +135,11 @@ impl World {
         if constrains_joint_frame(desc.kind) && desc.reference == [0.0, 0.0, 0.0, 1.0] {
             desc.reference = existing.reference;
         }
-        let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
+        let record = ConstraintDescriptorRecord::build(
+            &desc,
+            existing.first_body_id,
+            existing.second_body_id,
+        );
         self.constraints.records[slot] = record;
         self.constraints.dirty.push(slot as u32);
     }
@@ -337,6 +364,11 @@ impl World {
         self.validate_constraint(handle);
         let id = handle.id as usize;
         let slot = self.constraints.index_of[id] as usize;
+        let record = self.constraints.records[slot];
+        self.constraints
+            .detach_from(record.first_body_id, handle.id);
+        self.constraints
+            .detach_from(record.second_body_id, handle.id);
         let tail = self.constraints.alive.len() - 1;
         if self.constraints.detach(slot) {
             self.constraints.dirty.push(slot as u32);
@@ -352,6 +384,34 @@ impl World {
 
     pub fn constraints(&self) -> &[ConstraintHandle] {
         &self.constraints.alive
+    }
+
+    pub fn body_constraints(&self, handle: BodyHandle) -> Vec<ConstraintHandle> {
+        self.validate(handle);
+        self.constraints
+            .attached_to(handle.id)
+            .iter()
+            .map(|id| ConstraintHandle {
+                id: *id,
+                generation: self.constraints.ids.generation(*id),
+            })
+            .collect()
+    }
+
+    pub fn constraint_bodies(&self, handle: ConstraintHandle) -> (BodyHandle, BodyHandle) {
+        self.validate_constraint(handle);
+        let record =
+            self.constraints.records[self.constraints.index_of[handle.id as usize] as usize];
+        (
+            BodyHandle {
+                id: record.first_body_id,
+                generation: self.bodies.ids.generation(record.first_body_id),
+            },
+            BodyHandle {
+                id: record.second_body_id,
+                generation: self.bodies.ids.generation(record.second_body_id),
+            },
+        )
     }
 
     fn validate_constraint(&self, handle: ConstraintHandle) {
@@ -386,48 +446,11 @@ impl World {
         }
     }
 
-    pub(super) fn remap_constraint_slots(&mut self, first: u32, second: u32) {
-        for index in 0..self.constraints.records.len() {
-            let record = &mut self.constraints.records[index];
-            let mut changed = false;
-            if record.a == first && record.b == second {
-                record.a = second;
-                record.b = first;
-                changed = true;
-            } else if record.a == second && record.b == first {
-                record.a = first;
-                record.b = second;
-                changed = true;
-            } else {
-                if record.a == first {
-                    record.a = second;
-                    changed = true;
-                } else if record.a == second {
-                    record.a = first;
-                    changed = true;
-                }
-                if record.b == first {
-                    record.b = second;
-                    changed = true;
-                } else if record.b == second {
-                    record.b = first;
-                    changed = true;
-                }
-            }
-            if changed {
-                self.constraints.dirty.push(index as u32);
-            }
-        }
-    }
-
     pub(super) fn assert_no_constraints(&self, handle: BodyHandle) {
-        for constraint in &self.constraints.alive {
-            if constraint.id == handle.id {
-                panic!(
-                    "body handle {handle:?} is referenced by a live constraint; remove it first"
-                );
-            }
-        }
+        assert!(
+            self.constraints.attached_to(handle.id).is_empty(),
+            "body handle {handle:?} is referenced by a live constraint; remove it first"
+        );
     }
 }
 

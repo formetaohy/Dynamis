@@ -68,7 +68,6 @@ impl Solver {
                 ("body_states", whole(&buffers.body_states)),
                 ("body_descs", whole(&buffers.body_descriptors)),
                 ("contacts", whole(&buffers.contacts)),
-                ("constraint_descs", whole(&buffers.constraint_descriptors)),
                 ("segments", segments),
                 ("block_first_body", whole(&buffers.solver_block_first_body)),
                 (
@@ -79,6 +78,7 @@ impl Solver {
                 ("a_payload", whole(&buffers.solver_a_payload)),
                 ("collider_owners", whole(&buffers.collider_owners)),
                 ("target_speeds", whole(&buffers.contact_target_speeds)),
+                ("constraint_rows", whole(&buffers.constraint_rows)),
             ],
             &[],
         );
@@ -156,6 +156,7 @@ impl Solver {
                 ("collider_owners", whole(&buffers.collider_owners)),
                 ("target_speeds", whole(&buffers.contact_target_speeds)),
                 ("block_count", block_count),
+                ("constraint_rows", whole(&buffers.constraint_rows)),
             ],
             &[],
         );
@@ -205,6 +206,7 @@ impl Solver {
                 ("collider_owners", whole(&buffers.collider_owners)),
                 ("contributions", whole(&buffers.solver_contributions)),
                 ("block_count", block_count),
+                ("constraint_rows", whole(&buffers.constraint_rows)),
             ],
             &[],
         );

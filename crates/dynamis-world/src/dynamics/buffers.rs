@@ -3,9 +3,9 @@ use dynamis_gpu::{Contents, GpuBuffer, GpuSlot, ReadbackRing, Stream};
 use dynamis_layout::{
     AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BvhNodeRecord, COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
-    ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
-    QueryRecord, QueryResultHeaderRecord, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
-    ShapeSourceRecord, StepParamsRecord, TriangleRecord,
+    ConstraintRowsRecord, ConstraintRuntimeRecord, ContactEventRecord, ContactRecord,
+    MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord, QueryResultHeaderRecord, RowMoveRecord,
+    SOLVER_BLOCK_CONSTRAINT, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_sort::{SortChannels, key_words};
 use std::mem::size_of;
@@ -162,6 +162,7 @@ world_buffers! {
         ccd_factor: "ccd retreat factors", 4, Contents::Reset, demand.bodies;
         ccd_impact: "ccd impacts", 16, Contents::Reset, demand.bodies;
         constraint_descriptors: "constraint descriptors", size_of::<ConstraintDescriptorRecord>() as u64, Contents::Reset, demand.constraints;
+        constraint_rows: "constraint rows", size_of::<ConstraintRowsRecord>() as u64, Contents::Reset, demand.constraints;
         constraint_runtime: "constraint runtime", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Preserve, demand.constraints;
         joint_filter_major: "joint filter major", 4, Contents::Reset, demand.constraints;
         joint_filter_minor: "joint filter minor", 4, Contents::Reset, demand.constraints;

@@ -9,7 +9,7 @@ use crate::{ConstraintDescriptorRecord, ConstraintRuntimeRecord};
 use dynamis_model::{ConstraintDesc, ConstraintMotor, DofDesc};
 
 impl ConstraintDescriptorRecord {
-    pub fn build(desc: &ConstraintDesc, a: u32, b: u32) -> Self {
+    pub fn build(desc: &ConstraintDesc, first_body_id: u32, second_body_id: u32) -> Self {
         let kind = match desc.kind {
             dynamis_model::ConstraintKind::Ball => CONSTRAINT_BALL,
             dynamis_model::ConstraintKind::Distance => CONSTRAINT_DISTANCE,
@@ -120,8 +120,8 @@ impl ConstraintDescriptorRecord {
         }
         Self {
             kind,
-            a,
-            b,
+            first_body_id,
+            second_body_id,
             flags,
             anchor_a: desc.anchor_a,
             _pad1: 0.0,
