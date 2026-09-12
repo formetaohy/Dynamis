@@ -575,35 +575,35 @@ fn work(index: u32) {
     }
     let margin = pair_margin(first, second);
     if (first_world_geom) {
+        let scene = world_collider(first.state, first_collider);
         let world_second = world_collider(second.state, second_collider);
         if (first_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(first.state, first_collider);
-            contact = plane_convex(world_plane, world_second, margin);
+            contact = plane_convex(scene, world_second, margin);
             generated = contact.point_count > 0u;
         } else {
-            let hit = scene_convex_hit(first_collider.source, first_collider.scale, world_second);
+            let hit = scene_convex_hit(scene, world_second);
             if (hit.distance <= margin) {
                 manifold_emit(&contact, hit.normal);
                 generated = true;
-                if (!scene_convex_manifold(first_collider.source, first_collider.scale, world_second, margin, &contact)) {
+                if (!scene_convex_manifold(scene, world_second, margin, &contact)) {
                     manifold_from_hit(&contact, hit, margin);
                 }
             }
         }
     } else if (second_world_geom) {
+        let scene = world_collider(second.state, second_collider);
         let world_first = world_collider(first.state, first_collider);
         if (second_collider.kind == SHAPE_PLANE) {
-            let world_plane = world_collider(second.state, second_collider);
-            let swapped = plane_convex(world_plane, world_first, margin);
+            let swapped = plane_convex(scene, world_first, margin);
             contact = swapped;
             contact.normal = -contact.normal;
             generated = contact.point_count > 0u;
         } else {
-            let hit = scene_convex_hit(second_collider.source, second_collider.scale, world_first);
+            let hit = scene_convex_hit(scene, world_first);
             if (hit.distance <= margin) {
                 manifold_emit(&contact, -hit.normal);
                 generated = true;
-                if (!scene_convex_manifold(second_collider.source, second_collider.scale, world_first, margin, &contact)) {
+                if (!scene_convex_manifold(scene, world_first, margin, &contact)) {
                     let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
                     manifold_from_hit(&contact, reversed_hit, margin);
                 }

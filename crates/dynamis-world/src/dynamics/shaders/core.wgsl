@@ -472,6 +472,7 @@ fn smallest_axis(v: vec3f) -> u32 {
 
 const FEATURE_MAX: u32 = 8u;
 const CLIP_MARGIN: f32 = 1e-4;
+const LINEAR_SUPPORT_VERTICES: u32 = 4096u;
 
 fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32) {
     let count = (*contact).point_count;

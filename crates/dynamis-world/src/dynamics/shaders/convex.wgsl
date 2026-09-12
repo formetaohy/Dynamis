@@ -40,12 +40,44 @@ fn support_local(world: WorldShape, direction: vec3f) -> vec3f {
     let source = shape_sources[world.source];
     var best_dot = -3.402823466e38;
     var best = vec3f(0.0);
-    for (var i = 0u; i < source.vertex_count; i = i + 1u) {
-        let v = shape_vertices[source.vertex_offset + i].xyz;
-        let s = dot(v, d);
-        if (s > best_dot) {
-            best_dot = s;
-            best = v;
+    if (source.vertex_count <= LINEAR_SUPPORT_VERTICES) {
+        for (var i = 0u; i < source.vertex_count; i = i + 1u) {
+            let v = shape_vertices[source.vertex_offset + i].xyz;
+            let s = dot(v, d);
+            if (s > best_dot) {
+                best_dot = s;
+                best = v;
+            }
+        }
+        return best;
+    }
+    var stack: array<u32, 64>;
+    var stack_count = 1u;
+    stack[0] = source.node_offset;
+    for (var visit = 0u; visit < source.node_count && stack_count > 0u; visit = visit + 1u) {
+        stack_count = stack_count - 1u;
+        let node = shape_nodes[stack[stack_count]];
+        let bound = dot((node.min + node.max) * 0.5, d) + dot((node.max - node.min) * 0.5, abs(d));
+        if (bound > best_dot) {
+            if (node.leaf == 1u) {
+                for (var i = 0u; i < node.right; i = i + 1u) {
+                    let tri = shape_triangles[source.triangle_offset + node.left + i];
+                    let corners = array<u32, 3>(tri.a, tri.b, tri.c);
+                    for (var c = 0u; c < 3u; c = c + 1u) {
+                        let v = shape_vertices[source.vertex_offset + corners[c]].xyz;
+                        let s = dot(v, d);
+                        if (s > best_dot) {
+                            best_dot = s;
+                            best = v;
+                        }
+                    }
+                }
+            } else if (stack_count + 2u <= 64u) {
+                stack[stack_count] = node.left;
+                stack_count = stack_count + 1u;
+                stack[stack_count] = node.right;
+                stack_count = stack_count + 1u;
+            }
         }
     }
     return best;
@@ -614,11 +646,8 @@ fn convex_hit_at(
         let point = start + direction * time;
         return ShapeHit(time, point, n);
     }
-    if (static_target.kind == SHAPE_HULL) {
-        return convex_sweep_hit(moving, start, direction, static_target);
-    }
-    if (static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
-        return scene_sweep_hit(moving, start, direction, static_target.source, static_target.scale, max_dist);
+    if (static_target.kind == SHAPE_HULL || static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
+        return scene_sweep_hit(static_target, moving, start, direction, max_dist);
     }
     return ray_scaled_shape(static_target, start, direction, NO_HIT, expand);
 }
@@ -645,28 +674,13 @@ fn box_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, arra
     return 4u;
 }
 
-fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
-    let source = shape_sources[world.source];
-    var best_dot = -3.402823466e38;
-    for (var i = 0u; i < source.vertex_count; i = i + 1u) {
-        let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
-        let p = world.center + quat_rotate(world.rotation, local);
-        let d = dot(p, direction);
-        if (d > best_dot) {
-            best_dot = d;
-        }
-    }
-    var points: array<vec3f, 16>;
-    var count = 0u;
-    let eps = 1e-3 * shape_scale(world);
-    for (var i = 0u; i < source.vertex_count && count < 16u; i = i + 1u) {
-        let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
-        let p = world.center + quat_rotate(world.rotation, local);
-        if (dot(p, direction) >= best_dot - eps) {
-            points[count] = p;
-            count = count + 1u;
-        }
-    }
+fn ring_of(
+    world: WorldShape,
+    direction: vec3f,
+    points: ptr<function, array<vec3f, 16>>,
+    count: u32,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+) -> u32 {
     if (count <= 1u) {
         (*out)[0] = support(world, direction);
         return 1u;
@@ -702,6 +716,64 @@ fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, arr
         (*out)[i] = points[i];
     }
     return keep;
+}
+
+fn hull_feature_ring(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {
+    let source = shape_sources[world.source];
+    let d = quat_rotate(quat_conjugate(world.rotation), direction) * world.scale;
+    let best_dot = dot(support_local(world, d), d);
+    let extent = source.local_max - source.local_min;
+    let eps = 1e-3 * max(max(extent.x, extent.y), extent.z) * max(max(world.scale.x, world.scale.y), world.scale.z);
+    var points: array<vec3f, 16>;
+    var count = 0u;
+    if (source.vertex_count <= LINEAR_SUPPORT_VERTICES) {
+        for (var i = 0u; i < source.vertex_count && count < 16u; i = i + 1u) {
+            let v = shape_vertices[source.vertex_offset + i].xyz;
+            if (dot(v, d) >= best_dot - eps) {
+                points[count] = world.center + quat_rotate(world.rotation, v * world.scale);
+                count = count + 1u;
+            }
+        }
+        return ring_of(world, direction, &points, count, out);
+    }
+    var stack: array<u32, 64>;
+    var stack_count = 1u;
+    stack[0] = source.node_offset;
+    for (var visit = 0u; visit < source.node_count && stack_count > 0u && count < 16u; visit = visit + 1u) {
+        stack_count = stack_count - 1u;
+        let node = shape_nodes[stack[stack_count]];
+        let bound = dot((node.min + node.max) * 0.5, d) + dot((node.max - node.min) * 0.5, abs(d));
+        if (bound >= best_dot - eps) {
+            if (node.leaf == 1u) {
+                for (var i = 0u; i < node.right && count < 16u; i = i + 1u) {
+                    let tri = shape_triangles[source.triangle_offset + node.left + i];
+                    let corners = array<u32, 3>(tri.a, tri.b, tri.c);
+                    for (var c = 0u; c < 3u && count < 16u; c = c + 1u) {
+                        let v = shape_vertices[source.vertex_offset + corners[c]].xyz;
+                        if (dot(v, d) >= best_dot - eps) {
+                            let p = world.center + quat_rotate(world.rotation, v * world.scale);
+                            var seen = false;
+                            for (var j = 0u; j < count; j = j + 1u) {
+                                if (all(p == points[j])) {
+                                    seen = true;
+                                }
+                            }
+                            if (!seen) {
+                                points[count] = p;
+                                count = count + 1u;
+                            }
+                        }
+                    }
+                }
+            } else if (stack_count + 2u <= 64u) {
+                stack[stack_count] = node.left;
+                stack_count = stack_count + 1u;
+                stack[stack_count] = node.right;
+                stack_count = stack_count + 1u;
+            }
+        }
+    }
+    return ring_of(world, direction, &points, count, out);
 }
 
 fn cylinder_feature(world: WorldShape, direction: vec3f, out: ptr<function, array<vec3f, FEATURE_MAX>>) -> u32 {

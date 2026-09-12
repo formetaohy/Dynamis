@@ -98,6 +98,7 @@ impl ColliderRecord {
 fn baked_scale(collider: &ColliderDesc, uniform: bool) -> [f32; 3] {
     match collider.shape {
         Shape::Cuboid { .. } | Shape::Plane => [1.0; 3],
+        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => collider.scale,
         _ if uniform => [1.0; 3],
         _ => collider.scale,
     }

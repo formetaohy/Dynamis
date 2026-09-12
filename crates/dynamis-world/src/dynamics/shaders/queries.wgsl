@@ -172,7 +172,7 @@ fn sweep_world_geom(query: Query, static_target: WorldShape, out_normal: ptr<fun
         return time;
     }
     let moving = query_shape_world(query, start);
-    let hit = scene_sweep_hit(moving, start, direction, static_target.source, static_target.scale, query.extent);
+    let hit = scene_sweep_hit(static_target, moving, start, direction, query.extent);
     if (hit.distance == NO_HIT) {
         return NO_HIT;
     }
@@ -226,21 +226,21 @@ fn overlap_hit(query: Query, body: Body, collider: Collider, out_normal: ptr<fun
 }
 
 fn overlap_world_geom(query: Query, body: Body, collider: Collider, out_normal: ptr<function, vec3f>) -> f32 {
-    let world = world_collider(body.state, collider);
+    let scene = world_collider(body.state, collider);
     if (collider.kind == SHAPE_PLANE) {
-        let n = plane_normal(world);
-        let center_dist = dot(query.origin - world.center, n);
+        let n = plane_normal(scene);
+        let center_dist = dot(query.origin - scene.center, n);
         *out_normal = n;
         return center_dist - query.extent;
     }
     let probe = query_shape_world(query, query.origin);
     var triangle = 0u;
-    let closest = scene_convex_closest(collider.source, collider.scale, probe, &triangle);
+    let closest = scene_convex_closest(scene, probe, &triangle);
     *out_normal = closest.normal;
     if (closest.penetrating) {
         return -closest.distance;
     }
-    let margin = scene_plane_margin(collider.source, collider.scale, probe, &triangle);
+    let margin = scene_plane_margin(scene, probe, &triangle);
     return margin - query.extent;
 }
 

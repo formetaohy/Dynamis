@@ -126,38 +126,43 @@ fn ray_triangle(origin: vec3f, direction: vec3f, extent: f32, a: vec3f, b: vec3f
     return ShapeHit(t, point, select(normal, -normal, det < 0.0));
 }
 
-fn ray_scene(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
-    let inv_rotation = quat_conjugate(world.rotation);
-    let unscale = 1.0 / world.scale;
-    let local_origin = (quat_rotate(inv_rotation, origin - world.center)) * unscale;
-    let local_direction = (quat_rotate(inv_rotation, direction)) * unscale;
-    let local = scene_raycast(world.source, local_origin, local_direction, extent);
+fn scene_local_point(scene: WorldShape, point: vec3f) -> vec3f {
+    return quat_rotate(quat_conjugate(scene.rotation), point - scene.center);
+}
+
+fn scene_local_shape(scene: WorldShape, world: WorldShape) -> WorldShape {
+    var local = world;
+    local.center = scene_local_point(scene, world.center);
+    local.rotation = quat_mul(quat_conjugate(scene.rotation), world.rotation);
+    return local;
+}
+
+fn scene_place_point(scene: WorldShape, point: vec3f) -> vec3f {
+    return scene.center + quat_rotate(scene.rotation, point);
+}
+
+fn scene_place_normal(scene: WorldShape, normal: vec3f) -> vec3f {
+    return sign_normalize(quat_rotate(scene.rotation, normal));
+}
+
+fn ray_scene(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let local = scene_raycast(
+        scene,
+        scene_local_point(scene, origin),
+        quat_rotate(quat_conjugate(scene.rotation), direction),
+        extent,
+    );
     if (local.distance == NO_HIT) {
         return local;
     }
-    var hit: ShapeHit;
-    hit.distance = local.distance;
-    hit.point = world.center + quat_rotate(world.rotation, local.point * world.scale);
-    hit.normal = quat_rotate(world.rotation, sign_normalize(local.normal * unscale));
+    var hit = local;
+    hit.point = scene_place_point(scene, local.point);
+    hit.normal = scene_place_normal(scene, local.normal);
     return hit;
 }
 
-fn scene_raycast(source_index: u32, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
-    let source = shape_sources[source_index];
-    if (source.kind == SHAPE_HULL) {
-        var best = no_hit();
-        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let tri = shape_triangles[source.triangle_offset + i];
-            let a = shape_vertices[source.vertex_offset + tri.a].xyz;
-            let b = shape_vertices[source.vertex_offset + tri.b].xyz;
-            let c = shape_vertices[source.vertex_offset + tri.c].xyz;
-            let hit = ray_triangle(origin, direction, extent, a, b, c);
-            if (hit.distance < best.distance) {
-                best = hit;
-            }
-        }
-        return best;
-    }
+fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let source = shape_sources[scene.source];
     var stack: array<u32, 64>;
     var stack_count = 1u;
     stack[0] = source.node_offset;
@@ -166,16 +171,16 @@ fn scene_raycast(source_index: u32, origin: vec3f, direction: vec3f, extent: f32
         stack_count = stack_count - 1u;
         let node_index = stack[stack_count];
         let node = shape_nodes[node_index];
-        let t = aabb_ray_hit(node.min, node.max, origin, direction, extent);
+        let t = aabb_ray_hit(node.min * scene.scale, node.max * scene.scale, origin, direction, extent);
         if (t == NO_HIT) {
             continue;
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
                 let tri = shape_triangles[source.triangle_offset + node.left + i];
-                let a = shape_vertices[source.vertex_offset + tri.a].xyz;
-                let b = shape_vertices[source.vertex_offset + tri.b].xyz;
-                let c = shape_vertices[source.vertex_offset + tri.c].xyz;
+                let a = shape_vertices[source.vertex_offset + tri.a].xyz * scene.scale;
+                let b = shape_vertices[source.vertex_offset + tri.b].xyz * scene.scale;
+                let c = shape_vertices[source.vertex_offset + tri.c].xyz * scene.scale;
                 let hit = ray_triangle(origin, direction, extent, a, b, c);
                 if (hit.distance < best.distance) {
                     best = hit;
@@ -205,24 +210,6 @@ fn triangle_points(source_index: u32, triangle_index: u32, scale: vec3f) -> arra
     return points;
 }
 
-fn triangle_world(source_index: u32, triangle_index: u32, scale: vec3f) -> WorldShape {
-    let source = shape_sources[source_index];
-    let tri = shape_triangles[source.triangle_offset + triangle_index];
-    let a = shape_vertices[source.vertex_offset + tri.a].xyz * scale;
-    let b = shape_vertices[source.vertex_offset + tri.b].xyz * scale;
-    let c = shape_vertices[source.vertex_offset + tri.c].xyz * scale;
-    var world: WorldShape;
-    world.kind = SHAPE_TRIANGLE;
-    world.radius = f32(triangle_index);
-    world.half_height = 0.0;
-    world.center = (a + b + c) * (1.0 / 3.0);
-    world.half_extents = vec3f(0.0);
-    world.rotation = vec4f(0.0, 0.0, 0.0, 1.0);
-    world.source = source_index;
-    world.scale = vec3f(1.0);
-    return world;
-}
-
 fn plane_distance(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> ConvexClosest {
     let points = triangle_points(source_index, triangle, scale);
     var n = sign_normalize(cross(points[1] - points[0], points[2] - points[0]));
@@ -243,61 +230,51 @@ fn plane_distance(triangle: u32, source_index: u32, scale: vec3f, world: WorldSh
     return result;
 }
 
-fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShape, out_triangle: ptr<function, u32>) -> ConvexClosest {
-    var simplex: array<SimplexPoint, 4>;
-    var count = 0u;
+fn scene_convex_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<function, u32>) -> ConvexClosest {
+    var result = scene_local_closest(scene, world, out_triangle);
+    if (result.distance == 3.402823466e38) {
+        return result;
+    }
+    result.point_a = scene_place_point(scene, result.point_a);
+    result.point_b = scene_place_point(scene, result.point_b);
+    result.normal = scene_place_normal(scene, result.normal);
+    return result;
+}
+
+fn scene_local_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<function, u32>) -> ConvexClosest {
+    let source = shape_sources[scene.source];
+    let local = scene_local_shape(scene, world);
     var result: ConvexClosest;
     result.distance = 3.402823466e38;
     result.point_a = vec3f(0.0);
     result.point_b = vec3f(0.0);
     result.normal = vec3f(0.0, 1.0, 0.0);
     result.penetrating = false;
-    if (shape_sources[source_index].kind == SHAPE_HULL) {
-        for (var i = 0u; i < shape_sources[source_index].triangle_count; i = i + 1u) {
-            let hit = convex_hit(triangle_world(source_index, i, source_scale), world);
-            if (hit.distance == NO_HIT) {
-                continue;
-            }
-            if (hit.distance < result.distance) {
-                result.distance = hit.distance;
-                result.point_a = hit.point;
-                result.point_b = hit.point;
-                result.normal = hit.normal;
-                result.penetrating = hit.distance < 0.0;
-                *out_triangle = i;
-            }
-            if (hit.distance < 0.0) {
-                return result;
-            }
-        }
-        return result;
-    }
-    let world_aabb = world_aabb_of(world);
-    let pad = (world_aabb.max - world_aabb.min) * 0.5;
-    var stack: array<u32, 64>;
-    var stack_count = 1u;
-    stack[0] = shape_sources[source_index].node_offset;
-    let source = shape_sources[source_index];
     if (source.node_count == 0u) {
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let candidate = plane_distance(i, source_index, source_scale, world);
+            let candidate = plane_distance(i, scene.source, scene.scale, local);
             if (candidate.penetrating) { result = candidate; *out_triangle = i; return result; }
             if (candidate.distance < result.distance) { result = candidate; *out_triangle = i; }
         }
         return result;
     }
+    let world_aabb = world_aabb_of(local);
+    let pad = (world_aabb.max - world_aabb.min) * 0.5;
+    var stack: array<u32, 64>;
+    var stack_count = 1u;
+    stack[0] = source.node_offset;
     while (stack_count > 0u) {
         stack_count = stack_count - 1u;
         let node_index = stack[stack_count];
         let node = shape_nodes[node_index];
-        if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
-            node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
-            node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
+        if (node.min.x * scene.scale.x - pad.x > world_aabb.max.x || node.max.x * scene.scale.x + pad.x < world_aabb.min.x ||
+            node.min.y * scene.scale.y - pad.y > world_aabb.max.y || node.max.y * scene.scale.y + pad.y < world_aabb.min.y ||
+            node.min.z * scene.scale.z - pad.z > world_aabb.max.z || node.max.z * scene.scale.z + pad.z < world_aabb.min.z) {
             continue;
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
-                let candidate = plane_distance(node.left + i, source_index, source_scale, world);
+                let candidate = plane_distance(node.left + i, scene.source, scene.scale, local);
                 if (candidate.penetrating) {
                     result = candidate;
                     *out_triangle = node.left + i;
@@ -321,36 +298,14 @@ fn scene_convex_closest(source_index: u32, source_scale: vec3f, world: WorldShap
     return result;
 }
 
-fn scene_convex_hit(source_index: u32, source_scale: vec3f, world: WorldShape) -> ShapeHit {
+fn scene_convex_hit(scene: WorldShape, world: WorldShape) -> ShapeHit {
     var triangle: u32;
     triangle = 0u;
-    let closest = scene_convex_closest(source_index, source_scale, world, &triangle);
+    let closest = scene_convex_closest(scene, world, &triangle);
     if (closest.distance == 3.402823466e38) {
         return no_hit();
     }
     return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
-}
-
-fn convex_sweep_hit(moving: WorldShape, start: vec3f, direction: vec3f, obstacle: WorldShape) -> ShapeHit {
-    var t = 0.0;
-    var simplex: array<SimplexPoint, 4>;
-    var count = 0u;
-    for (var iter = 0u; iter < 24u; iter = iter + 1u) {
-        var moved = moving;
-        moved.center = start + direction * t;
-        let closest = convex_closest(moved, obstacle, &simplex, &count);
-        if (closest.penetrating) {
-            return ShapeHit(t, (closest.point_a + closest.point_b) * 0.5, closest.normal);
-        }
-        if (closest.distance <= 1e-4) {
-            return ShapeHit(t, (closest.point_a + closest.point_b) * 0.5, closest.normal);
-        }
-        t = t + closest.distance;
-        if (t > 1e8) {
-            return no_hit();
-        }
-    }
-    return no_hit();
 }
 
 fn triangle_plane_margin(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> f32 {
@@ -360,9 +315,10 @@ fn triangle_plane_margin(triangle: u32, source_index: u32, scale: vec3f, world: 
     return abs(offset);
 }
 
-fn scene_plane_margin(source_index: u32, scale: vec3f, world: WorldShape, out_triangle: ptr<function, u32>) -> f32 {
-    let source = shape_sources[source_index];
-    let world_aabb = world_aabb_of(world);
+fn scene_plane_margin(scene: WorldShape, world: WorldShape, out_triangle: ptr<function, u32>) -> f32 {
+    let source = shape_sources[scene.source];
+    let local = scene_local_shape(scene, world);
+    let world_aabb = world_aabb_of(local);
     let pad = (world_aabb.max - world_aabb.min) * 0.5;
     var best = 3.402823466e38;
     var stack: array<u32, 64>;
@@ -370,7 +326,7 @@ fn scene_plane_margin(source_index: u32, scale: vec3f, world: WorldShape, out_tr
     stack[0] = source.node_offset;
     if (source.node_count == 0u) {
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let margin = triangle_plane_margin(i, source_index, scale, world);
+            let margin = triangle_plane_margin(i, scene.source, scene.scale, local);
             if (margin < best) {
                 best = margin;
                 *out_triangle = i;
@@ -382,14 +338,14 @@ fn scene_plane_margin(source_index: u32, scale: vec3f, world: WorldShape, out_tr
         stack_count = stack_count - 1u;
         let node_index = stack[stack_count];
         let node = shape_nodes[node_index];
-        if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
-            node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
-            node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
+        if (node.min.x * scene.scale.x - pad.x > world_aabb.max.x || node.max.x * scene.scale.x + pad.x < world_aabb.min.x ||
+            node.min.y * scene.scale.y - pad.y > world_aabb.max.y || node.max.y * scene.scale.y + pad.y < world_aabb.min.y ||
+            node.min.z * scene.scale.z - pad.z > world_aabb.max.z || node.max.z * scene.scale.z + pad.z < world_aabb.min.z) {
             continue;
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
-                let margin = triangle_plane_margin(node.left + i, source_index, scale, world);
+                let margin = triangle_plane_margin(node.left + i, scene.source, scene.scale, local);
                 if (margin < best) {
                     best = margin;
                     *out_triangle = node.left + i;
@@ -408,38 +364,14 @@ fn scene_plane_margin(source_index: u32, scale: vec3f, world: WorldShape, out_tr
     return best;
 }
 
-fn scene_plane_mesh_bounds(source_index: u32, scale: vec3f) -> Aabb {
-    let source = shape_sources[source_index];
-    if (source.node_count == 0u) {
-        var empty: Aabb;
-        empty.min = vec3f(3.402823466e38);
-        empty.max = vec3f(-3.402823466e38);
-        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let points = triangle_points(source_index, i, scale);
-            empty.min = min(empty.min, points[0]);
-            empty.min = min(empty.min, points[1]);
-            empty.min = min(empty.min, points[2]);
-            empty.max = max(empty.max, points[0]);
-            empty.max = max(empty.max, points[1]);
-            empty.max = max(empty.max, points[2]);
-        }
-        return empty;
-    }
-    let root = shape_nodes[source.node_offset];
-    var bounds: Aabb;
-    bounds.min = root.min * scale;
-    bounds.max = root.max * scale;
-    return bounds;
-}
-
 fn scene_sweep_hit(
+    scene: WorldShape,
     moving: WorldShape,
     start: vec3f,
     direction: vec3f,
-    source_index: u32,
-    source_scale: vec3f,
     max_dist: f32,
 ) -> ShapeHit {
+    let root = shape_nodes[shape_sources[scene.source].node_offset];
     let moving_bounds = world_aabb_of(moving);
     let probe_radius = length((moving_bounds.max - moving_bounds.min) * 0.5);
     if (probe_radius <= 0.0) {
@@ -448,17 +380,13 @@ fn scene_sweep_hit(
     var triangle = 0u;
     var moved = moving;
     moved.center = start;
-    let origin = scene_plane_margin(source_index, source_scale, moved, &triangle);
+    let origin = scene_plane_margin(scene, moved, &triangle);
     if (origin <= probe_radius) {
         return no_hit();
     }
-    let bounds = scene_plane_mesh_bounds(source_index, source_scale);
-    let entry = ray_box(
-        start, direction, max_dist,
-        (bounds.min + bounds.max) * 0.5,
-        vec4f(0.0, 0.0, 0.0, 1.0),
-        (bounds.max - bounds.min) * 0.5 + vec3f(probe_radius),
-    );
+    let box_center = scene_place_point(scene, (root.min + root.max) * 0.5 * scene.scale);
+    let box_half = (root.max - root.min) * 0.5 * scene.scale + vec3f(probe_radius);
+    let entry = ray_box(start, direction, max_dist, box_center, scene.rotation, box_half);
     if (entry.distance >= max_dist) {
         return no_hit();
     }
@@ -466,15 +394,13 @@ fn scene_sweep_hit(
     var scan = scan_start;
     var lo = scan_start;
     var hi = -1.0;
-    var hit_point = vec3f(0.0);
-    var hit_normal = vec3f(0.0, 1.0, 0.0);
     for (var iter = 0u; iter < 4096u; iter = iter + 1u) {
         scan = scan + probe_radius;
         if (scan >= max_dist) {
             return no_hit();
         }
         moved.center = start + direction * scan;
-        let margin = scene_plane_margin(source_index, source_scale, moved, &triangle);
+        let margin = scene_plane_margin(scene, moved, &triangle);
         if (margin <= probe_radius) {
             hi = scan;
             break;
@@ -487,7 +413,7 @@ fn scene_sweep_hit(
     for (var iter = 0u; iter < 24u; iter = iter + 1u) {
         let mid = (lo + hi) * 0.5;
         moved.center = start + direction * mid;
-        let margin = scene_plane_margin(source_index, source_scale, moved, &triangle);
+        let margin = scene_plane_margin(scene, moved, &triangle);
         if (margin <= probe_radius) {
             hi = mid;
         } else {
@@ -495,7 +421,7 @@ fn scene_sweep_hit(
         }
     }
     moved.center = start + direction * (hi + 1e-4);
-    let closest = scene_convex_closest(source_index, source_scale, moved, &triangle);
+    let closest = scene_convex_closest(scene, moved, &triangle);
     if (closest.penetrating) {
         return ShapeHit(hi, closest.point_a, closest.normal);
     }
@@ -546,20 +472,22 @@ fn ray_scaled_shape(world: WorldShape, origin: vec3f, direction: vec3f, extent: 
 }
 
 fn scene_convex_manifold(
-    source_index: u32,
-    source_scale: vec3f,
+    scene: WorldShape,
     world: WorldShape,
     margin: f32,
     contact: ptr<function, Contact>,
 ) -> bool {
-    let source = shape_sources[source_index];
+    let source = shape_sources[scene.source];
+    let local = scene_local_shape(scene, world);
+    let world_aabb = world_aabb_of(local);
+    let pad = (world_aabb.max - world_aabb.min) * 0.5;
     var candidates: array<ManifoldPoint, 8>;
     var candidate_count = 0u;
     if (source.node_count == 0u) {
         for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let probe = plane_distance(i, source_index, source_scale, world);
+            let probe = plane_distance(i, scene.source, scene.scale, local);
             if (probe.distance <= margin) {
-                candidates[candidate_count] = ManifoldPoint(probe.point_a, -probe.distance, 0.0, 0.0, 0.0, 0.0);
+                candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, 0.0);
                 candidate_count = candidate_count + 1u;
                 if (candidate_count >= 8u) {
                     break;
@@ -570,22 +498,20 @@ fn scene_convex_manifold(
         var stack: array<u32, 64>;
         var stack_count = 1u;
         stack[0] = source.node_offset;
-        let world_aabb = world_aabb_of(world);
-        let pad = (world_aabb.max - world_aabb.min) * 0.5;
         while (stack_count > 0u && candidate_count < 8u) {
             stack_count = stack_count - 1u;
             let node_index = stack[stack_count];
             let node = shape_nodes[node_index];
-            if (node.min.x - pad.x > world_aabb.max.x || node.max.x + pad.x < world_aabb.min.x ||
-                node.min.y - pad.y > world_aabb.max.y || node.max.y + pad.y < world_aabb.min.y ||
-                node.min.z - pad.z > world_aabb.max.z || node.max.z + pad.z < world_aabb.min.z) {
+            if (node.min.x * scene.scale.x - pad.x > world_aabb.max.x || node.max.x * scene.scale.x + pad.x < world_aabb.min.x ||
+                node.min.y * scene.scale.y - pad.y > world_aabb.max.y || node.max.y * scene.scale.y + pad.y < world_aabb.min.y ||
+                node.min.z * scene.scale.z - pad.z > world_aabb.max.z || node.max.z * scene.scale.z + pad.z < world_aabb.min.z) {
                 continue;
             }
             if (node.leaf == 1u) {
                 for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
-                    let probe = plane_distance(node.left + i, source_index, source_scale, world);
+                    let probe = plane_distance(node.left + i, scene.source, scene.scale, local);
                     if (probe.distance <= margin) {
-                        candidates[candidate_count] = ManifoldPoint(probe.point_a, -probe.distance, 0.0, 0.0, 0.0, 0.0);
+                        candidates[candidate_count] = ManifoldPoint(scene_place_point(scene, probe.point_a), -probe.distance, 0.0, 0.0, 0.0, 0.0);
                         candidate_count = candidate_count + 1u;
                     }
                 }
