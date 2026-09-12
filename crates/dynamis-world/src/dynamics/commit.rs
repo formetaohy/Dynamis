@@ -1,5 +1,7 @@
-use super::FrameParams;
-use super::stage::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY, Stage, shape_resources, whole};
+use super::Frame;
+use super::stage::{
+    CONTACT, CORE, Count, Coverage, GEOMETRY_INDEX, IDENTITY, Slots, Stage, shape_resources, whole,
+};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -21,14 +23,17 @@ pub(super) struct Commit {
 }
 
 impl Commit {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             thaw_contacts: Stage::build(
                 context,
                 "thaw_contacts",
                 include_str!("shaders/thaw_contacts.wgsl"),
-                per_row,
                 CONTACT,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Resting,
+                },
                 &[
                     ("resting", whole(&buffers.resting_contacts)),
                     ("resting_live", whole(&buffers.resting_live)),
@@ -51,8 +56,11 @@ impl Commit {
                 context,
                 "resting_gather",
                 include_str!("shaders/resting_gather.wgsl"),
-                per_row,
                 IDENTITY,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Resting,
+                },
                 &[
                     ("resting", whole(&buffers.resting_contacts)),
                     ("resting_count", buffers.counter(COUNTER_RESTING)),
@@ -68,8 +76,8 @@ impl Commit {
                 context,
                 "resting_commit",
                 include_str!("shaders/resting_commit.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Workgroups,
                 &[
                     ("slept", buffers.counter(COUNTER_SLEPT)),
                     ("gathered", buffers.counter(COUNTER_RESTING_GATHER)),
@@ -83,8 +91,11 @@ impl Commit {
                 context,
                 "freeze_contacts",
                 include_str!("shaders/freeze_contacts.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Contacts,
+                },
                 &[
                     ("contacts", whole(&buffers.contacts)),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
@@ -104,8 +115,11 @@ impl Commit {
                 context,
                 "contact_archive",
                 include_str!("shaders/contact_archive.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Contacts,
+                },
                 &[
                     ("contacts", whole(&buffers.contacts)),
                     ("archive", whole(&buffers.contact_archive)),
@@ -117,8 +131,8 @@ impl Commit {
                 context,
                 "archive_count_sync",
                 include_str!("shaders/archive_count_sync.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Workgroups,
                 &[
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
                     ("archive_count", buffers.counter(COUNTER_ARCHIVED)),
@@ -130,8 +144,8 @@ impl Commit {
                 context,
                 "static_wake_clear",
                 include_str!("shaders/static_wake_clear.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Bodies),
                 &[
                     ("params", whole(&buffers.params)),
                     ("wake_flags", whole(&buffers.wake_flags)),
@@ -142,8 +156,8 @@ impl Commit {
                 context,
                 "query",
                 include_str!("shaders/queries.wgsl"),
-                per_row,
                 GEOMETRY_INDEX,
+                Coverage::Workgroups,
                 &[
                     ("queries", whole(&buffers.query_records)),
                     ("body_states", whole(&buffers.body_states)),
@@ -162,31 +176,31 @@ impl Commit {
         }
     }
 
-    pub(super) fn record_query(&self, recorder: &mut ComputeRecorder, query_count: u32) {
-        self.query.record_workgroups(recorder, query_count);
+    pub(super) fn record_query(&self, recorder: &mut ComputeRecorder, frame: &Frame) {
+        self.query.record_workgroups(recorder, frame.query_count);
     }
 
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
         buffers: &WorldBuffers,
-        params: &FrameParams,
+        frame: &Frame,
     ) {
-        let contacts = buffers.contact_capacity();
-        self.thaw_contacts
-            .record_stride(recorder, buffers.resting_capacity());
-        self.contact_archive.record_stride(recorder, contacts);
+        self.thaw_contacts.record(recorder, buffers, frame);
+        self.contact_archive.record(recorder, buffers, frame);
         self.archive_count_sync.record_workgroups(recorder, 1);
-        self.static_wake_clear.record(recorder, params.body_count);
-        self.freeze_contacts.record_stride(recorder, contacts);
-        if params.query_count > 0 {
-            self.record_query(recorder, params.query_count);
-        }
+        self.static_wake_clear.record(recorder, buffers, frame);
+        self.freeze_contacts.record(recorder, buffers, frame);
+        self.record_query(recorder, frame);
     }
 
-    pub(super) fn record_gather(&self, recorder: &mut ComputeRecorder, buffers: &WorldBuffers) {
-        self.resting_gather
-            .record_stride(recorder, buffers.resting_capacity());
+    pub(super) fn record_gather(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.resting_gather.record(recorder, buffers, frame);
     }
 
     pub(super) fn record_index(

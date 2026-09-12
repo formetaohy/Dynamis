@@ -4,12 +4,7 @@
 @group(0) @binding(3) var<storage, read> fresh_rows: array<BodyState>;
 @group(0) @binding(4) var<uniform> params: StepParams;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.body_move_count) {
-        return;
-    }
+fn work(index: u32) {
     let entry = row_moves[index];
     if (entry.fresh != NO_SLOT) {
         state_scratch[entry.row] = fresh_rows[entry.fresh];

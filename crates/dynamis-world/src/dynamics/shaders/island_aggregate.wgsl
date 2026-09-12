@@ -9,12 +9,7 @@ fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.dynamic_count) {
-        return;
-    }
+fn work(index: u32) {
     let body = load_body(index);
     let root = atomicLoad(&island_parents[index]);
     if (atomicLoad(&wake_flags[index]) != 0u) {

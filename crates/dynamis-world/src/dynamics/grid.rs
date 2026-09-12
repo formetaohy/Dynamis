@@ -1,4 +1,5 @@
-use super::stage::{GRID_INDEX, Stage, whole};
+use super::Frame;
+use super::stage::{Count, Coverage, GRID_INDEX, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 
@@ -7,14 +8,14 @@ pub(super) struct Grid {
 }
 
 impl Grid {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             grid_entries: Stage::build(
                 context,
                 "grid_entries",
                 include_str!("shaders/grid_entries.wgsl"),
-                per_row,
                 GRID_INDEX,
+                Coverage::Live(Count::Colliders),
                 &[
                     ("params", whole(&buffers.params)),
                     ("aabbs", whole(&buffers.collider_aabbs)),
@@ -29,7 +30,12 @@ impl Grid {
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, collider_count: u32) {
-        self.grid_entries.record(recorder, collider_count);
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.grid_entries.record(recorder, buffers, frame);
     }
 }

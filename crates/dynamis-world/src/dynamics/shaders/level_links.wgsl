@@ -51,17 +51,12 @@ fn link_level(collider: u32, aabb: Aabb, level: u32, awake: bool, live: u32, gri
     }
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let collider = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (collider >= params.collider_count) {
-        return;
-    }
-    let owner = collider_owners[collider];
+fn work(index: u32) {
+    let owner = collider_owners[index];
     if (owner == NO_BODY) {
         return;
     }
-    let aabb = aabbs[collider];
+    let aabb = aabbs[index];
     let cell = grid_base_cell();
     let level = shape_levels(aabb, cell);
     let awake = body_activity[owner] != 0u;
@@ -73,6 +68,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     while (coarser != 0u) {
         let link = countTrailingZeros(coarser);
         coarser = coarser & (coarser - 1u);
-        link_level(collider, aabb, link, awake, live, cell);
+        link_level(index, aabb, link, awake, live, cell);
     }
 }

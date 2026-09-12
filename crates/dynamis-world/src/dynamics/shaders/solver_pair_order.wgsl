@@ -4,12 +4,12 @@
 @group(0) @binding(3) var<storage, read_write> b_blocks: array<u32>;
 @group(0) @binding(4) var<storage, read> block_count: array<u32>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = block_count[0];
-    let stride = grid_stride(groups);
-    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
-        b_bodies[slot] = block_second_body[a_payload[slot]];
-        b_blocks[slot] = slot;
-    }
+fn extent() -> u32 {
+    return block_count[0];
 }
+
+fn work(index: u32) {
+    b_bodies[index] = block_second_body[a_payload[index]];
+    b_blocks[index] = index;
+}
+

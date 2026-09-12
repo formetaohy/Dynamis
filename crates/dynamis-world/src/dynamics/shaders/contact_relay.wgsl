@@ -41,46 +41,46 @@ fn current_slot(contact: Contact) -> u32 {
     return NO_SLOT;
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&archive_count[0]), arrayLength(&archive));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        let held = archive[index];
-        let first_row = resolve_row(held.first_body_id, held.first_generation);
-        let second_row = resolve_row(held.second_body_id, held.second_generation);
-        if (first_row != NO_BODY && second_row != NO_BODY) {
-            let slot = current_slot(held);
-            if (slot != NO_SLOT) {
-                let current = contacts[slot];
-                if (contact_same_pair(held, current)) {
-                    if ((held.events & CONTACT_ANNOUNCED) != 0u) {
-                        contact_matched[slot] = 1u;
-                        var relayed = current;
-                        relayed.events = relayed.events | CONTACT_ANNOUNCED;
-                        if (contact_carries_over(held, current)) {
-                            if (contact_touches(current, params.slop)) {
-                                announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
-                            }
-                            relayed = contact_relay_impulses(current, held);
-                            relayed.events = relayed.events | CONTACT_ANNOUNCED;
+fn extent() -> u32 {
+    return min(atomicLoad(&archive_count[0]), arrayLength(&archive));
+}
+
+fn work(index: u32) {
+    let held = archive[index];
+    let first_row = resolve_row(held.first_body_id, held.first_generation);
+    let second_row = resolve_row(held.second_body_id, held.second_generation);
+    if (first_row != NO_BODY && second_row != NO_BODY) {
+        let slot = current_slot(held);
+        if (slot != NO_SLOT) {
+            let current = contacts[slot];
+            if (contact_same_pair(held, current)) {
+                if ((held.events & CONTACT_ANNOUNCED) != 0u) {
+                    contact_matched[slot] = 1u;
+                    var relayed = current;
+                    relayed.events = relayed.events | CONTACT_ANNOUNCED;
+                    if (contact_carries_over(held, current)) {
+                        if (contact_touches(current, params.slop)) {
+                            announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
                         }
-                        contacts[slot] = relayed;
+                        relayed = contact_relay_impulses(current, held);
+                        relayed.events = relayed.events | CONTACT_ANNOUNCED;
                     }
-                    continue;
+                    contacts[slot] = relayed;
                 }
+                return;
             }
         }
-        if ((held.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
-            continue;
-        }
-        if (first_row != NO_BODY && second_row != NO_BODY
-        && !body_is_active(body_states[first_row], body_descs[first_row])
-        && !body_is_active(body_states[second_row], body_descs[second_row])) {
-            continue;
-        }
-        if ((held.events & CONTACT_ANNOUNCED) != 0u) {
-            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
-        }
+    }
+    if ((held.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
+        return;
+    }
+    if (first_row != NO_BODY && second_row != NO_BODY
+    && !body_is_active(body_states[first_row], body_descs[first_row])
+    && !body_is_active(body_states[second_row], body_descs[second_row])) {
+        return;
+    }
+    if ((held.events & CONTACT_ANNOUNCED) != 0u) {
+        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
     }
 }
+

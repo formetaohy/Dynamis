@@ -16,31 +16,31 @@ fn island_link(a: u32, b: u32) {
     atomicMin(&island_parents[b], a);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        let contact = contacts[index];
-        if (contact.point_count == 0u || contact.sensor == 1u || !contact_touches(contact, params.slop)) {
-            continue;
-        }
-        let first_slot = collider_owners[contact.a];
-        let second_slot = collider_owners[contact.b];
-        let first = load_body(first_slot);
-        let second = load_body(second_slot);
-        let first_static = body_is_static(first);
-        let second_static = body_is_static(second);
-        if (first_static && atomicLoad(&wake_flags[first_slot]) != 0u) {
-            atomicOr(&wake_flags[second_slot], 1u);
-        }
-        if (second_static && atomicLoad(&wake_flags[second_slot]) != 0u) {
-            atomicOr(&wake_flags[first_slot], 1u);
-        }
-        if (!first_static && !second_static &&
-            body_is_dynamic(first) && first.state.sleeping == 0u &&
-            body_is_dynamic(second) && second.state.sleeping == 0u) {
-            island_link(first_slot, second_slot);
-        }
+fn extent() -> u32 {
+    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
+}
+
+fn work(index: u32) {
+    let contact = contacts[index];
+    if (contact.point_count == 0u || contact.sensor == 1u || !contact_touches(contact, params.slop)) {
+        return;
+    }
+    let first_slot = collider_owners[contact.a];
+    let second_slot = collider_owners[contact.b];
+    let first = load_body(first_slot);
+    let second = load_body(second_slot);
+    let first_static = body_is_static(first);
+    let second_static = body_is_static(second);
+    if (first_static && atomicLoad(&wake_flags[first_slot]) != 0u) {
+        atomicOr(&wake_flags[second_slot], 1u);
+    }
+    if (second_static && atomicLoad(&wake_flags[second_slot]) != 0u) {
+        atomicOr(&wake_flags[first_slot], 1u);
+    }
+    if (!first_static && !second_static &&
+        body_is_dynamic(first) && first.state.sleeping == 0u &&
+        body_is_dynamic(second) && second.state.sleeping == 0u) {
+        island_link(first_slot, second_slot);
     }
 }
+

@@ -28,10 +28,8 @@ fn apply_impulse_at(
         + apply_inverse_inertia_of(desc, (*state).orientation, cross(lever, impulse));
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= min(params.edit_run_count, arrayLength(&edit_runs))) {
+fn work(index: u32) {
+    if (index >= arrayLength(&edit_runs)) {
         return;
     }
     let run = edit_runs[index];

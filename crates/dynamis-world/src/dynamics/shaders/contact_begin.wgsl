@@ -37,39 +37,39 @@ fn resting_slot(contact: Contact) -> u32 {
     return NO_SLOT;
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        if (contact_matched[index] != 0u) {
-            continue;
-        }
-        let contact = contacts[index];
-        let slot = resting_slot(contact);
-        if (slot != NO_SLOT) {
-            var revived = contact;
-            if ((resting[slot].events & CONTACT_ANNOUNCED) != 0u) {
-                revived.events = revived.events | CONTACT_ANNOUNCED;
-                if (contact_touches(contact, params.slop)) {
-                    announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
-                }
-                if (contact_carries_over(resting[slot], contact)) {
-                    revived = contact_relay_impulses(revived, resting[slot]);
-                    revived.events = revived.events | CONTACT_ANNOUNCED;
-                }
-            } else if (contact_touches(contact, params.slop)) {
-                announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+fn extent() -> u32 {
+    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
+}
+
+fn work(index: u32) {
+    if (contact_matched[index] != 0u) {
+        return;
+    }
+    let contact = contacts[index];
+    let slot = resting_slot(contact);
+    if (slot != NO_SLOT) {
+        var revived = contact;
+        if ((resting[slot].events & CONTACT_ANNOUNCED) != 0u) {
+            revived.events = revived.events | CONTACT_ANNOUNCED;
+            if (contact_touches(contact, params.slop)) {
+                announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
+            }
+            if (contact_carries_over(resting[slot], contact)) {
+                revived = contact_relay_impulses(revived, resting[slot]);
                 revived.events = revived.events | CONTACT_ANNOUNCED;
             }
-            contacts[index] = revived;
-            continue;
-        }
-        if (contact_touches(contact, params.slop)) {
+        } else if (contact_touches(contact, params.slop)) {
             announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
-            var announced = contacts[index];
-            announced.events = announced.events | CONTACT_ANNOUNCED;
-            contacts[index] = announced;
+            revived.events = revived.events | CONTACT_ANNOUNCED;
         }
+        contacts[index] = revived;
+        return;
+    }
+    if (contact_touches(contact, params.slop)) {
+        announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+        var announced = contacts[index];
+        announced.events = announced.events | CONTACT_ANNOUNCED;
+        contacts[index] = announced;
     }
 }
+

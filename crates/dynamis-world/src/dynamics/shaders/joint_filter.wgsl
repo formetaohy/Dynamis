@@ -5,12 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> joint_minor: array<u32>;
 @group(0) @binding(5) var<storage, read_write> joint_count: array<atomic<u32>>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.constraint_count) {
-        return;
-    }
+fn work(index: u32) {
     if constraint_runtime[index].broken != 0u {
         return;
     }

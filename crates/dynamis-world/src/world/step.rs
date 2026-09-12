@@ -1,8 +1,10 @@
 use super::World;
-use crate::dynamics::FrameParams;
+use crate::dynamics::Frame;
 use crate::world::commands::{CompiledBodyCommands, CompiledConstraintCommands};
 
-use dynamis_layout::{COUNTER_ACTIVE, QueryResultRecord, RowStreams, StepParamsRecord};
+use dynamis_layout::{
+    COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord,
+};
 use std::mem::size_of;
 
 impl World {
@@ -40,8 +42,9 @@ impl World {
         self.apply_plan();
         self.flush_rows();
         self.apply_pending_commands();
-        self.write_step_records(dt);
         let query_count = self.queries.pending.len() as u32;
+        let frame = self.frame(dt, query_count);
+        self.write_step_records(&frame);
         let batch = self.submit_queries(step, query_count);
         let quiet = self.backend.measured_step.is_some_and(|measured| {
             self.backend.measured[COUNTER_ACTIVE] == 0
@@ -51,21 +54,8 @@ impl World {
                     .is_none_or(|commanded| commanded <= measured)
         });
         let idle = quiet && self.constraints.alive.is_empty() && query_count == 0;
-        let frame = FrameParams {
-            dynamic_count: self.bodies.dynamic_count as u32,
-            collider_count: self.colliders.used(),
-            body_count: self.bodies.alive.len() as u32,
-            solve_iterations: self.config.solve_iterations,
-            position_iterations: self.config.position_iterations,
-            island_rounds: self.island_rounds(),
-            query_count,
-            constraint_count: self.constraints.alive.len() as u32,
-            edit_run_count: self.bodies.last_edits,
-            body_move_count: self.bodies.last_moves,
-            constraint_move_count: self.constraints.last_moves,
-        };
         self.encode_step(&frame, batch, step, idle);
-        self.bodies.device_count = frame.body_count;
+        self.bodies.device_count = frame.params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
         self.bodies.states_ready = false;
@@ -90,29 +80,35 @@ impl World {
         self.constraints.commands.clear();
     }
 
-    fn write_step_records(&self, dt: f32) {
-        let queue = self.backend.gpu.queue();
+    pub(crate) fn frame(&self, dt: f32, query_count: u32) -> Frame {
+        Frame {
+            params: StepParamsRecord::new(
+                &self.config,
+                dt,
+                FrameCounts {
+                    dynamic_bodies: self.bodies.dynamic_count as u32,
+                    bodies: self.bodies.alive.len() as u32,
+                    colliders: self.colliders.used(),
+                    constraints: self.constraints.alive.len() as u32,
+                },
+                RowStreams {
+                    edit_runs: self.bodies.last_edits,
+                    body_moves: self.bodies.last_moves,
+                    constraint_moves: self.constraints.last_moves,
+                },
+                self.event_slot_of(self.clock.step),
+            ),
+            query_count,
+            island_rounds: self.island_rounds(),
+        }
+    }
+
+    fn write_step_records(&self, frame: &Frame) {
         self.write_declared_counters();
-        let params = StepParamsRecord::new(
-            &self.config,
-            dt,
-            dynamis_layout::FrameCounts {
-                dynamic_bodies: self.bodies.dynamic_count as u32,
-                bodies: self.bodies.alive.len() as u32,
-                colliders: self.colliders.used(),
-                constraints: self.constraints.alive.len() as u32,
-            },
-            RowStreams {
-                edit_runs: self.bodies.last_edits,
-                body_moves: self.bodies.last_moves,
-                constraint_moves: self.constraints.last_moves,
-            },
-            self.event_slot_of(self.clock.step),
+        self.backend.buffers.params.write(
+            self.backend.gpu.queue(),
+            bytemuck::cast_slice(&[frame.params]),
         );
-        self.backend
-            .buffers
-            .params
-            .write(queue, bytemuck::cast_slice(&[params]));
     }
 
     fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {
@@ -163,7 +159,7 @@ impl World {
         Some(batch)
     }
 
-    fn encode_step(&mut self, frame: &FrameParams, batch: Option<u64>, step: u64, idle: bool) {
+    fn encode_step(&mut self, frame: &Frame, batch: Option<u64>, step: u64, idle: bool) {
         let device = self.backend.gpu.device().clone();
         let queue = self.backend.gpu.queue().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");

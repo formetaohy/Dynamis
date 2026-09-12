@@ -4,12 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> body_activity: array<u32>;
 @group(0) @binding(4) var<storage, read_write> active_count: array<atomic<u32>>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.body_count) {
-        return;
-    }
+fn work(index: u32) {
     let moving = body_is_active(body_states[index], body_descs[index]);
     body_activity[index] = select(0u, 1u, moving);
     if (moving) {

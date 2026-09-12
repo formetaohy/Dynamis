@@ -9,24 +9,19 @@
 @group(0) @binding(8) var<storage, read> block_deltas: array<vec4f>;
 @group(0) @binding(9) var<storage, read> block_count: array<u32>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let body_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (body_index >= params.dynamic_count) {
-        return;
-    }
-    let blocks = block_counts[body_index];
+fn work(index: u32) {
+    let blocks = block_counts[index];
     if (blocks == 0u) {
         return;
     }
     let total = min(block_count[0], arrayLength(&a_bodies));
-    let body = body_states[body_index];
+    let body = body_states[index];
     var velocity = vec3f(0.0);
     var spin = vec3f(0.0);
-    var start = i32(first_a[body_index]) - 1;
+    var start = i32(first_a[index]) - 1;
     if (start >= 0) {
         var end = u32(start);
-        while (end < total && a_bodies[end] == body_index) {
+        while (end < total && a_bodies[end] == index) {
             end = end + 1u;
         }
         for (var i = u32(start); i < end; i = i + 1u) {
@@ -34,10 +29,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             spin = spin + block_deltas[i * 4u + 1u].xyz;
         }
     }
-    start = i32(first_b[body_index]) - 1;
+    start = i32(first_b[index]) - 1;
     if (start >= 0) {
         var end = u32(start);
-        while (end < total && b_bodies[end] == body_index) {
+        while (end < total && b_bodies[end] == index) {
             end = end + 1u;
         }
         for (var i = u32(start); i < end; i = i + 1u) {
@@ -49,5 +44,5 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var updated = body;
     updated.velocity = body.velocity + velocity;
     updated.angular_velocity = body.angular_velocity + spin;
-    body_states[body_index] = updated;
+    body_states[index] = updated;
 }

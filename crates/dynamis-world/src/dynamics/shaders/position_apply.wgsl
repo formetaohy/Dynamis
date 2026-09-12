@@ -11,35 +11,30 @@
 @group(0) @binding(10) var<storage, read_write> resolution: array<vec4f>;
 @group(0) @binding(11) var<storage, read_write> contributions: array<atomic<u32>>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let body_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (body_index >= params.dynamic_count) {
-        return;
-    }
-    let blocks = contact_counts[body_index];
-    let contributing = atomicLoad(&contributions[body_index]);
-    atomicStore(&contributions[body_index], 0u);
+fn work(index: u32) {
+    let blocks = contact_counts[index];
+    let contributing = atomicLoad(&contributions[index]);
+    atomicStore(&contributions[index], 0u);
     if (blocks == 0u || contributing == 0u) {
         return;
     }
     let total = min(block_count[0], arrayLength(&a_bodies));
-    let body = body_states[body_index];
+    let body = body_states[index];
     var correction = vec3f(0.0);
-    var start = i32(first_a[body_index]) - 1;
+    var start = i32(first_a[index]) - 1;
     if (start >= 0) {
         var end = u32(start);
-        while (end < total && a_bodies[end] == body_index) {
+        while (end < total && a_bodies[end] == index) {
             end = end + 1u;
         }
         for (var i = u32(start); i < end; i = i + 1u) {
             correction = correction + block_corrections[i * 2u].xyz;
         }
     }
-    start = i32(first_b[body_index]) - 1;
+    start = i32(first_b[index]) - 1;
     if (start >= 0) {
         var end = u32(start);
-        while (end < total && b_bodies[end] == body_index) {
+        while (end < total && b_bodies[end] == index) {
             end = end + 1u;
         }
         for (var i = u32(start); i < end; i = i + 1u) {
@@ -49,6 +44,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let applied = correction / f32(contributing);
     var updated = body;
     updated.position = body.position + applied;
-    resolution[body_index] = vec4f(resolution[body_index].xyz + applied, 0.0);
-    body_states[body_index] = updated;
+    resolution[index] = vec4f(resolution[index].xyz + applied, 0.0);
+    body_states[index] = updated;
 }

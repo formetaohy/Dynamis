@@ -45,33 +45,33 @@ fn release(index: u32) {
     resting_next[index] = atomicExchange(&resting_free[0], index);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        if (resting_live[index] == 0u) {
-            continue;
-        }
-        let contact = resting[index];
-        let first_row = resolve_row(contact.first_body_id, contact.first_generation);
-        let second_row = resolve_row(contact.second_body_id, contact.second_generation);
-        if (first_row == NO_BODY || second_row == NO_BODY) {
-            release(index);
-            if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
-                announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
-            }
-            continue;
-        }
-        if (body_activity[first_row] == 0u && body_activity[second_row] == 0u) {
-            continue;
-        }
+fn extent() -> u32 {
+    return min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
+}
+
+fn work(index: u32) {
+    if (resting_live[index] == 0u) {
+        return;
+    }
+    let contact = resting[index];
+    let first_row = resolve_row(contact.first_body_id, contact.first_generation);
+    let second_row = resolve_row(contact.second_body_id, contact.second_generation);
+    if (first_row == NO_BODY || second_row == NO_BODY) {
         release(index);
-        if (current_holds(contact)) {
-            continue;
-        }
         if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
             announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
         }
+        return;
+    }
+    if (body_activity[first_row] == 0u && body_activity[second_row] == 0u) {
+        return;
+    }
+    release(index);
+    if (current_holds(contact)) {
+        return;
+    }
+    if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
+        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
     }
 }
+

@@ -27,24 +27,24 @@ fn acquire_slot() -> u32 {
     return slot;
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        let contact = contacts[index];
-        let first = collider_owners[contact.a];
-        let second = collider_owners[contact.b];
-        if (body_is_active(body_states[first], body_descs[first]) ||
-            body_is_active(body_states[second], body_descs[second])) {
-            continue;
-        }
-        let slot = acquire_slot();
-        if (slot >= arrayLength(&resting)) {
-            atomicAdd(&spillover[0], 1u);
-            continue;
-        }
-        resting[slot] = contact;
-        resting_live[slot] = 1u;
-    }
+fn extent() -> u32 {
+    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
 }
+
+fn work(index: u32) {
+    let contact = contacts[index];
+    let first = collider_owners[contact.a];
+    let second = collider_owners[contact.b];
+    if (body_is_active(body_states[first], body_descs[first]) ||
+        body_is_active(body_states[second], body_descs[second])) {
+        return;
+    }
+    let slot = acquire_slot();
+    if (slot >= arrayLength(&resting)) {
+        atomicAdd(&spillover[0], 1u);
+        return;
+    }
+    resting[slot] = contact;
+    resting_live[slot] = 1u;
+}
+

@@ -8,16 +8,16 @@
 
 const BLOCK_SIZE: u32 = 256u;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = min(atomicLoad(&count_holder[0]), arrayLength(&contacts_raw));
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {
-        if (valid[index] == 0u) {
-            continue;
-        }
-        let dest = block_offsets[index / BLOCK_SIZE] + ranks[index];
-        contacts[dest] = contacts_raw[index];
-        contact_matched[dest] = 0u;
-    }
+fn extent() -> u32 {
+    return min(atomicLoad(&count_holder[0]), arrayLength(&contacts_raw));
 }
+
+fn work(index: u32) {
+    if (valid[index] == 0u) {
+        return;
+    }
+    let dest = block_offsets[index / BLOCK_SIZE] + ranks[index];
+    contacts[dest] = contacts_raw[index];
+    contact_matched[dest] = 0u;
+}
+

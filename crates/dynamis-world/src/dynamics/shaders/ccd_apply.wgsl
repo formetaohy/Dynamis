@@ -3,12 +3,7 @@
 @group(0) @binding(2) var<storage, read> ccd_factor: array<u32>;
 @group(0) @binding(3) var<storage, read> ccd_impact: array<vec4f>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.dynamic_count) {
-        return;
-    }
+fn work(index: u32) {
     let time = bitcast<f32>(ccd_factor[index]);
     if (time >= 1.0) {
         return;

@@ -1,5 +1,5 @@
-use super::FrameParams;
-use super::stage::{CONTACT, CORE, IDENTITY, Stage, whole};
+use super::Frame;
+use super::stage::{CONTACT, CORE, Count, Coverage, IDENTITY, Slots, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
@@ -17,14 +17,17 @@ pub(super) struct Islands {
 }
 
 impl Islands {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             contact_relay: Stage::build(
                 context,
                 "contact_relay",
                 include_str!("shaders/contact_relay.wgsl"),
-                per_row,
                 CONTACT,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Archive,
+                },
                 &[
                     ("archive", whole(&buffers.contact_archive)),
                     ("archive_count", buffers.counter(COUNTER_ARCHIVED)),
@@ -45,8 +48,11 @@ impl Islands {
                 context,
                 "contact_begin",
                 include_str!("shaders/contact_begin.wgsl"),
-                per_row,
                 CONTACT,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Contacts,
+                },
                 &[
                     ("contacts", whole(&buffers.contacts)),
                     ("contact_count", buffers.counter(COUNTER_CONTACTS)),
@@ -68,8 +74,8 @@ impl Islands {
                 context,
                 "island_init",
                 include_str!("shaders/island_init.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Dynamic),
                 &[
                     ("params", whole(&buffers.params)),
                     ("island_parents", whole(&buffers.island_parents)),
@@ -81,8 +87,11 @@ impl Islands {
                 context,
                 "island_link_contacts",
                 include_str!("shaders/island_link_contacts.wgsl"),
-                per_row,
                 IDENTITY,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Contacts,
+                },
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("body_descs", whole(&buffers.body_descriptors)),
@@ -99,8 +108,8 @@ impl Islands {
                 context,
                 "island_link_constraints",
                 include_str!("shaders/island_link_constraints.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Constraints),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -116,8 +125,8 @@ impl Islands {
                 context,
                 "island_jump",
                 include_str!("shaders/island_jump.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Dynamic),
                 &[
                     ("params", whole(&buffers.params)),
                     ("island_parents", whole(&buffers.island_parents)),
@@ -131,22 +140,16 @@ impl Islands {
         &self,
         recorder: &mut ComputeRecorder,
         buffers: &WorldBuffers,
-        params: &FrameParams,
+        frame: &Frame,
     ) {
-        let constraint_active = params.constraint_count > 0;
-        let archived = buffers.archive_capacity();
-        let contacts = buffers.contact_capacity();
-
-        self.contact_relay.record_stride(recorder, archived);
-        self.contact_begin.record_stride(recorder, contacts);
-        self.island_init.record(recorder, params.dynamic_count);
-        self.island_link_contacts.record_stride(recorder, contacts);
-        if constraint_active {
-            self.island_link_constraints
-                .record(recorder, params.constraint_count);
-        }
-        for _ in 0..params.island_rounds {
-            self.island_jump.record(recorder, params.dynamic_count);
+        self.contact_relay.record(recorder, buffers, frame);
+        self.contact_begin.record(recorder, buffers, frame);
+        self.island_init.record(recorder, buffers, frame);
+        self.island_link_contacts.record(recorder, buffers, frame);
+        self.island_link_constraints
+            .record(recorder, buffers, frame);
+        for _ in 0..frame.island_rounds {
+            self.island_jump.record(recorder, buffers, frame);
         }
     }
 }

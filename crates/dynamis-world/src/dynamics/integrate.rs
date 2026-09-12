@@ -1,5 +1,5 @@
-use super::FrameParams;
-use super::stage::{CORE, Stage, shape_resources, whole};
+use super::Frame;
+use super::stage::{CORE, Count, Coverage, Stage, shape_resources, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
@@ -12,14 +12,14 @@ pub(super) struct Integrate {
 }
 
 impl Integrate {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             integrate: Stage::build(
                 context,
                 "integrate",
                 include_str!("shaders/integrate.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Dynamic),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -31,8 +31,8 @@ impl Integrate {
                 context,
                 "advance",
                 include_str!("shaders/advance.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Dynamic),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -44,8 +44,8 @@ impl Integrate {
                 context,
                 "broadphase_aabb",
                 include_str!("shaders/broadphase_aabb.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Colliders),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -60,22 +60,32 @@ impl Integrate {
         }
     }
 
-    pub(super) fn record_advance(&self, recorder: &mut ComputeRecorder, dynamic_count: u32) {
-        self.advance.record(recorder, dynamic_count);
+    pub(super) fn record_advance(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.advance.record(recorder, buffers, frame);
     }
 
-    pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, collider_count: u32) {
-        self.broadphase_aabb.record(recorder, collider_count);
+    pub(super) fn record_broadphase(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.broadphase_aabb.record(recorder, buffers, frame);
     }
 
     pub(super) fn record(
         &self,
         recorder: &mut ComputeRecorder,
         buffers: &WorldBuffers,
-        params: &FrameParams,
+        frame: &Frame,
         sort: &RadixSort,
     ) {
-        if params.constraint_count > 0 {
+        if frame.params.constraint_count > 0 {
             let words = buffers.body_words();
             let channels = buffers.sort_lanes_dual(
                 buffers.counter(COUNTER_JOINTS),
@@ -90,7 +100,7 @@ impl Integrate {
                 buffers.constraint_capacity(),
             );
         }
-        self.integrate.record(recorder, params.dynamic_count);
-        self.broadphase_aabb.record(recorder, params.collider_count);
+        self.integrate.record(recorder, buffers, frame);
+        self.broadphase_aabb.record(recorder, buffers, frame);
     }
 }

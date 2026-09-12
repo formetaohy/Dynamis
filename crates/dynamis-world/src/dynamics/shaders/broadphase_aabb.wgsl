@@ -34,12 +34,7 @@ fn swept_bounds(tight: Aabb, state: BodyState, desc: BodyDescriptor, collider: C
     return swept;
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.collider_count) {
-        return;
-    }
+fn work(index: u32) {
     let owner = collider_owners[index];
     if (owner == NO_BODY) {
         return;

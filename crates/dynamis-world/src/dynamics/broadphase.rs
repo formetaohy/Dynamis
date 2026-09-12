@@ -1,5 +1,5 @@
-use super::FrameParams;
-use super::stage::{GRID_INDEX, Stage, whole};
+use super::Frame;
+use super::stage::{Count, Coverage, GRID_INDEX, Slots, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_ENTRIES;
@@ -11,14 +11,17 @@ pub(super) struct Broadphase {
 }
 
 impl Broadphase {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             cell_pairs: Stage::build(
                 context,
                 "cell_pairs",
                 include_str!("shaders/cell_pairs.wgsl"),
-                per_row,
                 GRID_INDEX,
+                Coverage::Stream {
+                    kernel: "work",
+                    slots: Slots::Entries,
+                },
                 &[
                     ("params", whole(&buffers.params)),
                     ("pair_major", whole(&buffers.pair_major)),
@@ -36,8 +39,8 @@ impl Broadphase {
                 context,
                 "level_links",
                 include_str!("shaders/level_links.wgsl"),
-                per_row,
                 GRID_INDEX,
+                Coverage::Live(Count::Colliders),
                 &[
                     ("params", whole(&buffers.params)),
                     ("pair_major", whole(&buffers.pair_major)),
@@ -58,7 +61,7 @@ impl Broadphase {
         &self,
         recorder: &mut ComputeRecorder,
         buffers: &WorldBuffers,
-        params: &FrameParams,
+        frame: &Frame,
         sort: &RadixSort,
     ) {
         let channels = buffers.sort_lanes(
@@ -67,8 +70,7 @@ impl Broadphase {
             &buffers.grid_entry_colliders,
         );
         sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
-        self.cell_pairs
-            .record_stride(recorder, buffers.entry_capacity());
-        self.level_links.record(recorder, params.collider_count);
+        self.cell_pairs.record(recorder, buffers, frame);
+        self.level_links.record(recorder, buffers, frame);
     }
 }

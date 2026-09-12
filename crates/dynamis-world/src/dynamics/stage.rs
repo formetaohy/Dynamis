@@ -3,10 +3,12 @@ use super::shader::{
     GRID_INDEX_FRAGMENT, IDENTITY_FRAGMENT, POSITION_CONTACT_FRAGMENT, SCENE_FRAGMENT,
     WORKGROUP_SIZE, assemble_shader,
 };
+use crate::dynamics::Frame;
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{
     BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, GpuSlot, PipelineHandle,
 };
+use dynamis_layout::StepParamsRecord;
 use wgpu::{BindGroup, BindGroupEntry};
 
 pub(super) const CORE: &[&str] = &[];
@@ -24,24 +26,137 @@ pub(super) fn workgroups_of(elements: u32) -> u32 {
     elements.div_ceil(WORKGROUP_SIZE)
 }
 
-enum Entries<'a> {
-    Main,
-    WithWarm(&'a str),
+#[derive(Clone, Copy)]
+pub(super) enum Count {
+    Bodies,
+    Dynamic,
+    Colliders,
+    Constraints,
+    EditRuns,
+    BodyMoves,
+    ConstraintMoves,
 }
 
-impl Entries<'_> {
-    fn primary(&self) -> &str {
+impl Count {
+    const fn field(self) -> &'static str {
         match self {
-            Self::Main | Self::WithWarm(_) => "main",
+            Self::Bodies => "body_count",
+            Self::Dynamic => "dynamic_count",
+            Self::Colliders => "collider_count",
+            Self::Constraints => "constraint_count",
+            Self::EditRuns => "edit_run_count",
+            Self::BodyMoves => "body_move_count",
+            Self::ConstraintMoves => "constraint_move_count",
         }
     }
 
-    fn secondary(&self) -> Option<&str> {
+    fn of(self, params: &StepParamsRecord) -> u32 {
         match self {
-            Self::WithWarm(entry) => Some(entry),
-            Self::Main => None,
+            Self::Bodies => params.body_count,
+            Self::Dynamic => params.dynamic_count,
+            Self::Colliders => params.collider_count,
+            Self::Constraints => params.constraint_count,
+            Self::EditRuns => params.edit_run_count,
+            Self::BodyMoves => params.body_move_count,
+            Self::ConstraintMoves => params.constraint_move_count,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Slots {
+    Entries,
+    Pairs,
+    Contacts,
+    Archive,
+    Resting,
+    Blocks,
+}
+
+impl Slots {
+    fn of(self, buffers: &WorldBuffers) -> u32 {
+        match self {
+            Self::Entries => buffers.entry_capacity(),
+            Self::Pairs => buffers.pair_capacity(),
+            Self::Contacts => buffers.contact_capacity(),
+            Self::Archive => buffers.archive_capacity(),
+            Self::Resting => buffers.resting_capacity(),
+            Self::Blocks => buffers.block_capacity(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Coverage {
+    Live(Count),
+    Stream { kernel: &'static str, slots: Slots },
+    Workgroups,
+}
+
+impl Coverage {
+    fn workgroups(&self, buffers: &WorldBuffers, frame: &Frame) -> u32 {
+        match self {
+            Self::Live(count) => workgroups_of(count.of(&frame.params)),
+            Self::Stream { slots, .. } => workgroups_of(slots.of(buffers)).min(MAX_GRID_WORKGROUPS),
+            Self::Workgroups => panic!("a workgroup stage needs an explicit dispatch count"),
+        }
+    }
+}
+
+fn element_entry(count: Count) -> String {
+    let field = count.field();
+    format!(
+        "
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3u) {{
+    let index = global_index(gid);
+    if (index >= params.{field}) {{
+        return;
+    }}
+    work(index);
+}}
+"
+    )
+}
+
+fn stream_entry(entry: &str, kernel: &str) -> String {
+    assert!(
+        kernel != "main" && kernel != "warm",
+        "the streaming kernel {kernel:?} collides with the generated entry point"
+    );
+    format!(
+        "
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn {entry}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {{
+    let live = extent();
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {{
+        {kernel}(index);
+    }}
+}}
+"
+    )
+}
+
+fn assemble_body(
+    body: &str,
+    per_row: u32,
+    fragments: &[&str],
+    entries: [Option<Coverage>; 2],
+) -> String {
+    let mut source = assemble_shader(body, per_row, fragments);
+    match entries[0] {
+        Some(Coverage::Live(count)) => source.push_str(&element_entry(count)),
+        Some(Coverage::Stream { kernel, .. }) => source.push_str(&stream_entry("main", kernel)),
+        _ => {}
+    }
+    if let Some(coverage) = entries[1] {
+        match coverage {
+            Coverage::Stream { kernel, .. } => source.push_str(&stream_entry("warm", kernel)),
+            _ => panic!("a warm entry point must stream"),
+        }
+    }
+    source
 }
 
 pub(super) fn whole<'a>(binding: impl Into<GpuSlot<'a>>) -> GpuSlot<'a> {
@@ -57,9 +172,15 @@ pub(super) fn shape_resources(buffers: &WorldBuffers) -> [(&'static str, GpuSlot
     ]
 }
 
+struct Warm {
+    pipeline: PipelineHandle,
+    coverage: Coverage,
+}
+
 pub(super) struct Stage {
     pipeline: PipelineHandle,
-    warm: Option<PipelineHandle>,
+    coverage: Coverage,
+    warm: Option<Warm>,
     bind_group: BindGroup,
     shapes_group: Option<BindGroup>,
 }
@@ -197,8 +318,8 @@ impl Stage {
         context: &GpuContext,
         label: &str,
         body: &str,
-        per_row: u32,
         fragments: &[&str],
+        coverage: Coverage,
         slots: &[(&str, GpuSlot)],
         shapes: &[(&str, GpuSlot)],
     ) -> Self {
@@ -206,10 +327,9 @@ impl Stage {
             context,
             label,
             body,
-            per_row,
             fragments,
+            [Some(coverage), None],
             StageBindings { slots, shapes },
-            Entries::Main,
         )
     }
 
@@ -217,8 +337,8 @@ impl Stage {
         context: &GpuContext,
         label: &str,
         body: &str,
-        per_row: u32,
         fragments: &[&str],
+        entries: [Coverage; 2],
         slots: &[(&str, GpuSlot)],
         shapes: &[(&str, GpuSlot)],
     ) -> Self {
@@ -226,10 +346,9 @@ impl Stage {
             context,
             label,
             body,
-            per_row,
             fragments,
+            [Some(entries[0]), Some(entries[1])],
             StageBindings { slots, shapes },
-            Entries::WithWarm("warm"),
         )
     }
 
@@ -237,62 +356,75 @@ impl Stage {
         context: &GpuContext,
         label: &str,
         body: &str,
-        per_row: u32,
         fragments: &[&str],
+        entries: [Option<Coverage>; 2],
         declared: StageBindings,
-        entries: Entries<'_>,
     ) -> Self {
-        let entry = entries.primary();
-        let warm_entry = entries.secondary();
-        let shader = assemble_shader(body, per_row, fragments);
+        let coverage = entries[0].expect("the main entry always declares its coverage");
+        let shader: std::sync::Arc<str> =
+            assemble_body(body, context.workgroups_per_row(), fragments, entries).into();
         let resolved = Bindings::of(&shader, declared);
         let groups = resolved
             .groups
             .iter()
             .map(|group| group.as_slice())
             .collect::<Vec<_>>();
-        let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), entry, &groups));
-        let extra = warm_entry.map(|entry| {
-            context.declare(ComputeProgram::new(
-                &format!("{label} {entry}"),
-                shader.clone(),
-                entry,
+        let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), "main", &groups));
+        let warm = entries[1].map(|coverage| Warm {
+            pipeline: context.declare(ComputeProgram::new(
+                &format!("{label} warm"),
+                shader,
+                "warm",
                 &groups,
-            ))
+            )),
+            coverage,
         });
         let bind_group = pipeline.create_bind_group(context.device(), 0, &resolved.storage);
         let shapes_group = (!resolved.shapes.is_empty())
             .then(|| pipeline.create_bind_group(context.device(), 1, &resolved.shapes));
         Self {
             pipeline,
-            warm: extra,
+            coverage,
+            warm,
             bind_group,
             shapes_group,
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
-        self.record_workgroups(recorder, elements.div_ceil(WORKGROUP_SIZE));
-    }
-
-    pub(super) fn record_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {
-        self.record_workgroups(recorder, workgroups_of(bound).min(MAX_GRID_WORKGROUPS));
-    }
-
-    pub(super) fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        assert!(
+            !matches!(self.coverage, Coverage::Workgroups),
+            "a workgroup stage needs an explicit dispatch count"
+        );
+        let workgroups = self.coverage.workgroups(buffers, frame);
         self.record_handle(recorder, &self.pipeline, workgroups);
     }
 
-    pub(super) fn record_warm_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {
+    pub(super) fn record_warm(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
         let warm = self
             .warm
             .as_ref()
-            .expect("warm recording requires a warm entry point");
-        self.record_handle(
-            recorder,
-            warm,
-            workgroups_of(bound).min(MAX_GRID_WORKGROUPS),
+            .expect("a warm recording requires a warm entry point");
+        let workgroups = warm.coverage.workgroups(buffers, frame);
+        self.record_handle(recorder, &warm.pipeline, workgroups);
+    }
+
+    pub(super) fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
+        assert!(
+            matches!(self.coverage, Coverage::Workgroups),
+            "an element stage derives its dispatch from the frame"
         );
+        self.record_handle(recorder, &self.pipeline, workgroups);
     }
 
     fn record_handle(

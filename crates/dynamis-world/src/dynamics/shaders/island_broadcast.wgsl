@@ -8,12 +8,7 @@
 @group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read_write> deferred_woke_count: array<atomic<u32>>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.dynamic_count) {
-        return;
-    }
+fn work(index: u32) {
     var state = body_states[index];
     let root = atomicLoad(&island_parents[index]);
     let island = atomicLoad(&island_state[root]);

@@ -70,32 +70,27 @@ fn commit_block(
     block_deltas[slot * 4u + 3u] = vec4f(spin_b, 0.0);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = block_count[0];
+fn extent() -> u32 {
+    return block_count[0];
+}
+
+fn work(index: u32) {
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    let stride = grid_stride(groups);
-    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
-        let block = a_payload[slot];
-        if (block < contact_blocks) {
-            solve_contact_block(block, slot);
-        } else {
-            solve_constraint_block(block - contact_blocks, slot);
-        }
+    let block = a_payload[index];
+    if (block < contact_blocks) {
+        solve_contact_block(block, index);
+    } else {
+        solve_constraint_block(block - contact_blocks, index);
     }
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn warm(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = block_count[0];
+fn warm_start(index: u32) {
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    let stride = grid_stride(groups);
-    for (var slot = global_index(gid); slot < live; slot = slot + stride) {
-        let block = a_payload[slot];
-        if (block < contact_blocks) {
-            warm_contact_block(block, slot);
-        } else {
-            commit_block(slot, 0u, 0u, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
-        }
+    let block = a_payload[index];
+    if (block < contact_blocks) {
+        warm_contact_block(block, index);
+    } else {
+        commit_block(index, 0u, 0u, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
     }
 }
+

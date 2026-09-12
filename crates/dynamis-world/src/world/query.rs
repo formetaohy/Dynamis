@@ -140,43 +140,15 @@ impl World {
             .buffers
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
-        let params = dynamis_layout::StepParamsRecord::new(
-            &self.config,
-            self.clock.sub_dt,
-            dynamis_layout::FrameCounts {
-                dynamic_bodies: self.bodies.dynamic_count as u32,
-                bodies: self.bodies.alive.len() as u32,
-                colliders: self.colliders.used(),
-                constraints: self.constraints.alive.len() as u32,
-            },
-            dynamis_layout::RowStreams {
-                edit_runs: self.bodies.last_edits,
-                body_moves: self.bodies.last_moves,
-                constraint_moves: self.constraints.last_moves,
-            },
-            self.event_slot_of(step),
-        );
+        let count = self.queries.pending.len();
+        let frame = self.frame(self.clock.sub_dt, count as u32);
         self.backend
             .buffers
             .params
-            .write(&queue, bytemuck::cast_slice(&[params]));
-        let count = self.queries.pending.len();
+            .write(&queue, bytemuck::cast_slice(&[frame.params]));
         let batch = self.queries.next_batch;
         self.queries.pool.submit(batch, step, count);
         self.queries.next_batch += 1;
-        let frame = crate::dynamics::FrameParams {
-            dynamic_count: self.bodies.dynamic_count as u32,
-            collider_count: self.colliders.used(),
-            body_count: self.bodies.alive.len() as u32,
-            solve_iterations: self.config.solve_iterations,
-            position_iterations: self.config.position_iterations,
-            island_rounds: self.island_rounds(),
-            query_count: count as u32,
-            constraint_count: self.constraints.alive.len() as u32,
-            body_move_count: self.bodies.last_moves,
-            constraint_move_count: self.constraints.last_moves,
-            edit_run_count: self.bodies.last_edits,
-        };
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query flush");
         self.backend
             .pipeline

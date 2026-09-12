@@ -13,17 +13,12 @@ fn emit_entry(collider: u32, level: u32, coord: vec3i) {
     }
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let collider_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (collider_index >= params.collider_count) {
-        return;
-    }
-    let owner = collider_owners[collider_index];
+fn work(index: u32) {
+    let owner = collider_owners[index];
     if (owner == NO_BODY) {
         return;
     }
-    let aabb = aabbs[collider_index];
+    let aabb = aabbs[index];
     let cell = grid_base_cell();
     let level = shape_levels(aabb, cell);
     counter_or(COUNTER_GRID_LEVELS, 1u << level);
@@ -42,7 +37,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     continue;
                 }
                 cells = cells + 1u;
-                emit_entry(collider_index, level, vec3i(dx, dy, dz));
+                emit_entry(index, level, vec3i(dx, dy, dz));
             }
         }
     }

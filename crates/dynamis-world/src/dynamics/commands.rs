@@ -1,5 +1,5 @@
-use super::FrameParams;
-use super::stage::{CORE, Stage, whole};
+use super::Frame;
+use super::stage::{CORE, Count, Coverage, Stage, whole, workgroups_of};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
@@ -17,14 +17,14 @@ pub(super) struct Commands {
 }
 
 impl Commands {
-    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
+    pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers) -> Self {
         Self {
             reset_counters: Stage::build(
                 context,
                 "reset_counters",
                 include_str!("shaders/reset_counters.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Workgroups,
                 &[("counters", whole(&buffers.counters))],
                 &[],
             ),
@@ -32,8 +32,8 @@ impl Commands {
                 context,
                 "body_move_gather",
                 include_str!("shaders/body_move_gather.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::BodyMoves),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("state_scratch", whole(&buffers.body_state_scratch)),
@@ -47,8 +47,8 @@ impl Commands {
                 context,
                 "body_move_scatter",
                 include_str!("shaders/body_move_scatter.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::BodyMoves),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("state_scratch", whole(&buffers.body_state_scratch)),
@@ -61,8 +61,8 @@ impl Commands {
                 context,
                 "body_edits",
                 include_str!("shaders/body_edits.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::EditRuns),
                 &[
                     ("edits", whole(&buffers.body_edits)),
                     ("edit_runs", whole(&buffers.body_edit_runs)),
@@ -79,8 +79,8 @@ impl Commands {
                 context,
                 "row_of_body",
                 include_str!("shaders/row_of_body.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::BodyMoves),
                 &[
                     ("body_states", whole(&buffers.body_states)),
                     ("row_moves", whole(&buffers.body_row_moves)),
@@ -93,8 +93,8 @@ impl Commands {
                 context,
                 "constraint_move_gather",
                 include_str!("shaders/constraint_move_gather.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::ConstraintMoves),
                 &[
                     ("constraint_runtime", whole(&buffers.constraint_runtime)),
                     ("constraint_scratch", whole(&buffers.constraint_scratch)),
@@ -108,8 +108,8 @@ impl Commands {
                 context,
                 "constraint_move_scatter",
                 include_str!("shaders/constraint_move_scatter.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::ConstraintMoves),
                 &[
                     ("constraint_runtime", whole(&buffers.constraint_runtime)),
                     ("constraint_scratch", whole(&buffers.constraint_scratch)),
@@ -122,8 +122,8 @@ impl Commands {
                 context,
                 "activity",
                 include_str!("shaders/activity.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Bodies),
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
@@ -137,8 +137,8 @@ impl Commands {
                 context,
                 "joint_filter",
                 include_str!("shaders/joint_filter.wgsl"),
-                per_row,
                 CORE,
+                Coverage::Live(Count::Constraints),
                 &[
                     ("params", whole(&buffers.params)),
                     ("constraint_descs", whole(&buffers.constraint_descriptors)),
@@ -153,36 +153,43 @@ impl Commands {
     }
 
     pub(super) fn reset(&self, recorder: &mut ComputeRecorder) {
-        self.reset_counters.record(recorder, COUNTER_COUNT as u32);
+        self.reset_counters
+            .record_workgroups(recorder, workgroups_of(COUNTER_COUNT as u32));
     }
 
-    pub(super) fn record_moves(&self, recorder: &mut ComputeRecorder, params: &FrameParams) {
-        if params.body_move_count > 0 {
-            self.body_move_gather
-                .record(recorder, params.body_move_count);
-            self.body_move_scatter
-                .record(recorder, params.body_move_count);
-            self.row_of_body.record(recorder, params.body_move_count);
-        }
-        if params.constraint_move_count > 0 {
-            self.constraint_move_gather
-                .record(recorder, params.constraint_move_count);
-            self.constraint_move_scatter
-                .record(recorder, params.constraint_move_count);
-        }
-    }
-
-    pub(super) fn record_edits(&self, recorder: &mut ComputeRecorder, edit_run_count: u32) {
-        self.body_edits.record(recorder, edit_run_count);
-    }
-
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, params: &FrameParams) {
+    pub(super) fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
         self.reset(recorder);
-        self.record_moves(recorder, params);
-        self.record_edits(recorder, params.edit_run_count);
-        if params.constraint_count > 0 {
-            self.joint_filter.record(recorder, params.constraint_count);
-        }
-        self.activity.record(recorder, params.body_count);
+        self.record_moves(recorder, buffers, frame);
+        self.record_edits(recorder, buffers, frame);
+        self.joint_filter.record(recorder, buffers, frame);
+        self.activity.record(recorder, buffers, frame);
+    }
+
+    pub(super) fn record_moves(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.body_move_gather.record(recorder, buffers, frame);
+        self.body_move_scatter.record(recorder, buffers, frame);
+        self.row_of_body.record(recorder, buffers, frame);
+        self.constraint_move_gather.record(recorder, buffers, frame);
+        self.constraint_move_scatter
+            .record(recorder, buffers, frame);
+    }
+
+    pub(super) fn record_edits(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        frame: &Frame,
+    ) {
+        self.body_edits.record(recorder, buffers, frame);
     }
 }

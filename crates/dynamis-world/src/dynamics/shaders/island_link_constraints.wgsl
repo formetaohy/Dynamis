@@ -15,12 +15,7 @@ fn island_link(a: u32, b: u32) {
     atomicMin(&island_parents[b], a);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.constraint_count) {
-        return;
-    }
+fn work(index: u32) {
     if (constraint_runtime[index].broken != 0u) {
         return;
     }

@@ -2,12 +2,7 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.dynamic_count) {
-        return;
-    }
+fn work(index: u32) {
     var state = body_states[index];
     let desc = body_descs[index];
     if (state.sleeping != 0u) {
