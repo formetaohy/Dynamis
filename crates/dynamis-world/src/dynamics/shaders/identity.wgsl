@@ -12,12 +12,6 @@ fn contact_pair_key(contact: Contact) -> vec2u {
     );
 }
 
-fn contact_row_key(contact: Contact, first_row: u32, second_row: u32) -> vec2u {
-    let first = first_row * MAX_COLLIDERS_PER_BODY + contact.a % MAX_COLLIDERS_PER_BODY;
-    let second = second_row * MAX_COLLIDERS_PER_BODY + contact.b % MAX_COLLIDERS_PER_BODY;
-    return vec2u(min(first, second), max(first, second));
-}
-
 fn contact_touches(contact: Contact, threshold: f32) -> bool {
     for (var index = 0u; index < contact.point_count; index = index + 1u) {
         if (contact.points[index].depth >= -threshold) {
@@ -32,8 +26,8 @@ fn contact_same_roles(held: Contact, current: Contact) -> bool {
         && held.first_generation == current.first_generation
         && held.second_body_id == current.second_body_id
         && held.second_generation == current.second_generation
-        && held.a % MAX_COLLIDERS_PER_BODY == current.a % MAX_COLLIDERS_PER_BODY
-        && held.b % MAX_COLLIDERS_PER_BODY == current.b % MAX_COLLIDERS_PER_BODY;
+        && held.a == current.a
+        && held.b == current.b;
 }
 
 fn contact_same_pair(held: Contact, current: Contact) -> bool {
@@ -41,8 +35,8 @@ fn contact_same_pair(held: Contact, current: Contact) -> bool {
         && held.first_generation == current.second_generation
         && held.second_body_id == current.first_body_id
         && held.second_generation == current.first_generation
-        && held.a % MAX_COLLIDERS_PER_BODY == current.b % MAX_COLLIDERS_PER_BODY
-        && held.b % MAX_COLLIDERS_PER_BODY == current.a % MAX_COLLIDERS_PER_BODY;
+        && held.a == current.b
+        && held.b == current.a;
     return contact_same_roles(held, current) || flipped;
 }
 

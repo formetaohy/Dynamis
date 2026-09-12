@@ -9,6 +9,7 @@
 @group(0) @binding(8) var<storage, read_write> a_payload: array<u32>;
 @group(0) @binding(9) var<storage, read_write> block_counts: array<atomic<u32>>;
 @group(0) @binding(10) var<storage, read_write> contact_counts: array<atomic<u32>>;
+@group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -23,11 +24,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         a_payload[index] = index;
         if (index < contact_blocks) {
             var contact = contacts[index];
-            let body_a = contact.a / MAX_COLLIDERS_PER_BODY;
+            let body_a = collider_owners[contact.a];
             a_bodies[index] = body_a;
             if (contact_block_resolves(contact)) {
                 let first = load_body(body_a);
-                let second = load_body(contact.b / MAX_COLLIDERS_PER_BODY);
+                let second = load_body(collider_owners[contact.b]);
                 for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
                     let point = contact.points[point_index];
                     let speed = dot(relative_velocity(first, second, point.position, point.position), contact.normal);
@@ -40,7 +41,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
                     contact.points[point_index].target_speed = target_speed;
                 }
                 contacts[index] = contact;
-                let body_b = contact.b / MAX_COLLIDERS_PER_BODY;
+                let body_b = collider_owners[contact.b];
                 atomicAdd(&block_counts[body_a], 1u);
                 atomicAdd(&block_counts[body_b], 1u);
                 atomicAdd(&contact_counts[body_a], 1u);

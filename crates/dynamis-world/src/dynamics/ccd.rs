@@ -24,6 +24,7 @@ impl Ccd {
                     ("pair_major", whole(&buffers.contacts.pairs.major)),
                     ("pair_minor", whole(&buffers.contacts.pairs.minor)),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                 ],
                 &shape_resources(buffers),
             ),

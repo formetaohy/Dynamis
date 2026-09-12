@@ -2,7 +2,7 @@ use super::World;
 use crate::world::shape_pool::{ShapePool, height_field_triangles};
 use dynamis_layout::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_mesh::convex_hull_mesh;
-use dynamis_model::{MAX_COLLIDERS_PER_BODY, Shape, ShapeSourceHandle};
+use dynamis_model::{Shape, ShapeSourceHandle};
 
 pub(crate) struct Shapes {
     pub(crate) pool: ShapePool,
@@ -33,10 +33,6 @@ impl World {
         triangles: &[[u32; 3]],
         settings: dynamis_mesh::HullDecomposeSettings,
     ) -> Vec<ShapeSourceHandle> {
-        assert!(
-            settings.max_parts as usize <= MAX_COLLIDERS_PER_BODY,
-            "decomposition part limit must fit within one body"
-        );
         let parts = dynamis_mesh::decompose_mesh(vertices, triangles, &settings);
         parts
             .iter()

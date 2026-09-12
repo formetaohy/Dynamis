@@ -16,38 +16,35 @@ fn cell_hash(coord: vec3i) -> u32 {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-    let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.body_count) {
+    let collider_index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
+    if (collider_index >= params.collider_count) {
         return;
     }
     let cell_size = params.grid_cell_size;
-    for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
-        let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
-        let aabb = aabbs[collider_index];
-        if (aabb.min.x > aabb.max.x) {
-            continue;
+    let aabb = aabbs[collider_index];
+    if (aabb.min.x > aabb.max.x) {
+        return;
+    }
+    let min_cell = vec3i(floor(aabb.min / cell_size));
+    let max_cell = vec3i(floor(aabb.max / cell_size));
+    let span = max_cell - min_cell + vec3i(1);
+    let cell_count = span.x * span.y * span.z;
+    if (cell_count > i32(params.max_cells_per_collider) || span.x > 8192 || span.y > 8192 || span.z > 8192) {
+        let slot = atomicAdd(&large_count[0], 1u);
+        if (slot < arrayLength(&large_bodies)) {
+            large_bodies[slot] = collider_index;
         }
-        let min_cell = vec3i(floor(aabb.min / cell_size));
-        let max_cell = vec3i(floor(aabb.max / cell_size));
-        let span = max_cell - min_cell + vec3i(1);
-        let cell_count = span.x * span.y * span.z;
-        if (cell_count > i32(params.max_cells_per_collider) || span.x > 8192 || span.y > 8192 || span.z > 8192) {
-            let slot = atomicAdd(&large_count[0], 1u);
-            if (slot < arrayLength(&large_bodies)) {
-                large_bodies[slot] = collider_index;
-            }
-            continue;
-        }
-        for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
-            for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
-                for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
-                    let slot = atomicAdd(&entry_count[0], 1u);
-                    if (slot < arrayLength(&entry_cells)) {
-                        entry_cells[slot] = cell_hash(vec3i(dx, dy, dz));
-                        entry_colliders[slot] = collider_index;
-                    } else {
-                        atomicAdd(&spillover[0], 1u);
-                    }
+        return;
+    }
+    for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
+        for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
+            for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
+                let slot = atomicAdd(&entry_count[0], 1u);
+                if (slot < arrayLength(&entry_cells)) {
+                    entry_cells[slot] = cell_hash(vec3i(dx, dy, dz));
+                    entry_colliders[slot] = collider_index;
+                } else {
+                    atomicAdd(&spillover[0], 1u);
                 }
             }
         }

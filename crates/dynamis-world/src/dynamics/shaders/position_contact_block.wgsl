@@ -4,8 +4,8 @@ fn solve_contact_correction(contact_index: u32, slot: u32) {
         store_block_correction(slot, vec3f(0.0), vec3f(0.0));
         return;
     }
-    let first_row = contact.a / MAX_COLLIDERS_PER_BODY;
-    let second_row = contact.b / MAX_COLLIDERS_PER_BODY;
+    let first_row = collider_owners[contact.a];
+    let second_row = collider_owners[contact.b];
     let first_loaded = load_body(first_row);
     let second_loaded = load_body(second_row);
     var first = first_loaded;
@@ -36,6 +36,8 @@ fn solve_contact_correction(contact_index: u32, slot: u32) {
         store_block_correction(slot, vec3f(0.0), vec3f(0.0));
         return;
     }
+    atomicAdd(&contributions[first_row], 1u);
+    atomicAdd(&contributions[second_row], 1u);
     let correction = total / f32(contributing);
     store_block_correction(
         slot,

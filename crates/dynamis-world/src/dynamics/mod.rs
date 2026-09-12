@@ -76,6 +76,7 @@ passes!(
 
 pub(crate) struct FrameParams {
     pub(crate) dynamic_count: u32,
+    pub(crate) collider_count: u32,
     pub(crate) body_count: u32,
     pub(crate) solve_iterations: u32,
     pub(crate) position_iterations: u32,
@@ -166,7 +167,7 @@ impl Pipeline {
             drop(integrate);
 
             let mut grid = self.open(encoder, Pass::Grid);
-            self.grid.record(&mut grid, params.body_count);
+            self.grid.record(&mut grid, params.collider_count);
             drop(grid);
 
             let mut broadphase = self.open(encoder, Pass::Broadphase);

@@ -7,9 +7,11 @@
 @group(0) @binding(6) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(7) var<storage, read_write> spillover: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read> body_activity: array<u32>;
+@group(0) @binding(9) var<storage, read> collider_owners: array<u32>;
 
 fn emit_pair(first: u32, second: u32) {
-    if (first == second) {
+    let owner = collider_owners[first];
+    if (first == second || owner == collider_owners[second]) {
         return;
     }
     let a = min(first, second);
@@ -26,24 +28,24 @@ fn emit_pair(first: u32, second: u32) {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.body_count) {
+    if (index >= params.collider_count) {
         return;
     }
     let live = min(atomicLoad(&large_count[0]), arrayLength(&large_bodies));
     if (live == 0u) {
         return;
     }
-    let origin_active = body_activity[index] != 0u;
-    for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
-        let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
-        if (colliders[collider_index].kind == SHAPE_NONE) {
-            continue;
-        }
-        for (var large = 0u; large < live; large = large + 1u) {
-            let large_index = large_bodies[large];
-            if (origin_active || body_activity[large_index / MAX_COLLIDERS_PER_BODY] != 0u) {
-                emit_pair(large_index, collider_index);
-            }
+    let collider = colliders[index];
+    let owner = collider_owners[index];
+    if (collider.kind == SHAPE_NONE || owner == NO_BODY) {
+        return;
+    }
+    let origin_active = body_activity[owner] != 0u;
+    for (var large = 0u; large < live; large = large + 1u) {
+        let large_index = large_bodies[large];
+        let large_owner = collider_owners[large_index];
+        if (origin_active || (large_owner != NO_BODY && body_activity[large_owner] != 0u)) {
+            emit_pair(large_index, index);
         }
     }
 }

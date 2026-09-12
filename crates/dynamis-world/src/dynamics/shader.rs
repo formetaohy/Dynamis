@@ -1,5 +1,4 @@
 use dynamis_layout::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
-use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 pub(super) const WORKGROUP_SIZE: u32 = 64;
 
@@ -36,9 +35,6 @@ fn shader_constants(per_row: u32) -> String {
     let mut source = constants_wgsl();
     source.push_str(&format!("const WORKGROUP_SIZE: u32 = {WORKGROUP_SIZE}u;\n"));
     source.push_str(&format!("const WORKGROUPS_PER_ROW: u32 = {per_row}u;\n"));
-    source.push_str(&format!(
-        "const MAX_COLLIDERS_PER_BODY: u32 = {MAX_COLLIDERS_PER_BODY}u;\n"
-    ));
     source.push_str(&format!(
         "const EVENT_SLOTS: u32 = {}u;\n",
         crate::dynamics::buffers::EVENT_SLOTS

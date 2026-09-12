@@ -3,7 +3,6 @@ use dynamis_layout::{
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_PAIRS, COUNTER_SPILLOVER_RESTING, Counters,
     MAX_CELLS_PER_COLLIDER,
 };
-use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 const SLOTS_HEADROOM: u32 = 2;
 const COMMANDS_PER_BODY: u32 = 4;
@@ -18,6 +17,8 @@ pub(crate) const STREAM_FLOOR: u32 = 256;
 
 pub(crate) struct Live {
     pub(crate) bodies: u32,
+    pub(crate) colliders: u32,
+    pub(crate) collider_pool: u32,
     pub(crate) body_ids: u32,
     pub(crate) constraints: u32,
     pub(crate) body_commands: u32,
@@ -41,6 +42,7 @@ pub(crate) enum CapacityPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Reservation {
     pub(crate) bodies: u32,
+    pub(crate) colliders: u32,
     pub(crate) body_ids: u32,
     pub(crate) constraints: u32,
     pub(crate) entries: u32,
@@ -83,6 +85,7 @@ impl Reservation {
         Self::planned(
             &Self {
                 bodies: 0,
+                colliders: 0,
                 body_ids: 0,
                 constraints: 0,
                 entries: 0,
@@ -94,6 +97,8 @@ impl Reservation {
             },
             &Live {
                 bodies: 0,
+                colliders: 0,
+                collider_pool: 0,
                 body_ids: 0,
                 constraints: 0,
                 body_commands: 0,
@@ -113,6 +118,7 @@ impl Reservation {
         } else {
             narrowed(current.bodies, live.bodies)
         };
+        let colliders = grown(current.colliders, live.collider_pool);
         let body_ids = current.body_ids.max(live.body_ids).max(MIN_SLOTS);
         let constraints = if widen {
             grown(current.constraints, live.constraints)
@@ -128,10 +134,9 @@ impl Reservation {
             },
         };
 
-        let collider_rows = product(live.bodies, MAX_COLLIDERS_PER_BODY as u32, "collider");
-        let entry_budget = product(collider_rows, MAX_CELLS_PER_COLLIDER, "grid entry");
-        let pair_budget = product(live.bodies, STREAM_DENSITY_PAIRS, "pair");
-        let event_budget = product(live.bodies, STREAM_DENSITY_EVENTS, "event");
+        let entry_budget = product(live.colliders, MAX_CELLS_PER_COLLIDER, "grid entry");
+        let pair_budget = product(live.colliders, STREAM_DENSITY_PAIRS, "pair");
+        let event_budget = product(live.colliders, STREAM_DENSITY_EVENTS, "event");
 
         let entries = if widen {
             stream_grown(current.entries, entry_budget, demand.entries)
@@ -196,6 +201,7 @@ impl Reservation {
         };
         Self {
             bodies,
+            colliders,
             body_ids,
             constraints,
             entries,
@@ -213,10 +219,6 @@ impl Reservation {
             pairs: self.pairs,
             events: self.events,
         }
-    }
-
-    pub(crate) fn colliders(&self) -> u32 {
-        product(self.bodies, MAX_COLLIDERS_PER_BODY as u32, "collider")
     }
 
     pub(crate) fn body_moves(&self) -> u32 {

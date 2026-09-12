@@ -7,7 +7,6 @@ use dynamis_layout::{
     QueryHitRecord, QueryRecord, QueryResultHeaderRecord, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
     ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
-use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use dynamis_sort::{SortChannels, key_words};
 use std::mem::size_of;
 use wgpu::{BufferUsages, Device};
@@ -90,6 +89,7 @@ pub(crate) struct BodyBuffers {
     pub(crate) descriptors: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
     pub(crate) aabbs: GpuBuffer,
+    pub(crate) collider_owners: GpuBuffer,
     pub(crate) edits: GpuBuffer,
     pub(crate) edit_runs: GpuBuffer,
     pub(crate) row_moves: GpuBuffer,
@@ -110,6 +110,7 @@ pub(crate) struct SolverBuffers {
     pub(crate) deltas: GpuBuffer,
     pub(crate) corrections: GpuBuffer,
     pub(crate) resolution: GpuBuffer,
+    pub(crate) contributions: GpuBuffer,
 }
 
 pub(crate) struct ConstraintBuffers {
@@ -196,7 +197,7 @@ impl WorldBuffers {
         shapes: &ShapeReservation,
     ) -> Self {
         let bodies = plan.bodies;
-        let colliders = plan.colliders();
+        let colliders = plan.colliders;
         let constraints = plan.constraints;
         let limits = device.limits();
         let storage_limit = limits.max_storage_buffer_binding_size;
@@ -256,6 +257,7 @@ impl WorldBuffers {
                     colliders,
                     size_of::<AabbRecord>() as u64,
                 ),
+                collider_owners: lanes("collider owners", colliders),
                 edits: rows(
                     "body edits",
                     plan.body_commands,
@@ -316,6 +318,7 @@ impl WorldBuffers {
                 deltas: rows("solver block deltas", plan.blocks(), DELTA_BYTES),
                 corrections: rows("solver block corrections", plan.blocks(), CORRECTION_BYTES),
                 resolution: rows("solver resolution", bodies, 16),
+                contributions: lanes("solver contributions", bodies),
             },
             contacts: ContactBuffers {
                 resting_index: Lanes::new(device, "resting index", plan.pairs),
@@ -419,14 +422,6 @@ impl WorldBuffers {
         GpuSlot::range(&self.counters, slot as u64 * COUNTER_STRIDE, 4)
     }
 
-    pub(crate) fn collider_row(&self) -> u64 {
-        size_of::<ColliderRecord>() as u64 * MAX_COLLIDERS_PER_BODY as u64
-    }
-
-    pub(crate) fn aabb_row(&self) -> u64 {
-        size_of::<AabbRecord>() as u64 * MAX_COLLIDERS_PER_BODY as u64
-    }
-
     pub(crate) fn descriptor_row(&self) -> u64 {
         size_of::<BodyDescriptorRecord>() as u64
     }
@@ -439,8 +434,8 @@ impl WorldBuffers {
         (self.bodies.states.size() / size_of::<BodyStateRecord>() as u64) as u32
     }
 
-    pub(crate) fn collider_rows(&self) -> u32 {
-        (self.bodies.colliders.size() / size_of::<ColliderRecord>() as u64) as u32
+    pub(crate) fn collider_capacity(&self) -> u32 {
+        lanes_of(&self.bodies.collider_owners)
     }
 
     pub(crate) fn body_words(&self) -> u32 {
@@ -448,7 +443,7 @@ impl WorldBuffers {
     }
 
     pub(crate) fn collider_words(&self) -> u32 {
-        key_words(self.collider_rows().max(1))
+        key_words(self.collider_capacity().max(1))
     }
 
     pub(crate) fn sort_lanes<'a>(

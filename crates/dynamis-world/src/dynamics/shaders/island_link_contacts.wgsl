@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(6) var<uniform> params: StepParams;
+@group(0) @binding(7) var<storage, read> collider_owners: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -24,8 +25,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         if (contact.point_count == 0u || contact.sensor == 1u || !contact_touches(contact, params.slop)) {
             continue;
         }
-        let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
-        let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
+        let first_slot = collider_owners[contact.a];
+        let second_slot = collider_owners[contact.b];
         let first = load_body(first_slot);
         let second = load_body(second_slot);
         let first_static = body_is_static(first);

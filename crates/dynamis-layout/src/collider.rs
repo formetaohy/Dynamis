@@ -1,13 +1,35 @@
 use crate::constant::{
     COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR, NO_COLLISION_FILTER,
     SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_PLANE, SHAPE_SPHERE,
+    SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
 use crate::{AabbRecord, ColliderRecord};
 use dynamis_model::{ColliderDesc, ContactEventMode, Shape};
 
 impl ColliderRecord {
-    pub fn build(collider: &ColliderDesc, source: u32) -> Self {
+    pub const fn cleared() -> Self {
+        Self {
+            slot: 0,
+            kind: SHAPE_NONE,
+            flags: 0,
+            radius: 0.0,
+            half_height: 0.0,
+            _wgsl_pad0: [0; 12],
+            half_extents: [0.0; 3],
+            collision_group: NO_COLLISION_FILTER,
+            local_offset: [0.0; 3],
+            collision_mask: NO_COLLISION_FILTER,
+            local_rotation: [0.0, 0.0, 0.0, 1.0],
+            friction: 0.0,
+            restitution: 0.0,
+            source: 0,
+            rolling_friction: 0.0,
+            scale: [1.0; 3],
+            spin_friction: 0.0,
+        }
+    }
+
+    pub fn build(collider: &ColliderDesc, source: u32, slot: u32) -> Self {
         let kind = shape_kind(&collider.shape);
         let uniform =
             collider.scale[0] == collider.scale[1] && collider.scale[1] == collider.scale[2];
@@ -20,6 +42,7 @@ impl ColliderRecord {
             }
         }
         Self {
+            slot,
             kind,
             flags,
             radius: match collider.shape {
@@ -49,6 +72,7 @@ impl ColliderRecord {
                 }
                 _ => 0.0,
             },
+            _wgsl_pad0: [0; 12],
             half_extents: match collider.shape {
                 Shape::Cuboid { half_extents } => [
                     half_extents[0] * collider.scale[0],

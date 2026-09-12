@@ -8,6 +8,7 @@
 @group(0) @binding(7) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(8) var<storage, read_write> resting_next: array<u32>;
 @group(0) @binding(9) var<storage, read_write> resting_free: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
 
 fn acquire_slot() -> u32 {
     var slot = 0u;
@@ -32,8 +33,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
     let stride = grid_stride(groups);
     for (var index = global_index(gid); index < live; index = index + stride) {
         let contact = contacts[index];
-        let first = contact.a / MAX_COLLIDERS_PER_BODY;
-        let second = contact.b / MAX_COLLIDERS_PER_BODY;
+        let first = collider_owners[contact.a];
+        let second = collider_owners[contact.b];
         if (body_is_active(body_states[first], body_descs[first]) ||
             body_is_active(body_states[second], body_descs[second])) {
             continue;

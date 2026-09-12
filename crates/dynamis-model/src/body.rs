@@ -22,7 +22,6 @@ pub struct BodyState {
 
 const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
 const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
-pub const MAX_COLLIDERS_PER_BODY: usize = 16;
 
 #[derive(Clone, Debug)]
 pub struct BodyDesc {
@@ -71,10 +70,6 @@ impl BodyDesc {
     }
 
     pub fn collider(mut self, collider: ColliderDesc) -> Self {
-        assert!(
-            self.colliders.len() < MAX_COLLIDERS_PER_BODY,
-            "a body supports at most {MAX_COLLIDERS_PER_BODY} colliders"
-        );
         self.colliders.push(collider);
         self
     }
@@ -106,10 +101,6 @@ impl BodyDesc {
         let first = handles
             .first()
             .expect("compound body requires at least one hull");
-        assert!(
-            handles.len() <= MAX_COLLIDERS_PER_BODY,
-            "a compound body takes at most {MAX_COLLIDERS_PER_BODY} hulls"
-        );
         let mut body = Self::new(ColliderDesc::new(Shape::hull(*first)));
         for handle in &handles[1..] {
             body = body.collider(ColliderDesc::new(Shape::hull(*handle)));

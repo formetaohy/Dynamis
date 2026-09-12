@@ -6,21 +6,25 @@ impl StepParamsRecord {
     pub fn new(
         config: &PhysicsConfig,
         dt: f32,
-        dynamic_count: u32,
-        body_count: u32,
-        constraint_count: u32,
+        counts: FrameCounts,
         streams: RowStreams,
         event_slot: u32,
     ) -> Self {
+        let FrameCounts {
+            dynamic_bodies,
+            bodies,
+            colliders,
+            constraints,
+        } = counts;
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,
             damping: config.damping,
             angular_damping: config.angular_damping,
-            body_count,
+            body_count: bodies,
             solve_iterations: config.solve_iterations,
             position_iterations: config.position_iterations,
-            constraint_count,
+            constraint_count: constraints,
             relaxation: config.relaxation,
             slop: config.slop,
             contact_margin: config.contact_margin,
@@ -29,7 +33,8 @@ impl StepParamsRecord {
             max_angular_velocity: config.max_angular_velocity,
             grid_cell_size: config.broadphase_cell_size,
             max_cells_per_collider: MAX_CELLS_PER_COLLIDER,
-            dynamic_count,
+            dynamic_count: dynamic_bodies,
+            collider_count: colliders,
             sleep_velocity: config.sleep_velocity,
             sleep_angular_velocity: config.sleep_angular_velocity,
             sleep_time: config.sleep_time,
@@ -40,10 +45,17 @@ impl StepParamsRecord {
             body_move_count: streams.body_moves,
             constraint_move_count: streams.constraint_moves,
             event_slot,
-            _pad2: 0,
             _pad3: 0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameCounts {
+    pub dynamic_bodies: u32,
+    pub bodies: u32,
+    pub colliders: u32,
+    pub constraints: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

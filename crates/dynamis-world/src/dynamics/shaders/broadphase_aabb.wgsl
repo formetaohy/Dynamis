@@ -1,36 +1,31 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
-@group(0) @binding(2) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(3) var<storage, read_write> aabbs: array<Aabb>;
+@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(4) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(5) var<storage, read_write> aabbs: array<Aabb>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let index = gid.y * (WORKGROUPS_PER_ROW * WORKGROUP_SIZE) + gid.x;
-    if (index >= params.dynamic_count) {
+    if (index >= params.collider_count) {
         return;
     }
-    let state = body_states[index];
+    let collider = colliders[index];
+    let owner = collider_owners[index];
+    if (collider.kind == SHAPE_NONE || owner == NO_BODY || !body_is_movable(body_descs[owner])) {
+        return;
+    }
+    let state = body_states[owner];
     let travel = state.velocity * params.dt;
     let margin = params.contact_margin + length(travel);
-    for (var i = 0u; i < MAX_COLLIDERS_PER_BODY; i = i + 1u) {
-        let collider_index = index * MAX_COLLIDERS_PER_BODY + i;
-        let collider = colliders[collider_index];
-        if (collider.kind == SHAPE_NONE) {
-            var empty: Aabb;
-            empty.min = vec3f(3.402823466e38);
-            empty.max = vec3f(-3.402823466e38);
-            aabbs[collider_index] = empty;
-            continue;
-        }
-        let world = world_collider(state, collider);
-        var aabb = world_aabb_of(world);
-        let extent = (aabb.max - aabb.min) * 0.5 + vec3f(margin);
-        let center = state.position + quat_rotate(state.orientation, collider.local_offset);
-        aabb.min = center + travel - extent;
-        aabb.max = center + travel + extent;
-        let prev_center = state.prev_position + quat_rotate(state.orientation, collider.local_offset);
-        aabb.min = min(aabb.min, prev_center - extent);
-        aabb.max = max(aabb.max, prev_center + extent);
-        aabbs[collider_index] = aabb;
-    }
+    let world = world_collider(state, collider);
+    let aabb = world_aabb_of(world);
+    let extent = (aabb.max - aabb.min) * 0.5 + vec3f(margin);
+    let center = state.position + quat_rotate(state.orientation, collider.local_offset);
+    let prev_center = state.prev_position + quat_rotate(state.orientation, collider.local_offset);
+    var swept: Aabb;
+    swept.min = min(center + travel, prev_center) - extent;
+    swept.max = max(center + travel, prev_center) + extent;
+    aabbs[index] = swept;
 }

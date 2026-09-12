@@ -9,8 +9,7 @@ use dynamis_layout::{
     PATCH_POSITION, PATCH_VELOCITY,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MAX_COLLIDERS_PER_BODY,
-    MassProperties, Shape,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MassProperties, Shape,
 };
 
 pub(crate) struct Bodies {
@@ -95,6 +94,7 @@ impl World {
         self.bodies.descriptors[id] =
             BodyDescriptorRecord::build(&spawn_desc, mass_properties, &self.config);
         self.record_state(id, &spawn_desc);
+        self.repool_colliders(id as u32);
         let state = BodyStateRecord::initial(&spawn_desc, id as u32, handle.generation);
         let slot = self.bodies.alive.len() as u32;
         self.bodies.index_of[id] = slot;
@@ -148,6 +148,7 @@ impl World {
         for collider in &removed {
             self.release_shape_ref(&collider.shape);
         }
+        self.colliders.release(id as u32);
         self.bodies.states[id] = None;
         self.bodies.kinematic[id] = false;
         self.bodies.descriptors[id] = BodyDescriptorRecord::zeroed();
@@ -245,18 +246,17 @@ impl World {
         }
     }
 
-    pub(super) fn aabb_block_of(&self, id: usize) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
-        if self.is_static_id(id) {
-            let (position, orientation) = self.observed_pose(id);
-            static_aabb::static_aabbs(
-                position,
-                orientation,
-                &self.collider_block_of(id),
-                &self.shapes.pool,
-            )
-        } else {
-            [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY]
+    pub(super) fn aabb_block_of(&self, id: usize) -> Vec<AabbRecord> {
+        if !self.is_static_id(id) {
+            return vec![AabbRecord::empty(); self.bodies.collider_descs[id].len()];
         }
+        let (position, orientation) = self.observed_pose(id);
+        static_aabb::static_aabbs(
+            position,
+            orientation,
+            &self.collider_block_of(id),
+            &self.shapes.pool,
+        )
     }
 
     fn patch_descriptor(
@@ -457,19 +457,16 @@ impl World {
         let existing = std::mem::replace(&mut self.bodies.collider_descs[id][index], collider);
         self.release_shape_ref(&existing.shape);
         self.retain_shape_ref(&collider.shape);
+        self.repool_colliders(handle.id);
         self.refresh_descriptor(handle);
     }
 
     pub fn add_collider(&mut self, handle: BodyHandle, collider: ColliderDesc) {
         self.validate(handle);
         let id = handle.id as usize;
-        let count = self.bodies.collider_descs[id].len();
-        assert!(
-            count < MAX_COLLIDERS_PER_BODY,
-            "collider capacity per body reached"
-        );
         self.retain_shape_ref(&collider.shape);
         self.bodies.collider_descs[id].push(collider);
+        self.repool_colliders(handle.id);
         self.refresh_descriptor(handle);
     }
 
@@ -486,6 +483,7 @@ impl World {
         );
         let removed = self.bodies.collider_descs[id].swap_remove(index);
         self.release_shape_ref(&removed.shape);
+        self.repool_colliders(handle.id);
         self.refresh_descriptor(handle);
     }
 
@@ -495,12 +493,14 @@ impl World {
         let replaced = std::mem::replace(&mut self.bodies.collider_descs[id][0].shape, shape);
         self.release_shape_ref(&replaced);
         self.retain_shape_ref(&shape);
+        self.repool_colliders(handle.id);
         self.refresh_descriptor(handle);
     }
 
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
         self.validate(handle);
         self.bodies.collider_descs[handle.id as usize][0].restitution = restitution;
+        self.repool_colliders(handle.id);
         self.bodies
             .dirty
             .push(self.bodies.index_of[handle.id as usize]);
@@ -510,6 +510,7 @@ impl World {
         assert!(friction >= 0.0, "friction must be non-negative");
         self.validate(handle);
         self.bodies.collider_descs[handle.id as usize][0].friction = friction;
+        self.repool_colliders(handle.id);
         self.bodies
             .dirty
             .push(self.bodies.index_of[handle.id as usize]);
@@ -528,6 +529,7 @@ impl World {
             "collider index out of range"
         );
         self.bodies.collider_descs[id][index].events = events;
+        self.repool_colliders(handle.id);
         self.bodies.dirty.push(self.bodies.index_of[id]);
     }
 
@@ -592,14 +594,18 @@ impl World {
         self.bodies.commands.push(BodyCommand::Sleep { row: slot });
     }
 
-    pub(crate) fn collider_block_of(&self, id: usize) -> [ColliderRecord; MAX_COLLIDERS_PER_BODY] {
-        std::array::from_fn(|index| {
-            self.bodies.collider_descs[id]
-                .get(index)
-                .map_or(ColliderRecord::zeroed(), |collider| {
-                    self.collider_record(collider)
-                })
-        })
+    pub(crate) fn repool_colliders(&mut self, id: u32) {
+        let records = self.collider_block_of(id as usize);
+        let aabbs = self.aabb_block_of(id as usize);
+        self.colliders.assign(id, &records, &aabbs);
+    }
+
+    pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {
+        self.bodies.collider_descs[id]
+            .iter()
+            .enumerate()
+            .map(|(slot, collider)| self.collider_record(collider, slot as u32))
+            .collect()
     }
 
     pub(super) fn validate(&self, handle: BodyHandle) {
@@ -660,11 +666,11 @@ impl World {
         )
     }
 
-    pub(crate) fn collider_record(&self, desc: &ColliderDesc) -> ColliderRecord {
+    pub(crate) fn collider_record(&self, desc: &ColliderDesc, slot: u32) -> ColliderRecord {
         let source = match desc.shape {
             Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => handle.id,
             _ => 0,
         };
-        ColliderRecord::build(desc, source)
+        ColliderRecord::build(desc, source, slot)
     }
 }

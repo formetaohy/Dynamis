@@ -42,6 +42,6 @@ pub use counter::{
     COUNTER_WOKE_DEFERRED, Counters,
 };
 pub use decode::decode;
-pub use param::RowStreams;
+pub use param::{FrameCounts, RowStreams};
 pub use records::*;
 pub use wgsl::constants_wgsl;

@@ -24,20 +24,20 @@ fn resolve_row(body_id: u32, generation: u32) -> u32 {
     return row;
 }
 
-fn current_holds(key_hi: u32, key_lo: u32) -> bool {
+fn current_holds(contact: Contact) -> bool {
     let count = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
     var lo = 0u;
     var hi = count;
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
         let candidate = contacts[mid];
-        if (candidate.a < key_hi || (candidate.a == key_hi && candidate.b < key_lo)) {
+        if (candidate.a < contact.a || (candidate.a == contact.a && candidate.b < contact.b)) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
-    return lo < count && contacts[lo].a == key_hi && contacts[lo].b == key_lo;
+    return lo < count && contacts[lo].a == contact.a && contacts[lo].b == contact.b;
 }
 
 fn release(index: u32) {
@@ -67,8 +67,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
             continue;
         }
         release(index);
-        let key = contact_row_key(contact, first_row, second_row);
-        if (current_holds(key.x, key.y)) {
+        if (current_holds(contact)) {
             continue;
         }
         if ((contact.events & CONTACT_ANNOUNCED) != 0u) {

@@ -20,16 +20,10 @@ fn body_descs_validate_inputs() {
     assert!(catch_unwind(|| BodyDesc::sphere(0.5).orientation([1.0, 1.0, 0.0, 0.0])).is_err());
     assert!(catch_unwind(|| BodyDesc::sphere(0.5).mass(-1.0)).is_err());
     assert!(catch_unwind(|| BodyDesc::sphere(0.5).friction(-0.1)).is_err());
-    assert!(
-        catch_unwind(|| {
-            let mut desc = BodyDesc::sphere(0.5);
-            for _ in 0..16 {
-                desc = desc.collider(ColliderDesc::new(Shape::sphere(0.1)));
-            }
-            desc
-        })
-        .is_err()
-    );
+    let compound = (0..64).fold(BodyDesc::sphere(0.5), |desc, _| {
+        desc.collider(ColliderDesc::new(Shape::sphere(0.1)))
+    });
+    assert_eq!(compound.colliders.len(), 65);
     let default = BodyDesc::sphere(0.5);
     assert_eq!(default.collision_group, 1);
     assert_eq!(default.collision_mask, u32::MAX);

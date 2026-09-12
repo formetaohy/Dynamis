@@ -9,6 +9,7 @@
 @group(0) @binding(8) var<storage, read> a_payload: array<u32>;
 @group(0) @binding(9) var<storage, read_write> block_deltas: array<vec4f>;
 @group(0) @binding(10) var<storage, read> block_counts: array<u32>;
+@group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
 
 struct BlockPair {
     first: Body,

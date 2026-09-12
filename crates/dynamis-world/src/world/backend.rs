@@ -9,7 +9,6 @@ use dynamis_layout::{
     COUNTER_ARCHIVED, COUNTER_COUNT, COUNTER_RESTING, COUNTER_RESTING_INDEX,
     COUNTER_RESTING_PENDING, COUNTER_STRIDE, Counters,
 };
-use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
@@ -229,17 +228,37 @@ impl World {
     fn upload_host_state(&self, next: &WorldBuffers) {
         let queue = self.backend.gpu.queue();
         let mut descriptors = Vec::with_capacity(self.bodies.alive.len());
-        let mut colliders = Vec::with_capacity(self.bodies.alive.len() * MAX_COLLIDERS_PER_BODY);
         for handle in &self.bodies.alive {
             descriptors.push(self.bodies.descriptors[handle.id as usize]);
-            colliders.extend_from_slice(&self.collider_block_of(handle.id as usize));
         }
         next.bodies
             .descriptors
             .write(queue, bytemuck::cast_slice(&descriptors));
         next.bodies
             .colliders
-            .write(queue, bytemuck::cast_slice(&colliders));
+            .write(queue, bytemuck::cast_slice(self.colliders.records()));
+        next.bodies
+            .aabbs
+            .write(queue, bytemuck::cast_slice(self.colliders.aabbs()));
+        let owners = self
+            .colliders
+            .owners()
+            .iter()
+            .map(|id| {
+                if *id == dynamis_layout::NO_BODY {
+                    return dynamis_layout::NO_BODY;
+                }
+                let row = self.bodies.index_of[*id as usize];
+                if row == u32::MAX {
+                    dynamis_layout::NO_BODY
+                } else {
+                    row
+                }
+            })
+            .collect::<Vec<_>>();
+        next.bodies
+            .collider_owners
+            .write(queue, bytemuck::cast_slice(&owners));
         next.constraints.descriptors.write(
             queue,
             bytemuck::cast_slice(&self.constraints.records[..self.constraints.alive.len()]),

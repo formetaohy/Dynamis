@@ -16,8 +16,8 @@ fn warm_contact_block(contact_index: u32, slot: u32) {
         store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
-    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
-    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
+    let first_slot = collider_owners[contact.a];
+    let second_slot = collider_owners[contact.b];
     let first_loaded = load_body(first_slot);
     let second_loaded = load_body(second_slot);
     var first = first_loaded;
@@ -51,8 +51,8 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
-    let first_slot = contact.a / MAX_COLLIDERS_PER_BODY;
-    let second_slot = contact.b / MAX_COLLIDERS_PER_BODY;
+    let first_slot = collider_owners[contact.a];
+    let second_slot = collider_owners[contact.b];
     let pair = block_pair(first_slot, second_slot);
     if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
         store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));

@@ -53,6 +53,7 @@ impl World {
         let idle = quiet && self.constraints.alive.is_empty();
         let frame = FrameParams {
             dynamic_count: self.bodies.dynamic_count as u32,
+            collider_count: self.colliders.used(),
             body_count: self.bodies.alive.len() as u32,
             solve_iterations: self.config.solve_iterations,
             position_iterations: self.config.position_iterations,
@@ -95,9 +96,12 @@ impl World {
         let params = StepParamsRecord::new(
             &self.config,
             dt,
-            self.bodies.dynamic_count as u32,
-            self.bodies.alive.len() as u32,
-            self.constraints.alive.len() as u32,
+            dynamis_layout::FrameCounts {
+                dynamic_bodies: self.bodies.dynamic_count as u32,
+                bodies: self.bodies.alive.len() as u32,
+                colliders: self.colliders.used(),
+                constraints: self.constraints.alive.len() as u32,
+            },
             RowStreams {
                 edit_runs: self.bodies.last_edits,
                 body_moves: self.bodies.last_moves,

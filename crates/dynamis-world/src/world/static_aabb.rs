@@ -4,7 +4,6 @@ use dynamis_layout::{
     SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
 use dynamis_math::{quat_mul, quat_rotate};
-use dynamis_model::MAX_COLLIDERS_PER_BODY;
 
 fn abs3(v: [f32; 3]) -> [f32; 3] {
     [v[0].abs(), v[1].abs(), v[2].abs()]
@@ -21,17 +20,18 @@ fn sub3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 pub fn static_aabbs(
     position: [f32; 3],
     orientation: [f32; 4],
-    colliders: &[ColliderRecord; MAX_COLLIDERS_PER_BODY],
+    colliders: &[ColliderRecord],
     shapes: &ShapePool,
-) -> [AabbRecord; MAX_COLLIDERS_PER_BODY] {
-    let mut aabbs = [AabbRecord::empty(); MAX_COLLIDERS_PER_BODY];
-    for (index, collider) in colliders.iter().enumerate() {
-        if collider.kind == SHAPE_NONE {
-            continue;
-        }
-        aabbs[index] = collider_aabb(position, orientation, collider, shapes);
-    }
-    aabbs
+) -> Vec<AabbRecord> {
+    colliders
+        .iter()
+        .map(|collider| {
+            if collider.kind == SHAPE_NONE {
+                return AabbRecord::empty();
+            }
+            collider_aabb(position, orientation, collider, shapes)
+        })
+        .collect()
 }
 
 fn collider_aabb(

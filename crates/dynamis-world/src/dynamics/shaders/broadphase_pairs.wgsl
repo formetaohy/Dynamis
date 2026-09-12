@@ -7,13 +7,16 @@
 @group(0) @binding(6) var<storage, read_write> pair_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> spillover: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read> body_activity: array<u32>;
+@group(0) @binding(9) var<storage, read> collider_owners: array<u32>;
 
 fn collider_is_awake(collider: u32) -> bool {
-    return body_activity[collider / MAX_COLLIDERS_PER_BODY] != 0u;
+    let owner = collider_owners[collider];
+    return owner != NO_BODY && body_activity[owner] != 0u;
 }
 
 fn emit_pair(first: u32, second: u32) {
-    if (first == second) {
+    let owner = collider_owners[first];
+    if (first == second || owner == collider_owners[second]) {
         return;
     }
     let a = min(first, second);

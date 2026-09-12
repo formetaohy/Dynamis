@@ -33,6 +33,7 @@ impl Narrowphase {
                     ("joint_minor", whole(&buffers.constraints.joint_minor)),
                     ("joint_count", buffers.counter(COUNTER_JOINTS)),
                     ("params", whole(&buffers.params)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                 ],
                 &shape_resources(buffers),
             ),

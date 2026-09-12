@@ -1,18 +1,21 @@
 use super::common::{DT, new_world, settle, static_config};
-use dynamis_model::{BodyDesc, ColliderDesc, MAX_COLLIDERS_PER_BODY, QueryFilter, Shape};
+use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
+
+const NESTED_COLLIDERS: usize = 64;
 
 #[test]
 fn compound_support_many_colliders() {
     let mut world = new_world(super::common::gravity_config());
     let mut desc = BodyDesc::cuboid([0.4, 0.4, 0.4]);
-    for i in 0..MAX_COLLIDERS_PER_BODY - 1 {
-        desc = desc.collider(ColliderDesc::new(Shape::sphere(0.1)).offset([
-            (i as f32 - 5.0) * 0.5,
-            0.0,
-            0.0,
+    for index in 0..NESTED_COLLIDERS {
+        let lattice = |step: usize| (index / step % 4) as f32 - 1.5;
+        desc = desc.collider(ColliderDesc::new(Shape::sphere(0.05)).offset([
+            lattice(1) * 0.2,
+            lattice(4) * 0.2,
+            lattice(16) * 0.2,
         ]));
     }
-    assert_eq!(desc.colliders.len(), MAX_COLLIDERS_PER_BODY);
+    assert_eq!(desc.colliders.len(), NESTED_COLLIDERS + 1);
     let body = world.spawn(desc.position([0.0, 10.0, 0.0]));
     let ground = world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
@@ -99,6 +102,28 @@ fn removed_collider_stops_colliding() {
     assert!(
         world.query_hit(handle).is_none(),
         "removed collider must not be queryable"
+    );
+}
+
+#[test]
+fn removed_body_leaves_no_ghost_collider() {
+    let mut world = new_world(static_config());
+    let ghost = world.spawn(BodyDesc::static_sphere(0.75).position([0.0, 0.0, 0.0]));
+    let filter = QueryFilter::default();
+    let probe = world.sphere_query([0.0; 3], 0.5, &filter);
+    world.flush_queries();
+    assert_eq!(
+        world.query_hits(probe).len(),
+        1,
+        "a live collider must answer a probe"
+    );
+
+    world.remove(ghost);
+    let probe = world.sphere_query([0.0; 3], 0.5, &filter);
+    world.flush_queries();
+    assert!(
+        world.query_hits(probe).is_empty(),
+        "a removed body must leave no ghost collider in the pool"
     );
 }
 

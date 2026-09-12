@@ -22,20 +22,20 @@ fn resolve_row(body_id: u32, generation: u32) -> u32 {
     return row;
 }
 
-fn current_slot(key_hi: u32, key_lo: u32) -> u32 {
+fn current_slot(contact: Contact) -> u32 {
     let count = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
     var lo = 0u;
     var hi = count;
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
         let candidate = contacts[mid];
-        if (candidate.a < key_hi || (candidate.a == key_hi && candidate.b < key_lo)) {
+        if (candidate.a < contact.a || (candidate.a == contact.a && candidate.b < contact.b)) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
-    if (lo < count && contacts[lo].a == key_hi && contacts[lo].b == key_lo) {
+    if (lo < count && contacts[lo].a == contact.a && contacts[lo].b == contact.b) {
         return lo;
     }
     return NO_SLOT;
@@ -50,8 +50,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         let first_row = resolve_row(held.first_body_id, held.first_generation);
         let second_row = resolve_row(held.second_body_id, held.second_generation);
         if (first_row != NO_BODY && second_row != NO_BODY) {
-            let key = contact_row_key(held, first_row, second_row);
-            let slot = current_slot(key.x, key.y);
+            let slot = current_slot(held);
             if (slot != NO_SLOT) {
                 let current = contacts[slot];
                 if (contact_same_pair(held, current)) {

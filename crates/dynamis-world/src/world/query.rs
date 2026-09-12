@@ -144,9 +144,12 @@ impl World {
         let params = dynamis_layout::StepParamsRecord::new(
             &self.config,
             self.clock.sub_dt,
-            self.bodies.dynamic_count as u32,
-            self.bodies.alive.len() as u32,
-            self.constraints.alive.len() as u32,
+            dynamis_layout::FrameCounts {
+                dynamic_bodies: self.bodies.dynamic_count as u32,
+                bodies: self.bodies.alive.len() as u32,
+                colliders: self.colliders.used(),
+                constraints: self.constraints.alive.len() as u32,
+            },
             dynamis_layout::RowStreams {
                 edit_runs: self.bodies.last_edits,
                 body_moves: self.bodies.last_moves,
@@ -164,6 +167,7 @@ impl World {
         self.queries.next_batch += 1;
         let frame = crate::dynamics::FrameParams {
             dynamic_count: self.bodies.dynamic_count as u32,
+            collider_count: self.colliders.used(),
             body_count: self.bodies.alive.len() as u32,
             solve_iterations: self.config.solve_iterations,
             position_iterations: self.config.position_iterations,

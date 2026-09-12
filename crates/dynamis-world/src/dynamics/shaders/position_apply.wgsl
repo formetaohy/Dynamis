@@ -9,6 +9,7 @@
 @group(0) @binding(8) var<storage, read> block_corrections: array<vec4f>;
 @group(0) @binding(9) var<storage, read_write> block_count: array<atomic<u32>>;
 @group(0) @binding(10) var<storage, read_write> resolution: array<vec4f>;
+@group(0) @binding(11) var<storage, read_write> contributions: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -17,7 +18,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
     let blocks = contact_counts[body_index];
-    if (blocks == 0u) {
+    let contributing = atomicLoad(&contributions[body_index]);
+    atomicStore(&contributions[body_index], 0u);
+    if (blocks == 0u || contributing == 0u) {
         return;
     }
     let total = min(atomicLoad(&block_count[0]), arrayLength(&a_bodies));
@@ -43,7 +46,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             correction = correction + block_corrections[b_blocks[i] * 2u + 1u].xyz;
         }
     }
-    let applied = correction / f32(blocks);
+    let applied = correction / f32(contributing);
     var updated = body;
     updated.position = body.position + applied;
     resolution[body_index] = vec4f(resolution[body_index].xyz + applied, 0.0);

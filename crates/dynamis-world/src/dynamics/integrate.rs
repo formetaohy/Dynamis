@@ -48,7 +48,9 @@ impl Integrate {
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.bodies.states)),
+                    ("body_descs", whole(&buffers.bodies.descriptors)),
                     ("colliders", whole(&buffers.bodies.colliders)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                     ("aabbs", whole(&buffers.bodies.aabbs)),
                 ],
                 &shape_resources(buffers),
@@ -60,8 +62,8 @@ impl Integrate {
         self.advance.record(recorder, dynamic_count);
     }
 
-    pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, dynamic_count: u32) {
-        self.broadphase_aabb.record(recorder, dynamic_count);
+    pub(super) fn record_broadphase(&self, recorder: &mut ComputeRecorder, collider_count: u32) {
+        self.broadphase_aabb.record(recorder, collider_count);
     }
 
     pub(super) fn record(
@@ -87,6 +89,6 @@ impl Integrate {
             );
         }
         self.integrate.record(recorder, params.dynamic_count);
-        self.broadphase_aabb.record(recorder, params.dynamic_count);
+        self.broadphase_aabb.record(recorder, params.collider_count);
     }
 }

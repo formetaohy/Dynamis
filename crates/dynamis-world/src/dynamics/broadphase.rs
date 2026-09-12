@@ -32,6 +32,7 @@ impl Broadphase {
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
                     ("body_activity", whole(&buffers.bodies.activity)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                 ],
                 &[],
             ),
@@ -51,6 +52,7 @@ impl Broadphase {
                     ("colliders", whole(&buffers.bodies.colliders)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
                     ("body_activity", whole(&buffers.bodies.activity)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                 ],
                 &[],
             ),
@@ -72,6 +74,6 @@ impl Broadphase {
         sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
         self.broadphase_pairs
             .record_stride(recorder, buffers.entry_capacity());
-        self.large_pairs.record(recorder, params.body_count);
+        self.large_pairs.record(recorder, params.collider_count);
     }
 }

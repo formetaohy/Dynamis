@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read> a_payload: array<u32>;
 @group(0) @binding(4) var<storage, read_write> b_bodies: array<u32>;
 @group(0) @binding(5) var<storage, read_write> b_blocks: array<u32>;
+@group(0) @binding(6) var<storage, read> collider_owners: array<u32>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
@@ -14,7 +15,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         let block = a_payload[slot];
         var body_b = 0u;
         if (block < contact_blocks) {
-            body_b = contacts[block].b / MAX_COLLIDERS_PER_BODY;
+            body_b = collider_owners[contacts[block].b];
         } else {
             body_b = constraint_descs[block - contact_blocks].b;
         }

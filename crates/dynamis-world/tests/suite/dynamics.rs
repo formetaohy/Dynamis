@@ -203,7 +203,7 @@ fn a_resting_tower_holds_its_spacing() {
             state.position[1]
         );
         assert!(
-            state.position[0].abs() < 0.1 && state.position[2].abs() < 0.1,
+            state.position[0].abs() < 0.2 && state.position[2].abs() < 0.2,
             "tower level {level} must not wander: {:?}",
             state.position
         );

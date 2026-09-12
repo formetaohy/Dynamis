@@ -19,9 +19,8 @@ pub use dynamis_mesh::HullDecomposeSettings;
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
-    ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc,
-    MAX_COLLIDERS_PER_BODY, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter, Shape,
-    ShapeSourceHandle,
+    ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, MassProperties,
+    MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
 };
 pub use dynamis_world::{
     ContactManifold, ContactPoint, QueryHandle, QueryHit, StreamCapacity, World,

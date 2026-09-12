@@ -100,6 +100,7 @@ impl Islands {
                     ("island_parents", whole(&buffers.islands.parents)),
                     ("wake_flags", whole(&buffers.islands.wake_flags)),
                     ("params", whole(&buffers.params)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
                 ],
                 &[],
             ),

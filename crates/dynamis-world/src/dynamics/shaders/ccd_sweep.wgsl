@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read> pair_major: array<u32>;
 @group(0) @binding(5) var<storage, read> pair_minor: array<u32>;
 @group(0) @binding(6) var<storage, read_write> pair_count: array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read> collider_owners: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -72,9 +73,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         }
         let first_slot = pair_major[index];
         let second_slot = pair_minor[index];
-        let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
-        let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
-        if (first_body_slot == second_body_slot) {
+        let first_body_slot = collider_owners[first_slot];
+        let second_body_slot = collider_owners[second_slot];
+        if (first_body_slot == NO_BODY || second_body_slot == NO_BODY || first_body_slot == second_body_slot) {
             continue;
         }
         let first = load_body(first_body_slot);

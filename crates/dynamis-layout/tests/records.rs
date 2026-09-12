@@ -82,6 +82,7 @@ fn collider_record_encodes_every_shape_kind() {
             .friction(0.3)
             .restitution(0.8),
         0,
+        0,
     );
     assert_eq!(sphere.kind, SHAPE_SPHERE);
     assert_eq!(sphere.radius, 0.4);
@@ -89,16 +90,17 @@ fn collider_record_encodes_every_shape_kind() {
     assert_eq!(sphere.restitution, 0.8);
     assert_eq!(sphere.flags & COLLIDER_SENSOR, 0);
 
-    let box_record = ColliderRecord::build(&ColliderDesc::new(Shape::cuboid([1.0, 2.0, 3.0])), 0);
+    let box_record =
+        ColliderRecord::build(&ColliderDesc::new(Shape::cuboid([1.0, 2.0, 3.0])), 0, 0);
     assert_eq!(box_record.kind, SHAPE_CUBOID);
     assert_eq!(box_record.half_extents, [1.0, 2.0, 3.0]);
 
-    let capsule = ColliderRecord::build(&ColliderDesc::new(Shape::capsule(0.3, 1.0)), 0);
+    let capsule = ColliderRecord::build(&ColliderDesc::new(Shape::capsule(0.3, 1.0)), 0, 0);
     assert_eq!(capsule.kind, SHAPE_CAPSULE);
     assert_eq!(capsule.radius, 0.3);
     assert_eq!(capsule.half_height, 1.0);
 
-    let cylinder = ColliderRecord::build(&ColliderDesc::new(Shape::cylinder(0.5, 2.0)), 0);
+    let cylinder = ColliderRecord::build(&ColliderDesc::new(Shape::cylinder(0.5, 2.0)), 0, 0);
     assert_eq!(cylinder.kind, SHAPE_CYLINDER);
     assert_eq!(cylinder.radius, 0.5);
     assert_eq!(cylinder.half_height, 2.0);
@@ -109,6 +111,7 @@ fn collider_record_encodes_every_shape_kind() {
             generation: 2,
         })),
         0,
+        0,
     );
     assert_eq!(hull.kind, SHAPE_HULL);
     let mesh = ColliderRecord::build(
@@ -116,6 +119,7 @@ fn collider_record_encodes_every_shape_kind() {
             id: 4,
             generation: 2,
         })),
+        0,
         0,
     );
     assert_eq!(mesh.kind, SHAPE_MESH);
@@ -125,10 +129,11 @@ fn collider_record_encodes_every_shape_kind() {
             generation: 2,
         })),
         0,
+        0,
     );
     assert_eq!(field.kind, SHAPE_HEIGHTFIELD);
 
-    let sensor = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)).sensor(true), 0);
+    let sensor = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)).sensor(true), 0, 0);
     assert_eq!(sensor.flags & COLLIDER_SENSOR, COLLIDER_SENSOR);
 
     let filtered = ColliderRecord::build(
@@ -138,12 +143,13 @@ fn collider_record_encodes_every_shape_kind() {
             .rolling_friction(0.3)
             .spin_friction(0.6),
         0,
+        0,
     );
     assert_eq!(filtered.collision_group, 0x8);
     assert_eq!(filtered.collision_mask, 0x4);
     assert_eq!(filtered.rolling_friction, 0.3);
     assert_eq!(filtered.spin_friction, 0.6);
-    let inherited = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0);
+    let inherited = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0, 0);
     assert_eq!(inherited.collision_group, u32::MAX);
     assert_eq!(inherited.collision_mask, u32::MAX);
 }
@@ -235,9 +241,12 @@ fn step_params_record_maps_config() {
     let record = StepParamsRecord::new(
         &config,
         1.0 / 60.0,
-        9,
-        11,
-        2,
+        dynamis_layout::FrameCounts {
+            dynamic_bodies: 9,
+            bodies: 11,
+            colliders: 13,
+            constraints: 2,
+        },
         RowStreams {
             edit_runs: 5,
             body_moves: 4,
@@ -250,6 +259,7 @@ fn step_params_record_maps_config() {
     assert_eq!(record.damping, 0.5);
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);
+    assert_eq!(record.collider_count, 13);
     assert_eq!(record.edit_run_count, 5);
     assert_eq!(record.body_move_count, 4);
     assert_eq!(record.constraint_move_count, 1);
@@ -423,11 +433,13 @@ fn collider_record_applies_scale_and_plane_kind() {
     let scaled = ColliderRecord::build(
         &ColliderDesc::new(Shape::cuboid([1.0, 2.0, 3.0])).scale([2.0, 1.0, 0.5]),
         0,
+        0,
     );
     assert_eq!(scaled.half_extents, [2.0, 2.0, 1.5]);
     assert_eq!(scaled.scale, [1.0, 1.0, 1.0]);
     let non_uniform = ColliderRecord::build(
         &ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 0.5]),
+        0,
         0,
     );
     assert_eq!(non_uniform.radius, 0.5);
@@ -435,10 +447,11 @@ fn collider_record_applies_scale_and_plane_kind() {
     let uniform = ColliderRecord::build(
         &ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 2.0, 2.0]),
         0,
+        0,
     );
     assert_eq!(uniform.radius, 1.0);
     assert_eq!(uniform.scale, [1.0, 1.0, 1.0]);
-    let plane = ColliderRecord::build(&ColliderDesc::new(Shape::plane()), 0);
+    let plane = ColliderRecord::build(&ColliderDesc::new(Shape::plane()), 0, 0);
     assert_eq!(plane.kind, SHAPE_PLANE);
 }
 

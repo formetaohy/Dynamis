@@ -26,7 +26,7 @@ struct StepParams {
     event_slot: u32,
     position_iterations: u32,
     contact_margin: f32,
-    _pad2: u32,
+    collider_count: u32,
     _pad3: u32,
 }
 
@@ -92,6 +92,7 @@ struct BodyEditRun {
 }
 
 struct Collider {
+    slot: u32,
     kind: u32,
     flags: u32,
     radius: f32,

@@ -10,6 +10,7 @@
 @group(0) @binding(9) var<storage, read> large_bodies: array<u32>;
 @group(0) @binding(10) var<storage, read_write> large_count: array<atomic<u32>>;
 @group(0) @binding(11) var<uniform> params: StepParams;
+@group(0) @binding(12) var<storage, read> collider_owners: array<u32>;
 
 const CANDIDATES_PER_QUERY: u32 = 4096u;
 
@@ -339,7 +340,7 @@ fn main(
             candidate_index = candidate_index + WORKGROUP_SIZE;
             continue;
         }
-        let body = load_body(collider_slot / MAX_COLLIDERS_PER_BODY);
+        let body = load_body(collider_owners[collider_slot]);
         let collider = colliders[collider_slot];
         if (!body_passes(body, collider, query)) {
             candidate_index = candidate_index + WORKGROUP_SIZE;
@@ -393,7 +394,7 @@ fn main(
             }
         }
         if (hit.distance < NO_HIT) {
-            emit_hit(batch, query, body, collider, collider_slot % MAX_COLLIDERS_PER_BODY, hit.distance, hit.point, hit.normal);
+            emit_hit(batch, query, body, collider, collider.slot, hit.distance, hit.point, hit.normal);
         }
         candidate_index = candidate_index + WORKGROUP_SIZE;
     }

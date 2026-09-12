@@ -10,6 +10,7 @@
 @group(0) @binding(9) var<storage, read> joint_minor: array<u32>;
 @group(0) @binding(10) var<storage, read_write> joint_count: array<atomic<u32>>;
 @group(0) @binding(11) var<uniform> params: StepParams;
+@group(0) @binding(12) var<storage, read> collider_owners: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -542,11 +543,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
         }
         let first_slot = pair_major[index];
         let second_slot = pair_minor[index];
-        let first_body_slot = first_slot / MAX_COLLIDERS_PER_BODY;
-        let second_body_slot = second_slot / MAX_COLLIDERS_PER_BODY;
+        let first_body_slot = collider_owners[first_slot];
+        let second_body_slot = collider_owners[second_slot];
         let first = load_body(first_body_slot);
         let second = load_body(second_body_slot);
-        if (first_body_slot == second_body_slot) {
+        if (first_body_slot == NO_BODY || second_body_slot == NO_BODY || first_body_slot == second_body_slot) {
             continue;
         }
         if (body_is_static(first) && body_is_static(second)) {
