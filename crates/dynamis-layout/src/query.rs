@@ -1,47 +1,12 @@
+use crate::QueryRecord;
 use crate::constant::NO_BODY;
 use crate::constant::{
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
     QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE,
     SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HULL, SHAPE_SPHERE,
 };
-use bytemuck::{Pod, Zeroable};
+use bytemuck::Zeroable;
 use dynamis_model::{QueryFilter, Shape};
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<QueryRecord>() == 128);
-    assert!(size_of::<QueryResultHeader>() == 16);
-    assert!(size_of::<QueryHitRecord>() == 48);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct QueryRecord {
-    pub kind: u32,
-    pub shape_kind: u32,
-    pub filter_flags: u32,
-    pub slot: u32,
-    pub group: u32,
-    pub mask: u32,
-    pub source: u32,
-    pub max_hits: u32,
-    pub exclude_id: u32,
-    pub exclude_generation: u32,
-    pub include_id: u32,
-    pub include_generation: u32,
-    pub origin: [f32; 3],
-    pub _pad0: f32,
-    pub direction: [f32; 3],
-    pub extent: f32,
-    pub radius: f32,
-    pub half_height: f32,
-    pub _pad1: f32,
-    pub _pad2: f32,
-    pub half_extents: [f32; 3],
-    pub _pad3: f32,
-    pub orientation: [f32; 4],
-}
-
 struct FilterBasis {
     flags: u32,
     group: u32,
@@ -196,38 +161,4 @@ fn filter_flags(filter: &QueryFilter) -> u32 {
         flags |= FILTER_IGNORE_KINEMATIC;
     }
     flags
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct QueryResultHeader {
-    pub count: u32,
-    pub overflow: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct QueryResultRecord {
-    pub header: QueryResultHeader,
-    pub hits: [QueryHitRecord; crate::constant::MAX_HITS_PER_QUERY as usize],
-}
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<QueryResultRecord>() == 784);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct QueryHitRecord {
-    pub body_id: u32,
-    pub body_generation: u32,
-    pub distance: f32,
-    pub collider_index: u32,
-    pub point: [f32; 3],
-    pub _pad1: f32,
-    pub normal: [f32; 3],
-    pub _pad2: f32,
 }

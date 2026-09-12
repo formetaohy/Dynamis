@@ -19,10 +19,6 @@ pub(super) const CORRECTIONS: &[&str] = &[CONTACT_CORRECTION_FRAGMENT];
 
 pub(super) const MAX_GRID_WORKGROUPS: u32 = 4096;
 
-pub(super) const RO: BindingKind = BindingKind::ReadOnlyStorage;
-pub(super) const RW: BindingKind = BindingKind::ReadWriteStorage;
-pub(super) const UNIFORM: BindingKind = BindingKind::Uniform;
-
 pub(super) fn whole(buffer: &GpuBuffer) -> GpuSlot<'_> {
     GpuSlot::whole(buffer)
 }
@@ -44,8 +40,121 @@ pub(super) struct Stage {
 }
 
 struct StageBindings<'a> {
-    storage: &'a [(BindingKind, GpuSlot<'a>)],
+    slots: &'a [(&'a str, GpuSlot<'a>)],
     shapes: &'a [&'a GpuBuffer],
+}
+
+struct Bindings<'a> {
+    groups: Vec<Vec<BindingSpec>>,
+    storage: Vec<BindGroupEntry<'a>>,
+    shapes: Vec<BindGroupEntry<'a>>,
+}
+
+impl<'a> Bindings<'a> {
+    fn of(source: &str, declared: StageBindings<'a>) -> Self {
+        let StageBindings { slots, shapes } = declared;
+        let declarations = dynamis_gpu::parse_bindings(source);
+        let storage = storage_entries(&declarations, slots);
+        assert!(
+            storage.len() == specs_of(&declarations, 0).len(),
+            "the shader declares {} bindings but the stage provides {}",
+            specs_of(&declarations, 0).len(),
+            storage.len()
+        );
+        let shape_entries = shape_entries(&declarations, shapes);
+        let mut groups = vec![specs_of(&declarations, 0)];
+        if !shapes.is_empty() {
+            groups.push(specs_of(&declarations, 1));
+        }
+        Self {
+            groups,
+            storage,
+            shapes: shape_entries,
+        }
+    }
+}
+
+fn storage_entries<'a>(
+    declarations: &[dynamis_gpu::ShaderBinding],
+    slots: &[(&str, GpuSlot<'a>)],
+) -> Vec<BindGroupEntry<'a>> {
+    let mut storage = Vec::with_capacity(slots.len());
+    for (name, slot) in slots {
+        let declaration = declarations
+            .iter()
+            .find(|entry| entry.group == 0 && entry.name == *name)
+            .unwrap_or_else(|| panic!("the shader never declares the binding {name:?}"));
+        assert!(
+            !storage
+                .iter()
+                .any(|entry: &BindGroupEntry| entry.binding == declaration.binding),
+            "the shader binding {name:?} is bound twice"
+        );
+        storage.push(BindGroupEntry {
+            binding: declaration.binding,
+            resource: slot.as_binding(),
+        });
+    }
+    storage
+}
+
+fn shape_entries<'a>(
+    declarations: &[dynamis_gpu::ShaderBinding],
+    shapes: &'a [&'a GpuBuffer],
+) -> Vec<BindGroupEntry<'a>> {
+    let declared = ordered(declarations, 1);
+    if shapes.is_empty() {
+        return Vec::new();
+    }
+    assert!(
+        declared.len() == shapes.len(),
+        "the shader declares {} shape bindings but the stage provides {}",
+        declared.len(),
+        shapes.len()
+    );
+    declared
+        .iter()
+        .zip(shapes)
+        .map(|(declaration, buffer)| BindGroupEntry {
+            binding: declaration.binding,
+            resource: buffer.as_binding(),
+        })
+        .collect()
+}
+
+fn ordered(
+    declarations: &[dynamis_gpu::ShaderBinding],
+    group: u32,
+) -> Vec<&dynamis_gpu::ShaderBinding> {
+    let mut declared = declarations
+        .iter()
+        .filter(|entry| entry.group == group)
+        .collect::<Vec<_>>();
+    declared.sort_by_key(|entry| entry.binding);
+    for (position, entry) in declared.iter().enumerate() {
+        assert!(
+            entry.binding == position as u32,
+            "the shader binds group {group} index {} where {position} is required",
+            entry.binding
+        );
+    }
+    declared
+}
+
+fn specs_of(declarations: &[dynamis_gpu::ShaderBinding], group: u32) -> Vec<BindingSpec> {
+    ordered(declarations, group)
+        .into_iter()
+        .map(|entry| {
+            assert!(
+                group == 0 || entry.kind == BindingKind::ReadOnlyStorage,
+                "group 1 bindings must be read only"
+            );
+            BindingSpec {
+                binding: entry.binding,
+                kind: entry.kind,
+            }
+        })
+        .collect()
 }
 
 impl Stage {
@@ -55,8 +164,8 @@ impl Stage {
         body: &str,
         per_row: u32,
         fragments: &[&str],
-        bindings: &[(BindingKind, GpuSlot)],
-        shape_resources: &[&GpuBuffer],
+        slots: &[(&str, GpuSlot)],
+        shapes: &[&GpuBuffer],
     ) -> Self {
         Self::assemble(
             context,
@@ -64,10 +173,7 @@ impl Stage {
             body,
             per_row,
             fragments,
-            StageBindings {
-                storage: bindings,
-                shapes: shape_resources,
-            },
+            StageBindings { slots, shapes },
             false,
         )
     }
@@ -78,8 +184,8 @@ impl Stage {
         body: &str,
         per_row: u32,
         fragments: &[&str],
-        bindings: &[(BindingKind, GpuSlot)],
-        shape_resources: &[&GpuBuffer],
+        slots: &[(&str, GpuSlot)],
+        shapes: &[&GpuBuffer],
     ) -> Self {
         Self::assemble(
             context,
@@ -87,10 +193,7 @@ impl Stage {
             body,
             per_row,
             fragments,
-            StageBindings {
-                storage: bindings,
-                shapes: shape_resources,
-            },
+            StageBindings { slots, shapes },
             true,
         )
     }
@@ -101,33 +204,16 @@ impl Stage {
         body: &str,
         per_row: u32,
         fragments: &[&str],
-        bindings: StageBindings,
+        declared: StageBindings,
         with_warm: bool,
     ) -> Self {
         let shader = assemble_shader(body, per_row, fragments);
-        let shape_specs = bindings
-            .shapes
+        let resolved = Bindings::of(&shader, declared);
+        let groups = resolved
+            .groups
             .iter()
-            .enumerate()
-            .map(|(position, _)| BindingSpec {
-                binding: position as u32,
-                kind: BindingKind::ReadOnlyStorage,
-            })
+            .map(|group| group.as_slice())
             .collect::<Vec<_>>();
-        let specs = bindings
-            .storage
-            .iter()
-            .enumerate()
-            .map(|(position, (kind, _))| BindingSpec {
-                binding: position as u32,
-                kind: *kind,
-            })
-            .collect::<Vec<_>>();
-        let groups = if shape_specs.is_empty() {
-            vec![&specs[..]]
-        } else {
-            vec![&specs[..], &shape_specs[..]]
-        };
         let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), "main", &groups));
         let warm = with_warm.then(|| {
             context.declare(ComputeProgram::new(
@@ -137,30 +223,9 @@ impl Stage {
                 &groups,
             ))
         });
-        let entries: Vec<BindGroupEntry> = bindings
-            .storage
-            .iter()
-            .enumerate()
-            .map(|(position, (_, slot))| BindGroupEntry {
-                binding: position as u32,
-                resource: slot.as_binding(),
-            })
-            .collect();
-        let bind_group = pipeline.create_bind_group(context.device(), 0, &entries);
-        let shapes_group = if bindings.shapes.is_empty() {
-            None
-        } else {
-            let entries = bindings
-                .shapes
-                .iter()
-                .enumerate()
-                .map(|(position, buffer)| BindGroupEntry {
-                    binding: position as u32,
-                    resource: buffer.as_binding(),
-                })
-                .collect::<Vec<_>>();
-            Some(pipeline.create_bind_group(context.device(), 1, &entries))
-        };
+        let bind_group = pipeline.create_bind_group(context.device(), 0, &resolved.storage);
+        let shapes_group = (!resolved.shapes.is_empty())
+            .then(|| pipeline.create_bind_group(context.device(), 1, &resolved.shapes));
         Self {
             pipeline,
             warm,

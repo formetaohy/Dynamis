@@ -1,4 +1,4 @@
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryResultHeader, QueryResultRecord};
+use dynamis_layout::{MAX_HITS_PER_QUERY, QueryResultHeaderRecord, QueryResultRecord};
 use dynamis_model::BodyHandle;
 use std::collections::VecDeque;
 
@@ -94,7 +94,7 @@ impl QueryPool {
         let mut hits = vec![Vec::new(); batch.width];
         let mut overflow = vec![false; batch.width];
         for (index, result) in records.iter().take(batch.width).enumerate() {
-            let QueryResultHeader {
+            let QueryResultHeaderRecord {
                 count,
                 overflow: spilled,
                 ..

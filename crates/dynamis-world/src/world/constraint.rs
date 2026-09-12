@@ -1,6 +1,7 @@
 use super::World;
+use super::commands::ConstraintCommand;
 use super::ids::IdSpace;
-use dynamis_layout::{ConstraintCommandRecord, ConstraintDescriptorRecord};
+use dynamis_layout::ConstraintDescriptorRecord;
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
@@ -11,7 +12,7 @@ pub(crate) struct Constraints {
     pub(crate) ids: IdSpace,
     pub(crate) index_of: Vec<u32>,
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
-    pub(crate) commands: Vec<ConstraintCommandRecord>,
+    pub(crate) commands: Vec<ConstraintCommand>,
     pub(crate) dirty: Vec<u32>,
     pub(crate) last_moves: u32,
     pub(crate) last_commands: u32,
@@ -94,9 +95,11 @@ impl World {
         );
         let slot = self.constraints.attach(handle, record);
         self.constraints.dirty.push(slot);
-        self.constraints
-            .commands
-            .push(ConstraintCommandRecord::add(slot, id, generation));
+        self.constraints.commands.push(ConstraintCommand::Add {
+            slot,
+            id,
+            generation,
+        });
         handle
     }
 
@@ -212,9 +215,10 @@ impl World {
         let tail = self.constraints.alive.len() - 1;
         if self.constraints.detach(slot) {
             self.constraints.dirty.push(slot as u32);
-            self.constraints
-                .commands
-                .push(ConstraintCommandRecord::swap(slot as u32, tail as u32));
+            self.constraints.commands.push(ConstraintCommand::Swap {
+                slot: slot as u32,
+                tail: tail as u32,
+            });
         }
         self.constraints.index_of[id] = u32::MAX;
         self.constraints.ids.release(handle.id);

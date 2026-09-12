@@ -3,38 +3,9 @@ use crate::constant::{
     EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE, OVERRIDE_SLEEP_ANGULAR,
     OVERRIDE_SLEEP_LINEAR,
 };
-use bytemuck::{Pod, Zeroable};
+use crate::{BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord};
+use bytemuck::Zeroable;
 use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<BodyStateRecord>() == 128);
-    assert!(size_of::<BodyDescriptorRecord>() == 96);
-    assert!(size_of::<BodyEditRecord>() == 144);
-    assert!(size_of::<BodyEditRun>() == 16);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct BodyStateRecord {
-    pub position: [f32; 3],
-    pub _pad0: f32,
-    pub prev_position: [f32; 3],
-    pub _pad1: f32,
-    pub orientation: [f32; 4],
-    pub velocity: [f32; 3],
-    pub _pad2: f32,
-    pub angular_velocity: [f32; 3],
-    pub _pad3: f32,
-    pub force: [f32; 3],
-    pub _pad4: f32,
-    pub torque: [f32; 3],
-    pub _pad5: f32,
-    pub body_id: u32,
-    pub generation: u32,
-    pub sleep_timer: f32,
-    pub sleeping: u32,
-}
 
 impl BodyStateRecord {
     pub fn initial(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
@@ -90,26 +61,6 @@ impl BodyStateRecord {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct BodyDescriptorRecord {
-    pub inverse_mass: f32,
-    pub linear_damping: f32,
-    pub angular_damping: f32,
-    pub gravity_scale: f32,
-    pub sleep_velocity: f32,
-    pub sleep_angular_velocity: f32,
-    pub flags: u32,
-    pub _pad0: u32,
-    pub collision_group: u32,
-    pub collision_mask: u32,
-    pub _pad1: [u32; 2],
-    pub com: [f32; 3],
-    pub _pad2: f32,
-    pub inverse_inertia: [f32; 6],
-    pub _pad3: [f32; 2],
-}
-
 impl BodyDescriptorRecord {
     pub fn build(desc: &BodyDesc, mass: MassProperties, config: &PhysicsConfig) -> Self {
         let mut flags = 0;
@@ -140,7 +91,8 @@ impl BodyDescriptorRecord {
             _pad0: 0,
             collision_group: desc.collision_group,
             collision_mask: desc.collision_mask,
-            _pad1: [0; 2],
+            _pad1: 0,
+            _pad4: 0,
             com: mass.com,
             _pad2: 0.0,
             inverse_inertia: mass.inverse_inertia,
@@ -149,26 +101,7 @@ impl BodyDescriptorRecord {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct BodyEditRecord {
-    pub kind: u32,
-    pub mask: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub state: BodyStateRecord,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct BodyEditRun {
-    pub row: u32,
-    pub first: u32,
-    pub len: u32,
-    pub _pad: u32,
-}
-
-impl BodyEditRun {
+impl BodyEditRunRecord {
     pub fn new(row: usize, first: usize, len: usize) -> Self {
         Self {
             row: row as u32,

@@ -1,16 +1,16 @@
 use dynamis_layout::{
-    BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord,
-    COLLIDER_SENSOR, COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP, CONSTRAINT_BALL,
-    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
-    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
-    CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
-    ColliderRecord, ConstraintCommandRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE,
-    EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP,
-    EDIT_TORQUE, EDIT_WAKE, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
-    FILTER_IGNORE_STATIC, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
-    RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, StepParamsRecord,
+    BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord,
+    BodyStateRecord, COLLIDER_SENSOR, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
+    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
+    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
+    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
+    ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
+    EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
+    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
+    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
+    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
+    SHAPE_SPHERE, StepParamsRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
@@ -400,7 +400,7 @@ fn row_moves_encode_their_source() {
 
 #[test]
 fn body_edit_runs_address_their_rows() {
-    let run = BodyEditRun::new(7, 3, 2);
+    let run = BodyEditRunRecord::new(7, 3, 2);
     assert_eq!(run.row, 7);
     assert_eq!(run.first, 3);
     assert_eq!(run.len, 2);
@@ -412,14 +412,6 @@ fn constraint_command_encodes() {
     assert_eq!(record.kind, CONSTRAINT_BALL);
     assert_eq!(record.a, 1);
     assert_eq!(record.b, 2);
-    let add = ConstraintCommandRecord::add(3, 7, 2);
-    assert_eq!(add.kind, COMMAND_CONSTRAINT_ADD);
-    assert_eq!(add.slot, 3);
-    assert_eq!(add.constraint_id, 7);
-    assert_eq!(add.generation, 2);
-    let swap = ConstraintCommandRecord::swap(3, 9);
-    assert_eq!(swap.kind, COMMAND_CONSTRAINT_SWAP);
-    assert_eq!(swap.tail, 9);
 }
 
 #[test]

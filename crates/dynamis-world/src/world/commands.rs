@@ -1,6 +1,14 @@
 use super::World;
 use super::rows::{RowJournal, RowMap};
-use dynamis_layout::{BodyEditRecord, BodyEditRun, BodyStateRecord, RowMoveRecord};
+use dynamis_layout::{
+    BodyEditRecord, BodyEditRunRecord, BodyStateRecord, ConstraintRuntimeRecord, RowMoveRecord,
+};
+
+#[derive(Clone, Copy)]
+pub(crate) enum ConstraintCommand {
+    Add { slot: u32, id: u32, generation: u32 },
+    Swap { slot: u32, tail: u32 },
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum BodyCommand {
@@ -95,12 +103,12 @@ pub(crate) struct CompiledBodyCommands {
     pub(crate) moves: Vec<RowMoveRecord>,
     pub(crate) fresh: Vec<BodyStateRecord>,
     pub(crate) edits: Vec<BodyEditRecord>,
-    pub(crate) runs: Vec<BodyEditRun>,
+    pub(crate) runs: Vec<BodyEditRunRecord>,
 }
 
 pub(crate) struct CompiledConstraintCommands {
     pub(crate) moves: Vec<RowMoveRecord>,
-    pub(crate) fresh: Vec<dynamis_layout::ConstraintRuntimeRecord>,
+    pub(crate) fresh: Vec<ConstraintRuntimeRecord>,
 }
 
 impl World {
@@ -135,7 +143,11 @@ impl World {
                 }
             }
             if edits.len() > first {
-                runs.push(BodyEditRun::new(row as usize, first, edits.len() - first));
+                runs.push(BodyEditRunRecord::new(
+                    row as usize,
+                    first,
+                    edits.len() - first,
+                ));
             }
         }
         CompiledBodyCommands {
@@ -148,17 +160,18 @@ impl World {
 
     pub(crate) fn compile_constraint_commands(&self) -> CompiledConstraintCommands {
         let mut map = RowMap::new();
-        let mut fresh: Vec<dynamis_layout::ConstraintRuntimeRecord> = Vec::new();
+        let mut fresh: Vec<ConstraintRuntimeRecord> = Vec::new();
         for command in &self.constraints.commands {
-            match command.kind {
-                dynamis_layout::COMMAND_CONSTRAINT_ADD => {
-                    map.add(command.slot, fresh.len() as u32);
-                    fresh.push(dynamis_layout::ConstraintRuntimeRecord::fresh(
-                        command.constraint_id,
-                        command.generation,
-                    ));
+            match *command {
+                ConstraintCommand::Add {
+                    slot,
+                    id,
+                    generation,
+                } => {
+                    map.add(slot, fresh.len() as u32);
+                    fresh.push(ConstraintRuntimeRecord::fresh(id, generation));
                 }
-                _ => map.swap(command.slot, command.tail),
+                ConstraintCommand::Swap { slot, tail } => map.swap(slot, tail),
             }
         }
         CompiledConstraintCommands {

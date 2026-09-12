@@ -1,7 +1,7 @@
 use super::ids::IdSpace;
 use crate::dynamics::buffers::{TRIANGLE_BYTES, VERTEX_BYTES};
 use crate::dynamics::capacity::ShapeReservation;
-use dynamis_layout::BvhNodeRecord;
+use dynamis_layout::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;
 use std::mem::size_of;
 
@@ -10,7 +10,7 @@ pub(crate) struct ShapePool {
     refs: Vec<u32>,
     records: Vec<ShapeSourceRecordStorage>,
     pub(crate) vertices: Vec<[f32; 4]>,
-    triangles: Vec<[u32; 4]>,
+    triangles: Vec<TriangleRecord>,
     nodes: Vec<BvhNodeRecord>,
     uploaded_vertices: usize,
     uploaded_triangles: usize,
@@ -125,7 +125,12 @@ impl ShapePool {
         }
         for (index, triangle) in triangles.iter().enumerate() {
             self.triangles[self.records[record_index].triangle_offset as usize + index] =
-                [triangle[0], triangle[1], triangle[2], 0];
+                TriangleRecord {
+                    a: triangle[0],
+                    b: triangle[1],
+                    c: triangle[2],
+                    _pad0: 0,
+                };
         }
         for (index, node) in nodes.iter().enumerate() {
             self.nodes[node_offset + index] = *node;
@@ -149,7 +154,12 @@ impl ShapePool {
         self.vertices
             .extend(vertices.iter().map(|v| [v[0], v[1], v[2], 0.0]));
         self.triangles
-            .extend(triangles.iter().map(|t| [t[0], t[1], t[2], 0]));
+            .extend(triangles.iter().map(|triangle| TriangleRecord {
+                a: triangle[0],
+                b: triangle[1],
+                c: triangle[2],
+                _pad0: 0,
+            }));
         let node_offset = self.nodes.len() as u32;
         let nodes = build_bvh(vertices, triangles);
         let node_count = nodes.len() as u32;

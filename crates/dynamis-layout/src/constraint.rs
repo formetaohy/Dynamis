@@ -1,82 +1,12 @@
 use crate::constant::{
-    COMMAND_CONSTRAINT_ADD, COMMAND_CONSTRAINT_SWAP, CONSTRAINT_BALL, CONSTRAINT_CONE,
-    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
-    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
-    CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
-    CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, DOF_DRIVEN, DOF_FREE, DOF_LIMITED, DOF_LOCKED,
-    set_dof_mode,
+    CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
+    CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
+    CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
+    CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, DOF_DRIVEN,
+    DOF_FREE, DOF_LIMITED, DOF_LOCKED, set_dof_mode,
 };
-use bytemuck::{Pod, Zeroable};
+use crate::{ConstraintDescriptorRecord, ConstraintRuntimeRecord};
 use dynamis_model::{ConstraintDesc, ConstraintMotor, DofDesc};
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<ConstraintDescriptorRecord>() == 384);
-    assert!(size_of::<ConstraintRuntimeRecord>() == 48);
-    assert!(size_of::<ConstraintCommandRecord>() == 24);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct ConstraintDescriptorRecord {
-    pub kind: u32,
-    pub a: u32,
-    pub b: u32,
-    pub flags: u32,
-    pub anchor_a: [f32; 3],
-    pub _pad1: f32,
-    pub anchor_b: [f32; 3],
-    pub _pad2: f32,
-    pub axis_a: [f32; 3],
-    pub _pad3: f32,
-    pub axis_b: [f32; 3],
-    pub _pad4: f32,
-    pub distance: f32,
-    pub limit_min: f32,
-    pub limit_max: f32,
-    pub swing_a: f32,
-    pub swing_b: f32,
-    pub motor_speed: f32,
-    pub motor_max_force: f32,
-    pub spring_frequency: f32,
-    pub spring_damping_ratio: f32,
-    pub break_force: f32,
-    pub break_torque: f32,
-    pub gear_ratio: f32,
-    pub pulley_fixed_a: [f32; 3],
-    pub _pad_pulley_a: f32,
-    pub pulley_fixed_b: [f32; 3],
-    pub _pad_pulley_b: f32,
-    pub motor_target: f32,
-    pub motor_stiffness: f32,
-    pub motor_damping: f32,
-    pub cone_angle: f32,
-    pub reference: [f32; 4],
-    pub linear_limit_min: [f32; 3],
-    pub _pad_lim_min: f32,
-    pub linear_limit_max: [f32; 3],
-    pub _pad_lim_max: f32,
-    pub angular_limit_min: [f32; 3],
-    pub _pad_ang_min: f32,
-    pub angular_limit_max: [f32; 3],
-    pub _pad_ang_max: f32,
-    pub linear_motor_target: [f32; 3],
-    pub _pad_lin_target: f32,
-    pub linear_motor_stiffness: [f32; 3],
-    pub _pad_lin_stiff: f32,
-    pub linear_motor_damping: [f32; 3],
-    pub _pad_lin_damp: f32,
-    pub angular_motor_target: [f32; 3],
-    pub _pad_ang_target: f32,
-    pub angular_motor_stiffness: [f32; 3],
-    pub _pad_ang_stiff: f32,
-    pub angular_motor_damping: [f32; 3],
-    pub _pad_ang_damp: f32,
-    pub linear_motor_force: [f32; 3],
-    pub _pad_lin_force: f32,
-    pub angular_motor_force: [f32; 3],
-    pub _pad_ang_force: f32,
-}
 
 impl ConstraintDescriptorRecord {
     pub fn build(desc: &ConstraintDesc, a: u32, b: u32) -> Self {
@@ -264,16 +194,6 @@ impl ConstraintDescriptorRecord {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct ConstraintRuntimeRecord {
-    pub accumulated: [f32; 8],
-    pub broken: u32,
-    pub constraint_id: u32,
-    pub generation: u32,
-    pub _pad0: u32,
-}
-
 impl ConstraintRuntimeRecord {
     pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
@@ -281,41 +201,6 @@ impl ConstraintRuntimeRecord {
             broken: 0,
             constraint_id,
             generation,
-            _pad0: 0,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct ConstraintCommandRecord {
-    pub kind: u32,
-    pub slot: u32,
-    pub tail: u32,
-    pub constraint_id: u32,
-    pub generation: u32,
-    pub _pad0: u32,
-}
-
-impl ConstraintCommandRecord {
-    pub fn add(slot: u32, id: u32, generation: u32) -> Self {
-        Self {
-            kind: COMMAND_CONSTRAINT_ADD,
-            slot,
-            tail: 0,
-            constraint_id: id,
-            generation,
-            _pad0: 0,
-        }
-    }
-
-    pub fn swap(slot: u32, tail: u32) -> Self {
-        Self {
-            kind: COMMAND_CONSTRAINT_SWAP,
-            slot,
-            tail,
-            constraint_id: 0,
-            generation: 0,
             _pad0: 0,
         }
     }

@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
@@ -19,12 +19,12 @@ impl Sleep {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
-                    (RW, whole(&buffers.islands.parents)),
-                    (RW, whole(&buffers.islands.state)),
-                    (RW, whole(&buffers.islands.wake_flags)),
+                    ("params", whole(&buffers.params)),
+                    ("body_states", whole(&buffers.bodies.states)),
+                    ("body_descs", whole(&buffers.bodies.descriptors)),
+                    ("island_parents", whole(&buffers.islands.parents)),
+                    ("island_state", whole(&buffers.islands.state)),
+                    ("wake_flags", whole(&buffers.islands.wake_flags)),
                 ],
                 &[],
             ),
@@ -35,15 +35,18 @@ impl Sleep {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RW, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
-                    (RW, whole(&buffers.islands.parents)),
-                    (RW, whole(&buffers.islands.state)),
-                    (RW, whole(&buffers.islands.wake_flags)),
-                    (RW, buffers.counter(COUNTER_SLEPT)),
-                    (RW, buffers.counter(COUNTER_WOKE)),
-                    (RW, buffers.counter(COUNTER_WOKE_DEFERRED)),
+                    ("params", whole(&buffers.params)),
+                    ("body_states", whole(&buffers.bodies.states)),
+                    ("body_descs", whole(&buffers.bodies.descriptors)),
+                    ("island_parents", whole(&buffers.islands.parents)),
+                    ("island_state", whole(&buffers.islands.state)),
+                    ("wake_flags", whole(&buffers.islands.wake_flags)),
+                    ("slept_count", buffers.counter(COUNTER_SLEPT)),
+                    ("woke_count", buffers.counter(COUNTER_WOKE)),
+                    (
+                        "deferred_woke_count",
+                        buffers.counter(COUNTER_WOKE_DEFERRED),
+                    ),
                 ],
                 &[],
             ),

@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{CORE, RO, RW, Stage, UNIFORM, shape_resources, whole};
+use super::stage::{CORE, Stage, shape_resources, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::COUNTER_JOINTS;
@@ -21,9 +21,9 @@ impl Integrate {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RW, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.descriptors)),
+                    ("params", whole(&buffers.params)),
+                    ("body_states", whole(&buffers.bodies.states)),
+                    ("body_descs", whole(&buffers.bodies.descriptors)),
                 ],
                 &[],
             ),
@@ -34,8 +34,8 @@ impl Integrate {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RW, whole(&buffers.bodies.states)),
+                    ("params", whole(&buffers.params)),
+                    ("body_states", whole(&buffers.bodies.states)),
                 ],
                 &[],
             ),
@@ -46,10 +46,10 @@ impl Integrate {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.states)),
-                    (RO, whole(&buffers.bodies.colliders)),
-                    (RW, whole(&buffers.bodies.aabbs)),
+                    ("params", whole(&buffers.params)),
+                    ("body_states", whole(&buffers.bodies.states)),
+                    ("colliders", whole(&buffers.bodies.colliders)),
+                    ("aabbs", whole(&buffers.bodies.aabbs)),
                 ],
                 &shape_resources(buffers),
             ),

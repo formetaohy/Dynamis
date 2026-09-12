@@ -1,5 +1,5 @@
 use super::FrameParams;
-use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_SPILLOVER_PAIRS};
@@ -20,15 +20,18 @@ impl Broadphase {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.contacts.entries.cells)),
-                    (RO, whole(&buffers.contacts.entries.colliders)),
-                    (RW, buffers.counter(COUNTER_ENTRIES)),
-                    (RW, whole(&buffers.contacts.pairs.major)),
-                    (RW, whole(&buffers.contacts.pairs.minor)),
-                    (RW, buffers.counter(COUNTER_PAIRS)),
-                    (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
-                    (RO, whole(&buffers.bodies.activity)),
+                    ("params", whole(&buffers.params)),
+                    ("entry_cells", whole(&buffers.contacts.entries.cells)),
+                    (
+                        "entry_colliders",
+                        whole(&buffers.contacts.entries.colliders),
+                    ),
+                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
+                    ("pair_major", whole(&buffers.contacts.pairs.major)),
+                    ("pair_minor", whole(&buffers.contacts.pairs.minor)),
+                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
+                    ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
+                    ("body_activity", whole(&buffers.bodies.activity)),
                 ],
                 &[],
             ),
@@ -39,15 +42,15 @@ impl Broadphase {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.contacts.large_bodies)),
-                    (RW, buffers.counter(COUNTER_LARGE)),
-                    (RW, whole(&buffers.contacts.pairs.major)),
-                    (RW, whole(&buffers.contacts.pairs.minor)),
-                    (RW, buffers.counter(COUNTER_PAIRS)),
-                    (RO, whole(&buffers.bodies.colliders)),
-                    (RW, buffers.counter(COUNTER_SPILLOVER_PAIRS)),
-                    (RO, whole(&buffers.bodies.activity)),
+                    ("params", whole(&buffers.params)),
+                    ("large_bodies", whole(&buffers.contacts.large_bodies)),
+                    ("large_count", buffers.counter(COUNTER_LARGE)),
+                    ("pair_major", whole(&buffers.contacts.pairs.major)),
+                    ("pair_minor", whole(&buffers.contacts.pairs.minor)),
+                    ("pair_count", buffers.counter(COUNTER_PAIRS)),
+                    ("colliders", whole(&buffers.bodies.colliders)),
+                    ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
+                    ("body_activity", whole(&buffers.bodies.activity)),
                 ],
                 &[],
             ),

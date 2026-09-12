@@ -1,4 +1,4 @@
-use super::stage::{CORE, RO, RW, Stage, UNIFORM, whole};
+use super::stage::{CORE, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_SPILLOVER_ENTRIES};
@@ -17,14 +17,17 @@ impl Grid {
                 per_row,
                 CORE,
                 &[
-                    (UNIFORM, whole(&buffers.params)),
-                    (RO, whole(&buffers.bodies.aabbs)),
-                    (RW, whole(&buffers.contacts.entries.cells)),
-                    (RW, whole(&buffers.contacts.entries.colliders)),
-                    (RW, buffers.counter(COUNTER_ENTRIES)),
-                    (RW, whole(&buffers.contacts.large_bodies)),
-                    (RW, buffers.counter(COUNTER_LARGE)),
-                    (RW, buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
+                    ("params", whole(&buffers.params)),
+                    ("aabbs", whole(&buffers.bodies.aabbs)),
+                    ("entry_cells", whole(&buffers.contacts.entries.cells)),
+                    (
+                        "entry_colliders",
+                        whole(&buffers.contacts.entries.colliders),
+                    ),
+                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
+                    ("large_bodies", whole(&buffers.contacts.large_bodies)),
+                    ("large_count", buffers.counter(COUNTER_LARGE)),
+                    ("spillover", buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
                 ],
                 &[],
             ),

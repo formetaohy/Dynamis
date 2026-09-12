@@ -3,34 +3,8 @@ use crate::constant::{
     SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
     SHAPE_PLANE, SHAPE_SPHERE,
 };
-use bytemuck::{Pod, Zeroable};
+use crate::{AabbRecord, ColliderRecord};
 use dynamis_model::{ColliderDesc, ContactEventMode, Shape};
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<ColliderRecord>() == 96);
-    assert!(size_of::<AabbRecord>() == 32);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct ColliderRecord {
-    pub kind: u32,
-    pub flags: u32,
-    pub radius: f32,
-    pub half_height: f32,
-    pub half_extents: [f32; 3],
-    pub collision_group: u32,
-    pub local_offset: [f32; 3],
-    pub collision_mask: u32,
-    pub local_rotation: [f32; 4],
-    pub friction: f32,
-    pub restitution: f32,
-    pub source: u32,
-    pub rolling_friction: f32,
-    pub scale: [f32; 3],
-    pub spin_friction: f32,
-}
 
 impl ColliderRecord {
     pub fn build(collider: &ColliderDesc, source: u32) -> Self {
@@ -116,15 +90,6 @@ fn shape_kind(shape: &Shape) -> u32 {
         Shape::HeightField(_) => SHAPE_HEIGHTFIELD,
         Shape::Plane => SHAPE_PLANE,
     }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct AabbRecord {
-    pub min: [f32; 3],
-    pub _pad0: f32,
-    pub max: [f32; 3],
-    pub _pad1: f32,
 }
 
 impl AabbRecord {

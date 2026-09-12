@@ -1,18 +1,3 @@
-struct BodyEdit {
-    kind: u32,
-    mask: u32,
-    _pad0: u32,
-    _pad1: u32,
-    state: BodyState,
-}
-
-struct BodyEditRun {
-    row: u32,
-    first: u32,
-    len: u32,
-    _pad: u32,
-}
-
 @group(0) @binding(0) var<storage, read> edits: array<BodyEdit>;
 @group(0) @binding(1) var<storage, read> edit_runs: array<BodyEditRun>;
 @group(0) @binding(2) var<storage, read_write> body_states: array<BodyState>;

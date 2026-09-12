@@ -1,42 +1,6 @@
+use crate::StepParamsRecord;
 use crate::constant::MAX_CELLS_PER_COLLIDER;
-use bytemuck::{Pod, Zeroable};
 use dynamis_model::{MaterialCombine, PhysicsConfig};
-
-const _: () = {
-    use std::mem::size_of;
-    assert!(size_of::<StepParamsRecord>() == 128);
-};
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct StepParamsRecord {
-    pub gravity: [f32; 4],
-    pub dt: f32,
-    pub damping: f32,
-    pub angular_damping: f32,
-    pub body_count: u32,
-    pub solve_iterations: u32,
-    pub constraint_count: u32,
-    pub relaxation: f32,
-    pub slop: f32,
-    pub restitution_threshold: f32,
-    pub max_velocity: f32,
-    pub max_angular_velocity: f32,
-    pub grid_cell_size: f32,
-    pub max_cells_per_collider: u32,
-    pub dynamic_count: u32,
-    pub sleep_velocity: f32,
-    pub sleep_angular_velocity: f32,
-    pub sleep_time: f32,
-    pub wake_velocity: f32,
-    pub friction_combine: u32,
-    pub restitution_combine: u32,
-    pub edit_run_count: u32,
-    pub body_move_count: u32,
-    pub constraint_move_count: u32,
-    pub event_slot: u32,
-    pub _pad: [u32; 4],
-}
 
 impl StepParamsRecord {
     pub fn new(
@@ -74,7 +38,10 @@ impl StepParamsRecord {
             body_move_count: streams.body_moves,
             constraint_move_count: streams.constraint_moves,
             event_slot,
-            _pad: [0; 4],
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
         }
     }
 }

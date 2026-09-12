@@ -1,11 +1,11 @@
 use crate::dynamics::capacity::{Reservation, ShapeReservation};
 use dynamis_gpu::{GpuBuffer, GpuSlot, ReadbackRing};
 use dynamis_layout::{
-    AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRun, BodyStateRecord, BvhNodeRecord,
-    COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
+    AabbRecord, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
+    BvhNodeRecord, COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
     ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, MAX_HITS_PER_QUERY, NO_SLOT,
-    QueryHitRecord, QueryRecord, QueryResultHeader, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
-    ShapeSourceRecord, StepParamsRecord,
+    QueryHitRecord, QueryRecord, QueryResultHeaderRecord, RowMoveRecord, SOLVER_BLOCK_CONSTRAINT,
+    ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_model::MAX_COLLIDERS_PER_BODY;
 use dynamis_sort::{SortChannels, key_words};
@@ -26,9 +26,9 @@ const DELTA_BYTES: u64 = 64;
 const CORRECTION_BYTES: u64 = 32;
 const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;
 pub(crate) const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
-pub(crate) const TRIANGLE_BYTES: u64 = size_of::<[u32; 4]>() as u64;
+pub(crate) const TRIANGLE_BYTES: u64 = size_of::<TriangleRecord>() as u64;
 const QUERY_BYTES: u64 = size_of::<QueryRecord>() as u64;
-const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeader>() as u64
+const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeaderRecord>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
 pub(crate) struct Lanes {
@@ -263,7 +263,7 @@ impl WorldBuffers {
                 edit_runs: rows(
                     "body edit runs",
                     plan.body_commands,
-                    size_of::<BodyEditRun>() as u64,
+                    size_of::<BodyEditRunRecord>() as u64,
                 ),
                 row_moves: rows(
                     "body row moves",
