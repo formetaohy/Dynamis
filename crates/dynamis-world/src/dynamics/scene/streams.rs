@@ -1,10 +1,12 @@
+use crate::dynamics::EVENT_SLOTS;
 use crate::dynamics::engine::{UNIFORM, streams};
 use dynamis_gpu::Contents;
 use dynamis_layout::{
-    BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord, BvhNodeRecord,
-    COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord, ConstraintDescriptorRecord,
-    ConstraintRuntimeRecord, MAX_HITS_PER_QUERY, QueryHitRecord, QueryRecord,
-    QueryResultHeaderRecord, RowMoveRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
+    BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
+    BrokenConstraintRecord, BvhNodeRecord, COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord,
+    ConstraintDescriptorRecord, ConstraintRuntimeRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
+    QueryRecord, QueryResultHeaderRecord, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
+    TriangleRecord,
 };
 use std::mem::size_of;
 
@@ -44,6 +46,7 @@ streams! {
         constraint_runtime, ConstraintRuntime: "constraint runtime", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Preserve, demand.constraints;
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", size_of::<RowMoveRecord>() as u64, Contents::Reset, demand.constraint_moves();
         constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Reset, demand.constraint_commands;
+        constraint_breaks, ConstraintBreaks: "constraint breaks", size_of::<BrokenConstraintRecord>() as u64, Contents::Reset, demand.constraints.saturating_mul(EVENT_SLOTS);
         shape_sources, ShapeSources: "shape sources", size_of::<ShapeSourceRecord>() as u64, Contents::Preserve, demand.shapes.sources;
         shape_vertices, ShapeVertices: "shape vertices", VERTEX_BYTES, Contents::Preserve, demand.shapes.vertices;
         shape_triangles, ShapeTriangles: "shape triangles", TRIANGLE_BYTES, Contents::Preserve, demand.shapes.triangles;

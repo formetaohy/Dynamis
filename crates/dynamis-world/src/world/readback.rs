@@ -1,9 +1,6 @@
 use super::World;
 use dynamis_layout::COUNTER_RESTING;
-use dynamis_layout::{
-    COUNTER_CONSTRAINTS, COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE, ConstraintRuntimeRecord,
-    ContactRecord, Counters,
-};
+use dynamis_layout::{COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE, ContactRecord, Counters};
 use dynamis_model::{BodyHandle, ConstraintHandle};
 use std::collections::HashSet;
 use std::mem::size_of;
@@ -28,10 +25,6 @@ pub struct ContactManifold {
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
 
-fn pack_bytes(constraints: u32) -> u64 {
-    COUNTER_BYTES + constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64
-}
-
 fn measured_counters(bytes: &[u8]) -> Counters {
     let stride = COUNTER_STRIDE as usize;
     let mut counters: Counters = [0; COUNTER_COUNT];
@@ -44,37 +37,18 @@ fn measured_counters(bytes: &[u8]) -> Counters {
 
 impl World {
     pub(crate) fn pack_step(&self, encoder: &mut wgpu::CommandEncoder) -> u64 {
-        let staging = self.backend.streams.readback.pack.buffer();
         encoder.copy_buffer_to_buffer(
             self.backend.streams.scene.counters.buffer(),
             0,
-            staging,
+            self.backend.streams.readback.pack.buffer(),
             0,
             COUNTER_BYTES,
         );
-        let constraints = self.constraints.alive.len() as u32;
-        if constraints > 0 {
-            encoder.copy_buffer_to_buffer(
-                self.backend.streams.scene.constraint_runtime.buffer(),
-                0,
-                staging,
-                COUNTER_BYTES,
-                constraints as u64 * size_of::<ConstraintRuntimeRecord>() as u64,
-            );
-        }
-        pack_bytes(constraints)
+        COUNTER_BYTES
     }
 
     pub(crate) fn consume_pack(&mut self, step: u64, bytes: &[u8]) {
-        let measured = measured_counters(bytes);
-        self.accept_measured(step, &measured);
-        let rows =
-            measured[COUNTER_CONSTRAINTS] as u64 * size_of::<ConstraintRuntimeRecord>() as u64;
-        let records =
-            dynamis_layout::decode::<ConstraintRuntimeRecord>(range(bytes, COUNTER_BYTES, rows));
-        for record in records {
-            self.accept_constraint_break(record);
-        }
+        self.accept_measured(step, &measured_counters(bytes));
     }
 
     pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {
@@ -162,6 +136,9 @@ impl World {
         for (_, bytes) in self.backend.streams.readback.events.collect() {
             self.consume_events(&bytes);
         }
+        for (_, bytes) in self.backend.streams.readback.breaks.collect() {
+            self.consume_breaks(&bytes);
+        }
         for (batch, bytes) in self.backend.streams.readback.queries.collect() {
             self.queries.pool.collect(batch, &bytes);
         }
@@ -181,6 +158,9 @@ impl World {
         for (_, bytes) in self.backend.streams.readback.events.drain() {
             self.consume_events(&bytes);
         }
+        for (_, bytes) in self.backend.streams.readback.breaks.drain() {
+            self.consume_breaks(&bytes);
+        }
         for (batch, bytes) in self.backend.streams.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
@@ -197,35 +177,29 @@ impl World {
         self.backend.measured = *measured;
         self.backend.measured_step = Some(step);
         self.note_events_due(step);
+        self.note_breaks_due(step);
     }
 
     pub fn measured(&self) -> &Counters {
         &self.backend.measured
     }
 
-    pub(crate) fn accept_constraint_break(&mut self, record: ConstraintRuntimeRecord) {
-        if record.broken == 0 {
-            return;
-        }
-        let id = record.constraint_id as usize;
+    pub(crate) fn accept_constraint_break(&mut self, constraint_id: u32, generation: u32) {
+        let id = constraint_id as usize;
         if id >= self.constraints.ids.len() {
             return;
         }
-        if self.constraints.ids.generation(record.constraint_id) != record.generation
+        if self.constraints.ids.generation(constraint_id) != generation
             || self.constraints.index_of[id] == u32::MAX
         {
             return;
         }
         let handle = ConstraintHandle {
-            id: id as u32,
-            generation: record.generation,
+            id: constraint_id,
+            generation,
         };
         self.constraints.broken.push(handle);
         self.remove_constraint(handle);
-    }
-
-    pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
-        std::mem::take(&mut self.constraints.broken)
     }
 }
 
@@ -255,9 +229,4 @@ fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
             .collect(),
         step,
     }
-}
-
-fn range(bytes: &[u8], at: u64, len: u64) -> &[u8] {
-    let at = at as usize;
-    &bytes[at..at + len as usize]
 }

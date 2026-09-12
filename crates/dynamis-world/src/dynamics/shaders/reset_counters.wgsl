@@ -20,7 +20,8 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_RESTING_GATHER ||
         slot == COUNTER_COARSE_ACTIVE ||
         slot == COUNTER_GRID_SCALE ||
-        slot == COUNTER_GRID_EXTENT) {
+        slot == COUNTER_GRID_EXTENT ||
+        slot == COUNTER_BREAKS) {
         atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], 0u);
     }
 }

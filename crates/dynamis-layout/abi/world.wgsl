@@ -263,6 +263,11 @@ struct ConstraintRuntime {
     _pad0: u32,
 }
 
+struct BrokenConstraint {
+    constraint_id: u32,
+    generation: u32,
+}
+
 struct ConstraintRows {
     first_row: u32,
     second_row: u32,

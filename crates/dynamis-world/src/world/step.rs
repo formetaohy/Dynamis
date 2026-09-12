@@ -176,6 +176,7 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
         self.copy_events(&mut encoder);
+        self.copy_breaks(&mut encoder);
         self.backend.pipeline.encode(
             &mut encoder,
             &self.backend.streams,

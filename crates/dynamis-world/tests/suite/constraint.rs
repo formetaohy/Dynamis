@@ -1,4 +1,6 @@
-use super::common::{DT, converged, distance, new_world, settle, settle_until, static_config};
+use super::common::{
+    DT, converged, distance, gravity_config, new_world, settle, settle_until, static_config,
+};
 use dynamis_model::{BodyDesc, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig};
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -941,5 +943,102 @@ fn dof_patches_drive_and_cap_a_live_constraint() {
     assert!(
         capped < 0.4,
         "a live dof limit must cap the driven rotation, got {capped}"
+    );
+}
+
+#[test]
+fn every_simultaneous_break_reaches_the_host() {
+    const JOINTS: usize = 32;
+    let mut world = new_world(static_config());
+    let mut handles = Vec::with_capacity(JOINTS);
+    let mut weights = Vec::with_capacity(JOINTS);
+    for index in 0..JOINTS {
+        let anchor =
+            world.spawn(
+                BodyDesc::sphere(0.2)
+                    .mass(0.0)
+                    .position([index as f32 * 2.0, 0.0, 0.0]),
+            );
+        let weight = world.spawn(
+            BodyDesc::sphere(0.2)
+                .position([index as f32 * 2.0, 0.5, 0.0])
+                .mass(4.0),
+        );
+        handles.push(world.add_constraint(
+            anchor,
+            weight,
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 0.5).break_threshold(1.0, 0.0),
+        ));
+        weights.push(weight);
+    }
+    let mut reported = Vec::new();
+    for _ in 0..120 {
+        for weight in &weights {
+            world.apply_force(*weight, [0.0, 120.0, 0.0]);
+        }
+        world.step(DT);
+        reported.extend(world.drain_constraint_breaks());
+    }
+    world.wait();
+    reported.sort_by_key(|handle| handle.id);
+    handles.sort_by_key(|handle| handle.id);
+    assert_eq!(
+        reported, handles,
+        "every overloaded joint must surface exactly once"
+    );
+    assert!(
+        world.constraints().is_empty(),
+        "a broken joint must leave the live set"
+    );
+    assert_eq!(
+        world.measured()[dynamis_layout::COUNTER_BREAKS],
+        0,
+        "a settled world must stop publishing breaks"
+    );
+}
+
+#[test]
+fn unloaded_joints_never_publish_breaks() {
+    const JOINTS: usize = 32;
+    let mut world = new_world(gravity_config());
+    let mut handles = Vec::with_capacity(JOINTS);
+    for index in 0..JOINTS {
+        let anchor =
+            world.spawn(
+                BodyDesc::sphere(0.2)
+                    .mass(0.0)
+                    .position([index as f32 * 2.0, 0.0, 0.0]),
+            );
+        let weight = world.spawn(
+            BodyDesc::sphere(0.2)
+                .position([index as f32 * 2.0, 0.5, 0.0])
+                .sleep_thresholds(0.0, 0.0),
+        );
+        handles.push(world.add_constraint(
+            anchor,
+            weight,
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 0.5).break_threshold(1.0e3, 0.0),
+        ));
+    }
+    settle(&mut world, 60);
+    assert!(
+        world.drain_constraint_breaks().is_empty(),
+        "a joint below its threshold must never break"
+    );
+    assert_eq!(
+        world.constraints().len(),
+        JOINTS,
+        "an unloaded joint must stay live"
+    );
+    for handle in &handles {
+        assert!(
+            world.constraints().contains(handle),
+            "an unloaded joint must keep its handle"
+        );
+    }
+    assert_eq!(
+        world.measured()[dynamis_layout::COUNTER_BREAKS],
+        0,
+        "an unbroken world must publish no break records"
     );
 }

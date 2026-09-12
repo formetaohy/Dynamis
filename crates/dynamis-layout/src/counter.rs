@@ -31,7 +31,8 @@ declare_constants! {
     pub const COUNTER_COARSE_ACTIVE: usize = 27;
     pub const COUNTER_GRID_SCALE: usize = 28;
     pub const COUNTER_GRID_EXTENT: usize = 29;
-    pub const COUNTER_COUNT: usize = 30;
+    pub const COUNTER_BREAKS: usize = 30;
+    pub const COUNTER_COUNT: usize = 31;
 }
 
 pub const COUNTER_STRIDE: u64 = 256;

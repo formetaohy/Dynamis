@@ -8,9 +8,9 @@ use crate::dynamics::shader::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY};
 use crate::dynamics::streams::Streams;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_GATHER,
-    COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS,
-    COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
+    COUNTER_ARCHIVED, COUNTER_BREAKS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING,
+    COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT,
+    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_sort::RadixSort;
 
@@ -20,6 +20,7 @@ pub(super) struct Commit {
     resting_gather: Stage,
     resting_commit: Stage,
     contact_archive: Stage,
+    constraint_breaks: Stage,
     archive_count_sync: Stage,
     static_wake_clear: Stage,
     query: Stage,
@@ -147,6 +148,24 @@ impl Commit {
                 ],
                 &[],
             ),
+            constraint_breaks: Stage::build(
+                context,
+                "constraint_breaks",
+                shader::rows(
+                    context,
+                    include_str!("../shaders/constraint_breaks.wgsl"),
+                    CORE,
+                    Count::Constraints,
+                ),
+                streams,
+                &[
+                    ("params", SceneStream::Params.whole()),
+                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_breaks", SceneStream::ConstraintBreaks.whole()),
+                    ("break_count", streams.scene.counter(COUNTER_BREAKS)),
+                ],
+                &[],
+            ),
             archive_count_sync: Stage::build(
                 context,
                 "archive_count_sync",
@@ -224,6 +243,11 @@ impl Commit {
         self.static_wake_clear
             .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
         self.freeze_contacts.record_stream(recorder, streams);
+        self.constraint_breaks.record_rows(
+            recorder,
+            streams,
+            Count::Constraints.rows(&frame.params),
+        );
         self.record_query(recorder, streams, frame);
     }
 
