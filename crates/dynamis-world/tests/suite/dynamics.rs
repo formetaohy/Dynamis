@@ -273,6 +273,34 @@ fn ccd_flag_stops_bullet_that_would_tunnel() {
 }
 
 #[test]
+fn ccd_bullet_stops_at_the_nearest_obstacle_of_a_chain() {
+    let mut world = new_world(static_config());
+    let mut nearest = f32::MAX;
+    for index in 0..81 {
+        let x = -2.0 + index as f32 * 0.05;
+        nearest = nearest.min(x);
+        world.spawn(BodyDesc::static_sphere(0.15).position([x, 0.0, 0.0]));
+    }
+    let bullet = world.spawn(
+        BodyDesc::sphere(0.3)
+            .position([-12.6, 0.0, 0.0])
+            .velocity([90.0, 0.0, 0.0])
+            .restitution(0.0),
+    );
+    world.set_ccd(bullet, true);
+    for _ in 0..20 {
+        world.step(DT);
+        world.wait();
+        let x = world.read_state(bullet).position[0];
+        assert!(
+            x < nearest - 0.4,
+            "ccd bullet must stop at the nearest obstacle surface ({}), got x={x}",
+            nearest - 0.45
+        );
+    }
+}
+
+#[test]
 fn kinematic_platform_carries_ball_and_ignores_gravity() {
     let mut world = new_world(gravity_config());
     let platform = world.spawn(

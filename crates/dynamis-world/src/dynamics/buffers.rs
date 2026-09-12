@@ -185,6 +185,8 @@ world_buffers! {
         body_row_moves: "body row moves", size_of::<RowMoveRecord>() as u64, Contents::Reset, demand.body_moves();
         body_fresh_rows: "fresh body rows", BODY_FRESH_BYTES, Contents::Reset, demand.body_commands;
         body_state_scratch: "body state scratch", BODY_FRESH_BYTES, Contents::Reset, demand.bodies;
+        ccd_factor: "ccd retreat factors", 4, Contents::Reset, demand.bodies;
+        ccd_impact: "ccd impacts", 16, Contents::Reset, demand.bodies;
         constraint_descriptors: "constraint descriptors", size_of::<ConstraintDescriptorRecord>() as u64, Contents::Reset, demand.constraints;
         constraint_runtime: "constraint runtime", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Preserve, demand.constraints;
         joint_filter_major: "joint filter major", 4, Contents::Reset, demand.constraints;

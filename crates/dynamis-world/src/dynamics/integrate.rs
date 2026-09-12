@@ -36,6 +36,7 @@ impl Integrate {
                 &[
                     ("params", whole(&buffers.params)),
                     ("body_states", whole(&buffers.body_states)),
+                    ("ccd_factor", whole(&buffers.ccd_factor)),
                 ],
                 &[],
             ),

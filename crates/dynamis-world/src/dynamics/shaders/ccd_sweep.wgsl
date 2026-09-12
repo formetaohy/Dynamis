@@ -6,6 +6,8 @@
 @group(0) @binding(5) var<storage, read> pair_minor: array<u32>;
 @group(0) @binding(6) var<storage, read_write> pair_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(8) var<storage, read_write> ccd_factor: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> ccd_impact: array<vec4f>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -43,6 +45,13 @@ fn sweep_retreat(
     return min(hit.distance / (sweep_length * 0.98), 1.0);
 }
 
+fn publish_impact(slot: u32, time: f32, axis: vec3f, restitution: f32) {
+    let packed = bitcast<u32>(time);
+    if (packed < atomicMin(&ccd_factor[slot], packed)) {
+        ccd_impact[slot] = vec4f(axis, restitution);
+    }
+}
+
 fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, other_collider: Collider) {
     let time = sweep_retreat(moving, moving_collider, other, other_collider);
     if (time >= 1.0) {
@@ -52,16 +61,16 @@ fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, othe
     state.position = state.prev_position + (state.position - state.prev_position) * time;
     let axis = sign_normalize(
         world_collider(other.state, other_collider).center - world_collider(state, moving_collider).center);
-    let normal_speed = dot(state.velocity, axis);
-    if (normal_speed > 0.0) {
-        let restitution = material_combine(
+    publish_impact(
+        slot,
+        time,
+        axis,
+        material_combine(
             moving_collider.restitution,
             other_collider.restitution,
             params.restitution_combine,
-        );
-        state.velocity = state.velocity - axis * normal_speed * (1.0 + restitution);
-    }
-    body_states[slot] = state;
+        ),
+    );
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)

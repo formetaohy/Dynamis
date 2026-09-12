@@ -194,7 +194,7 @@ impl Pipeline {
             let mut impact = self.open(encoder, Pass::Impact);
             self.integrate
                 .record_advance(&mut impact, params.dynamic_count);
-            self.ccd.record(&mut impact, buffers);
+            self.ccd.record(&mut impact, buffers, params.dynamic_count);
             drop(impact);
 
             let mut position = self.open(encoder, Pass::SolverPosition);

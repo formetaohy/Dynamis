@@ -1,5 +1,6 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
+@group(0) @binding(2) var<storage, read_write> ccd_factor: array<u32>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -7,6 +8,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (index >= params.dynamic_count) {
         return;
     }
+    ccd_factor[index] = bitcast<u32>(1.0);
     var state = body_states[index];
     state.position = state.prev_position + state.velocity * params.dt;
     let spin = vec4f(state.angular_velocity, 0.0);
