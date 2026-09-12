@@ -2,18 +2,22 @@ use super::FrameParams;
 use super::stage::{BLOCKS, CLASS_TOKENS, CORE, OVERFLOW_CORRECTIONS, Program, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_layout::{COUNTER_BLOCKS, COUNTER_CONTACTS, SOLVER_CLASS_COUNT};
+use dynamis_layout::{
+    COUNTER_BLOCKS, COUNTER_CLASS_CONFLICTS, COUNTER_CONTACTS, SOLVER_CLASS_COUNT,
+};
 use dynamis_sort::RadixSort;
 use wgpu::BindGroup;
 
 pub(super) struct Solver {
     reset: Stage,
     total: Stage,
+    class_clear: Stage,
     blocks: Stage,
     boundaries: Stage,
     boundaries_overflow: Stage,
     classify: Stage,
-    classify_final: Stage,
+    leftover: Stage,
+    audit: Stage,
     class_scan: Stage,
     class_scatter: Stage,
     overflow_gather: Stage,
@@ -31,7 +35,7 @@ pub(super) struct Solver {
     class_position_groups: Vec<BindGroup>,
 }
 
-const CLASSIFY: &str = include_str!("shaders/solver_classify.wgsl");
+const CLASS_ROUND: &str = include_str!("shaders/solver_class_round.wgsl");
 const CLASS_SOLVE: &str = include_str!("shaders/solver_class.wgsl");
 const POSITION_CLASS: &str = include_str!("shaders/position_class.wgsl");
 
@@ -115,23 +119,55 @@ impl Solver {
             ("second_of_body", whole(&buffers.solver_first_b)),
             ("segments", segments),
             ("current_round", buffers.class_round(0)),
-            ("class_counts", whole(&buffers.solver_class_counts)),
         ];
         let classify = Stage::build(
             context,
-            "solver classify",
-            CLASSIFY,
+            "solver class round",
+            CLASS_ROUND,
             per_row,
             CLASS_TOKENS,
             &classify_slots,
             &[],
         );
-        let classify_final = Stage::build_entry(
+        let leftover = Stage::build_entry(
             context,
-            Program::entry("solver classify settle", CLASSIFY, "settle"),
+            Program::entry(
+                "solver class leftover",
+                include_str!("shaders/solver_class_leftover.wgsl"),
+                "main",
+            ),
             per_row,
             CLASS_TOKENS,
-            &classify_slots,
+            &[
+                ("class_tokens", whole(&buffers.solver_class_tokens)),
+                ("segments", segments),
+                ("current_round", buffers.class_round(SOLVER_CLASS_COUNT - 1)),
+                ("class_counts", whole(&buffers.solver_class_counts)),
+            ],
+            &[],
+        );
+        let audit = Stage::build(
+            context,
+            "solver class audit",
+            include_str!("shaders/solver_class_audit.wgsl"),
+            per_row,
+            CLASS_TOKENS,
+            &[
+                ("class_tokens", whole(&buffers.solver_class_tokens)),
+                ("block_first_body", whole(&buffers.solver_block_first_body)),
+                (
+                    "block_second_body",
+                    whole(&buffers.solver_block_second_body),
+                ),
+                ("first_order_bodies", whole(&buffers.solver_a_bodies)),
+                ("first_order_blocks", whole(&buffers.solver_a_payload)),
+                ("second_order_bodies", whole(&buffers.solver_b_bodies)),
+                ("second_order_blocks", whole(&buffers.solver_b_blocks)),
+                ("first_of_body", whole(&buffers.solver_first_a)),
+                ("second_of_body", whole(&buffers.solver_first_b)),
+                ("segments", segments),
+                ("class_conflicts", buffers.counter(COUNTER_CLASS_CONFLICTS)),
+            ],
             &[],
         );
         let classify_groups = (0..SOLVER_CLASS_COUNT)
@@ -153,7 +189,6 @@ impl Solver {
                         ("second_of_body", whole(&buffers.solver_first_b)),
                         ("segments", segments),
                         ("current_round", buffers.class_round(round)),
-                        ("class_counts", whole(&buffers.solver_class_counts)),
                     ],
                 )
             })
@@ -478,11 +513,21 @@ impl Solver {
                 ],
                 &[],
             ),
+            class_clear: Stage::build(
+                context,
+                "solver_class_clear",
+                include_str!("shaders/solver_class_clear.wgsl"),
+                per_row,
+                CORE,
+                &[("class_tokens", whole(&buffers.solver_class_tokens))],
+                &[],
+            ),
             blocks,
             boundaries,
             boundaries_overflow,
             classify,
-            classify_final,
+            leftover,
+            audit,
             class_scan,
             class_scatter,
             overflow_gather,
@@ -501,9 +546,16 @@ impl Solver {
         }
     }
 
-    pub(super) fn record_prepare(&self, recorder: &mut ComputeRecorder, body_count: u32) {
+    pub(super) fn record_prepare(
+        &self,
+        recorder: &mut ComputeRecorder,
+        buffers: &WorldBuffers,
+        body_count: u32,
+    ) {
         self.reset.record(recorder, body_count);
         self.total.record_workgroups(recorder, 1);
+        self.class_clear
+            .record_stride(recorder, buffers.block_capacity());
     }
 
     pub(super) fn record(
@@ -540,20 +592,11 @@ impl Solver {
         );
         self.boundaries.record_stride(recorder, blocks);
 
-        for group in self
-            .classify_groups
-            .iter()
-            .take(SOLVER_CLASS_COUNT as usize - 1)
-        {
+        for group in &self.classify_groups {
             self.classify.record_group_stride(recorder, group, blocks);
         }
-        self.classify_final.record_group_stride(
-            recorder,
-            self.classify_groups
-                .last()
-                .expect("the solver declares at least one class"),
-            blocks,
-        );
+        self.leftover.record_stride(recorder, blocks);
+        self.audit.record_stride(recorder, blocks);
         self.class_scan.record_workgroups(recorder, 1);
         self.class_scatter.record_stride(recorder, blocks);
 
