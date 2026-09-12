@@ -1,8 +1,11 @@
+mod ccd;
 mod engine;
 pub(crate) mod rigid;
 
+use ccd::{Ccd, CcdPasses};
+use engine::Schedule;
 pub(crate) use rigid::Frame;
-use rigid::{Pass, Rigid, buffers::RigidBuffers};
+use rigid::{Rigid, RigidPasses, RigidResolutionPasses, buffers::RigidBuffers};
 
 use dynamis_gpu::GpuContext;
 use wgpu::CommandEncoder;
@@ -10,18 +13,24 @@ use wgpu::CommandEncoder;
 pub(crate) struct Pipeline {
     engine: engine::Engine,
     rigid: Rigid,
+    ccd: Ccd,
 }
 
 impl Pipeline {
     pub(crate) fn new(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+        let mut schedule = Schedule::new();
+        let rigid = RigidPasses::claim(&mut schedule);
+        let ccd = CcdPasses::claim(&mut schedule);
+        let resolution = RigidResolutionPasses::claim(&mut schedule);
         Self {
             engine: engine::Engine::new(
                 context,
-                Pass::LABELS,
+                schedule,
                 #[cfg(feature = "profile")]
                 "dynamis step",
             ),
-            rigid: Rigid::new(context, buffers),
+            rigid: Rigid::new(context, buffers, rigid, resolution),
+            ccd: Ccd::new(context, buffers, ccd),
         }
     }
 
@@ -31,9 +40,15 @@ impl Pipeline {
         buffers: &RigidBuffers,
         frame: &Frame,
         idle: bool,
+        ccd_active: bool,
     ) {
         self.rigid
             .encode(&self.engine, encoder, buffers, frame, idle);
+        if ccd_active && !idle {
+            self.ccd.encode(&self.engine, encoder, buffers, frame);
+        }
+        self.rigid
+            .encode_resolution(&self.engine, encoder, buffers, frame, idle);
     }
 
     pub(crate) fn encode_queries(

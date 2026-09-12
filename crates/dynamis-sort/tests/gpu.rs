@@ -62,8 +62,9 @@ impl Channels {
         }
     }
 
-    fn lanes(&self) -> SortChannels<'_> {
+    fn lanes(&self, generation: u64) -> SortChannels<'_> {
         SortChannels {
+            generation,
             count: GpuSlot::whole(&self.count),
             major: GpuSlot::whole(&self.major),
             minor: GpuSlot::whole(&self.minor),
@@ -94,7 +95,7 @@ fn run_sort(
         let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
         sort.sort(
             &mut recorder,
-            &channels.lanes(),
+            &channels.lanes(0),
             major_words,
             minor_words,
             major.len() as u32,
@@ -226,5 +227,46 @@ fn windows_prefers_dx12_when_vulkan_available() {
         !pollster::block_on(GpuContext::available_adapters(Backends::VULKAN)).is_empty();
     if has_dx12 && has_vulkan {
         assert_eq!(shared().adapter_info().backend, Backend::Dx12);
+    }
+}
+
+#[test]
+fn storage_generation_changes_rebuild_the_sort_bindings() {
+    let context = shared();
+    let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
+    let payload = counting_payload(keys.len());
+    let channels = Channels::new(context, &keys, &keys, &payload);
+    let row = context.workgroups_per_row();
+    let sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    context.warmup(WarmupBudget::All);
+    let mut expected = keys.clone();
+    expected.sort();
+    for generation in [0u64, 0, 1, 1, 2] {
+        let mut encoder = context
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
+            sort.sort(
+                &mut recorder,
+                &channels.lanes(generation),
+                1,
+                0,
+                keys.len() as u32,
+            );
+        }
+        context.queue().submit([encoder.finish()]);
+        let sorted = read_u32s(context, &channels.major, keys.len());
+        assert_eq!(
+            sorted, expected,
+            "generation {generation} must keep the key order"
+        );
+        let carried = read_u32s(context, &channels.payload, keys.len());
+        for (key, at) in sorted.iter().zip(carried.iter()) {
+            assert_eq!(
+                *key, keys[*at as usize],
+                "generation {generation} must pair every key with its payload"
+            );
+        }
     }
 }

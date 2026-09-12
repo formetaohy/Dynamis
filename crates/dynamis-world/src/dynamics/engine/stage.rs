@@ -97,6 +97,8 @@ impl SlotRef {
 }
 
 pub(crate) trait Resources {
+    fn generation(&self) -> u64;
+
     fn slots(&self, resource: ResourceId) -> u32;
 
     fn whole(&self, resource: ResourceId) -> GpuSlot<'_>;
@@ -124,7 +126,7 @@ struct Binding {
 }
 
 struct Bound {
-    identity: Vec<(u64, u64, u64)>,
+    generation: u64,
     storage: BindGroup,
     shapes: Option<BindGroup>,
 }
@@ -137,34 +139,14 @@ impl Bound {
         storage: &[Binding],
         shapes: &[Binding],
     ) -> Self {
-        let identity = storage
-            .iter()
-            .chain(shapes)
-            .map(|binding| binding.slot.resolve(resources).identity())
-            .collect();
         let group = pipeline.create_bind_group(device, 0, &entries(resources, storage));
         let shape_group = (!shapes.is_empty())
             .then(|| pipeline.create_bind_group(device, 1, &entries(resources, shapes)));
         Self {
-            identity,
+            generation: resources.generation(),
             storage: group,
             shapes: shape_group,
         }
-    }
-
-    fn matches<R: Resources>(
-        &self,
-        resources: &R,
-        storage: &[Binding],
-        shapes: &[Binding],
-    ) -> bool {
-        let declared = storage.iter().chain(shapes);
-        self.identity.len() == storage.len() + shapes.len()
-            && self
-                .identity
-                .iter()
-                .zip(declared)
-                .all(|(cached, binding)| *cached == binding.slot.resolve(resources).identity())
     }
 }
 
@@ -302,7 +284,7 @@ impl Stage {
 
     fn bind<R: Resources>(&self, resources: &R) -> RefMut<'_, Bound> {
         let mut current = self.bound.borrow_mut();
-        if !current.matches(resources, &self.storage, &self.shapes) {
+        if current.generation != resources.generation() {
             *current = Bound::of(
                 &self.pipeline,
                 &self.device,

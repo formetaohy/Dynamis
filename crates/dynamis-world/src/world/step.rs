@@ -165,9 +165,13 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
         self.copy_events(&mut encoder);
-        self.backend
-            .pipeline
-            .encode(&mut encoder, &self.backend.buffers, frame, idle);
+        self.backend.pipeline.encode(
+            &mut encoder,
+            &self.backend.buffers,
+            frame,
+            idle,
+            self.ccd_active(),
+        );
         #[cfg(feature = "profile")]
         let timings = self.backend.pipeline.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);

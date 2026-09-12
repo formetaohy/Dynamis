@@ -82,6 +82,7 @@ pub fn key_words(elements: u32) -> u32 {
 }
 
 pub struct SortChannels<'a> {
+    pub generation: u64,
     pub count: GpuSlot<'a>,
     pub major: GpuSlot<'a>,
     pub minor: GpuSlot<'a>,
@@ -126,7 +127,8 @@ struct SortBindGroups {
 
 struct State {
     groups: Vec<SortBindGroups>,
-    generation: u32,
+    storage: Option<u64>,
+    parity: u32,
 }
 
 pub struct RadixSort {
@@ -292,7 +294,8 @@ impl RadixSort {
             histograms,
             state: std::sync::Mutex::new(State {
                 groups: Vec::new(),
-                generation: 0,
+                storage: None,
+                parity: 0,
             }),
         }
     }
@@ -315,8 +318,11 @@ impl RadixSort {
         );
         let units = (elements.div_ceil(THREADS) as usize).clamp(1, SLOTS);
         let mut state = self.state.lock().unwrap();
-        let generation = state.generation;
-        let parity = generation as usize % 2;
+        if state.storage != Some(channels.generation) {
+            state.groups.clear();
+            state.storage = Some(channels.generation);
+        }
+        let parity = state.parity as usize % 2;
         let key = ChannelsKey::of(channels);
         let index = match state.groups.iter().position(|entry| entry.channels == key) {
             Some(index) => index,
@@ -349,6 +355,6 @@ impl RadixSort {
         if passes.len() % 2 == 1 {
             recorder.record(self.copy.pipeline(), &[&groups.copy], units as u32);
         }
-        state.generation = generation + 1;
+        state.parity = state.parity.wrapping_add(1);
     }
 }

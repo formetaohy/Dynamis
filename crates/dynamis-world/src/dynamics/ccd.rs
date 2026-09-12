@@ -1,26 +1,35 @@
-use super::Count;
-use super::Frame;
-use super::buffers::{RigidBuffers, StreamId};
-use super::shader;
-use super::shader::{CORE, GEOMETRY};
-use crate::dynamics::engine::Stage;
-use dynamis_gpu::{ComputeRecorder, GpuContext};
+use super::engine::{self, Engine, domain_passes};
+use super::rigid::Count;
+use super::rigid::Frame;
+use super::rigid::buffers::{RigidBuffers, StreamId};
+use super::rigid::shader;
+use super::rigid::shader::{CORE, GEOMETRY};
+use dynamis_gpu::GpuContext;
 use dynamis_layout::COUNTER_PAIRS;
 
-pub(super) struct Ccd {
-    sweep: Stage,
-    apply: Stage,
+domain_passes!(
+    CcdPasses,
+    "ccd",
+    sweep => "ccd_sweep",
+    apply => "ccd_apply",
+);
+
+pub(crate) struct Ccd {
+    passes: CcdPasses,
+    sweep: engine::Stage,
+    apply: engine::Stage,
 }
 
 impl Ccd {
-    pub(super) fn build(context: &GpuContext, buffers: &RigidBuffers) -> Self {
+    pub(crate) fn new(context: &GpuContext, buffers: &RigidBuffers, passes: CcdPasses) -> Self {
         Self {
-            sweep: Stage::build(
+            passes,
+            sweep: engine::Stage::build(
                 context,
                 "ccd_sweep",
                 shader::stream(
                     context,
-                    include_str!("shaders/ccd_sweep.wgsl"),
+                    include_str!("rigid/shaders/ccd_sweep.wgsl"),
                     GEOMETRY,
                     "work",
                     StreamId::PairMajor,
@@ -40,12 +49,12 @@ impl Ccd {
                 ],
                 &RigidBuffers::shape_resources(),
             ),
-            apply: Stage::build(
+            apply: engine::Stage::build(
                 context,
                 "ccd_apply",
                 shader::rows(
                     context,
-                    include_str!("shaders/ccd_apply.wgsl"),
+                    include_str!("rigid/shaders/ccd_apply.wgsl"),
                     CORE,
                     Count::Dynamic,
                 ),
@@ -61,14 +70,20 @@ impl Ccd {
         }
     }
 
-    pub(super) fn record(
+    pub(crate) fn encode(
         &self,
-        recorder: &mut ComputeRecorder,
+        engine: &Engine,
+        encoder: &mut wgpu::CommandEncoder,
         buffers: &RigidBuffers,
         frame: &Frame,
     ) {
-        self.sweep.record_stream(recorder, buffers);
+        let mut sweep = engine.open(encoder, self.passes.sweep);
+        self.sweep.record_stream(&mut sweep, buffers);
+        drop(sweep);
+
+        let mut apply = engine.open(encoder, self.passes.apply);
         self.apply
-            .record_rows(recorder, buffers, Count::Dynamic.rows(&frame.params));
+            .record_rows(&mut apply, buffers, Count::Dynamic.rows(&frame.params));
+        drop(apply);
     }
 }

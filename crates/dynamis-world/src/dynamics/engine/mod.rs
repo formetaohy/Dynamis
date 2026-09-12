@@ -1,5 +1,7 @@
+mod schedule;
 mod stage;
 
+pub(crate) use schedule::{Schedule, domain_passes};
 pub(crate) use stage::{
     Dispatch, MAX_DISPATCH_WORKGROUPS, Program, ResourceId, Resources, SlotRef, Stage,
     WORKGROUP_SIZE, entry_rows, entry_stream, workgroups_of,
@@ -12,7 +14,7 @@ use wgpu::CommandEncoder;
 
 pub(crate) struct Engine {
     per_row: u32,
-    labels: Vec<&'static str>,
+    schedule: Schedule,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
 }
@@ -20,21 +22,23 @@ pub(crate) struct Engine {
 impl Engine {
     pub(crate) fn new(
         context: &GpuContext,
-        labels: &[&'static str],
+        schedule: Schedule,
         #[cfg(feature = "profile")] label: &str,
     ) -> Self {
         assert!(
-            !labels.is_empty(),
+            !schedule.labels().is_empty(),
             "a step schedule needs at least one pass label"
         );
+        #[cfg(feature = "profile")]
+        let labels = schedule.labels().to_vec();
         Self {
             per_row: context.workgroups_per_row(),
-            labels: labels.to_vec(),
+            schedule,
             #[cfg(feature = "profile")]
             timer: context.supports_pass_timing().then(|| {
                 dynamis_gpu::GpuTimer::new(
                     context.device(),
-                    labels,
+                    &labels,
                     context.timestamp_period_ns(),
                     label,
                 )
@@ -52,7 +56,8 @@ impl Engine {
         pass: usize,
     ) -> ComputeRecorder<'a> {
         let label = self
-            .labels
+            .schedule
+            .labels()
             .get(pass)
             .copied()
             .unwrap_or_else(|| panic!("pass {pass} is not part of the step schedule"));

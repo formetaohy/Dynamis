@@ -599,3 +599,23 @@ fn a_sphere_swallowed_by_a_flat_box_escapes_through_the_nearest_face() {
         state.position
     );
 }
+
+#[test]
+fn clearing_the_ccd_flag_restores_tunneling() {
+    let mut world = new_world(static_config());
+    static_sphere_ground(&mut world, 0.2);
+    let bullet = world.spawn(
+        BodyDesc::sphere(0.3)
+            .position([-12.6, 0.0, 0.0])
+            .velocity([90.0, 0.0, 0.0])
+            .restitution(0.0)
+            .ccd(true),
+    );
+    world.set_ccd(bullet, false);
+    settle(&mut world, 20);
+    assert!(
+        world.read_state(bullet).position[0] > 1.0,
+        "clearing the ccd flag must restore tunneling, got x={}",
+        world.read_state(bullet).position[0]
+    );
+}

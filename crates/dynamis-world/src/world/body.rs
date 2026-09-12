@@ -22,6 +22,7 @@ pub(crate) struct Bodies {
     pub(crate) descriptors: Vec<BodyDescriptorRecord>,
     pub(crate) dynamic_count: usize,
     pub(crate) kinematic: Vec<bool>,
+    pub(crate) ccd_count: u32,
     pub(crate) states: Vec<Option<BodyState>>,
     pub(crate) states_ready: bool,
     pub(crate) device_count: u32,
@@ -44,6 +45,7 @@ impl Bodies {
             descriptors: Vec::new(),
             dynamic_count: 0,
             kinematic: Vec::new(),
+            ccd_count: 0,
             states: Vec::new(),
             states_ready: true,
             device_count: 0,
@@ -102,6 +104,9 @@ impl World {
         self.bodies
             .commands
             .push(BodyCommand::Add { row: slot, state });
+        if spawn_desc.ccd {
+            self.bodies.ccd_count += 1;
+        }
         if mass > 0.0 || desc.kinematic {
             if (self.bodies.dynamic_count as u32) < slot {
                 self.swap_slots(self.bodies.dynamic_count as u32, slot);
@@ -150,6 +155,9 @@ impl World {
         self.colliders.release(id as u32);
         self.bodies.states[id] = None;
         self.bodies.kinematic[id] = false;
+        if self.bodies.descriptors[id].flags & BODY_CCD != 0 {
+            self.bodies.ccd_count -= 1;
+        }
         self.bodies.descriptors[id] = BodyDescriptorRecord::zeroed();
         self.bodies.commands.push(BodyCommand::Remove {
             hole: last,
@@ -413,9 +421,32 @@ impl World {
     }
 
     pub fn set_ccd(&mut self, handle: BodyHandle, ccd: bool) {
+        self.validate(handle);
+        let enabled = self.bodies.descriptors[handle.id as usize].flags & BODY_CCD != 0;
+        if enabled == ccd {
+            return;
+        }
+        self.bodies.ccd_count = if ccd {
+            self.bodies.ccd_count + 1
+        } else {
+            self.bodies.ccd_count - 1
+        };
         self.patch_descriptor(handle, |row| {
             row.flags = (row.flags & !BODY_CCD) | if ccd { BODY_CCD } else { 0 };
         });
+    }
+
+    pub(crate) fn ccd_active(&self) -> bool {
+        debug_assert_eq!(
+            self.bodies.ccd_count,
+            self.bodies
+                .descriptors
+                .iter()
+                .filter(|row| row.flags & BODY_CCD != 0)
+                .count() as u32,
+            "the ccd body count must mirror the body descriptors"
+        );
+        self.bodies.ccd_count > 0
     }
 
     pub fn set_kinematic(&mut self, handle: BodyHandle, kinematic: bool) {

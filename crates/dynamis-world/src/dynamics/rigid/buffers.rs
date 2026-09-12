@@ -95,6 +95,7 @@ macro_rules! world_buffers {
         }
     ) => {
         pub(crate) struct RigidBuffers {
+            pub(crate) generation: u64,
             $( pub(crate) $extra: $extra_ty, )*
             $( pub(crate) $name: Stream, )*
         }
@@ -139,6 +140,10 @@ macro_rules! world_buffers {
         }
 
         impl Resources for RigidBuffers {
+            fn generation(&self) -> u64 {
+                self.generation
+            }
+
             fn slots(&self, resource: ResourceId) -> u32 {
                 StreamId::of(resource).stream(self).slots()
             }
@@ -155,6 +160,7 @@ macro_rules! world_buffers {
         impl RigidBuffers {
             pub(crate) fn new($device: &Device, $queue: &Queue, $demand: &Demand) -> Self {
                 Self {
+                    generation: 0,
                     $( $extra: $extra_init, )*
                     $(
                         $name: Stream::new(
@@ -200,6 +206,12 @@ macro_rules! world_buffers {
                 demand: &Demand,
             ) -> bool {
                 let streams = self.reserve_streams(device, encoder, demand);
+                if streams {
+                    self.generation = self
+                        .generation
+                        .checked_add(1)
+                        .expect("a storage generation must not overflow");
+                }
                 let readback = self.readback.reserve(device, demand);
                 streams | readback
             }
@@ -367,6 +379,7 @@ impl RigidBuffers {
     ) -> SortChannels<'a> {
         let [scratch_major, scratch_minor, scratch_payload] = self.scratch();
         SortChannels {
+            generation: self.generation,
             count: count.resolve(self),
             major: major.resolve(self),
             minor: payload.resolve(self),
@@ -386,6 +399,7 @@ impl RigidBuffers {
     ) -> SortChannels<'a> {
         let [scratch_major, scratch_minor, scratch_payload] = self.scratch();
         SortChannels {
+            generation: self.generation,
             count: count.resolve(self),
             major: major.resolve(self),
             minor: minor.resolve(self),
@@ -404,6 +418,7 @@ impl RigidBuffers {
     ) -> SortChannels<'a> {
         let [scratch_major, scratch_minor, scratch_payload] = self.scratch();
         SortChannels {
+            generation: self.generation,
             count: count.resolve(self),
             major: major.resolve(self),
             minor: minor.resolve(self),
