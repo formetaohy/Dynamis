@@ -1,9 +1,9 @@
 use super::FrameParams;
-use super::stage::{CONTACT, CORE, GEOMETRY, IDENTITY, Stage, shape_resources, whole};
+use super::stage::{CONTACT, CORE, GEOMETRY_INDEX, IDENTITY, Stage, shape_resources, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{
-    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_LARGE,
+    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_EVENTS, COUNTER_GRID_LEVELS,
     COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING,
     COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
@@ -146,24 +146,23 @@ impl Commit {
                 "query",
                 include_str!("shaders/queries.wgsl"),
                 per_row,
-                GEOMETRY,
+                GEOMETRY_INDEX,
                 &[
                     ("queries", whole(&buffers.queries.records)),
                     ("body_states", whole(&buffers.bodies.states)),
                     ("body_descs", whole(&buffers.bodies.descriptors)),
                     ("colliders", whole(&buffers.bodies.colliders)),
                     ("aabbs", whole(&buffers.bodies.aabbs)),
-                    ("entry_cells", whole(&buffers.contacts.entries.cells)),
+                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
                     (
                         "entry_colliders",
                         whole(&buffers.contacts.entries.colliders),
                     ),
                     ("entry_count", buffers.counter(COUNTER_ENTRIES)),
                     ("query_results", whole(&buffers.queries.results)),
-                    ("large_bodies", whole(&buffers.contacts.large_bodies)),
-                    ("large_count", buffers.counter(COUNTER_LARGE)),
                     ("params", whole(&buffers.params)),
                     ("collider_owners", whole(&buffers.bodies.collider_owners)),
+                    ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
                 ],
                 &shape_resources(buffers),
             ),

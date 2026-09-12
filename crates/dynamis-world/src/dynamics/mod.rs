@@ -232,14 +232,14 @@ impl Pipeline {
             .record_edits(&mut commands, frame.edit_run_count);
         self.commands.reset(&mut commands);
         self.integrate
-            .record_broadphase(&mut commands, frame.dynamic_count);
-        self.grid.record(&mut commands, frame.body_count);
+            .record_broadphase(&mut commands, frame.collider_count);
+        self.grid.record(&mut commands, frame.collider_count);
         drop(commands);
 
         let mut flush = ComputeRecorder::begin(encoder, "query flush", self.per_row);
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.cells,
+            &buffers.contacts.entries.keys,
             &buffers.contacts.entries.colliders,
         );
         self.sort

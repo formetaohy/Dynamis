@@ -1,5 +1,4 @@
 use crate::StepParamsRecord;
-use crate::constant::MAX_CELLS_PER_COLLIDER;
 use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 impl StepParamsRecord {
@@ -32,7 +31,6 @@ impl StepParamsRecord {
             max_velocity: config.max_velocity,
             max_angular_velocity: config.max_angular_velocity,
             grid_cell_size: config.broadphase_cell_size,
-            max_cells_per_collider: MAX_CELLS_PER_COLLIDER,
             dynamic_count: dynamic_bodies,
             collider_count: colliders,
             sleep_velocity: config.sleep_velocity,
@@ -46,6 +44,7 @@ impl StepParamsRecord {
             constraint_move_count: streams.constraint_moves,
             event_slot,
             _pad3: 0,
+            ..<Self as bytemuck::Zeroable>::zeroed()
         }
     }
 }

@@ -1,7 +1,9 @@
-use super::stage::{CORE, Stage, whole};
+use super::stage::{GRID_INDEX, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_SPILLOVER_ENTRIES};
+use dynamis_layout::{
+    COUNTER_COARSE_ACTIVE, COUNTER_ENTRIES, COUNTER_GRID_LEVELS, COUNTER_SPILLOVER_ENTRIES,
+};
 
 pub(super) struct Grid {
     grid_entries: Stage,
@@ -15,26 +17,28 @@ impl Grid {
                 "grid_entries",
                 include_str!("shaders/grid_entries.wgsl"),
                 per_row,
-                CORE,
+                GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
                     ("aabbs", whole(&buffers.bodies.aabbs)),
-                    ("entry_cells", whole(&buffers.contacts.entries.cells)),
+                    ("collider_owners", whole(&buffers.bodies.collider_owners)),
+                    ("body_activity", whole(&buffers.bodies.activity)),
+                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
                     (
                         "entry_colliders",
                         whole(&buffers.contacts.entries.colliders),
                     ),
                     ("entry_count", buffers.counter(COUNTER_ENTRIES)),
-                    ("large_bodies", whole(&buffers.contacts.large_bodies)),
-                    ("large_count", buffers.counter(COUNTER_LARGE)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_ENTRIES)),
+                    ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
+                    ("active_coarse", buffers.counter(COUNTER_COARSE_ACTIVE)),
                 ],
                 &[],
             ),
         }
     }
 
-    pub(super) fn record(&self, recorder: &mut ComputeRecorder, body_count: u32) {
-        self.grid_entries.record(recorder, body_count);
+    pub(super) fn record(&self, recorder: &mut ComputeRecorder, collider_count: u32) {
+        self.grid_entries.record(recorder, collider_count);
     }
 }

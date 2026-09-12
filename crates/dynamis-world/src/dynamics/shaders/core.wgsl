@@ -80,6 +80,41 @@ fn grid_stride(groups: vec3u) -> u32 {
     return groups.x * groups.y * WORKGROUP_SIZE;
 }
 
+fn cell_hash(coord: vec3i) -> u32 {
+    let x = u32(coord.x) * 0x9E3779B9u;
+    let y = u32(coord.y) * 0x85EBCA77u;
+    let z = u32(coord.z) * 0xC2B2AE3Du;
+    return (x ^ y ^ z ^ (x << 7u) ^ (y >> 3u) ^ (z << 11u)) & CELL_HASH_MASK;
+}
+
+fn cell_key(level: u32, coord: vec3i) -> u32 {
+    return (level << LEVEL_KEY_SHIFT) | cell_hash(coord);
+}
+
+fn level_cell_size(level: u32, cell_size: f32) -> f32 {
+    return cell_size * f32(1u << level);
+}
+
+fn cell_spans(bounds: Aabb, cell_size: f32) -> vec3i {
+    return vec3i(floor(bounds.max / cell_size)) - vec3i(floor(bounds.min / cell_size)) + vec3i(1);
+}
+
+fn shape_levels(bounds: Aabb, cell_size: f32) -> u32 {
+    var level = 0u;
+    loop {
+        let span = cell_spans(bounds, level_cell_size(level, cell_size));
+        if (max(max(span.x, span.y), span.z) <= i32(MAX_CELLS_PER_AXIS) || level >= 30u) {
+            break;
+        }
+        level = level + 1u;
+    }
+    return level;
+}
+
+fn aabb_overlaps(first: Aabb, second: Aabb) -> bool {
+    return all(first.min <= second.max) && all(second.min <= first.max);
+}
+
 fn quat_mul(a: vec4f, b: vec4f) -> vec4f {
     return vec4f(
         a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz),

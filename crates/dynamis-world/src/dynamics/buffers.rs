@@ -37,14 +37,14 @@ pub(crate) struct Lanes {
 }
 
 pub(crate) struct GridLanes {
-    pub(crate) cells: GpuBuffer,
+    pub(crate) keys: GpuBuffer,
     pub(crate) colliders: GpuBuffer,
 }
 
 impl GridLanes {
     fn new(device: &Device, label: &str, lanes: u32) -> Self {
         Self {
-            cells: GpuBuffer::new(device, &format!("{label} cells"), lanes as u64 * 4, STREAM),
+            keys: GpuBuffer::new(device, &format!("{label} keys"), lanes as u64 * 4, STREAM),
             colliders: GpuBuffer::new(
                 device,
                 &format!("{label} colliders"),
@@ -127,7 +127,6 @@ pub(crate) struct ContactBuffers {
     pub(crate) entries: GridLanes,
     pub(crate) pairs: PairLanes,
     pub(crate) resting_index: Lanes,
-    pub(crate) large_bodies: GpuBuffer,
     pub(crate) raw: GpuBuffer,
     pub(crate) valid: GpuBuffer,
     pub(crate) compact_ranks: GpuBuffer,
@@ -324,7 +323,6 @@ impl WorldBuffers {
                 resting_index: Lanes::new(device, "resting index", plan.pairs),
                 entries: GridLanes::new(device, "grid entries", plan.entries),
                 pairs: PairLanes::new(device, "pairs", plan.pairs),
-                large_bodies: lanes("large colliders", colliders),
                 raw: rows(
                     "contacts raw",
                     plan.pairs,
@@ -395,7 +393,7 @@ impl WorldBuffers {
     }
 
     pub(crate) fn entry_capacity(&self) -> u32 {
-        lanes_of(&self.contacts.entries.cells)
+        lanes_of(&self.contacts.entries.keys)
     }
 
     pub(crate) fn pair_capacity(&self) -> u32 {

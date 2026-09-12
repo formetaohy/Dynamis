@@ -3,6 +3,7 @@ use dynamis_layout::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
 pub(super) const WORKGROUP_SIZE: u32 = 64;
 
 pub(super) const CORE_FRAGMENT: &str = include_str!("shaders/core.wgsl");
+pub(super) const GRID_INDEX_FRAGMENT: &str = include_str!("shaders/grid_index.wgsl");
 pub(super) const IDENTITY_FRAGMENT: &str = include_str!("shaders/identity.wgsl");
 pub(super) const EVENTS_FRAGMENT: &str = include_str!("shaders/events.wgsl");
 pub(super) const CONVEX_FRAGMENT: &str = include_str!("shaders/convex.wgsl");

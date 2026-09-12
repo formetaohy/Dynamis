@@ -38,7 +38,10 @@ declare_constants! {
     pub const ISLAND_WAKE: u32 = 1;
     pub const ISLAND_ACTIVE: u32 = 2;
     pub const CONTACT_MAX_POINTS: u32 = 4;
+    pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
+    pub const LEVEL_KEY_SHIFT: u32 = 27;
+    pub const CELL_HASH_MASK: u32 = 0x07FF_FFFF;
     pub const CONSTRAINT_BALL: u32 = 0;
     pub const CONSTRAINT_DISTANCE: u32 = 1;
     pub const CONSTRAINT_REVOLUTE: u32 = 2;
@@ -76,6 +79,15 @@ declare_constants! {
     pub const NO_SLOT: u32 = 0xFFFF_FFFF;
     pub const MAX_HITS_PER_QUERY: u32 = 16;
 }
+
+const _: () = assert!(
+    MAX_CELLS_PER_COLLIDER == MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS,
+    "a collider budget must be the cube of its per axis span"
+);
+const _: () = assert!(
+    CELL_HASH_MASK == (1 << LEVEL_KEY_SHIFT) - 1,
+    "a cell hash must fill every bit below the level"
+);
 
 pub fn dof_mode(flags: u32, index: u32) -> u32 {
     (flags >> (8 + index * 2)) & 3

@@ -5,7 +5,7 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
     let slot = lid.x;
     if (slot == COUNTER_ENTRIES ||
         slot == COUNTER_PAIRS ||
-        slot == COUNTER_LARGE ||
+        slot == COUNTER_GRID_LEVELS ||
         slot == COUNTER_CONTACTS ||
         slot == COUNTER_JOINTS ||
         slot == COUNTER_EVENTS ||
@@ -17,7 +17,8 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_SLEPT ||
         slot == COUNTER_WOKE ||
         slot == COUNTER_WOKE_DEFERRED ||
-        slot == COUNTER_RESTING_GATHER) {
+        slot == COUNTER_RESTING_GATHER ||
+        slot == COUNTER_COARSE_ACTIVE) {
         atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], 0u);
     }
 }

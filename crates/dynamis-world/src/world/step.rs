@@ -50,7 +50,7 @@ impl World {
                     .commanded_step
                     .is_none_or(|commanded| commanded <= measured)
         });
-        let idle = quiet && self.constraints.alive.is_empty();
+        let idle = quiet && self.constraints.alive.is_empty() && query_count == 0;
         let frame = FrameParams {
             dynamic_count: self.bodies.dynamic_count as u32,
             collider_count: self.colliders.used(),

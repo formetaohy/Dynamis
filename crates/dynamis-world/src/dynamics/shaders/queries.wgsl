@@ -1,18 +1,15 @@
-@group(0) @binding(0) var<storage, read> queries: array<Query>;
-@group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
-@group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
-@group(0) @binding(3) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(4) var<storage, read> aabbs: array<Aabb>;
-@group(0) @binding(5) var<storage, read> entry_cells: array<u32>;
-@group(0) @binding(6) var<storage, read> entry_colliders: array<u32>;
-@group(0) @binding(7) var<storage, read_write> entry_count: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read> queries: array<Query>;
+@group(0) @binding(4) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(5) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(6) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(7) var<storage, read> aabbs: array<Aabb>;
 @group(0) @binding(8) var<storage, read_write> query_results: array<QueryResult>;
-@group(0) @binding(9) var<storage, read> large_bodies: array<u32>;
-@group(0) @binding(10) var<storage, read_write> large_count: array<atomic<u32>>;
-@group(0) @binding(11) var<uniform> params: StepParams;
-@group(0) @binding(12) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(9) var<uniform> params: StepParams;
+@group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(11) var<storage, read_write> levels: array<atomic<u32>>;
 
 const CANDIDATES_PER_QUERY: u32 = 4096u;
+const CELLS_PER_QUERY: u32 = 4096u;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -56,35 +53,34 @@ fn bitonic_sort(local_invocation: u32) {
     }
 }
 
-fn cell_hash(coord: vec3i) -> u32 {
-    let x = u32(coord.x) * 0x9E3779B9u;
-    let y = u32(coord.y) * 0x85EBCA77u;
-    let z = u32(coord.z) * 0xC2B2AE3Du;
-    return x ^ y ^ z ^ (x << 7u) ^ (y >> 3u) ^ (z << 11u);
+fn collect_cell(range: vec2u) {
+    for (var entry = range.x; entry < range.y; entry = entry + 1u) {
+        let slot = atomicAdd(&candidate_count, 1u);
+        if (slot >= CANDIDATES_PER_QUERY) {
+            atomicStore(&overflow_flag, 1u);
+            continue;
+        }
+        candidates[slot] = entry_colliders[entry];
+    }
 }
 
-fn hash_range(hash: u32) -> vec2u {
-    var lo = 0u;
-    var hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_colliders));
-    while (lo < hi) {
-        let mid = (lo + hi) / 2u;
-        if (entry_cells[mid] < hash) {
-            lo = mid + 1u;
-        } else {
-            hi = mid;
-        }
+fn collect_level(level: u32, query_box: Aabb, invocation: u32) {
+    let cell_size = level_cell_size(level, params.grid_cell_size);
+    let min_cell = vec3i(floor(query_box.min / cell_size));
+    let max_cell = vec3i(floor(query_box.max / cell_size));
+    let span = max_cell - min_cell + vec3i(1);
+    let cells = u32(span.x) * u32(span.y) * u32(span.z);
+    if (cells > CELLS_PER_QUERY) {
+        atomicStore(&overflow_flag, 1u);
     }
-    let first = lo;
-    hi = min(atomicLoad(&entry_count[0]), arrayLength(&entry_colliders));
-    while (lo < hi) {
-        let mid = (lo + hi) / 2u;
-        if (entry_cells[mid] <= hash) {
-            lo = mid + 1u;
-        } else {
-            hi = mid;
-        }
+    var cell_index = invocation;
+    while (cell_index < min(cells, CELLS_PER_QUERY)) {
+        let dx = min_cell.x + i32(cell_index % u32(span.x));
+        let dy = min_cell.y + i32((cell_index / u32(span.x)) % u32(span.y));
+        let dz = min_cell.z + i32(cell_index / (u32(span.x) * u32(span.y)));
+        collect_cell(entry_bounds_of(level, vec3i(dx, dy, dz)));
+        cell_index = cell_index + WORKGROUP_SIZE;
     }
-    return vec2u(first, lo);
 }
 
 fn ray_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
@@ -294,37 +290,11 @@ fn main(
     atomicStore(&overflow_flag, 0u);
     workgroupBarrier();
     let query_box = query_world_aabb(query);
-    let cell_size = params.grid_cell_size;
-    let min_cell = vec3i(floor(query_box.min / cell_size));
-    let max_cell = vec3i(floor(query_box.max / cell_size));
-    let span = max_cell - min_cell + vec3i(1);
-    let cells_total = span.x * span.y * span.z;
-    var cell_index = invocation_id.x;
-    while (cell_index < u32(cells_total)) {
-        let dx = min_cell.x + i32(cell_index % u32(span.x));
-        let dy = min_cell.y + i32((cell_index / u32(span.x)) % u32(span.y));
-        let dz = min_cell.z + i32(cell_index / (u32(span.x) * u32(span.y)));
-        let hash = cell_hash(vec3i(dx, dy, dz));
-        let range = hash_range(hash);
-        for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-            let slot = atomicAdd(&candidate_count, 1u);
-            if (slot >= CANDIDATES_PER_QUERY) {
-                atomicStore(&overflow_flag, 1u);
-                continue;
-            }
-            candidates[slot] = entry_colliders[entry];
-        }
-        cell_index = cell_index + WORKGROUP_SIZE;
-    }
-    var large_index = invocation_id.x;
-    while (large_index < min(atomicLoad(&large_count[0]), arrayLength(&large_bodies))) {
-        let slot = atomicAdd(&candidate_count, 1u);
-        if (slot < CANDIDATES_PER_QUERY) {
-            candidates[slot] = large_bodies[large_index];
-        } else {
-            atomicStore(&overflow_flag, 1u);
-        }
-        large_index = large_index + WORKGROUP_SIZE;
+    var occupied = atomicLoad(&levels[0]);
+    while (occupied != 0u) {
+        let level = countTrailingZeros(occupied);
+        occupied = occupied & (occupied - 1u);
+        collect_level(level, query_box, invocation_id.x);
     }
     workgroupBarrier();
     if (invocation_id.x == 0u && atomicLoad(&overflow_flag) != 0u) {

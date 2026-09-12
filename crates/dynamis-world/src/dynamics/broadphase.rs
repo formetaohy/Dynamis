@@ -1,27 +1,30 @@
 use super::FrameParams;
-use super::stage::{CORE, Stage, whole};
+use super::stage::{GRID_INDEX, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_layout::{COUNTER_ENTRIES, COUNTER_LARGE, COUNTER_PAIRS, COUNTER_SPILLOVER_PAIRS};
+use dynamis_layout::{
+    COUNTER_COARSE_ACTIVE, COUNTER_ENTRIES, COUNTER_GRID_LEVELS, COUNTER_PAIRS,
+    COUNTER_SPILLOVER_PAIRS,
+};
 use dynamis_sort::RadixSort;
 
 pub(super) struct Broadphase {
-    broadphase_pairs: Stage,
-    large_pairs: Stage,
+    cell_pairs: Stage,
+    level_links: Stage,
 }
 
 impl Broadphase {
     pub(super) fn build(context: &GpuContext, buffers: &WorldBuffers, per_row: u32) -> Self {
         Self {
-            broadphase_pairs: Stage::build(
+            cell_pairs: Stage::build(
                 context,
-                "broadphase_pairs",
-                include_str!("shaders/broadphase_pairs.wgsl"),
+                "cell_pairs",
+                include_str!("shaders/cell_pairs.wgsl"),
                 per_row,
-                CORE,
+                GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("entry_cells", whole(&buffers.contacts.entries.cells)),
+                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
                     (
                         "entry_colliders",
                         whole(&buffers.contacts.entries.colliders),
@@ -36,23 +39,29 @@ impl Broadphase {
                 ],
                 &[],
             ),
-            large_pairs: Stage::build(
+            level_links: Stage::build(
                 context,
-                "large_pairs",
-                include_str!("shaders/large_pairs.wgsl"),
+                "level_links",
+                include_str!("shaders/level_links.wgsl"),
                 per_row,
-                CORE,
+                GRID_INDEX,
                 &[
                     ("params", whole(&buffers.params)),
-                    ("large_bodies", whole(&buffers.contacts.large_bodies)),
-                    ("large_count", buffers.counter(COUNTER_LARGE)),
+                    ("entry_keys", whole(&buffers.contacts.entries.keys)),
+                    (
+                        "entry_colliders",
+                        whole(&buffers.contacts.entries.colliders),
+                    ),
+                    ("entry_count", buffers.counter(COUNTER_ENTRIES)),
                     ("pair_major", whole(&buffers.contacts.pairs.major)),
                     ("pair_minor", whole(&buffers.contacts.pairs.minor)),
                     ("pair_count", buffers.counter(COUNTER_PAIRS)),
-                    ("colliders", whole(&buffers.bodies.colliders)),
                     ("spillover", buffers.counter(COUNTER_SPILLOVER_PAIRS)),
-                    ("body_activity", whole(&buffers.bodies.activity)),
+                    ("aabbs", whole(&buffers.bodies.aabbs)),
                     ("collider_owners", whole(&buffers.bodies.collider_owners)),
+                    ("body_activity", whole(&buffers.bodies.activity)),
+                    ("levels", buffers.counter(COUNTER_GRID_LEVELS)),
+                    ("active_coarse", buffers.counter(COUNTER_COARSE_ACTIVE)),
                 ],
                 &[],
             ),
@@ -68,12 +77,12 @@ impl Broadphase {
     ) {
         let channels = buffers.sort_lanes(
             buffers.counter(COUNTER_ENTRIES),
-            &buffers.contacts.entries.cells,
+            &buffers.contacts.entries.keys,
             &buffers.contacts.entries.colliders,
         );
         sort.sort(recorder, &channels, 4, 0, buffers.entry_capacity());
-        self.broadphase_pairs
+        self.cell_pairs
             .record_stride(recorder, buffers.entry_capacity());
-        self.large_pairs.record(recorder, params.collider_count);
+        self.level_links.record(recorder, params.collider_count);
     }
 }

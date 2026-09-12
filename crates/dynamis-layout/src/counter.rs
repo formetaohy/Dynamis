@@ -3,7 +3,7 @@ use crate::wgsl::declare_constants;
 declare_constants! {
     pub const COUNTER_ENTRIES: usize = 0;
     pub const COUNTER_PAIRS: usize = 1;
-    pub const COUNTER_LARGE: usize = 2;
+    pub const COUNTER_GRID_LEVELS: usize = 2;
     pub const COUNTER_CONTACTS: usize = 3;
     pub const COUNTER_ARCHIVED: usize = 4;
     pub const COUNTER_JOINTS: usize = 5;
@@ -28,7 +28,8 @@ declare_constants! {
     pub const COUNTER_RESTING_PENDING: usize = 24;
     pub const COUNTER_BLOCKS: usize = 25;
     pub const COUNTER_COLLIDERS: usize = 26;
-    pub const COUNTER_COUNT: usize = 27;
+    pub const COUNTER_COARSE_ACTIVE: usize = 27;
+    pub const COUNTER_COUNT: usize = 28;
 }
 
 pub const COUNTER_STRIDE: u64 = 256;
