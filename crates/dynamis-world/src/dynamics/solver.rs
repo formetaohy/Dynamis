@@ -1,5 +1,5 @@
 use super::Frame;
-use super::stage::{BLOCKS, CORE, Count, Coverage, POSITION_CONTACT, Slots, Stage, whole};
+use super::stage::{BLOCKS, CORE, Count, Coverage, POSITION_CORRECTION, Slots, Stage, whole};
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_layout::{COUNTER_BLOCKS, COUNTER_CONTACTS};
@@ -183,7 +183,7 @@ impl Solver {
             context,
             "position block",
             include_str!("shaders/position_block.wgsl"),
-            POSITION_CONTACT,
+            POSITION_CORRECTION,
             Coverage::Stream {
                 kernel: "work",
                 slots: Slots::Blocks,
@@ -193,6 +193,8 @@ impl Solver {
                 ("body_states", whole(&buffers.body_states)),
                 ("body_descs", whole(&buffers.body_descriptors)),
                 ("contacts", whole(&buffers.contacts)),
+                ("constraint_descs", whole(&buffers.constraint_descriptors)),
+                ("constraint_runtime", whole(&buffers.constraint_runtime)),
                 ("segments", segments),
                 ("a_payload", whole(&buffers.solver_a_payload)),
                 (
@@ -220,7 +222,6 @@ impl Solver {
                 ("a_bodies", whole(&buffers.solver_a_bodies)),
                 ("b_bodies", whole(&buffers.solver_b_bodies)),
                 ("b_blocks", whole(&buffers.solver_b_blocks)),
-                ("contact_counts", whole(&buffers.solver_contact_counts)),
                 (
                     "block_corrections",
                     whole(&buffers.solver_block_corrections),

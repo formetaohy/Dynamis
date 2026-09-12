@@ -11,7 +11,8 @@ pub(super) const SCENE_FRAGMENT: &str = include_str!("shaders/scene.wgsl");
 pub(super) const CONTACT_BLOCK_FRAGMENT: &str = include_str!("shaders/solver_contact_block.wgsl");
 pub(super) const CONSTRAINT_BLOCK_FRAGMENT: &str =
     include_str!("shaders/solver_constraint_block.wgsl");
-pub(super) const POSITION_CONTACT_FRAGMENT: &str = include_str!("shaders/position_contacts.wgsl");
+pub(super) const POSITION_CORRECTION_FRAGMENT: &str =
+    include_str!("shaders/position_correction.wgsl");
 pub(super) const SHAPES_FRAGMENT: &str = include_str!("shaders/shapes.wgsl");
 
 pub(super) fn assemble_shader(body: &str, per_row: u32, fragments: &[&str]) -> String {

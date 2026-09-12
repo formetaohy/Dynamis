@@ -60,13 +60,25 @@ fn fixed_constraint_preserves_offset() {
     let mut world = new_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5));
     let second = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 2.0]));
-    world.add_constraint(first, second, ConstraintDesc::fixed([0.0; 3], [0.0; 3]));
-    world.apply_force(first, [0.0, 0.0, 4.0]);
+    world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::fixed([0.0; 3], [0.0, 0.0, -2.0]),
+    );
+    world.apply_force(second, [0.0, 0.0, 40.0]);
     settle(&mut world, 60);
-    let separation = world.read_state(second).position[2] - world.read_state(first).position[2];
+    let offset = [
+        world.read_state(second).position[0] - world.read_state(first).position[0],
+        world.read_state(second).position[1] - world.read_state(first).position[1],
+        world.read_state(second).position[2] - world.read_state(first).position[2],
+    ];
     assert!(
-        (separation - 2.0).abs() < 0.3,
-        "fixed constraint must preserve the offset, got {separation}"
+        distance(offset, [0.0, 0.0, 2.0]) < 0.01,
+        "fixed constraint must preserve the welded offset, got {offset:?}"
+    );
+    assert!(
+        world.read_state(first).position[2] > 0.1,
+        "the welded pair must move together under load"
     );
 }
 
@@ -235,11 +247,11 @@ fn joined_bodies_collision_policy_controls_overlap() {
     let first = merged.spawn(BodyDesc::sphere(0.5));
     let second = merged.spawn(BodyDesc::sphere(0.5).position([0.0, 0.6, 0.0]));
     merged.add_constraint(first, second, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
-    settle(&mut merged, 5);
-    let y = merged.read_state(second).position[1];
+    settle(&mut merged, 30);
+    let merged_y = merged.read_state(second).position[1];
     assert!(
-        y < 0.75,
-        "disabled collisions must not push joined bodies apart, got y={y}"
+        merged.contact_manifolds().is_empty(),
+        "disabled collisions must suppress contacts between joined bodies"
     );
 
     let mut separated = new_world(static_config());
@@ -251,10 +263,17 @@ fn joined_bodies_collision_policy_controls_overlap() {
         ConstraintDesc::ball([0.0; 3], [0.0; 3]).disable_collisions(false),
     );
     settle(&mut separated, 30);
-    let y = separated.read_state(second).position[1];
+    let separated_y = separated.read_state(second).position[1];
     assert!(
-        y > 0.75,
-        "enabled collisions must push joined bodies apart, got y={y}"
+        separated
+            .contact_manifolds()
+            .iter()
+            .any(|manifold| manifold.first == first && manifold.second == second),
+        "enabled collisions must report contacts between joined bodies"
+    );
+    assert!(
+        separated_y > merged_y + 0.2,
+        "enabled collisions must push overlapping joined bodies apart, got y={separated_y} vs {merged_y}"
     );
 }
 

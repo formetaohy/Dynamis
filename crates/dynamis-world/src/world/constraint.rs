@@ -76,7 +76,7 @@ impl World {
         }
         self.validate_constraint_desc(&desc);
         let mut desc = desc;
-        if desc.kind == ConstraintKind::SixDof
+        if constrains_joint_frame(desc.kind)
             && desc.reference == [0.0, 0.0, 0.0, 1.0]
             && let (Some(state_a), Some(state_b)) = (
                 self.state_snapshot(first.id as usize),
@@ -108,6 +108,10 @@ impl World {
         self.validate_constraint_desc(&desc);
         let slot = self.constraints.index_of[handle.id as usize] as usize;
         let existing = self.constraints.records[slot];
+        let mut desc = desc;
+        if constrains_joint_frame(desc.kind) && desc.reference == [0.0, 0.0, 0.0, 1.0] {
+            desc.reference = existing.reference;
+        }
         let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
         self.constraints.records[slot] = record;
         self.constraints.dirty.push(slot as u32);
@@ -425,6 +429,16 @@ impl World {
             }
         }
     }
+}
+
+fn constrains_joint_frame(kind: ConstraintKind) -> bool {
+    matches!(
+        kind,
+        ConstraintKind::Fixed
+            | ConstraintKind::Revolute
+            | ConstraintKind::Prismatic
+            | ConstraintKind::SixDof
+    )
 }
 
 fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32; 4] {

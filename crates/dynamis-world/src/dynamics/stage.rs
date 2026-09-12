@@ -1,6 +1,6 @@
 use super::shader::{
     CONSTRAINT_BLOCK_FRAGMENT, CONTACT_BLOCK_FRAGMENT, CONVEX_FRAGMENT, EVENTS_FRAGMENT,
-    GRID_INDEX_FRAGMENT, IDENTITY_FRAGMENT, POSITION_CONTACT_FRAGMENT, SCENE_FRAGMENT,
+    GRID_INDEX_FRAGMENT, IDENTITY_FRAGMENT, POSITION_CORRECTION_FRAGMENT, SCENE_FRAGMENT,
     WORKGROUP_SIZE, assemble_shader,
 };
 use crate::dynamics::Frame;
@@ -18,7 +18,7 @@ pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub(super) const GRID_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT];
 pub(super) const GEOMETRY_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT, CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub(super) const BLOCKS: &[&str] = &[CONTACT_BLOCK_FRAGMENT, CONSTRAINT_BLOCK_FRAGMENT];
-pub(super) const POSITION_CONTACT: &[&str] = &[POSITION_CONTACT_FRAGMENT];
+pub(super) const POSITION_CORRECTION: &[&str] = &[POSITION_CORRECTION_FRAGMENT];
 
 pub(super) const MAX_GRID_WORKGROUPS: u32 = 4096;
 
@@ -197,13 +197,13 @@ struct Bindings<'a> {
 }
 
 impl<'a> Bindings<'a> {
-    fn of(source: &str, declared: StageBindings<'a>) -> Self {
+    fn of(label: &str, source: &str, declared: StageBindings<'a>) -> Self {
         let StageBindings { slots, shapes } = declared;
         let declarations = dynamis_gpu::parse_bindings(source);
         let storage = storage_entries(&declarations, slots);
         assert!(
             storage.len() == specs_of(&declarations, 0).len(),
-            "the shader declares {} bindings but the stage provides {}",
+            "stage {label:?} declares {} bindings but provides {}",
             specs_of(&declarations, 0).len(),
             storage.len()
         );
@@ -363,7 +363,7 @@ impl Stage {
         let coverage = entries[0].expect("the main entry always declares its coverage");
         let shader: std::sync::Arc<str> =
             assemble_body(body, context.workgroups_per_row(), fragments, entries).into();
-        let resolved = Bindings::of(&shader, declared);
+        let resolved = Bindings::of(label, &shader, declared);
         let groups = resolved
             .groups
             .iter()

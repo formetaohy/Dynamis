@@ -283,6 +283,49 @@ fn relative_velocity(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f)
     return vb - va;
 }
 
+fn orthogonal_axis(index: u32) -> vec3f {
+    if (index == 0u) {
+        return vec3f(1.0, 0.0, 0.0);
+    }
+    if (index == 1u) {
+        return vec3f(0.0, 1.0, 0.0);
+    }
+    return vec3f(0.0, 0.0, 1.0);
+}
+
+fn constraint_anchor(body: Body, local: vec3f) -> vec3f {
+    return body.state.position + quat_rotate(body.state.orientation, local);
+}
+
+fn constraint_local_frame(local_axis: vec3f) -> TangentBasis {
+    return make_tangents(normalize(local_axis));
+}
+
+fn constraint_dof_axis(tangents: TangentBasis, hinge: vec3f, index: u32) -> vec3f {
+    if (index == 0u) {
+        return tangents.first;
+    }
+    if (index == 1u) {
+        return tangents.second;
+    }
+    return hinge;
+}
+
+fn vec_index(v: vec3f, index: u32) -> f32 {
+    return select(select(v.x, v.z, index == 2u), v.y, index == 1u);
+}
+
+fn constraint_relative_error(first: Body, second: Body, reference: vec4f) -> vec3f {
+    let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
+    let deviation = quat_mul(q_rel, quat_conjugate(reference));
+    return 2.0 * deviation.xyz;
+}
+
+fn constraint_angle(first: Body, second: Body, local_hinge: vec3f) -> f32 {
+    let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
+    return 2.0 * atan2(dot(q_rel.xyz, local_hinge), q_rel.w);
+}
+
 fn contact_block_resolves(contact: Contact) -> bool {
     return contact.point_count > 0u && contact.sensor == 0u;
 }
