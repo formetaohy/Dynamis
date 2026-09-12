@@ -21,6 +21,11 @@ declare_constants! {
     pub const NO_COLLISION_FILTER: u32 = u32::MAX;
     pub const SOLVER_BLOCK_CONTACT: u32 = 0;
     pub const SOLVER_BLOCK_CONSTRAINT: u32 = 1;
+    pub const SOLVER_CLASS_COUNT: u32 = 8;
+    pub const SOLVER_CLASS_OVERFLOW: u32 = SOLVER_CLASS_COUNT;
+    pub const SOLVER_CLASS_BUCKETS: u32 = SOLVER_CLASS_COUNT + 1;
+    pub const SOLVER_CLASS_ROW_WORDS: u32 = 64;
+    pub const SOLVER_CLASS_TOKEN_SHIFT: u32 = 8;
     pub const SHAPE_NONE: u32 = 0;
     pub const SHAPE_SPHERE: u32 = 1;
     pub const SHAPE_CUBOID: u32 = 2;
@@ -84,6 +89,10 @@ declare_constants! {
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER == MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS,
     "a collider budget must be the cube of its per axis span"
+);
+const _: () = assert!(
+    SOLVER_CLASS_COUNT > 0 && SOLVER_CLASS_COUNT < (1 << SOLVER_CLASS_TOKEN_SHIFT),
+    "a solver class token must hold every class below the overflow"
 );
 const _: () = assert!(
     CELL_HASH_MASK == (1 << LEVEL_KEY_SHIFT) - 1,

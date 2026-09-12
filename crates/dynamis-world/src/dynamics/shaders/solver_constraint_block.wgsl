@@ -258,12 +258,12 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         }
     }
     if (runtime.broken != 0u) {
-        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, constraint.a, constraint.b, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
-    let pair = block_pair(constraint.a, constraint.b);
+    let pair = block_bodies(constraint.a, constraint.b);
     if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
-        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, constraint.a, constraint.b, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
     var first = pair.first;
@@ -669,8 +669,10 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     if (second_sleeping && !first_sleeping && breach_now) {
         atomicOr(&wake_flags[constraint.b], 1u);
     }
-    store_block_delta(
+    commit_block(
         slot,
+        constraint.a,
+        constraint.b,
         first.state.velocity - pair.first.state.velocity,
         first.state.angular_velocity - pair.first.state.angular_velocity,
         second.state.velocity - pair.second.state.velocity,

@@ -1,13 +1,13 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
-@group(0) @binding(2) var<storage, read> first_a: array<u32>;
-@group(0) @binding(3) var<storage, read> first_b: array<u32>;
+@group(0) @binding(2) var<storage, read> overflow_first_a: array<u32>;
+@group(0) @binding(3) var<storage, read> overflow_first_b: array<u32>;
+@group(0) @binding(9) var<storage, read> overflow_count: array<u32>;
 @group(0) @binding(4) var<storage, read> a_bodies: array<u32>;
 @group(0) @binding(5) var<storage, read> b_bodies: array<u32>;
 @group(0) @binding(6) var<storage, read> b_blocks: array<u32>;
 @group(0) @binding(7) var<storage, read> block_counts: array<u32>;
 @group(0) @binding(8) var<storage, read> block_deltas: array<vec4f>;
-@group(0) @binding(9) var<storage, read_write> block_count: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -19,11 +19,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (blocks == 0u) {
         return;
     }
-    let total = min(atomicLoad(&block_count[0]), arrayLength(&a_bodies));
+    let total = min(overflow_count[0], arrayLength(&a_bodies));
     let body = body_states[body_index];
     var velocity = vec3f(0.0);
     var spin = vec3f(0.0);
-    var start = i32(first_a[body_index]) - 1;
+    var start = i32(overflow_first_a[body_index]) - 1;
     if (start >= 0) {
         var end = u32(start);
         while (end < total && a_bodies[end] == body_index) {
@@ -34,7 +34,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             spin = spin + block_deltas[i * 4u + 1u].xyz;
         }
     }
-    start = i32(first_b[body_index]) - 1;
+    start = i32(overflow_first_b[body_index]) - 1;
     if (start >= 0) {
         var end = u32(start);
         while (end < total && b_bodies[end] == body_index) {

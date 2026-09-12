@@ -181,7 +181,7 @@ fn a_resting_tower_holds_its_spacing() {
             .position([0.0, -0.5, 0.0]),
     );
     let mut tower = Vec::new();
-    for level in 0..6 {
+    for level in 0..16 {
         tower.push(
             world.spawn(
                 BodyDesc::cuboid([0.5; 3])

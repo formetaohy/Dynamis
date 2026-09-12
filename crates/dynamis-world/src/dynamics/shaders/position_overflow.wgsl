@@ -3,6 +3,7 @@
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> contacts: array<Contact>;
 @group(0) @binding(4) var<storage, read> segments: array<u32>;
+@group(0) @binding(10) var<storage, read> overflow_count: array<u32>;
 @group(0) @binding(5) var<storage, read> a_payload: array<u32>;
 @group(0) @binding(6) var<storage, read_write> block_corrections: array<vec4f>;
 @group(0) @binding(7) var<storage, read> resolution: array<vec4f>;
@@ -20,7 +21,7 @@ fn store_block_correction(slot: u32, first: vec3f, second: vec3f) {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+    let live = overflow_count[0];
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
         let contact_blocks = segments[SOLVER_BLOCK_CONTACT];

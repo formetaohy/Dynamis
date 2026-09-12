@@ -1,7 +1,7 @@
 use super::shader::{
-    CONSTRAINT_BLOCK_FRAGMENT, CONTACT_BLOCK_FRAGMENT, CONTACT_CORRECTION_FRAGMENT,
-    CONVEX_FRAGMENT, EVENTS_FRAGMENT, GRID_INDEX_FRAGMENT, IDENTITY_FRAGMENT, SCENE_FRAGMENT,
-    WORKGROUP_SIZE, assemble_shader,
+    CLASS_TOKEN_FRAGMENT, CONSTRAINT_BLOCK_FRAGMENT, CONTACT_BLOCK_FRAGMENT, CONVEX_FRAGMENT,
+    EVENTS_FRAGMENT, GRID_INDEX_FRAGMENT, IDENTITY_FRAGMENT, OVERFLOW_CORRECTION_FRAGMENT,
+    SCENE_FRAGMENT, WORKGROUP_SIZE, assemble_shader,
 };
 use crate::dynamics::buffers::WorldBuffers;
 use dynamis_gpu::{
@@ -16,9 +16,48 @@ pub(super) const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub(super) const GRID_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT];
 pub(super) const GEOMETRY_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT, CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub(super) const BLOCKS: &[&str] = &[CONTACT_BLOCK_FRAGMENT, CONSTRAINT_BLOCK_FRAGMENT];
-pub(super) const CORRECTIONS: &[&str] = &[CONTACT_CORRECTION_FRAGMENT];
+pub(super) const OVERFLOW_CORRECTIONS: &[&str] = &[OVERFLOW_CORRECTION_FRAGMENT];
+pub(super) const CLASS_TOKENS: &[&str] = &[CLASS_TOKEN_FRAGMENT];
 
 pub(super) const MAX_GRID_WORKGROUPS: u32 = 4096;
+
+pub(super) fn workgroups_of(elements: u32) -> u32 {
+    elements.div_ceil(WORKGROUP_SIZE)
+}
+
+pub(super) struct Program<'a> {
+    label: &'a str,
+    body: &'a str,
+    entry: &'a str,
+}
+
+impl<'a> Program<'a> {
+    pub(super) fn entry(label: &'a str, body: &'a str, entry: &'a str) -> Self {
+        Self { label, body, entry }
+    }
+}
+
+enum Entries<'a> {
+    Main,
+    WithWarm(&'a str),
+    Named(&'a str),
+}
+
+impl Entries<'_> {
+    fn primary(&self) -> &str {
+        match self {
+            Self::Main | Self::WithWarm(_) => "main",
+            Self::Named(entry) => entry,
+        }
+    }
+
+    fn secondary(&self) -> Option<&str> {
+        match self {
+            Self::WithWarm(entry) => Some(entry),
+            Self::Main | Self::Named(_) => None,
+        }
+    }
+}
 
 pub(super) fn whole<'a>(binding: impl Into<GpuSlot<'a>>) -> GpuSlot<'a> {
     binding.into()
@@ -38,6 +77,7 @@ pub(super) struct Stage {
     warm: Option<PipelineHandle>,
     bind_group: BindGroup,
     shapes_group: Option<BindGroup>,
+    storage: Vec<dynamis_gpu::ShaderBinding>,
 }
 
 struct StageBindings<'a> {
@@ -185,7 +225,26 @@ impl Stage {
             per_row,
             fragments,
             StageBindings { slots, shapes },
-            false,
+            Entries::Main,
+        )
+    }
+
+    pub(super) fn build_entry(
+        context: &GpuContext,
+        program: Program<'_>,
+        per_row: u32,
+        fragments: &[&str],
+        slots: &[(&str, GpuSlot)],
+        shapes: &[(&str, GpuSlot)],
+    ) -> Self {
+        Self::assemble(
+            context,
+            program.label,
+            program.body,
+            per_row,
+            fragments,
+            StageBindings { slots, shapes },
+            Entries::Named(program.entry),
         )
     }
 
@@ -205,7 +264,7 @@ impl Stage {
             per_row,
             fragments,
             StageBindings { slots, shapes },
-            true,
+            Entries::WithWarm("warm"),
         )
     }
 
@@ -216,8 +275,10 @@ impl Stage {
         per_row: u32,
         fragments: &[&str],
         declared: StageBindings,
-        with_warm: bool,
+        entries: Entries<'_>,
     ) -> Self {
+        let entry = entries.primary();
+        let warm_entry = entries.secondary();
         let shader = assemble_shader(body, per_row, fragments);
         let resolved = Bindings::of(&shader, declared);
         let groups = resolved
@@ -225,24 +286,62 @@ impl Stage {
             .iter()
             .map(|group| group.as_slice())
             .collect::<Vec<_>>();
-        let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), "main", &groups));
-        let warm = with_warm.then(|| {
+        let pipeline = context.declare(ComputeProgram::new(label, shader.clone(), entry, &groups));
+        let extra = warm_entry.map(|entry| {
             context.declare(ComputeProgram::new(
-                &format!("{label} warm"),
-                shader,
-                "warm",
+                &format!("{label} {entry}"),
+                shader.clone(),
+                entry,
                 &groups,
             ))
         });
+        let declarations = dynamis_gpu::parse_bindings(&shader);
         let bind_group = pipeline.create_bind_group(context.device(), 0, &resolved.storage);
         let shapes_group = (!resolved.shapes.is_empty())
             .then(|| pipeline.create_bind_group(context.device(), 1, &resolved.shapes));
         Self {
             pipeline,
-            warm,
+            warm: extra,
             bind_group,
             shapes_group,
+            storage: ordered(&declarations, 0)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
         }
+    }
+
+    pub(super) fn bind_group(
+        &self,
+        device: &wgpu::Device,
+        slots: &[(&str, GpuSlot<'_>)],
+    ) -> BindGroup {
+        assert!(
+            slots.len() == self.storage.len(),
+            "the stage declares {} bindings but the caller provides {}",
+            self.storage.len(),
+            slots.len()
+        );
+        let entries = self
+            .storage
+            .iter()
+            .map(|declaration| {
+                let (_, slot) = slots
+                    .iter()
+                    .find(|(name, _)| *name == declaration.name)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "the shader never declares the binding {:?}",
+                            declaration.name
+                        )
+                    });
+                BindGroupEntry {
+                    binding: declaration.binding,
+                    resource: slot.as_binding(),
+                }
+            })
+            .collect::<Vec<_>>();
+        self.pipeline.create_bind_group(device, 0, &entries)
     }
 
     pub(super) fn record(&self, recorder: &mut ComputeRecorder, elements: u32) {
@@ -250,16 +349,37 @@ impl Stage {
     }
 
     pub(super) fn record_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {
-        let workgroups = bound.div_ceil(WORKGROUP_SIZE).min(MAX_GRID_WORKGROUPS);
-        self.record_workgroups(recorder, workgroups);
+        self.record_workgroups(recorder, workgroups_of(bound).min(MAX_GRID_WORKGROUPS));
     }
 
     pub(super) fn record_workgroups(&self, recorder: &mut ComputeRecorder, workgroups: u32) {
+        self.record_group(recorder, &self.bind_group, workgroups);
+    }
+
+    pub(super) fn record_group(
+        &self,
+        recorder: &mut ComputeRecorder,
+        bind_group: &BindGroup,
+        workgroups: u32,
+    ) {
         let compiled = self.pipeline.pipeline();
         match &self.shapes_group {
-            Some(shapes) => recorder.record(compiled, &[&self.bind_group, shapes], workgroups),
-            None => recorder.record(compiled, &[&self.bind_group], workgroups),
+            Some(shapes) => recorder.record(compiled, &[bind_group, shapes], workgroups),
+            None => recorder.record(compiled, &[bind_group], workgroups),
         }
+    }
+
+    pub(super) fn record_group_stride(
+        &self,
+        recorder: &mut ComputeRecorder,
+        bind_group: &BindGroup,
+        bound: u32,
+    ) {
+        self.record_group(
+            recorder,
+            bind_group,
+            workgroups_of(bound).min(MAX_GRID_WORKGROUPS),
+        );
     }
 
     pub(super) fn record_warm_stride(&self, recorder: &mut ComputeRecorder, bound: u32) {

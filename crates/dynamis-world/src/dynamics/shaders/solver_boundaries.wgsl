@@ -1,12 +1,11 @@
 @group(0) @binding(0) var<storage, read> segments: array<u32>;
+@group(0) @binding(5) var<storage, read> overflow_count: array<u32>;
 @group(0) @binding(1) var<storage, read> a_bodies: array<u32>;
 @group(0) @binding(2) var<storage, read> b_bodies: array<u32>;
 @group(0) @binding(3) var<storage, read_write> first_a: array<u32>;
 @group(0) @binding(4) var<storage, read_write> first_b: array<u32>;
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+fn mark(live: u32, gid: vec3u, groups: vec3u) {
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
         let key_a = a_bodies[slot];
@@ -18,4 +17,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
             first_b[key_b] = slot + 1u;
         }
     }
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    mark(segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT], gid, groups);
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn overflow(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
+    mark(overflow_count[0], gid, groups);
 }

@@ -10,6 +10,7 @@
 @group(0) @binding(9) var<storage, read_write> block_deltas: array<vec4f>;
 @group(0) @binding(10) var<storage, read> block_counts: array<u32>;
 @group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(12) var<storage, read> overflow_count: array<u32>;
 
 struct BlockPair {
     first: Body,
@@ -37,7 +38,7 @@ fn block_scale(slot: u32) -> f32 {
     return f32(max(block_counts[slot], 1u));
 }
 
-fn block_pair(first_slot: u32, second_slot: u32) -> BlockPair {
+fn block_bodies(first_slot: u32, second_slot: u32) -> BlockPair {
     var pair: BlockPair;
     pair.first = load_body(first_slot);
     pair.second = load_body(second_slot);
@@ -54,7 +55,15 @@ fn block_pair(first_slot: u32, second_slot: u32) -> BlockPair {
     return pair;
 }
 
-fn store_block_delta(slot: u32, delta_a: vec3f, spin_a: vec3f, delta_b: vec3f, spin_b: vec3f) {
+fn commit_block(
+    slot: u32,
+    first_slot: u32,
+    second_slot: u32,
+    delta_a: vec3f,
+    spin_a: vec3f,
+    delta_b: vec3f,
+    spin_b: vec3f,
+) {
     block_deltas[slot * 4u] = vec4f(delta_a, 0.0);
     block_deltas[slot * 4u + 1u] = vec4f(spin_a, 0.0);
     block_deltas[slot * 4u + 2u] = vec4f(delta_b, 0.0);
@@ -63,10 +72,10 @@ fn store_block_delta(slot: u32, delta_a: vec3f, spin_a: vec3f, delta_b: vec3f, s
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
+    let live = overflow_count[0];
+    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
-        let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
         let block = a_payload[slot];
         if (block < contact_blocks) {
             solve_contact_block(block, slot);
@@ -78,7 +87,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn warm(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {
-    let live = segments[SOLVER_BLOCK_CONTACT];
+    let live = overflow_count[0];
     let stride = grid_stride(groups);
     for (var slot = global_index(gid); slot < live; slot = slot + stride) {
         warm_contact_block(a_payload[slot], slot);

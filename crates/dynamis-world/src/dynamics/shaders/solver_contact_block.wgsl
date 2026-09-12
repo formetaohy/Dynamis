@@ -10,52 +10,17 @@ fn wake_on_impact(slot: u32, sleeping: Body, moving: Body) {
     }
 }
 
-fn warm_contact_block(contact_index: u32, slot: u32) {
-    let contact = contacts[contact_index];
-    if (!contact_block_resolves(contact)) {
-        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
-        return;
-    }
-    let first_slot = collider_owners[contact.a];
-    let second_slot = collider_owners[contact.b];
-    let first_loaded = load_body(first_slot);
-    let second_loaded = load_body(second_slot);
-    var first = first_loaded;
-    var second = second_loaded;
-    if (body_is_inert(first_loaded)) {
-        first = body_frozen(first_loaded);
-    }
-    if (body_is_inert(second_loaded)) {
-        second = body_frozen(second_loaded);
-    }
-    let tangents = make_tangents(contact.normal);
-    for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
-        let point = contact.points[point_index];
-        let impulse = contact.normal * point.accumulated_normal
-            + tangents.first * point.accumulated_tangent_1
-            + tangents.second * point.accumulated_tangent_2;
-        apply_pair_impulse(&first, &second, point.position, point.position, impulse);
-    }
-    store_block_delta(
-        slot,
-        first.state.velocity - first_loaded.state.velocity,
-        first.state.angular_velocity - first_loaded.state.angular_velocity,
-        second.state.velocity - second_loaded.state.velocity,
-        second.state.angular_velocity - second_loaded.state.angular_velocity,
-    );
-}
-
 fn solve_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
-    if (!contact_block_resolves(contact)) {
-        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
-        return;
-    }
     let first_slot = collider_owners[contact.a];
     let second_slot = collider_owners[contact.b];
-    let pair = block_pair(first_slot, second_slot);
+    if (!contact_block_resolves(contact)) {
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        return;
+    }
+    let pair = block_bodies(first_slot, second_slot);
     if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
-        store_block_delta(slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
     }
     var first = pair.first;
@@ -67,38 +32,55 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         normal_total = normal_total + max(contact.points[point_index].accumulated_normal, 0.0);
     }
+    var impulses: array<vec4f, CONTACT_MAX_POINTS>;
+    for (var point_index = 0u; point_index < CONTACT_MAX_POINTS; point_index = point_index + 1u) {
+        impulses[point_index] = vec4f(0.0);
+    }
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         let point = contact.points[point_index];
         let position = point.position;
         var accumulated_normal = point.accumulated_normal;
         var accumulated_tangent_1 = point.accumulated_tangent_1;
         var accumulated_tangent_2 = point.accumulated_tangent_2;
-        let velocity = relative_velocity(first, second, position, position);
-        let normal_speed = dot(velocity, normal);
+        let normal_speed = dot(relative_velocity(pair.first, pair.second, position, position), normal);
         let normal_mass = point_momentum_mass(pair.split_first, pair.split_second, position, position, normal);
         let delta = (point.target_speed - normal_speed) / normal_mass;
         let next_normal = max(0.0, accumulated_normal + delta);
-        apply_pair_impulse(&first, &second, position, position, normal * (next_normal - accumulated_normal));
+        impulses[point_index] = impulses[point_index] + vec4f(normal * (next_normal - accumulated_normal), 0.0);
         accumulated_normal = next_normal;
         let friction_limit = contact.friction * accumulated_normal;
         let tangent_1_mass =
             point_momentum_mass(pair.split_first, pair.split_second, position, position, tangents.first);
-        let tangent_1_speed = dot(relative_velocity(first, second, position, position), tangents.first);
+        let tangent_1_speed = dot(
+            relative_velocity(pair.first, pair.second, position, position),
+            tangents.first,
+        );
         let next_tangent_1 =
             clamp(accumulated_tangent_1 - tangent_1_speed / tangent_1_mass, -friction_limit, friction_limit);
-        apply_pair_impulse(&first, &second, position, position, tangents.first * (next_tangent_1 - accumulated_tangent_1));
+        impulses[point_index] =
+            impulses[point_index] + vec4f(tangents.first * (next_tangent_1 - accumulated_tangent_1), 0.0);
         accumulated_tangent_1 = next_tangent_1;
         let tangent_2_mass =
             point_momentum_mass(pair.split_first, pair.split_second, position, position, tangents.second);
-        let tangent_2_speed = dot(relative_velocity(first, second, position, position), tangents.second);
-        let remaining = sqrt(max(friction_limit * friction_limit - accumulated_tangent_1 * accumulated_tangent_1, 0.0));
+        let tangent_2_speed = dot(
+            relative_velocity(pair.first, pair.second, position, position),
+            tangents.second,
+        );
+        let remaining = sqrt(
+            max(friction_limit * friction_limit - accumulated_tangent_1 * accumulated_tangent_1, 0.0),
+        );
         let next_tangent_2 =
             clamp(accumulated_tangent_2 - tangent_2_speed / tangent_2_mass, -remaining, remaining);
-        apply_pair_impulse(&first, &second, position, position, tangents.second * (next_tangent_2 - accumulated_tangent_2));
+        impulses[point_index] =
+            impulses[point_index] + vec4f(tangents.second * (next_tangent_2 - accumulated_tangent_2), 0.0);
         accumulated_tangent_2 = next_tangent_2;
         updated.points[point_index].accumulated_normal = accumulated_normal;
         updated.points[point_index].accumulated_tangent_1 = accumulated_tangent_1;
         updated.points[point_index].accumulated_tangent_2 = accumulated_tangent_2;
+    }
+    for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
+        let position = contact.points[point_index].position;
+        apply_pair_impulse(&first, &second, position, position, impulses[point_index].xyz);
     }
     {
         let rel_spin = second.state.angular_velocity - first.state.angular_velocity;
@@ -134,11 +116,51 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         wake_on_impact(first_slot, pair.first, pair.second);
         wake_on_impact(second_slot, pair.second, pair.first);
     }
-    store_block_delta(
+    commit_block(
         slot,
+        first_slot,
+        second_slot,
         first.state.velocity - pair.first.state.velocity,
         first.state.angular_velocity - pair.first.state.angular_velocity,
         second.state.velocity - pair.second.state.velocity,
         second.state.angular_velocity - pair.second.state.angular_velocity,
     );
 }
+
+fn warm_contact_block(contact_index: u32, slot: u32) {
+    let contact = contacts[contact_index];
+    let first_slot = collider_owners[contact.a];
+    let second_slot = collider_owners[contact.b];
+    if (!contact_block_resolves(contact)) {
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        return;
+    }
+    let first_loaded = load_body(first_slot);
+    let second_loaded = load_body(second_slot);
+    var first = first_loaded;
+    var second = second_loaded;
+    if (body_is_inert(first_loaded)) {
+        first = body_frozen(first_loaded);
+    }
+    if (body_is_inert(second_loaded)) {
+        second = body_frozen(second_loaded);
+    }
+    let tangents = make_tangents(contact.normal);
+    for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
+        let point = contact.points[point_index];
+        let impulse = contact.normal * point.accumulated_normal
+            + tangents.first * point.accumulated_tangent_1
+            + tangents.second * point.accumulated_tangent_2;
+        apply_pair_impulse(&first, &second, point.position, point.position, impulse);
+    }
+    commit_block(
+        slot,
+        first_slot,
+        second_slot,
+        first.state.velocity - first_loaded.state.velocity,
+        first.state.angular_velocity - first_loaded.state.angular_velocity,
+        second.state.velocity - second_loaded.state.velocity,
+        second.state.angular_velocity - second_loaded.state.angular_velocity,
+    );
+}
+
