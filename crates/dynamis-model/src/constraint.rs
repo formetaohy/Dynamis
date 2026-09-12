@@ -61,28 +61,31 @@ impl DofDesc {
     }
 
     pub fn locked() -> Self {
-        Self {
-            locked: true,
-            limit: None,
-            motor: None,
-        }
+        Self::free().lock()
     }
 
     pub fn limited(min: f32, max: f32) -> Self {
-        assert!(max >= min, "dof limit max must not be below min");
-        Self {
-            locked: false,
-            limit: Some(ConstraintLimit { min, max }),
-            motor: None,
-        }
+        Self::free().limit(min, max)
     }
 
     pub fn driven(motor: ConstraintMotor) -> Self {
-        Self {
-            locked: false,
-            limit: None,
-            motor: Some(motor),
-        }
+        Self::free().motor(motor)
+    }
+
+    pub fn lock(mut self) -> Self {
+        self.locked = true;
+        self
+    }
+
+    pub fn limit(mut self, min: f32, max: f32) -> Self {
+        assert!(max >= min, "dof limit max must not be below min");
+        self.limit = Some(ConstraintLimit { min, max });
+        self
+    }
+
+    pub fn motor(mut self, motor: ConstraintMotor) -> Self {
+        self.motor = Some(motor);
+        self
     }
 }
 

@@ -237,7 +237,7 @@ struct ConstraintDescriptor {
 }
 
 struct ConstraintRuntime {
-    accumulated: array<f32, 8>,
+    accumulated: array<f32, CONSTRAINT_ACCUMULATOR_SLOTS>,
     broken: u32,
     constraint_id: u32,
     generation: u32,

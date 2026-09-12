@@ -10,10 +10,11 @@ use dynamis_layout::{
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
     QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
     SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
-    SHAPE_SPHERE, StepParamsRecord,
+    SHAPE_SPHERE, StepParamsRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_model::{
-    BodyDesc, ColliderDesc, ConstraintDesc, MassProperties, PhysicsConfig, QueryFilter, Shape,
+    BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
+    PhysicsConfig, QueryFilter, Shape,
 };
 use std::panic::catch_unwind;
 
@@ -514,4 +515,78 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
         1,
     );
     assert_eq!(dual_axis.axis_b, [0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn constraint_record_encodes_orthogonal_dofs() {
+    let motor = ConstraintMotor {
+        target_velocity: 3.0,
+        max_force: 40.0,
+        target_position: None,
+        stiffness: 0.0,
+        damping: 0.0,
+    };
+    let record = ConstraintDescriptorRecord::build(
+        &ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]).dofs([
+            DofDesc::limited(-1.0, 1.0).motor(motor),
+            DofDesc::locked(),
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::limited(-0.5, 0.5),
+            DofDesc::free(),
+        ]),
+        0,
+        1,
+    );
+    let modes = (0..6)
+        .map(|index| {
+            (
+                dof_locked(record.flags, index),
+                dof_limited(record.flags, index),
+                dof_driven(record.flags, index),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        modes,
+        vec![
+            (false, true, true),
+            (true, false, false),
+            (false, false, false),
+            (false, false, false),
+            (false, true, false),
+            (false, false, false),
+        ],
+        "dof limits and motors must be encoded independently"
+    );
+    assert_eq!(record.linear_limit_min, [-1.0, 0.0, 0.0]);
+    assert_eq!(record.linear_limit_max, [1.0, 0.0, 0.0]);
+    assert_eq!(record.angular_limit_min, [0.0, -0.5, 0.0]);
+    assert_eq!(record.linear_motor_target, [3.0, 0.0, 0.0]);
+    assert_eq!(record.linear_motor_force, [40.0, 0.0, 0.0]);
+}
+
+#[test]
+fn dof_flag_helpers_round_trip_every_index() {
+    let mut flags = 0;
+    for index in 0..6 {
+        flags = dynamis_layout::set_dof_locked(flags, index, true);
+        flags = dynamis_layout::set_dof_limited(flags, index, true);
+        flags = dynamis_layout::set_dof_driven(flags, index, true);
+    }
+    for index in 0..6 {
+        assert!(dof_locked(flags, index));
+        assert!(dof_limited(flags, index));
+        assert!(dof_driven(flags, index));
+    }
+    for index in 0..6 {
+        flags = dynamis_layout::set_dof_locked(flags, index, false);
+        assert!(!dof_locked(flags, index));
+        assert!(dof_limited(flags, index));
+        assert!(dof_driven(flags, index));
+    }
+    let locked_mask = (0..6).fold(0, |mask, index| {
+        mask | (dynamis_layout::DOF_LOCKED << index)
+    });
+    assert_eq!(flags & locked_mask, 0);
 }

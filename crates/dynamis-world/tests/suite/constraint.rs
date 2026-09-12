@@ -700,3 +700,199 @@ fn updating_a_moved_constraint_edits_its_own_record() {
         "the untouched anchor-far span must keep its rest length, got {reach}"
     );
 }
+
+fn velocity_motor(speed: f32, max_force: f32) -> ConstraintMotor {
+    ConstraintMotor {
+        target_velocity: speed,
+        max_force,
+        target_position: None,
+        stiffness: 0.0,
+        damping: 0.0,
+    }
+}
+
+#[test]
+fn pulley_patch_keeps_the_constraint_alive() {
+    let mut world = new_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 1.0, 0.0]));
+    let fixed_a = [0.0f32, 3.0, 0.0];
+    let fixed_b = [2.0f32, 3.0, 0.0];
+    let length = 4.0;
+    let joint = world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::pulley([0.0; 3], [0.0; 3], fixed_a, fixed_b, length),
+    );
+    let _ = base;
+    world.set_motor(joint, 2.0, 50.0);
+    world.set_limit(
+        joint,
+        Some(dynamis_model::ConstraintLimit {
+            min: -1.0,
+            max: 1.0,
+        }),
+    );
+    world.set_spring(
+        joint,
+        Some(dynamis_model::ConstraintSpring {
+            frequency: 2.0,
+            damping_ratio: 0.5,
+        }),
+    );
+    world.set_break_threshold(
+        joint,
+        Some(dynamis_model::ConstraintBreak {
+            force: 0.0,
+            torque: 0.0,
+        }),
+    );
+    world.set_warm_start(joint, false);
+    world.set_swing_limits(
+        joint,
+        Some(dynamis_model::ConstraintSwing {
+            swing_a: 0.5,
+            swing_b: 0.5,
+        }),
+    );
+    world.set_constraint_disable_collisions(joint, false);
+    assert!(
+        world.constraints().contains(&joint),
+        "patching a pulley must keep the constraint alive"
+    );
+    for _ in 0..90 {
+        world.apply_force(first, [0.0, 6.0, 0.0]);
+        world.step(DT);
+    }
+    world.wait();
+    let rope = distance(world.read_state(first).position, fixed_a)
+        + distance(world.read_state(second).position, fixed_b);
+    assert!(
+        (rope - length).abs() < 0.3,
+        "a patched pulley must keep solving the rope length, got {rope}"
+    );
+}
+
+#[test]
+fn limited_dof_stays_driven_inside_its_limit() {
+    let mut world = new_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs(
+            [
+                DofDesc::free(),
+                DofDesc::limited(-0.6, 0.6).motor(velocity_motor(3.0, 120.0)),
+                DofDesc::free(),
+                DofDesc::locked(),
+                DofDesc::locked(),
+                DofDesc::locked(),
+            ],
+        ),
+    );
+    for _ in 0..30 {
+        world.step(DT);
+    }
+    world.wait();
+    let travelled = world.read_state(arm).position[0];
+    assert!(
+        travelled < 0.9,
+        "a limited dof must still follow its motor, got x {travelled}"
+    );
+    for _ in 0..90 {
+        world.step(DT);
+    }
+    world.wait();
+    let capped = world.read_state(arm).position[0];
+    assert!(
+        (0.3..0.5).contains(&capped),
+        "the dof limit must stop the driven dof near 0.4, got x {capped}"
+    );
+}
+
+#[test]
+fn limited_angular_dof_stays_driven_inside_its_limit() {
+    let mut world = new_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::sphere(0.2));
+    world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs([
+            DofDesc::locked(),
+            DofDesc::locked(),
+            DofDesc::locked(),
+            DofDesc::limited(-0.6, 0.6).motor(velocity_motor(3.0, 120.0)),
+            DofDesc::locked(),
+            DofDesc::locked(),
+        ]),
+    );
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let orientation = world.read_state(arm).orientation;
+    let tilt = 2.0 * orientation[1].atan2(orientation[3]);
+    assert!(
+        tilt > 0.25,
+        "a limited angular dof must still follow its motor, got tilt {tilt}"
+    );
+    assert!(
+        tilt < 0.75,
+        "the angular dof limit must stop the driven dof, got tilt {tilt}"
+    );
+}
+
+#[test]
+fn dof_patches_drive_and_cap_a_live_constraint() {
+    let mut world = new_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::sphere(0.2));
+    let joint = world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+            .dofs([DofDesc::locked(); 6]),
+    );
+    for _ in 0..10 {
+        world.step(DT);
+    }
+    world.wait();
+    assert!(
+        world.read_state(arm).orientation[1].abs() < 1e-3,
+        "a fully locked six dof must not rotate"
+    );
+    world.set_dof_locked(joint, 3, false);
+    world.set_dof_motor(joint, 3, Some(velocity_motor(3.0, 120.0)));
+    world.set_warm_start(joint, false);
+    for _ in 0..60 {
+        world.step(DT);
+    }
+    world.wait();
+    let freed = world.read_state(arm).orientation[1].abs();
+    assert!(
+        freed > 0.05,
+        "a live dof patch must start driving the arm, got {freed}"
+    );
+    world.set_dof_limit(
+        joint,
+        3,
+        Some(dynamis_model::ConstraintLimit {
+            min: -0.2,
+            max: 0.2,
+        }),
+    );
+    for _ in 0..120 {
+        world.step(DT);
+    }
+    world.wait();
+    let capped =
+        2.0 * world.read_state(arm).orientation[1].atan2(world.read_state(arm).orientation[3]);
+    assert!(
+        capped < 0.4,
+        "a live dof limit must cap the driven rotation, got {capped}"
+    );
+}

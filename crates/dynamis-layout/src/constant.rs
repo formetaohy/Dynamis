@@ -58,10 +58,11 @@ declare_constants! {
     pub const CONSTRAINT_HAS_SWING: u32 = 16;
     pub const CONSTRAINT_HAS_BREAK: u32 = 32;
     pub const CONSTRAINT_WARM_START: u32 = 64;
-    pub const DOF_FREE: u32 = 0;
-    pub const DOF_LOCKED: u32 = 1;
-    pub const DOF_LIMITED: u32 = 2;
-    pub const DOF_DRIVEN: u32 = 3;
+    pub const DOF_LOCKED: u32 = 1 << 8;
+    pub const DOF_LIMITED: u32 = 1 << 14;
+    pub const DOF_DRIVEN: u32 = 1 << 20;
+    pub const DOF_LIMIT_ROW_BASE: u32 = 8;
+    pub const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16;
     pub const QUERY_RAY: u32 = 0;
     pub const QUERY_SPHERE: u32 = 1;
     pub const QUERY_CUBOID: u32 = 2;
@@ -89,12 +90,53 @@ const _: () = assert!(
     "a cell hash must fill every bit below the level"
 );
 
-pub fn dof_mode(flags: u32, index: u32) -> u32 {
-    (flags >> (8 + index * 2)) & 3
+pub const DOF_COUNT: u32 = 6;
+
+const _: () = assert!(
+    CONSTRAINT_WARM_START < DOF_LOCKED
+        && DOF_LOCKED < DOF_LIMITED
+        && DOF_LIMITED < DOF_DRIVEN
+        && DOF_DRIVEN << (DOF_COUNT - 1) < 1 << 31,
+    "dof flags must occupy disjoint bits above the constraint flags"
+);
+const _: () = assert!(
+    DOF_LIMIT_ROW_BASE + DOF_COUNT <= CONSTRAINT_ACCUMULATOR_SLOTS,
+    "dof limit rows must fit the constraint accumulator budget"
+);
+
+fn dof_field(flags: u32, base: u32, index: u32) -> bool {
+    assert!(index < DOF_COUNT, "dof index must be below {DOF_COUNT}");
+    flags & (base << index) != 0
 }
 
-pub(crate) fn set_dof_mode(flags: u32, index: u32, mode: u32) -> u32 {
-    (flags & !(3 << (8 + index * 2))) | (mode << (8 + index * 2))
+fn set_dof_field(flags: u32, base: u32, index: u32, on: bool) -> u32 {
+    assert!(index < DOF_COUNT, "dof index must be below {DOF_COUNT}");
+    let bit = base << index;
+    if on { flags | bit } else { flags & !bit }
+}
+
+pub fn dof_locked(flags: u32, index: u32) -> bool {
+    dof_field(flags, DOF_LOCKED, index)
+}
+
+pub fn dof_limited(flags: u32, index: u32) -> bool {
+    dof_field(flags, DOF_LIMITED, index)
+}
+
+pub fn dof_driven(flags: u32, index: u32) -> bool {
+    dof_field(flags, DOF_DRIVEN, index)
+}
+
+pub fn set_dof_locked(flags: u32, index: u32, on: bool) -> u32 {
+    set_dof_field(flags, DOF_LOCKED, index, on)
+}
+
+pub fn set_dof_limited(flags: u32, index: u32, on: bool) -> u32 {
+    set_dof_field(flags, DOF_LIMITED, index, on)
+}
+
+pub fn set_dof_driven(flags: u32, index: u32, on: bool) -> u32 {
+    set_dof_field(flags, DOF_DRIVEN, index, on)
 }
 
 pub const NO_HIT: f32 = f32::MAX;

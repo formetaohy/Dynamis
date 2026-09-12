@@ -18,10 +18,20 @@ macro_rules! declare_constants {
 
 pub(crate) use declare_constants;
 
+const DOF_PREDICATES: &str = "fn dof_locked(flags: u32, index: u32) -> bool { return (flags & (DOF_LOCKED << index)) != 0u; }
+fn dof_limited(flags: u32, index: u32) -> bool { return (flags & (DOF_LIMITED << index)) != 0u; }
+fn dof_driven(flags: u32, index: u32) -> bool { return (flags & (DOF_DRIVEN << index)) != 0u; }
+";
+
 pub fn constants_wgsl() -> String {
     let mut out = String::new();
     constant::emit_constants(&mut out);
     counter::emit_constants(&mut out);
-    out.push_str(&format!("const NO_HIT: f32 = {:e};\n", constant::NO_HIT));
+    out.push_str(&format!(
+        "const NO_HIT: f32 = {:e};
+",
+        constant::NO_HIT
+    ));
+    out.push_str(DOF_PREDICATES);
     out
 }

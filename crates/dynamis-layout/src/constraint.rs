@@ -1,9 +1,9 @@
 use crate::constant::{
-    CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE,
-    CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT,
-    CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC,
-    CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF, CONSTRAINT_WARM_START, DOF_DRIVEN,
-    DOF_FREE, DOF_LIMITED, DOF_LOCKED, set_dof_mode,
+    CONSTRAINT_ACCUMULATOR_SLOTS, CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS,
+    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
+    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
+    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, CONSTRAINT_SIXDOF,
+    CONSTRAINT_WARM_START, set_dof_driven, set_dof_limited, set_dof_locked,
 };
 use crate::{ConstraintDescriptorRecord, ConstraintRuntimeRecord};
 use dynamis_model::{ConstraintDesc, ConstraintMotor, DofDesc};
@@ -45,16 +45,10 @@ impl ConstraintDescriptorRecord {
         }
         let dofs = desc.dofs.unwrap_or([DofDesc::free(); 6]);
         for (index, dof) in dofs.iter().enumerate() {
-            let mode = if dof.locked {
-                DOF_LOCKED
-            } else if dof.limit.is_some() {
-                DOF_LIMITED
-            } else if dof.motor.is_some() {
-                DOF_DRIVEN
-            } else {
-                DOF_FREE
-            };
-            flags = set_dof_mode(flags, index as u32, mode);
+            let index = index as u32;
+            flags = set_dof_locked(flags, index, dof.locked);
+            flags = set_dof_limited(flags, index, dof.limit.is_some());
+            flags = set_dof_driven(flags, index, dof.motor.is_some());
         }
         let motor = |motor: &Option<ConstraintMotor>| {
             (
@@ -197,7 +191,7 @@ impl ConstraintDescriptorRecord {
 impl ConstraintRuntimeRecord {
     pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
-            accumulated: [0.0; 8],
+            accumulated: [0.0; CONSTRAINT_ACCUMULATOR_SLOTS as usize],
             broken: 0,
             constraint_id,
             generation,

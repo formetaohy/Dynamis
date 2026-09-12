@@ -4,7 +4,7 @@ use super::ids::IdSpace;
 use dynamis_layout::ConstraintDescriptorRecord;
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
-    ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
+    ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
 
 pub(crate) struct Constraints {
@@ -115,31 +115,51 @@ impl World {
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
         assert!(max_force >= 0.0, "motor force must be non-negative");
-        self.patch_constraint(handle, |desc| {
-            let motor = desc.motor.get_or_insert(ConstraintMotor {
-                target_velocity: 0.0,
-                max_force: 0.0,
-                target_position: None,
-                stiffness: 0.0,
-                damping: 0.0,
-            });
-            motor.target_velocity = target_velocity;
-            motor.max_force = max_force;
-            motor.target_position = None;
-            motor.stiffness = 0.0;
-            motor.damping = 0.0;
+        self.patch_record(handle, |record| {
+            record.motor_speed = target_velocity;
+            record.motor_max_force = max_force;
+            record.motor_target = 0.0;
+            record.motor_stiffness = 0.0;
+            record.motor_damping = 0.0;
+            record.flags |= dynamis_layout::CONSTRAINT_HAS_MOTOR;
         });
     }
 
     pub fn set_limit(&mut self, handle: ConstraintHandle, limit: Option<ConstraintLimit>) {
-        self.patch_constraint(handle, |desc| {
-            desc.limit = limit;
+        if let Some(limit) = limit {
+            assert!(
+                limit.max >= limit.min,
+                "constraint limit max must not be below min"
+            );
+        }
+        self.patch_record(handle, |record| match limit {
+            Some(limit) => {
+                record.limit_min = limit.min;
+                record.limit_max = limit.max;
+                record.flags |= dynamis_layout::CONSTRAINT_HAS_LIMIT;
+            }
+            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_LIMIT,
         });
     }
 
     pub fn set_spring(&mut self, handle: ConstraintHandle, spring: Option<ConstraintSpring>) {
-        self.patch_constraint(handle, |desc| {
-            desc.spring = spring;
+        if let Some(spring) = spring {
+            assert!(
+                spring.frequency >= 0.0,
+                "spring frequency must be non-negative"
+            );
+            assert!(
+                spring.damping_ratio >= 0.0,
+                "spring damping ratio must be non-negative"
+            );
+        }
+        self.patch_record(handle, |record| match spring {
+            Some(spring) => {
+                record.spring_frequency = spring.frequency;
+                record.spring_damping_ratio = spring.damping_ratio;
+                record.flags |= dynamis_layout::CONSTRAINT_IS_SPRING;
+            }
+            None => record.flags &= !dynamis_layout::CONSTRAINT_IS_SPRING,
         });
     }
 
@@ -148,14 +168,28 @@ impl World {
         handle: ConstraintHandle,
         threshold: Option<ConstraintBreak>,
     ) {
-        self.patch_constraint(handle, |desc| {
-            desc.break_threshold = threshold;
+        if let Some(threshold) = threshold {
+            assert!(threshold.force >= 0.0, "break force must be non-negative");
+            assert!(threshold.torque >= 0.0, "break torque must be non-negative");
+        }
+        self.patch_record(handle, |record| match threshold {
+            Some(threshold) => {
+                record.break_force = threshold.force;
+                record.break_torque = threshold.torque;
+                record.flags |= dynamis_layout::CONSTRAINT_HAS_BREAK;
+            }
+            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_BREAK,
         });
     }
 
     pub fn set_warm_start(&mut self, handle: ConstraintHandle, warm_start: bool) {
-        self.patch_constraint(handle, |desc| {
-            desc.warm_start = warm_start;
+        self.patch_record(handle, |record| {
+            record.flags = (record.flags & !dynamis_layout::CONSTRAINT_WARM_START)
+                | if warm_start {
+                    dynamis_layout::CONSTRAINT_WARM_START
+                } else {
+                    0
+                };
         });
     }
 
@@ -166,46 +200,133 @@ impl World {
         stiffness: f32,
         damping: f32,
     ) {
-        self.patch_constraint(handle, |desc| {
-            let motor = desc.motor.get_or_insert(ConstraintMotor {
-                target_velocity: 0.0,
-                max_force: 0.0,
-                target_position: None,
-                stiffness: 0.0,
-                damping: 0.0,
-            });
-            motor.target_position = Some(target_position);
-            motor.stiffness = stiffness;
-            motor.damping = damping;
+        assert!(
+            (0.0..=1.0).contains(&stiffness),
+            "servo stiffness must be within [0, 1]"
+        );
+        assert!(
+            (0.0..=1.0).contains(&damping),
+            "servo damping must be within [0, 1]"
+        );
+        self.patch_record(handle, |record| {
+            record.motor_target = target_position;
+            record.motor_stiffness = stiffness;
+            record.motor_damping = damping;
+            record.flags |= dynamis_layout::CONSTRAINT_HAS_MOTOR;
         });
     }
 
     pub fn set_swing_limits(&mut self, handle: ConstraintHandle, swing: Option<ConstraintSwing>) {
-        self.patch_constraint(handle, |desc| {
-            desc.swing = swing;
+        if let Some(swing) = swing {
+            assert!(swing.swing_a >= 0.0, "swing limit must be non-negative");
+            assert!(swing.swing_b >= 0.0, "swing limit must be non-negative");
+        }
+        self.patch_record(handle, |record| match swing {
+            Some(swing) => {
+                record.swing_a = swing.swing_a;
+                record.swing_b = swing.swing_b;
+                record.flags |= dynamis_layout::CONSTRAINT_HAS_SWING;
+            }
+            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_SWING,
         });
     }
 
     pub fn set_constraint_disable_collisions(&mut self, handle: ConstraintHandle, disable: bool) {
-        self.patch_constraint(handle, |desc| {
-            desc.disable_collisions = disable;
+        self.patch_record(handle, |record| {
+            record.flags = (record.flags & !dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS)
+                | if disable {
+                    dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS
+                } else {
+                    0
+                };
         });
     }
 
-    fn patch_constraint(
+    pub fn set_dof_locked(&mut self, handle: ConstraintHandle, index: usize, locked: bool) {
+        self.assert_dof_index(index);
+        self.patch_record(handle, |record| {
+            record.flags = dynamis_layout::set_dof_locked(record.flags, index as u32, locked);
+        });
+    }
+
+    pub fn set_dof_limit(
         &mut self,
         handle: ConstraintHandle,
-        change: impl FnOnce(&mut ConstraintDesc),
+        index: usize,
+        limit: Option<ConstraintLimit>,
+    ) {
+        self.assert_dof_index(index);
+        if let Some(limit) = limit {
+            assert!(
+                limit.max >= limit.min,
+                "dof limit max must not be below min"
+            );
+        }
+        self.patch_record(handle, |record| {
+            let (min, max) = dof_limit_pair(record, index);
+            match limit {
+                Some(limit) => {
+                    *min = limit.min;
+                    *max = limit.max;
+                    record.flags =
+                        dynamis_layout::set_dof_limited(record.flags, index as u32, true);
+                }
+                None => {
+                    *min = 0.0;
+                    *max = 0.0;
+                    record.flags =
+                        dynamis_layout::set_dof_limited(record.flags, index as u32, false);
+                }
+            }
+        });
+    }
+
+    pub fn set_dof_motor(
+        &mut self,
+        handle: ConstraintHandle,
+        index: usize,
+        motor: Option<ConstraintMotor>,
+    ) {
+        self.assert_dof_index(index);
+        self.patch_record(handle, |record| {
+            let (target, stiffness, damping, force) = dof_motor_slots(record, index);
+            match motor {
+                Some(motor) => {
+                    *target = motor.target_position.unwrap_or(motor.target_velocity);
+                    *stiffness = motor.stiffness;
+                    *damping = motor.damping;
+                    *force = motor.max_force;
+                    record.flags = dynamis_layout::set_dof_driven(record.flags, index as u32, true);
+                }
+                None => {
+                    *target = 0.0;
+                    *stiffness = 0.0;
+                    *damping = 0.0;
+                    *force = 0.0;
+                    record.flags =
+                        dynamis_layout::set_dof_driven(record.flags, index as u32, false);
+                }
+            }
+        });
+    }
+
+    fn patch_record(
+        &mut self,
+        handle: ConstraintHandle,
+        change: impl FnOnce(&mut ConstraintDescriptorRecord),
     ) {
         self.validate_constraint(handle);
         let slot = self.constraints.index_of[handle.id as usize] as usize;
-        let mut desc = constraint_desc_from_record(&self.constraints.records[slot]);
-        change(&mut desc);
-        self.validate_constraint_desc(&desc);
-        let existing = self.constraints.records[slot];
-        let record = ConstraintDescriptorRecord::build(&desc, existing.a, existing.b);
-        self.constraints.records[slot] = record;
+        change(&mut self.constraints.records[slot]);
         self.constraints.dirty.push(slot as u32);
+    }
+
+    fn assert_dof_index(&self, index: usize) {
+        assert!(
+            index < dynamis_layout::DOF_COUNT as usize,
+            "dof index must be below {}",
+            dynamis_layout::DOF_COUNT
+        );
     }
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
@@ -316,109 +437,38 @@ fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32;
     dynamis_math::quat_mul(a, orientation_b)
 }
 
-fn constraint_desc_from_record(record: &ConstraintDescriptorRecord) -> ConstraintDesc {
-    let kind = match record.kind {
-        dynamis_layout::CONSTRAINT_BALL => ConstraintKind::Ball,
-        dynamis_layout::CONSTRAINT_DISTANCE => ConstraintKind::Distance,
-        dynamis_layout::CONSTRAINT_REVOLUTE => ConstraintKind::Revolute,
-        dynamis_layout::CONSTRAINT_PRISMATIC => ConstraintKind::Prismatic,
-        dynamis_layout::CONSTRAINT_FIXED => ConstraintKind::Fixed,
-        dynamis_layout::CONSTRAINT_GEAR => ConstraintKind::Gear,
-        dynamis_layout::CONSTRAINT_CONE => ConstraintKind::Cone,
-        dynamis_layout::CONSTRAINT_SIXDOF => ConstraintKind::SixDof,
-        other => panic!("constraint record has an invalid kind {other}"),
-    };
-    let mut desc = ConstraintDesc::ball(record.anchor_a, record.anchor_b).rekind(kind);
-    desc.axis_a = record.axis_a;
-    desc.axis_b = record.axis_b;
-    desc.reference = record.reference;
-    desc.rest_length = record.distance;
-    desc.cone_angle = record.cone_angle;
-    desc.warm_start = record.flags & dynamis_layout::CONSTRAINT_WARM_START != 0;
-    if record.flags & dynamis_layout::CONSTRAINT_HAS_LIMIT != 0 {
-        desc.limit = Some(ConstraintLimit {
-            min: record.limit_min,
-            max: record.limit_max,
-        });
+fn dof_limit_pair(record: &mut ConstraintDescriptorRecord, index: usize) -> (&mut f32, &mut f32) {
+    if index < 3 {
+        (
+            &mut record.linear_limit_min[index],
+            &mut record.linear_limit_max[index],
+        )
+    } else {
+        let axis = index - 3;
+        (
+            &mut record.angular_limit_min[axis],
+            &mut record.angular_limit_max[axis],
+        )
     }
-    if record.flags & dynamis_layout::CONSTRAINT_HAS_SWING != 0 {
-        desc.swing = Some(ConstraintSwing {
-            swing_a: record.swing_a,
-            swing_b: record.swing_b,
-        });
+}
+
+type DofMotorSlots<'a> = (&'a mut f32, &'a mut f32, &'a mut f32, &'a mut f32);
+
+fn dof_motor_slots(record: &mut ConstraintDescriptorRecord, index: usize) -> DofMotorSlots<'_> {
+    let axis = index % 3;
+    if index < 3 {
+        (
+            &mut record.linear_motor_target[axis],
+            &mut record.linear_motor_stiffness[axis],
+            &mut record.linear_motor_damping[axis],
+            &mut record.linear_motor_force[axis],
+        )
+    } else {
+        (
+            &mut record.angular_motor_target[axis],
+            &mut record.angular_motor_stiffness[axis],
+            &mut record.angular_motor_damping[axis],
+            &mut record.angular_motor_force[axis],
+        )
     }
-    if record.flags & dynamis_layout::CONSTRAINT_HAS_MOTOR != 0 {
-        desc.motor = Some(ConstraintMotor {
-            target_velocity: record.motor_speed,
-            max_force: record.motor_max_force,
-            target_position: (record.motor_stiffness > 0.0).then_some(record.motor_target),
-            stiffness: record.motor_stiffness,
-            damping: record.motor_damping,
-        });
-    }
-    if record.flags & dynamis_layout::CONSTRAINT_IS_SPRING != 0 {
-        desc.spring = Some(ConstraintSpring {
-            frequency: record.spring_frequency,
-            damping_ratio: record.spring_damping_ratio,
-        });
-    }
-    if record.flags & dynamis_layout::CONSTRAINT_HAS_BREAK != 0 {
-        desc.break_threshold = Some(ConstraintBreak {
-            force: record.break_force,
-            torque: record.break_torque,
-        });
-    }
-    desc.gear_ratio = record.gear_ratio;
-    desc.pulley_fixed_a = record.pulley_fixed_a;
-    desc.pulley_fixed_b = record.pulley_fixed_b;
-    desc.disable_collisions = record.flags & dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS != 0;
-    if desc.kind == ConstraintKind::SixDof || (record.kind == dynamis_layout::CONSTRAINT_SIXDOF) {
-        let mode_of = |index: u32| -> DofDesc {
-            let mode = dynamis_layout::dof_mode(record.flags, index);
-            match mode {
-                dynamis_layout::DOF_LOCKED => DofDesc::locked(),
-                dynamis_layout::DOF_LIMITED => {
-                    let (min, max) = if index < 3 {
-                        (
-                            record.linear_limit_min[index as usize],
-                            record.linear_limit_max[index as usize],
-                        )
-                    } else {
-                        (
-                            record.angular_limit_min[index as usize - 3],
-                            record.angular_limit_max[index as usize - 3],
-                        )
-                    };
-                    DofDesc::limited(min, max)
-                }
-                dynamis_layout::DOF_DRIVEN => {
-                    let (target, stiffness, damping, force) = if index < 3 {
-                        (
-                            record.linear_motor_target[index as usize],
-                            record.linear_motor_stiffness[index as usize],
-                            record.linear_motor_damping[index as usize],
-                            record.linear_motor_force[index as usize],
-                        )
-                    } else {
-                        (
-                            record.angular_motor_target[index as usize - 3],
-                            record.angular_motor_stiffness[index as usize - 3],
-                            record.angular_motor_damping[index as usize - 3],
-                            record.angular_motor_force[index as usize - 3],
-                        )
-                    };
-                    DofDesc::driven(ConstraintMotor {
-                        target_velocity: if stiffness <= 0.0 { target } else { 0.0 },
-                        max_force: force,
-                        target_position: (stiffness > 0.0).then_some(target),
-                        stiffness,
-                        damping,
-                    })
-                }
-                _ => DofDesc::free(),
-            }
-        };
-        desc.dofs = Some(std::array::from_fn(|index| mode_of(index as u32)));
-    }
-    desc
 }
