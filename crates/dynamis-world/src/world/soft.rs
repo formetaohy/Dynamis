@@ -1,22 +1,22 @@
 use super::World;
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use dynamis_abi::{SoftLinkRecord, SoftParticleInit, SoftParticleRecord};
+use dynamis_abi::{SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord};
 use dynamis_math::{add, quat_rotate};
-use dynamis_model::{SoftBodyDesc, SoftBodyHandle};
+use dynamis_model::{SoftBodyDesc, SoftBodyHandle, SoftElement};
 use dynamis_soft::SoftStreams;
 
 #[derive(Clone, Copy)]
 struct SoftRuns {
     particles: Run,
-    links: Run,
+    elements: Run,
     adjacency: Run,
 }
 
 impl SoftRuns {
     const EMPTY: Self = Self {
         particles: Run::EMPTY,
-        links: Run::EMPTY,
+        elements: Run::EMPTY,
         adjacency: Run::EMPTY,
     };
 }
@@ -27,13 +27,13 @@ pub(crate) struct SoftBodies {
     index_of: Vec<u32>,
     runs: Vec<SoftRuns>,
     particles: Vec<SoftParticleRecord>,
-    links: Vec<SoftLinkRecord>,
+    elements: Vec<SoftElementRecord>,
     adjacency: Vec<u32>,
     particle_arena: Arena,
-    link_arena: Arena,
+    element_arena: Arena,
     adjacency_arena: Arena,
     pending_particles: Vec<Run>,
-    pending_links: Vec<Run>,
+    pending_elements: Vec<Run>,
     pending_adjacency: Vec<Run>,
 }
 
@@ -45,13 +45,13 @@ impl SoftBodies {
             index_of: Vec::new(),
             runs: Vec::new(),
             particles: Vec::new(),
-            links: Vec::new(),
+            elements: Vec::new(),
             adjacency: Vec::new(),
             particle_arena: Arena::new(),
-            link_arena: Arena::new(),
+            element_arena: Arena::new(),
             adjacency_arena: Arena::new(),
             pending_particles: Vec::new(),
-            pending_links: Vec::new(),
+            pending_elements: Vec::new(),
             pending_adjacency: Vec::new(),
         }
     }
@@ -67,7 +67,7 @@ impl SoftBodies {
     pub(crate) fn used(&self) -> (u32, u32, u32) {
         (
             self.particles.len() as u32,
-            self.links.len() as u32,
+            self.elements.len() as u32,
             self.adjacency.len() as u32,
         )
     }
@@ -98,11 +98,11 @@ impl SoftBodies {
         self.runs.resize(id as usize + 1, SoftRuns::EMPTY);
     }
 
-    fn take_link_run(&mut self, links: usize) -> Run {
-        if links == 0 {
+    fn take_element_run(&mut self, elements: usize) -> Run {
+        if elements == 0 {
             return Run::EMPTY;
         }
-        self.link_arena.take(links as u32)
+        self.element_arena.take(elements as u32)
     }
 
     fn take_adjacency_run(&mut self, entries: usize) -> Run {
@@ -116,22 +116,24 @@ impl SoftBodies {
         let (id, generation) = self.ids.acquire();
         self.grow_to(id);
         let particles = self.particle_arena.take(desc.particles.len() as u32);
-        let links = self.take_link_run(desc.links.len());
-        let adjacency = self.take_adjacency_run(desc.links.len() * 2);
+        let elements = self.take_element_run(desc.elements.len());
+        let adjacency = self.take_adjacency_run(desc.elements.len() * 4);
         self.particles.resize(
             self.particle_arena.used() as usize,
             SoftParticleRecord::cleared(),
         );
-        self.links
-            .resize(self.link_arena.used() as usize, SoftLinkRecord::cleared());
+        self.elements.resize(
+            self.element_arena.used() as usize,
+            SoftElementRecord::cleared(),
+        );
         self.adjacency
             .resize(self.adjacency_arena.used() as usize, u32::MAX);
         let neighbours = assemble_adjacency(
             &mut self.adjacency,
             desc.particles.len(),
-            &desc.links,
+            &desc.elements,
             adjacency.offset,
-            links.offset,
+            elements.offset,
         );
         for (slot, local) in desc.particles.iter().enumerate() {
             let position = add(desc.position, quat_rotate(desc.orientation, *local));
@@ -150,26 +152,27 @@ impl SoftBodies {
                     generation,
                 });
         }
-        for (slot, link) in desc.links.iter().enumerate() {
-            self.links[links.offset as usize + slot] = SoftLinkRecord::build(
-                particles.offset + link[0],
-                particles.offset + link[1],
-                particle_distance(
-                    &desc.particles[link[0] as usize],
-                    &desc.particles[link[1] as usize],
-                ),
-            );
+        for (slot, element) in desc.elements.iter().enumerate() {
+            self.elements[elements.offset as usize + slot] =
+                SoftElementRecord::build(SoftElementInit {
+                    particles: [
+                        particles.offset + element.particles[0],
+                        particles.offset + element.particles[1],
+                    ],
+                    rest: element.rest,
+                    compliance: element.compliance,
+                });
         }
         self.runs[id as usize] = SoftRuns {
             particles,
-            links,
+            elements,
             adjacency,
         };
         let handle = SoftBodyHandle { id, generation };
         self.index_of[id as usize] = self.alive.len() as u32;
         self.alive.push(handle);
         self.pending_particles.push(particles);
-        self.pending_links.push(links);
+        self.pending_elements.push(elements);
         self.pending_adjacency.push(adjacency);
         handle
     }
@@ -181,12 +184,12 @@ impl SoftBodies {
         for index in runs.particles.span() {
             self.particles[index] = SoftParticleRecord::cleared();
         }
-        for index in runs.links.span() {
-            self.links[index] = SoftLinkRecord::cleared();
+        for index in runs.elements.span() {
+            self.elements[index] = SoftElementRecord::cleared();
         }
         self.particle_arena.release(runs.particles);
-        if runs.links.len > 0 {
-            self.link_arena.release(runs.links);
+        if runs.elements.len > 0 {
+            self.element_arena.release(runs.elements);
         }
         if runs.adjacency.len > 0 {
             self.adjacency_arena.release(runs.adjacency);
@@ -200,8 +203,8 @@ impl SoftBodies {
         self.index_of[id] = u32::MAX;
         self.ids.release(handle.id);
         self.pending_particles.push(runs.particles);
-        if runs.links.len > 0 {
-            self.pending_links.push(runs.links);
+        if runs.elements.len > 0 {
+            self.pending_elements.push(runs.elements);
         }
         if runs.adjacency.len > 0 {
             self.pending_adjacency.push(runs.adjacency);
@@ -220,15 +223,15 @@ impl SoftBodies {
                 bytemuck::cast_slice(&self.particles[run.span()]),
             );
         }
-        let link_stride = streams.links.stride();
-        for run in self.pending_links.drain(..) {
+        let element_stride = streams.elements.stride();
+        for run in self.pending_elements.drain(..) {
             if run.len == 0 {
                 continue;
             }
-            streams.links.write_at(
+            streams.elements.write_at(
                 queue,
-                run.offset as u64 * link_stride,
-                bytemuck::cast_slice(&self.links[run.span()]),
+                run.offset as u64 * element_stride,
+                bytemuck::cast_slice(&self.elements[run.span()]),
             );
         }
         for run in self.pending_adjacency.drain(..) {
@@ -253,14 +256,15 @@ impl SoftBodies {
 fn assemble_adjacency(
     adjacency: &mut [u32],
     particles: usize,
-    links: &[[u32; 2]],
+    elements: &[SoftElement],
     adjacency_base: u32,
-    link_base: u32,
+    element_base: u32,
 ) -> Vec<(u32, u32)> {
     let mut counts = vec![0u32; particles];
-    for link in links {
-        counts[link[0] as usize] += 1;
-        counts[link[1] as usize] += 1;
+    for element in elements {
+        for particle in element.participants() {
+            counts[particle as usize] += 1;
+        }
     }
     let mut ranges = Vec::with_capacity(particles);
     let mut cursor = Vec::with_capacity(particles);
@@ -270,21 +274,14 @@ fn assemble_adjacency(
         cursor.push(offset);
         offset += count;
     }
-    for (slot, link) in links.iter().enumerate() {
-        let index = link_base + slot as u32;
-        adjacency[cursor[link[0] as usize] as usize] = index;
-        cursor[link[0] as usize] += 1;
-        adjacency[cursor[link[1] as usize] as usize] = index;
-        cursor[link[1] as usize] += 1;
+    for (slot, element) in elements.iter().enumerate() {
+        for (role, particle) in element.participants().enumerate() {
+            let entry = ((element_base + slot as u32) << 1) | role as u32;
+            adjacency[cursor[particle as usize] as usize] = entry;
+            cursor[particle as usize] += 1;
+        }
     }
     ranges
-}
-
-fn particle_distance(first: &[f32; 3], second: &[f32; 3]) -> f32 {
-    let dx = second[0] - first[0];
-    let dy = second[1] - first[1];
-    let dz = second[2] - first[2];
-    (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
 impl World {

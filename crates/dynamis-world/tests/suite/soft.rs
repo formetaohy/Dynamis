@@ -1,8 +1,8 @@
 use super::common::{DT, distance, gravity_config, new_world, settle};
-use dynamis_model::{BodyDesc, SoftBodyDesc};
+use dynamis_model::{BodyDesc, SoftBodyDesc, SoftMaterial};
 
 fn chain() -> SoftBodyDesc {
-    SoftBodyDesc::new(
+    SoftBodyDesc::net(
         vec![
             [0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
@@ -53,7 +53,7 @@ fn a_soft_body_rests_on_static_ground() {
             .position([0.0, -0.5, 0.0]),
     );
     let handle = world.add_soft_body(
-        SoftBodyDesc::new(
+        SoftBodyDesc::net(
             vec![
                 [-0.25, 0.0, -0.25],
                 [0.25, 0.0, -0.25],
@@ -105,7 +105,8 @@ fn a_soft_body_pushes_a_dynamic_body() {
             .gravity_scale(0.0),
     );
     let handle = world.add_soft_body(
-        SoftBodyDesc::lattice([3, 3, 3], 0.25, 0.12)
+        SoftBodyDesc::lattice([3, 3, 3], 0.25, SoftMaterial::rigid())
+            .radius(0.12)
             .position([-1.5, 0.0, 0.0])
             .velocity([4.0, 0.0, 0.0]),
     );
@@ -153,8 +154,11 @@ fn a_soft_body_rests_on_mesh_and_plane_geometry() {
                 .mass(0.0),
             );
         }
-        let handle = world
-            .add_soft_body(SoftBodyDesc::lattice([2, 2, 2], 0.4, 0.1).position([0.0, 1.5, 0.0]));
+        let handle = world.add_soft_body(
+            SoftBodyDesc::lattice([2, 2, 2], 0.4, SoftMaterial::rigid())
+                .radius(0.1)
+                .position([0.0, 1.5, 0.0]),
+        );
         settle(&mut world, 180);
         let positions = world.soft_body_positions(handle);
         for (index, position) in positions.iter().enumerate() {
@@ -178,7 +182,7 @@ fn a_soft_body_rests_on_mesh_and_plane_geometry() {
 fn a_wider_soft_body_widens_the_soft_streams() {
     let mut world = new_world(gravity_config());
     let floor = world.stream_capacity().soft;
-    world.add_soft_body(SoftBodyDesc::lattice([5, 5, 5], 0.3, 0.1));
+    world.add_soft_body(SoftBodyDesc::lattice([5, 5, 5], 0.3, SoftMaterial::rigid()).radius(0.1));
     world.step(DT);
     world.wait();
     let planned = world.stream_capacity().soft;
@@ -187,8 +191,8 @@ fn a_wider_soft_body_widens_the_soft_streams() {
         "the particle stream must widen for a larger soft body, {floor:?} -> {planned:?}"
     );
     assert!(
-        planned.links > floor.links,
-        "the link stream must widen for a larger soft body, {floor:?} -> {planned:?}"
+        planned.elements > floor.elements,
+        "the element stream must widen for a larger soft body, {floor:?} -> {planned:?}"
     );
 }
 
@@ -196,7 +200,9 @@ fn a_wider_soft_body_widens_the_soft_streams() {
 fn two_identical_soft_bodies_observe_identical_positions() {
     let mut first = new_world(gravity_config());
     let mut second = new_world(gravity_config());
-    let desc = SoftBodyDesc::lattice([3, 3, 3], 0.25, 0.12).position([0.0, 3.0, 0.0]);
+    let desc = SoftBodyDesc::lattice([3, 3, 3], 0.25, SoftMaterial::rigid())
+        .radius(0.12)
+        .position([0.0, 3.0, 0.0]);
     let first_body = first.add_soft_body(desc.clone());
     let second_body = second.add_soft_body(desc);
     let first_start = first.soft_body_positions(first_body);
@@ -241,5 +247,171 @@ fn overlapping_soft_bodies_push_apart() {
     assert!(
         separation > 0.9,
         "soft bodies must collide with each other, got {separation}"
+    );
+}
+
+#[test]
+fn a_cloth_holds_its_area_while_a_distance_net_sags_flat() {
+    let mut sags = Vec::new();
+    for shear in [false, true] {
+        let mut world = new_world(gravity_config());
+        let mut desc = if shear {
+            SoftBodyDesc::cloth([5, 5], 1.0, SoftMaterial::rigid())
+                .radius(0.05)
+                .position([0.0, 4.0, 0.0])
+        } else {
+            let mut links = Vec::new();
+            for row in 0..5u32 {
+                for column in 0..5u32 {
+                    let index = column * 5 + row;
+                    if row + 1 < 5 {
+                        links.push([index, index + 1]);
+                    }
+                    if column + 1 < 5 {
+                        links.push([index, index + 5]);
+                    }
+                }
+            }
+            let particles = (0..25)
+                .map(|index| [(index % 5) as f32, 0.0, (index / 5) as f32])
+                .collect::<Vec<_>>();
+            SoftBodyDesc::net(particles, links)
+                .radius(0.05)
+                .position([0.0, 4.0, 0.0])
+        };
+        desc = desc.pinned(&[0, 4, 20, 24]);
+        let handle = world.add_soft_body(desc);
+        settle(&mut world, 150);
+        let positions = world.soft_body_positions(handle);
+        let corners = [
+            positions[0][1],
+            positions[4][1],
+            positions[20][1],
+            positions[24][1],
+        ];
+        let anchor = corners.iter().copied().fold(f32::MIN, f32::max);
+        sags.push(anchor - positions[12][1]);
+        println!("probe shear={shear} center sag {:.4}", sags.last().unwrap());
+    }
+    assert!(
+        sags[0] > 0.6,
+        "a distance net must shear and sag between its pinned corners, got {:.4}",
+        sags[0]
+    );
+    assert!(
+        sags[1] < 0.6,
+        "a cloth must hold its shape between its pinned corners, got {:.4}",
+        sags[1]
+    );
+}
+
+#[test]
+fn a_compliant_distance_element_stretches_by_its_hookean_elongation() {
+    let compliance = 0.01;
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(
+        SoftBodyDesc::new(
+            vec![[0.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
+            vec![dynamis_model::SoftElement::distance(0, 1, 1.0).compliance(compliance)],
+        )
+        .pinned(&[0]),
+    );
+    settle(&mut world, 400);
+    let positions = world.soft_body_positions(handle);
+    let elongation = distance(positions[0], positions[1]) - 1.0;
+    let expected = 9.81 * compliance;
+    assert!(
+        (elongation - expected).abs() < 0.02,
+        "a compliant element must settle at its Hookean elongation {expected}, got {elongation}"
+    );
+}
+
+#[test]
+fn the_compliant_equilibrium_is_independent_of_the_iteration_count() {
+    let compliance = 0.01;
+    let mut elongations = Vec::new();
+    for soft_iterations in [2u32, 8] {
+        let mut world = new_world(dynamis_model::PhysicsConfig {
+            soft_iterations,
+            ..gravity_config()
+        });
+        let handle = world.add_soft_body(
+            SoftBodyDesc::new(
+                vec![[0.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
+                vec![dynamis_model::SoftElement::distance(0, 1, 1.0).compliance(compliance)],
+            )
+            .pinned(&[0]),
+        );
+        settle(&mut world, 400);
+        let positions = world.soft_body_positions(handle);
+        elongations.push(distance(positions[0], positions[1]) - 1.0);
+    }
+    assert!(
+        (elongations[0] - elongations[1]).abs() < 0.005,
+        "the compliant equilibrium must not depend on the iteration count, got {elongations:?}"
+    );
+}
+#[test]
+fn a_tetrahedral_lattice_resists_compression_while_a_net_collapses() {
+    let mut heights = Vec::new();
+    for braced in [false, true] {
+        let mut world = new_world(gravity_config());
+        world.spawn(
+            BodyDesc::cuboid([20.0, 0.5, 20.0])
+                .mass(0.0)
+                .position([0.0, -0.5, 0.0]),
+        );
+        let desc = if braced {
+            SoftBodyDesc::lattice([3, 3, 3], 0.4, SoftMaterial::rigid())
+                .radius(0.1)
+                .position([0.0, 2.0, 0.0])
+        } else {
+            let mut links = Vec::new();
+            let index = |row: u32, column: u32, layer: u32| (layer * 3 + column) * 3 + row;
+            for layer in 0..3u32 {
+                for column in 0..3u32 {
+                    for row in 0..3u32 {
+                        if row + 1 < 3 {
+                            links.push([index(row, column, layer), index(row + 1, column, layer)]);
+                        }
+                        if column + 1 < 3 {
+                            links.push([index(row, column, layer), index(row, column + 1, layer)]);
+                        }
+                        if layer + 1 < 3 {
+                            links.push([index(row, column, layer), index(row, column, layer + 1)]);
+                        }
+                    }
+                }
+            }
+            let particles = (0..27)
+                .map(|slot| {
+                    [
+                        (slot % 3) as f32 * 0.4,
+                        (slot / 9) as f32 * 0.4,
+                        (slot / 3 % 3) as f32 * 0.4,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            SoftBodyDesc::net(particles, links)
+                .radius(0.1)
+                .position([0.0, 2.0, 0.0])
+        };
+        let pinned = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let handle = world.add_soft_body(desc.pinned(&pinned));
+        settle(&mut world, 200);
+        let positions = world.soft_body_positions(handle);
+        let lowest = positions
+            .iter()
+            .map(|position| position[1])
+            .fold(f32::MAX, f32::min);
+        let highest = positions
+            .iter()
+            .map(|position| position[1])
+            .fold(f32::MIN, f32::max);
+        heights.push(highest - lowest);
+    }
+    assert!(
+        heights[1] > heights[0] * 1.2,
+        "shear bracing must keep the lattice taller than an axis-only net, {heights:?}"
     );
 }

@@ -89,7 +89,7 @@ impl World {
                     colliders: self.colliders.used(),
                     constraints: self.constraints.alive.len() as u32,
                     particles: self.soft.used().0,
-                    links: self.soft.used().1,
+                    elements: self.soft.used().1,
                 },
                 RowStreams {
                     edit_runs: self.bodies.last_edits,

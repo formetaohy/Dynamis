@@ -1,4 +1,4 @@
-use dynamis_abi::{SoftLinkRecord, SoftParticleRecord};
+use dynamis_abi::{SoftElementRecord, SoftParticleRecord};
 use dynamis_engine::streams;
 use dynamis_gpu::Contents;
 use std::mem::size_of;
@@ -11,15 +11,15 @@ streams! {
     SoftStreams, SoftStream, SoftDemand, DOMAIN, demand,
     demand {
         particles: u32,
-        links: u32,
+        elements: u32,
         adjacency: u32,
         bodies: u32,
     }
     streams {
         particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Preserve, demand.particles;
-        links, Links: "soft links", size_of::<SoftLinkRecord>() as u64, Contents::Preserve, demand.links;
+        elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Preserve, demand.elements;
         adjacency, Adjacency: "soft adjacency", 4, Contents::Preserve, demand.adjacency;
-        link_deltas, LinkDeltas: "soft link deltas", 16, Contents::Reset, demand.links;
+        element_deltas, ElementDeltas: "soft element multipliers", 4, Contents::Reset, demand.elements;
         reactions, Reactions: "soft reactions", 4, Contents::Preserve, demand.reaction_words();
     }
 }

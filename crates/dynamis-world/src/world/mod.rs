@@ -108,8 +108,8 @@ fn assert_config(config: &PhysicsConfig) {
         "soft iterations must be strictly positive"
     );
     assert!(
-        config.soft_compliance >= 0.0,
-        "soft link compliance must be non-negative"
+        config.soft_substeps > 0,
+        "soft substeps must be strictly positive"
     );
     assert!(
         (0.0..=1.0).contains(&config.relaxation),
@@ -163,7 +163,7 @@ impl World {
     }
 
     pub(crate) fn live(&self) -> Live {
-        let (particles, links, adjacency) = self.soft.used();
+        let (particles, elements, adjacency) = self.soft.used();
         Live {
             bodies: self.bodies.alive.len() as u32,
             colliders: self.colliders.live(),
@@ -175,7 +175,7 @@ impl World {
             queries: self.queries.pending.len() as u32,
             shapes: self.shapes.pool.used(),
             particles,
-            links,
+            elements,
             adjacency,
         }
     }

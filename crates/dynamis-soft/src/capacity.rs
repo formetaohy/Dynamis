@@ -5,14 +5,14 @@ use dynamis_scene::Live;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftCapacity {
     pub particles: u32,
-    pub links: u32,
+    pub elements: u32,
     pub adjacency: u32,
 }
 
 pub fn capacity<R: Resources>(resources: &R) -> SoftCapacity {
     SoftCapacity {
         particles: resources.slots(SoftStream::Particles.into()),
-        links: resources.slots(SoftStream::Links.into()),
+        elements: resources.slots(SoftStream::Elements.into()),
         adjacency: resources.slots(SoftStream::Adjacency.into()),
     }
 }
@@ -20,7 +20,7 @@ pub fn capacity<R: Resources>(resources: &R) -> SoftCapacity {
 pub fn plan(live: &Live, idle: bool, bodies: u32, current: &SoftStreams) -> SoftDemand {
     SoftDemand {
         particles: settled(idle, current.particles.slots(), live.particles, MIN_SLOTS),
-        links: settled(idle, current.links.slots(), live.links, MIN_SLOTS),
+        elements: settled(idle, current.elements.slots(), live.elements, MIN_SLOTS),
         adjacency: settled(
             idle,
             current.adjacency.slots(),
@@ -39,7 +39,7 @@ pub fn plan(live: &Live, idle: bool, bodies: u32, current: &SoftStreams) -> Soft
 pub const fn floor() -> SoftDemand {
     SoftDemand {
         particles: MIN_SLOTS,
-        links: MIN_SLOTS,
+        elements: MIN_SLOTS,
         adjacency: STREAM_FLOOR,
         bodies: MIN_SLOTS,
     }

@@ -16,15 +16,15 @@ fn work(index: u32) {
         particles[index] = particle;
         return;
     }
-    let damping = 1.0 / (1.0 + params.damping * params.dt);
-    var velocity = (particle.velocity.xyz + params.gravity.xyz * params.dt) * damping;
+    let damping = 1.0 / (1.0 + params.damping * params.soft_substep_dt);
+    var velocity = (particle.velocity.xyz + params.gravity.xyz * params.soft_substep_dt) * damping;
     let speed = length(velocity);
     if (speed > params.max_velocity) {
         velocity = velocity * (params.max_velocity / speed);
     }
     particle.velocity = vec4f(velocity, particle.velocity.w);
     particle.prev_position = vec4f(particle.position.xyz, weight);
-    particle.position = vec4f(particle.position.xyz + velocity * params.dt, particle.position.w);
+    particle.position = vec4f(particle.position.xyz + velocity * params.soft_substep_dt, particle.position.w);
     particles[index] = particle;
 }
 

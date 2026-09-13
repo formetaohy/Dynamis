@@ -15,7 +15,7 @@ impl StepParamsRecord {
             colliders,
             constraints,
             particles,
-            links,
+            elements,
         } = counts;
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
@@ -26,7 +26,7 @@ impl StepParamsRecord {
             solve_iterations: config.solve_iterations,
             position_iterations: config.position_iterations,
             soft_iterations: config.soft_iterations,
-            soft_compliance: config.soft_compliance,
+            soft_substeps: config.soft_substeps,
             constraint_count: constraints,
             relaxation: config.relaxation,
             slop: config.slop,
@@ -47,10 +47,10 @@ impl StepParamsRecord {
             constraint_move_count: streams.constraint_moves,
             event_slot,
             particle_count: particles,
-            link_count: links,
-            _pad3: 0,
-            _pad4: 0,
+            element_count: elements,
+            soft_substep_dt: dt / config.soft_substeps as f32,
             _pad5: 0,
+            _pad6: 0,
         }
     }
 }
@@ -62,7 +62,7 @@ pub struct FrameCounts {
     pub colliders: u32,
     pub constraints: u32,
     pub particles: u32,
-    pub links: u32,
+    pub elements: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

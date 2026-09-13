@@ -10,8 +10,8 @@ use dynamis_abi::{
     NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
     PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
     RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SoftLinkRecord, SoftParticleInit, SoftParticleRecord,
-    StepParamsRecord, dof_driven, dof_limited, dof_locked,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SoftElementInit, SoftElementRecord, SoftParticleInit,
+    SoftParticleRecord, StepParamsRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
@@ -228,8 +228,8 @@ fn step_params_record_maps_config() {
         angular_damping: 0.25,
         solve_iterations: 7,
         position_iterations: 5,
+        soft_substeps: 3,
         soft_iterations: 6,
-        soft_compliance: 0.002,
         relaxation: 0.4,
         slop: 0.01,
         contact_margin: 0.03,
@@ -252,7 +252,7 @@ fn step_params_record_maps_config() {
             colliders: 13,
             constraints: 2,
             particles: 17,
-            links: 19,
+            elements: 19,
         },
         RowStreams {
             edit_runs: 5,
@@ -274,11 +274,12 @@ fn step_params_record_maps_config() {
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.particle_count, 17);
-    assert_eq!(record.link_count, 19);
+    assert_eq!(record.element_count, 19);
     assert_eq!(record.solve_iterations, 7);
     assert_eq!(record.position_iterations, 5);
+    assert_eq!(record.soft_substeps, 3);
     assert_eq!(record.soft_iterations, 6);
-    assert_eq!(record.soft_compliance, 0.002);
+    assert_eq!(record.soft_substep_dt, (1.0 / 60.0) / 3.0);
     assert_eq!(record.relaxation, 0.4);
     assert_eq!(record.slop, 0.01);
     assert_eq!(record.contact_margin, 0.03);
@@ -624,7 +625,13 @@ fn soft_particle_packs_its_scalar_lanes() {
 
     let cleared = SoftParticleRecord::cleared();
     assert_eq!(cleared.owner, NO_BODY);
-    let link = SoftLinkRecord::build(0, 1, 0.5);
-    assert_eq!((link.first, link.second, link.rest), (0, 1, 0.5));
-    assert_eq!(SoftLinkRecord::cleared().first, NO_SLOT);
+    let element = SoftElementRecord::build(SoftElementInit {
+        particles: [0, 1],
+        rest: 0.5,
+        compliance: 0.25,
+    });
+    assert_eq!(element.particles, [0, 1]);
+    assert_eq!((element.rest, element.compliance), (0.5, 0.25));
+    assert_eq!(element.lambda, 0.0);
+    assert_eq!(SoftElementRecord::cleared().particles, [NO_SLOT; 2]);
 }

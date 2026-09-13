@@ -38,6 +38,7 @@ declare_constants! {
     pub const ISLAND_WAKE: u32 = 1;
     pub const ISLAND_ACTIVE: u32 = 2;
     pub const CONTACT_MAX_POINTS: u32 = 4;
+    pub const ELEMENT_PARTICLES: u32 = 2;
     pub const FEATURE_POINT: u32 = 0;
     pub const FEATURE_VERTEX: u32 = 1 << 28;
     pub const FEATURE_EDGE: u32 = 2 << 28;

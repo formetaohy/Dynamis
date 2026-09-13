@@ -24,7 +24,7 @@ pub struct Live {
     pub queries: u32,
     pub shapes: ShapeCapacity,
     pub particles: u32,
-    pub links: u32,
+    pub elements: u32,
     pub adjacency: u32,
 }
 

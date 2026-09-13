@@ -26,12 +26,12 @@ struct StepParams {
     contact_margin: f32,
     collider_count: u32,
     soft_iterations: u32,
-    soft_compliance: f32,
+    soft_substeps: u32,
     particle_count: u32,
-    link_count: u32,
-    _pad3: u32,
-    _pad4: u32,
+    element_count: u32,
+    soft_substep_dt: f32,
     _pad5: u32,
+    _pad6: u32,
 }
 
 struct SoftParticle {
@@ -44,11 +44,11 @@ struct SoftParticle {
     generation: u32,
 }
 
-struct SoftLink {
-    first: u32,
-    second: u32,
+struct SoftElement {
+    particles: array<u32, ELEMENT_PARTICLES>,
     rest: f32,
-    _pad0: f32,
+    compliance: f32,
+    lambda: f32,
 }
 
 struct BodyState {

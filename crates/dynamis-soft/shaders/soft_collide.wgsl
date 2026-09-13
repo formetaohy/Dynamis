@@ -3,7 +3,7 @@
 @group(0) @binding(6) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(7) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(8) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(9) var<storage, read> links: array<SoftLink>;
+@group(0) @binding(9) var<storage, read> elements: array<SoftElement>;
 @group(0) @binding(10) var<storage, read> adjacency: array<u32>;
 @group(0) @binding(11) var<storage, read_write> reactions: array<atomic<u32>>;
 
@@ -94,8 +94,8 @@ fn contact_precedes(candidate: ParticleContact, held: ParticleContact) -> bool {
 fn directly_linked(first: u32, second: u32) -> bool {
     let particle = particles[first];
     for (var slot = 0u; slot < particle.neighbour_count; slot = slot + 1u) {
-        let link = links[adjacency[particle.neighbour_offset + slot]];
-        if ((link.first == first && link.second == second) || (link.first == second && link.second == first)) {
+        let element = elements[adjacency[particle.neighbour_offset + slot] >> 1u];
+        if (element.particles[0] == second || element.particles[1] == second) {
             return true;
         }
     }
@@ -218,9 +218,9 @@ fn apply_friction(
     depth: f32,
     friction: f32,
 ) {
-    let velocity = ((*particle).position.xyz - (*particle).prev_position.xyz) / params.dt;
+    let velocity = (*particle).velocity.xyz;
     let tangential = velocity - normal * dot(velocity, normal);
-    let slide = length(tangential) * params.dt;
+    let slide = length(tangential) * params.soft_substep_dt;
     if (slide <= 1e-6) {
         return;
     }
@@ -231,13 +231,12 @@ fn apply_friction(
     );
 }
 
-fn commit(index: u32, particle: SoftParticle) {
-    var updated = particle;
-    updated.velocity = vec4f(
-        (particle.position.xyz - particle.prev_position.xyz) / params.dt,
-        particle.velocity.w,
-    );
-    particles[index] = updated;
+fn hold_contact_velocity(particle: ptr<function, SoftParticle>, normal: vec3f) {
+    let velocity = (*particle).velocity.xyz;
+    let closing = dot(velocity, normal);
+    if (closing < 0.0) {
+        (*particle).velocity = vec4f(velocity - normal * closing, (*particle).velocity.w);
+    }
 }
 
 fn work(index: u32) {
@@ -299,7 +298,7 @@ fn work(index: u32) {
         }
     }
     if (held.partner == NO_SLOT || held.separation >= 0.0) {
-        commit(index, particle);
+        particles[index] = particle;
         return;
     }
     let depth = -held.separation;
@@ -325,17 +324,19 @@ fn work(index: u32) {
         }
         if (weight > 0.0) {
             particle.position = vec4f(shifted, radius);
+            hold_contact_velocity(&particle, normal);
             apply_friction(&particle, normal, depth, friction);
         }
     } else if (weight > 0.0) {
         let other_weight = particles[held.partner].prev_position.w;
         let total = weight + other_weight;
         if (total > 0.0) {
-            particle.position = vec4f(center + normal * (depth * weight / total), radius);
+            particle.position = vec4f(center - normal * (depth * weight / total), radius);
+            hold_contact_velocity(&particle, normal);
             apply_friction(&particle, normal, depth, friction);
         }
     }
-    commit(index, particle);
+    particles[index] = particle;
 }
 
 fn extent() -> u32 {

@@ -1,5 +1,5 @@
 use crate::constant::{NO_BODY, NO_SLOT};
-use crate::{SoftLinkRecord, SoftParticleRecord};
+use crate::{SoftElementRecord, SoftParticleRecord};
 
 pub struct SoftParticleInit {
     pub position: [f32; 3],
@@ -67,22 +67,28 @@ impl SoftParticleRecord {
     }
 }
 
-impl SoftLinkRecord {
-    pub const fn build(first: u32, second: u32, rest: f32) -> Self {
+pub struct SoftElementInit {
+    pub particles: [u32; 2],
+    pub rest: f32,
+    pub compliance: f32,
+}
+
+impl SoftElementRecord {
+    pub fn build(init: SoftElementInit) -> Self {
         Self {
-            first,
-            second,
-            rest,
-            _pad0: 0.0,
+            particles: init.particles,
+            rest: init.rest,
+            compliance: init.compliance,
+            lambda: 0.0,
         }
     }
 
     pub const fn cleared() -> Self {
         Self {
-            first: NO_SLOT,
-            second: NO_SLOT,
+            particles: [NO_SLOT; 2],
             rest: 0.0,
-            _pad0: 0.0,
+            compliance: 0.0,
+            lambda: 0.0,
         }
     }
 }

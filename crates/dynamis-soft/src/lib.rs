@@ -25,7 +25,8 @@ domain_passes!(
     bounds => "soft_bounds",
     entries => "soft_entries",
     integrate => "soft_integrate",
-    links => "soft_links",
+    reset => "soft_reset",
+    elements => "soft_elements",
     gather => "soft_gather",
     collide => "soft_collide",
     apply => "soft_apply",
@@ -36,7 +37,8 @@ pub struct Soft {
     bounds: Stage,
     entries: Stage,
     integrate: Stage,
-    links: Stage,
+    reset: Stage,
+    elements: Stage,
     gather: Stage,
     collide: Stage,
     apply: Stage,
@@ -104,22 +106,39 @@ impl Soft {
                 ],
                 &[],
             ),
-            links: Stage::build(
+            reset: Stage::build(
                 context,
-                "soft_links",
+                "soft_reset",
                 stream(
                     context,
-                    include_str!("../shaders/soft_links.wgsl"),
+                    include_str!("../shaders/soft_reset.wgsl"),
                     CORE,
                     "work",
-                    SoftStream::Links,
+                    SoftStream::Elements,
+                ),
+                streams,
+                &[
+                    ("params", SceneStream::Params.whole()),
+                    ("elements", SoftStream::Elements.whole()),
+                ],
+                &[],
+            ),
+            elements: Stage::build(
+                context,
+                "soft_elements",
+                stream(
+                    context,
+                    include_str!("../shaders/soft_elements.wgsl"),
+                    CORE,
+                    "work",
+                    SoftStream::Elements,
                 ),
                 streams,
                 &[
                     ("params", SceneStream::Params.whole()),
                     ("particles", particles.whole()),
-                    ("links", SoftStream::Links.whole()),
-                    ("link_deltas", SoftStream::LinkDeltas.whole()),
+                    ("elements", SoftStream::Elements.whole()),
+                    ("element_deltas", SoftStream::ElementDeltas.whole()),
                 ],
                 &[],
             ),
@@ -137,8 +156,8 @@ impl Soft {
                 &[
                     ("params", SceneStream::Params.whole()),
                     ("particles", particles.whole()),
-                    ("links", SoftStream::Links.whole()),
-                    ("link_deltas", SoftStream::LinkDeltas.whole()),
+                    ("elements", SoftStream::Elements.whole()),
+                    ("element_deltas", SoftStream::ElementDeltas.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
                 ],
                 &[],
@@ -160,7 +179,7 @@ impl Soft {
                     ("body_states", SceneStream::BodyStates.whole()),
                     ("body_descs", SceneStream::BodyDescriptors.whole()),
                     ("colliders", SceneStream::Colliders.whole()),
-                    ("links", SoftStream::Links.whole()),
+                    ("elements", SoftStream::Elements.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
                     ("reactions", SoftStream::Reactions.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
@@ -220,27 +239,18 @@ impl Soft {
         streams: &impl Resources,
         frame: &Frame,
     ) {
-        let mut integrate = engine.open(encoder, self.passes.integrate);
-        self.integrate.record_stream(&mut integrate, streams);
-        drop(integrate);
-
-        for _ in 0..frame.params.soft_iterations {
-            let mut links = engine.open(encoder, self.passes.links);
-            self.links.record_stream(&mut links, streams);
-            drop(links);
-
-            let mut gather = engine.open(encoder, self.passes.gather);
-            self.gather.record_stream(&mut gather, streams);
-            drop(gather);
+        let mut solve = engine.open(encoder, self.passes.integrate);
+        for _ in 0..frame.params.soft_substeps {
+            self.reset.record_stream(&mut solve, streams);
+            self.integrate.record_stream(&mut solve, streams);
+            for _ in 0..frame.params.soft_iterations {
+                self.elements.record_stream(&mut solve, streams);
+                self.gather.record_stream(&mut solve, streams);
+            }
         }
-
-        let mut collide = engine.open(encoder, self.passes.collide);
-        self.collide.record_stream(&mut collide, streams);
-        drop(collide);
-
-        let mut apply = engine.open(encoder, self.passes.apply);
+        self.collide.record_stream(&mut solve, streams);
         self.apply
-            .record_rows(&mut apply, streams, Count::Bodies.rows(&frame.params));
-        drop(apply);
+            .record_rows(&mut solve, streams, Count::Bodies.rows(&frame.params));
+        drop(solve);
     }
 }
