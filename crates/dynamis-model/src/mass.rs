@@ -1,5 +1,5 @@
 use crate::collider::ColliderDesc;
-use crate::shape::Shape;
+use crate::shape::{Shape, SolidGeometry};
 
 pub struct MassProperties {
     pub com: [f32; 3],
@@ -31,35 +31,147 @@ pub enum MassSource {
     Density(f32),
 }
 
+pub fn analytic_solid(shape: &Shape) -> Option<SolidGeometry> {
+    Some(match *shape {
+        Shape::Sphere { radius } => {
+            let i = 2.0 / 5.0 * radius * radius;
+            SolidGeometry {
+                volume: 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius,
+                centroid: [0.0; 3],
+                unit_inertia: [i, 0.0, 0.0, i, 0.0, i],
+            }
+        }
+        Shape::Cuboid { half_extents } => {
+            let ex = half_extents[0] * 2.0;
+            let ey = half_extents[1] * 2.0;
+            let ez = half_extents[2] * 2.0;
+            SolidGeometry {
+                volume: ex * ey * ez,
+                centroid: [0.0; 3],
+                unit_inertia: [
+                    (ey * ey + ez * ez) / 12.0,
+                    0.0,
+                    0.0,
+                    (ex * ex + ez * ez) / 12.0,
+                    0.0,
+                    (ex * ex + ey * ey) / 12.0,
+                ],
+            }
+        }
+        Shape::Capsule {
+            radius,
+            half_height,
+        } => {
+            let cylinder = std::f32::consts::PI * radius * radius * 2.0 * half_height;
+            let sphere = 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius;
+            let total = cylinder + sphere;
+            let height = half_height + 3.0 / 8.0 * radius;
+            let axial = (cylinder * 0.5 * radius * radius + 0.4 * sphere * radius * radius) / total;
+            let lateral = (cylinder / 12.0
+                * (3.0 * radius * radius + 4.0 * half_height * half_height)
+                + sphere * (83.0 / 320.0 * radius * radius + height * height))
+                / total;
+            SolidGeometry {
+                volume: total,
+                centroid: [0.0; 3],
+                unit_inertia: [lateral, 0.0, 0.0, axial, 0.0, lateral],
+            }
+        }
+        Shape::Cylinder {
+            radius,
+            half_height,
+        } => {
+            let height = half_height * 2.0;
+            let lateral = (3.0 * radius * radius + height * height) / 12.0;
+            SolidGeometry {
+                volume: std::f32::consts::PI * radius * radius * height,
+                centroid: [0.0; 3],
+                unit_inertia: [lateral, 0.0, 0.0, 0.5 * radius * radius, 0.0, lateral],
+            }
+        }
+        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) | Shape::Plane => return None,
+    })
+}
+
+pub fn shape_solid(
+    shape: &Shape,
+    source: impl Fn(&Shape) -> Option<SolidGeometry>,
+) -> Option<SolidGeometry> {
+    match shape {
+        Shape::Hull(_) => {
+            Some(source(shape).expect("a hull shape source must answer its solid geometry"))
+        }
+        Shape::Mesh(_) | Shape::HeightField(_) | Shape::Plane => None,
+        _ => analytic_solid(shape),
+    }
+}
+
+fn collider_solid(
+    collider: &ColliderDesc,
+    source: &impl Fn(&Shape) -> Option<SolidGeometry>,
+) -> Option<SolidGeometry> {
+    if collider.sensor {
+        return None;
+    }
+    shape_solid(&collider.shape, source)
+}
+
+fn scale_volume(scale: [f32; 3]) -> f32 {
+    scale[0] * scale[1] * scale[2]
+}
+
+fn rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+    let r = mat_from_quat(q);
+    [
+        r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+        r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+        r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
+    ]
+}
+
+fn centroid_of(collider: &ColliderDesc, solid: &SolidGeometry) -> [f32; 3] {
+    let scaled = [
+        collider.scale[0] * solid.centroid[0],
+        collider.scale[1] * solid.centroid[1],
+        collider.scale[2] * solid.centroid[2],
+    ];
+    let rotated = rotate(collider.rotation, scaled);
+    [
+        collider.offset[0] + rotated[0],
+        collider.offset[1] + rotated[1],
+        collider.offset[2] + rotated[2],
+    ]
+}
+
 pub fn mass_properties_of_intent(
     colliders: &[ColliderDesc],
     mass: f32,
     com: Option<[f32; 3]>,
     inertia: Option<[f32; 6]>,
-    bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+    source: impl Fn(&Shape) -> Option<SolidGeometry>,
 ) -> MassProperties {
     if let Some(inertia) = inertia {
         return MassProperties::of(com.unwrap_or([0.0; 3]), inertia);
     }
-    compute_mass_properties(colliders, MassSource::Fixed(mass), com, bounds)
+    compute_mass_properties(colliders, MassSource::Fixed(mass), com, source)
 }
 
 pub fn compute_mass_properties(
     colliders: &[ColliderDesc],
     source: MassSource,
     com: Option<[f32; 3]>,
-    bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+    geometry: impl Fn(&Shape) -> Option<SolidGeometry>,
 ) -> MassProperties {
-    let solid = colliders
+    let solids = colliders
         .iter()
-        .filter(|collider| !collider.sensor && !matches!(collider.shape, Shape::Plane))
+        .filter_map(|collider| collider_solid(collider, &geometry).map(|solid| (collider, solid)))
         .collect::<Vec<_>>();
-    if solid.is_empty() {
+    if solids.is_empty() {
         return MassProperties::zeroed();
     }
-    let volumes = solid
+    let volumes = solids
         .iter()
-        .map(|collider| shape_volume(&collider.shape, collider.scale, bounds(&collider.shape)))
+        .map(|(collider, solid)| scale_volume(collider.scale) * solid.volume)
         .collect::<Vec<_>>();
     let total_volume = volumes.iter().sum::<f32>();
     if total_volume <= 0.0 {
@@ -74,11 +186,11 @@ pub fn compute_mass_properties(
     }
     let com = com.unwrap_or_else(|| {
         let mut sum = [0.0f32; 3];
-        for (index, collider) in solid.iter().enumerate() {
-            let weight = volumes[index];
-            sum[0] += collider.offset[0] * weight;
-            sum[1] += collider.offset[1] * weight;
-            sum[2] += collider.offset[2] * weight;
+        for ((collider, solid), volume) in solids.iter().zip(&volumes) {
+            let at = centroid_of(collider, solid);
+            sum[0] += at[0] * volume;
+            sum[1] += at[1] * volume;
+            sum[2] += at[2] * volume;
         }
         [
             sum[0] / total_volume,
@@ -87,16 +199,20 @@ pub fn compute_mass_properties(
         ]
     });
     let mut inertia = [0.0f32; 6];
-    for (index, collider) in solid.iter().enumerate() {
-        let shape_mass = mass * volumes[index] / total_volume;
-        let local = analytic_inertia(&collider.shape, shape_mass, bounds(&collider.shape));
-        let scaled = inertia_scale(local, collider.scale);
-        let rotated = inertia_rotate(scaled, collider.rotation);
-        let offset = [
-            collider.offset[0] - com[0],
-            collider.offset[1] - com[1],
-            collider.offset[2] - com[2],
+    for ((collider, solid), volume) in solids.iter().zip(&volumes) {
+        let shape_mass = mass * volume / total_volume;
+        let local = inertia_scale(solid.unit_inertia, collider.scale);
+        let scaled = [
+            local[0] * shape_mass,
+            local[1] * shape_mass,
+            local[2] * shape_mass,
+            local[3] * shape_mass,
+            local[4] * shape_mass,
+            local[5] * shape_mass,
         ];
+        let rotated = inertia_rotate(scaled, collider.rotation);
+        let at = centroid_of(collider, solid);
+        let offset = [at[0] - com[0], at[1] - com[1], at[2] - com[2]];
         let translated = inertia_translate(rotated, offset, shape_mass);
         inertia[0] += translated[0];
         inertia[1] += translated[1];
@@ -110,96 +226,15 @@ pub fn compute_mass_properties(
 
 pub fn solid_volume_of(
     colliders: &[ColliderDesc],
-    bounds: &impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+    geometry: impl Fn(&Shape) -> Option<SolidGeometry>,
 ) -> f32 {
     colliders
         .iter()
-        .filter(|collider| !collider.sensor && !matches!(collider.shape, Shape::Plane))
-        .map(|collider| shape_volume(&collider.shape, collider.scale, bounds(&collider.shape)))
+        .filter_map(|collider| {
+            collider_solid(collider, &geometry)
+                .map(|solid| scale_volume(collider.scale) * solid.volume)
+        })
         .sum()
-}
-
-pub fn shape_volume(shape: &Shape, scale: [f32; 3], bounds: Option<([f32; 3], [f32; 3])>) -> f32 {
-    let base = match *shape {
-        Shape::Sphere { radius } => 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius,
-        Shape::Cuboid { half_extents } => 8.0 * half_extents[0] * half_extents[1] * half_extents[2],
-        Shape::Capsule {
-            radius,
-            half_height,
-        } => std::f32::consts::PI * radius * radius * (4.0 / 3.0 * radius + 2.0 * half_height),
-        Shape::Cylinder {
-            radius,
-            half_height,
-        } => std::f32::consts::PI * radius * radius * 2.0 * half_height,
-        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => {
-            let (min, max) = bounds.expect("world geometry volume requires bounds");
-            let extent = [
-                (max[0] - min[0]).max(0.0),
-                (max[1] - min[1]).max(0.0),
-                (max[2] - min[2]).max(0.0),
-            ];
-            extent[0] * extent[1] * extent[2]
-        }
-        Shape::Plane => 0.0,
-    };
-    base * scale[0] * scale[1] * scale[2]
-}
-
-fn analytic_inertia(shape: &Shape, mass: f32, bounds: Option<([f32; 3], [f32; 3])>) -> [f32; 6] {
-    match *shape {
-        Shape::Sphere { radius } => {
-            let i = 2.0 / 5.0 * mass * radius * radius;
-            [i, 0.0, 0.0, i, 0.0, i]
-        }
-        Shape::Cuboid { half_extents } => {
-            let ex = half_extents[0] * 2.0;
-            let ey = half_extents[1] * 2.0;
-            let ez = half_extents[2] * 2.0;
-            let ix = mass / 12.0 * (ey * ey + ez * ez);
-            let iy = mass / 12.0 * (ex * ex + ez * ez);
-            let iz = mass / 12.0 * (ex * ex + ey * ey);
-            [ix, 0.0, 0.0, iy, 0.0, iz]
-        }
-        Shape::Capsule {
-            radius,
-            half_height,
-        } => {
-            let r = radius;
-            let h = half_height;
-            let cylinder_volume = std::f32::consts::PI * r * r * 2.0 * h;
-            let sphere_volume = 4.0 / 3.0 * std::f32::consts::PI * r * r * r;
-            let total = cylinder_volume + sphere_volume;
-            let cylinder_mass = mass * cylinder_volume / total;
-            let sphere_mass = mass * sphere_volume / total;
-            let ix = cylinder_mass / 12.0 * (3.0 * r * r + (2.0 * h) * (2.0 * h))
-                + sphere_mass
-                    * (2.0 / 5.0 * r * r + (h + 3.0 / 8.0 * r) * (h + 3.0 / 8.0 * r))
-                    * 2.0;
-            let iy = cylinder_mass / 2.0 * r * r + sphere_mass * 2.0 / 5.0 * r * r * 2.0;
-            [ix, 0.0, 0.0, iy, 0.0, ix]
-        }
-        Shape::Cylinder {
-            radius,
-            half_height,
-        } => {
-            let h = half_height * 2.0;
-            let ix = mass / 12.0 * (3.0 * radius * radius + h * h);
-            let iy = 0.5 * mass * radius * radius;
-            let iz = ix;
-            [ix, 0.0, 0.0, iy, 0.0, iz]
-        }
-        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => {
-            let (min, max) = bounds.expect("world geometry inertia requires bounds");
-            let ex = max[0] - min[0];
-            let ey = max[1] - min[1];
-            let ez = max[2] - min[2];
-            let ix = mass / 12.0 * (ey * ey + ez * ez);
-            let iy = mass / 12.0 * (ex * ex + ez * ez);
-            let iz = mass / 12.0 * (ex * ex + ey * ey);
-            [ix, 0.0, 0.0, iy, 0.0, iz]
-        }
-        Shape::Plane => panic!("plane colliders carry no mass"),
-    }
 }
 
 fn inertia_translate(inertia: [f32; 6], offset: [f32; 3], mass: f32) -> [f32; 6] {

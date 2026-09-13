@@ -84,7 +84,7 @@ impl World {
         let handle = BodyHandle { id, generation };
         let id = id as usize;
         self.validate_world_geometry(&desc);
-        let mass = desc.effective_mass(|shape| self.shape_bounds(shape));
+        let mass = desc.effective_mass(|shape| self.shape_solid(shape));
         let mut spawn_desc = desc.clone();
         spawn_desc.mass = mass;
         self.bodies.masses[id] = mass;
@@ -365,7 +365,7 @@ impl World {
         self.validate(handle);
         let volume = dynamis_model::solid_volume_of(
             &self.bodies.collider_descs[handle.id as usize],
-            &|shape| self.shape_bounds(shape),
+            |shape| self.shape_solid(shape),
         );
         self.apply_mass(handle, density * volume);
         self.migrate_partition(handle);
@@ -677,7 +677,7 @@ impl World {
             self.bodies.masses[id],
             self.bodies.com_overrides[id],
             self.bodies.inertia_overrides[id],
-            |shape| self.shape_bounds(shape),
+            |shape| self.shape_solid(shape),
         )
     }
 

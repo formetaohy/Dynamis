@@ -2,7 +2,7 @@ use super::World;
 use crate::shape_pool::{ShapePool, height_field_triangles};
 use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_mesh::convex_hull_mesh;
-use dynamis_model::{Shape, ShapeSourceHandle};
+use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry};
 
 #[derive(Clone)]
 pub(crate) struct Shapes {
@@ -101,11 +101,9 @@ impl World {
         handle
     }
 
-    pub(super) fn shape_bounds(&self, shape: &Shape) -> Option<([f32; 3], [f32; 3])> {
+    pub(super) fn shape_solid(&self, shape: &Shape) -> Option<SolidGeometry> {
         match shape {
-            Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => {
-                Some(self.shapes.pool.bounds(*handle))
-            }
+            Shape::Hull(handle) => Some(self.shapes.pool.solid(*handle)),
             _ => None,
         }
     }

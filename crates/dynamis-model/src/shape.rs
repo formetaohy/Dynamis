@@ -5,6 +5,13 @@ pub struct ShapeSourceHandle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SolidGeometry {
+    pub volume: f32,
+    pub centroid: [f32; 3],
+    pub unit_inertia: [f32; 6],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
     Sphere { radius: f32 },
     Cuboid { half_extents: [f32; 3] },

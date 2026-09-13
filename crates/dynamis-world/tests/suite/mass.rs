@@ -135,3 +135,137 @@ fn ccd_retreats_before_mesh_impact_without_tunneling() {
         "a fast ball must stop at the mesh surface, got y {y}"
     );
 }
+
+fn octahedron(half: f32) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+    let vertices = vec![
+        [half, 0.0, 0.0],
+        [-half, 0.0, 0.0],
+        [0.0, half, 0.0],
+        [0.0, -half, 0.0],
+        [0.0, 0.0, half],
+        [0.0, 0.0, -half],
+    ];
+    let triangles = vec![
+        [0, 2, 4],
+        [0, 4, 3],
+        [0, 3, 5],
+        [0, 5, 2],
+        [1, 4, 2],
+        [1, 3, 4],
+        [1, 5, 3],
+        [1, 2, 5],
+    ];
+    (vertices, triangles)
+}
+
+fn unit_tetrahedron() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+    let vertices = vec![
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ];
+    let triangles = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
+    (vertices, triangles)
+}
+
+#[test]
+fn hull_density_uses_the_exact_hull_volume() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = octahedron(1.0);
+    let hull = world.add_hull(&vertices, &triangles);
+    let body = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
+            .density(1.5)
+            .position([0.0, 5.0, 0.0]),
+    );
+    let state = world.read_state(body);
+    let expected = 1.0 / (1.5 * 4.0 / 3.0);
+    assert!(
+        (state.inverse_mass - expected).abs() < 1e-6,
+        "an octahedron hull must weigh its exact volume, got {}",
+        state.inverse_mass
+    );
+    for axis in 0..3 {
+        assert!(
+            state.com[axis].abs() < 1e-6,
+            "a symmetric hull must center at the origin, axis {axis} is {}",
+            state.com[axis]
+        );
+    }
+}
+
+#[test]
+fn an_asymmetric_hull_centers_on_its_geometry() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = unit_tetrahedron();
+    let hull = world.add_hull(&vertices, &triangles);
+    let body = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
+            .density(6.0)
+            .position([0.0, 5.0, 0.0]),
+    );
+    let state = world.read_state(body);
+    assert!(
+        (state.inverse_mass - 1.0).abs() < 1e-6,
+        "a unit tetrahedron at density 6 must weigh one, got {}",
+        state.inverse_mass
+    );
+    for axis in 0..3 {
+        assert!(
+            (state.com[axis] - 0.25).abs() < 1e-6,
+            "a tetrahedron hull must center at its geometry, axis {axis} is {}",
+            state.com[axis]
+        );
+    }
+}
+
+#[test]
+fn a_hull_spins_with_its_exact_inertia() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = octahedron(1.0);
+    let hull = world.add_hull(&vertices, &triangles);
+    let body = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
+            .density(1.0)
+            .position([0.0, 5.0, 0.0]),
+    );
+    world.apply_angular_impulse(body, [0.0, 0.3, 0.0]);
+    world.step(DT);
+    world.wait();
+    let state = world.read_state(body);
+    let expected = 0.3 * 15.0 / 4.0;
+    assert!(
+        (state.angular_velocity[1] - expected).abs() < 1e-4,
+        "an octahedron hull must answer an angular impulse with its exact inertia, got {}",
+        state.angular_velocity[1]
+    );
+    assert!(state.angular_velocity[0].abs() < 1e-6);
+    assert!(state.angular_velocity[2].abs() < 1e-6);
+}
+
+#[test]
+fn a_hull_compound_centers_between_its_placed_geometries() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = unit_tetrahedron();
+    let hull = world.add_hull(&vertices, &triangles);
+    let body = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
+            .collider(ColliderDesc::new(Shape::hull(hull)).offset([3.0, 3.0, 3.0]))
+            .density(6.0)
+            .position([0.0, 5.0, 0.0]),
+    );
+    let state = world.read_state(body);
+    assert!(
+        (state.inverse_mass - 0.5).abs() < 1e-6,
+        "two unit tetrahedra at density six must weigh one, got {}",
+        state.inverse_mass
+    );
+    for axis in 0..3 {
+        assert!(
+            (state.com[axis] - 1.75).abs() < 1e-6,
+            "a placed hull compound must center between its geometries, axis {axis} is {}",
+            state.com[axis]
+        );
+    }
+}

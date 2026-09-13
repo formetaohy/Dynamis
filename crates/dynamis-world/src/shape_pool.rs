@@ -2,7 +2,7 @@ use super::arena::{Arena, Run};
 use super::ids::IdSpace;
 use bytemuck::Zeroable;
 use dynamis_abi::{BvhNodeRecord, TriangleRecord};
-use dynamis_model::ShapeSourceHandle;
+use dynamis_model::{ShapeSourceHandle, SolidGeometry};
 use dynamis_state::ShapeCapacity;
 use dynamis_state::{TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
@@ -86,6 +86,7 @@ struct Source {
     triangles: Run,
     nodes: Run,
     bounds: ([f32; 3], [f32; 3]),
+    solid: Option<SolidGeometry>,
 }
 
 impl Source {
@@ -95,6 +96,7 @@ impl Source {
         triangles: Run::EMPTY,
         nodes: Run::EMPTY,
         bounds: ([0.0; 3], [0.0; 3]),
+        solid: None,
     };
 
     fn alive(&self) -> bool {
@@ -133,8 +135,10 @@ impl ShapePool {
         }
     }
 
-    pub(crate) fn bounds(&self, handle: ShapeSourceHandle) -> ([f32; 3], [f32; 3]) {
-        self.source(handle).bounds
+    pub(crate) fn solid(&self, handle: ShapeSourceHandle) -> SolidGeometry {
+        self.source(handle)
+            .solid
+            .expect("a hull shape source carries its solid geometry")
     }
 
     fn source(&self, handle: ShapeSourceHandle) -> &Source {
@@ -214,6 +218,7 @@ impl ShapePool {
             triangles: triangle_run,
             nodes: node_run,
             bounds,
+            solid: solid_of(kind, vertices, triangles),
         };
         ShapeSourceHandle { id, generation }
     }
@@ -244,6 +249,7 @@ impl ShapePool {
             triangles: triangle_run,
             nodes: node_run,
             bounds,
+            solid: solid_of(source.kind, vertices, triangles),
             ..source
         };
     }
@@ -332,6 +338,17 @@ fn triangle_rows(triangles: &[[u32; 3]]) -> Vec<TriangleRecord> {
             _pad0: 0,
         })
         .collect()
+}
+
+fn solid_of(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Option<SolidGeometry> {
+    (kind == dynamis_abi::SHAPE_HULL).then(|| {
+        let solid = dynamis_mesh::hull_solid(vertices, triangles);
+        SolidGeometry {
+            volume: solid.volume,
+            centroid: solid.centroid,
+            unit_inertia: solid.unit_inertia,
+        }
+    })
 }
 
 fn bounds_of(vertices: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {

@@ -17,11 +17,11 @@ pub use constraint::{
 };
 pub use event::{ContactEvent, ContactEventKind};
 pub use mass::{
-    MassProperties, MassSource, compute_mass_properties, mass_properties_of_intent, shape_volume,
-    solid_volume_of,
+    MassProperties, MassSource, analytic_solid, compute_mass_properties, mass_properties_of_intent,
+    shape_solid, solid_volume_of,
 };
 pub use query::QueryFilter;
-pub use shape::{Shape, ShapeSourceHandle};
+pub use shape::{Shape, ShapeSourceHandle, SolidGeometry};
 pub use soft::{
     FluidMaterial, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState,
     SoftMaterial,

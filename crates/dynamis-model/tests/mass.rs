@@ -1,5 +1,6 @@
 use dynamis_model::{
-    BodyDesc, ColliderDesc, MassProperties, MassSource, Shape, compute_mass_properties,
+    BodyDesc, ColliderDesc, MassProperties, MassSource, Shape, SolidGeometry,
+    compute_mass_properties,
 };
 
 fn matrix_of(tensor: [f32; 6]) -> [[f32; 3]; 3] {
@@ -147,16 +148,119 @@ fn rotated_composites_keep_inertia_and_its_inverse_reciprocal() {
     assert_mutual_inverse(&properties);
 }
 
+fn unit_tetrahedron() -> SolidGeometry {
+    SolidGeometry {
+        volume: 1.0 / 6.0,
+        centroid: [0.25, 0.25, 0.25],
+        unit_inertia: [
+            3.0 / 40.0,
+            1.0 / 80.0,
+            1.0 / 80.0,
+            3.0 / 40.0,
+            1.0 / 80.0,
+            3.0 / 40.0,
+        ],
+    }
+}
+
 #[test]
-fn world_geometry_uses_bounds_approximation() {
+fn a_hull_takes_its_mass_properties_from_its_solid_geometry() {
     let handle = dynamis_model::ShapeSourceHandle {
         id: 0,
         generation: 1,
     };
     let desc = BodyDesc::new(ColliderDesc::new(Shape::hull(handle))).mass(1.0);
-    let properties = desc.mass_properties(|_| Some(([0.0; 3], [2.0, 2.0, 2.0])));
-    let expected = 1.0 / (1.0 / 12.0 * (4.0 + 4.0));
-    assert!((inverse_mass(properties.inverse_inertia, 0) - expected).abs() < 1e-5);
+    let properties = desc.mass_properties(|_| Some(unit_tetrahedron()));
+    assert_eq!(properties.com, [0.25, 0.25, 0.25]);
+    assert!((properties.inertia[0] - 3.0 / 40.0).abs() < 1e-6);
+    assert!((properties.inertia[1] - 1.0 / 80.0).abs() < 1e-6);
+    assert_mutual_inverse(&properties);
+}
+
+#[test]
+fn composite_hulls_center_on_their_geometry_and_carry_off_diagonal_inertia() {
+    let handle = dynamis_model::ShapeSourceHandle {
+        id: 0,
+        generation: 1,
+    };
+    let desc = BodyDesc::new(ColliderDesc::new(Shape::hull(handle)))
+        .collider(ColliderDesc::new(Shape::hull(handle)).offset([0.0, 0.0, 1.5]))
+        .mass(2.0);
+    let properties = desc.mass_properties(|_| Some(unit_tetrahedron()));
+    assert!(
+        (properties.com[2] - 1.0).abs() < 1e-5,
+        "two equal hulls must center between their geometry centroids, got {}",
+        properties.com[2]
+    );
+    assert!(
+        properties.inertia[2].abs() > 1e-4,
+        "an offset hull must carry off diagonal inertia"
+    );
+    assert_mutual_inverse(&properties);
+}
+
+#[test]
+#[should_panic(expected = "must answer its solid geometry")]
+fn a_hull_without_its_solid_geometry_is_refused() {
+    let handle = dynamis_model::ShapeSourceHandle {
+        id: 0,
+        generation: 1,
+    };
+    BodyDesc::new(ColliderDesc::new(Shape::hull(handle)))
+        .mass(1.0)
+        .mass_properties(|_| None);
+}
+
+#[test]
+fn surface_geometry_carries_no_mass() {
+    let handle = dynamis_model::ShapeSourceHandle {
+        id: 0,
+        generation: 1,
+    };
+    for shape in [
+        Shape::mesh(handle),
+        Shape::height_field(handle),
+        Shape::plane(),
+    ] {
+        let desc = BodyDesc::new(ColliderDesc::new(shape)).density(1.0);
+        assert!(desc.effective_mass(|_| None) == 0.0);
+        let properties = desc.mass_properties(|_| None);
+        assert_eq!(properties.inertia, [0.0; 6]);
+        assert_eq!(properties.com, [0.0; 3]);
+    }
+}
+
+#[test]
+fn capsule_inertia_matches_its_hemisphere_composite() {
+    let radius = 0.5f32;
+    let half_height = 1.0f32;
+    let desc = BodyDesc::capsule(radius, half_height).mass(1.0);
+    let properties = desc.mass_properties(|_| None);
+    assert!(
+        (properties.inertia[0] - 0.665625).abs() < 1e-5,
+        "lateral capsule inertia must match the hemisphere composite, got {}",
+        properties.inertia[0]
+    );
+    assert!(
+        (properties.inertia[3] - 0.11875).abs() < 1e-5,
+        "axial capsule inertia must match the hemisphere composite, got {}",
+        properties.inertia[3]
+    );
+    assert_eq!(properties.inertia[0], properties.inertia[5]);
+    assert_mutual_inverse(&properties);
+}
+
+#[test]
+fn a_degenerate_capsule_reduces_to_a_sphere() {
+    let desc = BodyDesc::capsule(1.0, 0.0).mass(1.0);
+    let properties = desc.mass_properties(|_| None);
+    let sphere = BodyDesc::sphere(1.0).mass(1.0).mass_properties(|_| None);
+    for index in 0..6 {
+        assert!(
+            (properties.inertia[index] - sphere.inertia[index]).abs() < 1e-5,
+            "a capsule without a cylinder must be its sphere, axis {index}"
+        );
+    }
 }
 
 #[test]

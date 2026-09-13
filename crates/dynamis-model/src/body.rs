@@ -1,5 +1,5 @@
 use crate::collider::ColliderDesc;
-use crate::shape::{Shape, ShapeSourceHandle};
+use crate::shape::{Shape, ShapeSourceHandle, SolidGeometry};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyHandle {
@@ -222,7 +222,7 @@ impl BodyDesc {
 
     pub fn mass_properties(
         &self,
-        bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>,
+        geometry: impl Fn(&Shape) -> Option<SolidGeometry>,
     ) -> crate::mass::MassProperties {
         if let Some(inertia) = self.inertia {
             return crate::mass::mass_properties_of_intent(
@@ -230,7 +230,7 @@ impl BodyDesc {
                 self.mass,
                 self.com,
                 Some(inertia),
-                bounds,
+                geometry,
             );
         }
         match self.density {
@@ -238,21 +238,21 @@ impl BodyDesc {
                 &self.colliders,
                 crate::mass::MassSource::Density(density),
                 self.com,
-                bounds,
+                geometry,
             ),
             None => crate::mass::mass_properties_of_intent(
                 &self.colliders,
                 self.mass,
                 self.com,
                 None,
-                bounds,
+                geometry,
             ),
         }
     }
 
-    pub fn effective_mass(&self, bounds: impl Fn(&Shape) -> Option<([f32; 3], [f32; 3])>) -> f32 {
+    pub fn effective_mass(&self, geometry: impl Fn(&Shape) -> Option<SolidGeometry>) -> f32 {
         match self.density {
-            Some(density) => density * crate::mass::solid_volume_of(&self.colliders, &bounds),
+            Some(density) => density * crate::mass::solid_volume_of(&self.colliders, &geometry),
             None => self.mass,
         }
     }
