@@ -1,4 +1,4 @@
-use super::streams::Streams;
+use super::domains::Streams;
 use wgpu::{Buffer, Queue};
 
 struct StreamRange {

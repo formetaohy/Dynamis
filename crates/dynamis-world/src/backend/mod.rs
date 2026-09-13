@@ -1,22 +1,18 @@
 pub(crate) mod archive;
 mod capacity;
-mod frame;
-mod passes;
+pub(crate) mod domains;
 mod readback;
-pub(crate) mod streams;
 
 pub use capacity::StreamCapacity;
 
-pub(crate) use frame::StepFrames;
-pub(crate) use passes::StepPasses;
-pub(crate) use streams::Live;
-
+use domains::{Live, Planning, StepPasses, Streams};
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use std::collections::VecDeque;
-use streams::{Planning, Streams};
 use wgpu::SubmissionIndex;
+
+pub(crate) use domains::StepFrames;
 
 use crate::World;
 
@@ -67,12 +63,11 @@ impl World {
         encoder.submit(self.backend.gpu.queue())
     }
 
-    pub(crate) fn apply_plan(&mut self) {
-        let live = self.live();
+    pub(crate) fn apply_plan(&mut self, live: &Live) {
         let plan = self
             .backend
             .planning
-            .plan(&self.backend.measured, &live, &self.backend.streams);
+            .plan(&self.backend.measured, live, &self.backend.streams);
         if self.backend.streams.matches(&plan) {
             return;
         }

@@ -1,6 +1,6 @@
 use super::World;
 use super::backend::archive::StreamArchive;
-use super::backend::streams::Planning;
+use super::backend::domains::Planning;
 use super::body::Bodies;
 use super::clock::Clock;
 use super::colliders::ColliderPool;
@@ -74,7 +74,8 @@ impl World {
         snapshot.scene.restore(self);
         self.abandon_observations();
         self.restart_measures();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
         self.reserve_streams(&snapshot.streams);
         self.backend
             .streams

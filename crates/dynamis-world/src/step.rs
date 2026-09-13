@@ -37,11 +37,13 @@ impl World {
         self.backend.gpu.assert_alive();
         let step = self.clock.step;
         self.collect_readbacks();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
         self.flush_rows();
         self.apply_pending_commands();
-        let query_count = self.queries.pending.len() as u32;
-        let frames = self.frames(dt, query_count);
+        let work = self.host_work();
+        let query_count = work.queries;
+        let frames = self.frames(&live, &work, dt);
         self.backend.idle = !frames.rigid.simulating;
         self.shapes.uploaded = false;
         self.write_step_records(&frames);

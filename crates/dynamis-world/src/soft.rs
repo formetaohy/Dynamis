@@ -340,7 +340,8 @@ impl World {
     pub fn soft_body_positions(&mut self, handle: SoftBodyHandle) -> Vec<[f32; 3]> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
         self.flush_rows();
         let run = self.soft.run_of(handle);
         let stride = self.backend.streams.soft.particles.stride();
@@ -368,7 +369,8 @@ impl World {
     pub fn soft_body_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
         self.flush_rows();
         let runs = self.soft.runs_of(handle);
         if runs.elements.len == 0 {

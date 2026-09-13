@@ -1,13 +1,13 @@
+use crate::RigidDomain;
 use dynamis_abi::{
     AabbRecord, BodyStateRecord, CONTACT_MAX_POINTS, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
 };
+use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::EVENT_SLOTS;
 use dynamis_pass::streams;
 use std::mem::size_of;
-
-pub const DOMAIN: u32 = 2;
 
 pub const COMPACT_BLOCK: u32 = 256;
 
@@ -18,7 +18,7 @@ const SOLVER_RESOLUTION_BYTES: u64 = 16;
 const CONTACT_TARGET_BYTES: u64 = 4 * CONTACT_MAX_POINTS as u64;
 
 streams! {
-    RigidStreams, RigidStream, RigidDemand, DOMAIN, demand,
+    RigidStreams, RigidStream, RigidDemand, RigidDomain::ID, demand,
     demand {
         bodies: u32,
         colliders: u32,

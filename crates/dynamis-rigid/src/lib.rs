@@ -2,6 +2,7 @@ mod capacity;
 mod ccd;
 mod commands;
 mod commit;
+mod domain;
 mod entries;
 mod integrate;
 mod islands;
@@ -63,7 +64,8 @@ use solver::Solver;
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
-pub use streams::{DOMAIN, RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
+pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime};
+pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
 
 domain_passes!(
     RigidPasses,

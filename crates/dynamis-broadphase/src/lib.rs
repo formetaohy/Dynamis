@@ -1,9 +1,11 @@
 mod capacity;
+mod domain;
 mod streams;
 
 pub use capacity::{BroadphaseCapacity, BroadphaseInputs, Capacity};
+pub use domain::BroadphaseDomain;
 pub use streams::{
-    BroadphaseDemand, BroadphaseStream, BroadphaseStreams, DOMAIN, entry_capacity, pair_capacity,
+    BroadphaseDemand, BroadphaseStream, BroadphaseStreams, entry_capacity, pair_capacity,
     sort_capacity,
 };
 

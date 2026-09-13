@@ -26,6 +26,7 @@ glam = "0.32"
 font8x8 = "0.3"
 dynamis-math = { version = "0.6.0", path = "crates/dynamis-math" }
 dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
+dynamis-domain = { version = "0.6.0", path = "crates/dynamis-domain" }
 dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
 dynamis-abi = { version = "0.6.0", path = "crates/dynamis-abi" }
 dynamis-broadphase = { version = "0.6.0", path = "crates/dynamis-broadphase" }

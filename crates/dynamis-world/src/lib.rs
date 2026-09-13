@@ -20,7 +20,6 @@ mod upload;
 mod view;
 
 use backend::Backend;
-use backend::Live;
 use body::Bodies;
 use clock::Clock;
 use colliders::ColliderPool;
@@ -100,44 +99,6 @@ impl World {
 
     pub fn count(&self) -> usize {
         self.bodies.alive.len()
-    }
-
-    pub(crate) fn live(&self) -> Live {
-        let (particles, elements, adjacency) = self.soft.used();
-        let bodies = self.bodies.alive.len() as u32;
-        let colliders = self.colliders.live();
-        let collider_pool = self.colliders.used();
-        let constraints = self.constraints.alive.len() as u32;
-        let body_commands = self.bodies.commands.len() as u32;
-        let constraint_commands = self.constraints.commands.len() as u32;
-        Live {
-            state: dynamis_state::StateInputs {
-                bodies,
-                body_ids: self.bodies.ids.len() as u32,
-                collider_pool,
-                constraints,
-                body_commands,
-                constraint_commands,
-                queries: self.queries.pending.len() as u32,
-                shapes: self.shapes.pool.used(),
-            },
-            broadphase: dynamis_broadphase::BroadphaseInputs {
-                colliders,
-                particles,
-                pending_commands: body_commands > 0 || constraint_commands > 0,
-            },
-            rigid: dynamis_rigid::RigidInputs {
-                bodies,
-                colliders,
-                collider_pool,
-                constraints,
-            },
-            soft: dynamis_soft::SoftInputs {
-                particles,
-                elements,
-                adjacency,
-            },
-        }
     }
 
     pub fn is_idle(&self) -> bool {

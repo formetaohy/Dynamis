@@ -1,3 +1,4 @@
+use crate::StateDomain;
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
@@ -5,12 +6,11 @@ use dynamis_abi::{
     QueryRecord, QueryResultHeaderRecord, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
     TriangleRecord,
 };
+use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::EVENT_SLOTS;
 use dynamis_pass::{UNIFORM, streams};
 use std::mem::size_of;
-
-pub const DOMAIN: u32 = 0;
 
 pub const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
 pub const TRIANGLE_BYTES: u64 = size_of::<TriangleRecord>() as u64;
@@ -20,7 +20,7 @@ pub const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeaderRecord>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
 streams! {
-    StateStreams, StateStream, StateDemand, DOMAIN, demand,
+    StateStreams, StateStream, StateDemand, StateDomain::ID, demand,
     demand {
         bodies: u32,
         body_ids: u32,

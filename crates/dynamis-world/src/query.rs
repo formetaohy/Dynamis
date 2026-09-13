@@ -133,7 +133,8 @@ impl World {
         }
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
         self.flush_rows();
         self.apply_pending_commands();
         let step = self.clock.step;
@@ -145,7 +146,8 @@ impl World {
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
-        let frames = self.frames(self.clock.sub_dt, count as u32);
+        let work = self.host_work();
+        let frames = self.frames(&live, &work, self.clock.sub_dt);
         self.backend
             .streams
             .state
@@ -171,7 +173,8 @@ impl World {
             self.queries.pool.collect(batch, &bytes);
         }
         self.queries.pending.clear();
-        self.apply_plan();
+        let live = self.live();
+        self.apply_plan(&live);
     }
 
     pub fn wait_query(&mut self, handle: QueryHandle) {

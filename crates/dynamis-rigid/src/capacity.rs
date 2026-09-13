@@ -15,6 +15,7 @@ pub struct RigidInputs {
     pub colliders: u32,
     pub collider_pool: u32,
     pub constraints: u32,
+    pub ccd: bool,
 }
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {

@@ -1,8 +1,10 @@
 mod capacity;
+mod domain;
 mod streams;
 
 pub use capacity::{SoftCapacity, SoftInputs, capacity, floor, plan};
-pub use streams::{DOMAIN, SoftDemand, SoftStream, SoftStreams};
+pub use domain::SoftDomain;
+pub use streams::{SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_abi::{Count, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;

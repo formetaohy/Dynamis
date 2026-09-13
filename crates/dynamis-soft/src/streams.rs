@@ -1,14 +1,14 @@
+use crate::SoftDomain;
 use dynamis_abi::{ELEMENT_PARTICLES, SoftContactRecord, SoftElementRecord, SoftParticleRecord};
+use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::streams;
 use std::mem::size_of;
 
-pub const DOMAIN: u32 = 3;
-
 pub const REACTION_WORDS: u32 = 8;
 
 streams! {
-    SoftStreams, SoftStream, SoftDemand, DOMAIN, demand,
+    SoftStreams, SoftStream, SoftDemand, SoftDomain::ID, demand,
     demand {
         particles: u32,
         elements: u32,

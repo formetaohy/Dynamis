@@ -13,6 +13,7 @@ pub struct SoftInputs {
     pub particles: u32,
     pub elements: u32,
     pub adjacency: u32,
+    pub material: bool,
 }
 
 pub fn capacity(streams: &SoftStreams) -> SoftCapacity {

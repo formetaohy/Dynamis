@@ -1,12 +1,12 @@
+use crate::BroadphaseDomain;
 use dynamis_abi::GridEntryRecord;
+use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::streams;
 use std::mem::size_of;
 
-pub const DOMAIN: u32 = 1;
-
 streams! {
-    BroadphaseStreams, BroadphaseStream, BroadphaseDemand, DOMAIN, demand,
+    BroadphaseStreams, BroadphaseStream, BroadphaseDemand, BroadphaseDomain::ID, demand,
     demand {
         entries: u32,
         pairs: u32,

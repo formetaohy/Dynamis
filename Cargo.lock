@@ -408,6 +408,7 @@ name = "dynamis-broadphase"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
+ "dynamis-domain",
  "dynamis-gpu",
  "dynamis-kernel",
  "dynamis-pass",
@@ -425,6 +426,16 @@ dependencies = [
  "dynamis-model",
  "dynamis-world",
  "pollster",
+]
+
+[[package]]
+name = "dynamis-domain"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-gpu",
+ "dynamis-pass",
+ "wgpu",
 ]
 
 [[package]]
@@ -492,6 +503,7 @@ version = "0.6.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
+ "dynamis-domain",
  "dynamis-gpu",
  "dynamis-kernel",
  "dynamis-pass",
@@ -506,6 +518,7 @@ version = "0.6.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
+ "dynamis-domain",
  "dynamis-gpu",
  "dynamis-kernel",
  "dynamis-pass",
@@ -528,6 +541,7 @@ name = "dynamis-state"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
+ "dynamis-domain",
  "dynamis-gpu",
  "dynamis-pass",
  "wgpu",
@@ -540,6 +554,7 @@ dependencies = [
  "bytemuck",
  "dynamis-abi",
  "dynamis-broadphase",
+ "dynamis-domain",
  "dynamis-gpu",
  "dynamis-math",
  "dynamis-mesh",
