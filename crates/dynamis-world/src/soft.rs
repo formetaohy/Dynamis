@@ -2,8 +2,8 @@ use super::World;
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
 use dynamis_abi::{
-    ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftElementInit, SoftElementRecord,
-    SoftParticleInit, SoftParticleRecord,
+    ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftBodyRecord, SoftElementInit,
+    SoftElementRecord, SoftParticleInit, SoftParticleRecord,
 };
 use dynamis_math::{add, quat_rotate};
 use dynamis_model::{SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState};
@@ -32,6 +32,8 @@ pub(crate) struct SoftBodies {
     ids: IdSpace,
     index_of: Vec<u32>,
     runs: Vec<SoftRuns>,
+    states: Vec<SoftBodyRecord>,
+    dirty_states: Vec<u32>,
     particles: Vec<SoftParticleRecord>,
     elements: Vec<SoftElementRecord>,
     adjacency: Vec<u32>,
@@ -41,6 +43,7 @@ pub(crate) struct SoftBodies {
     pending_particles: Vec<Run>,
     pending_elements: Vec<Run>,
     pending_adjacency: Vec<Run>,
+    pub(crate) uploaded: bool,
 }
 
 impl SoftBodies {
@@ -50,6 +53,8 @@ impl SoftBodies {
             ids: IdSpace::new(),
             index_of: Vec::new(),
             runs: Vec::new(),
+            states: Vec::new(),
+            dirty_states: Vec::new(),
             particles: Vec::new(),
             elements: Vec::new(),
             adjacency: Vec::new(),
@@ -59,11 +64,16 @@ impl SoftBodies {
             pending_particles: Vec::new(),
             pending_elements: Vec::new(),
             pending_adjacency: Vec::new(),
+            uploaded: false,
         }
     }
 
     pub(crate) fn count(&self) -> usize {
         self.alive.len()
+    }
+
+    pub(crate) fn ids_len(&self) -> usize {
+        self.ids.len()
     }
 
     pub(crate) fn carries_strength(&self) -> bool {
@@ -86,6 +96,15 @@ impl SoftBodies {
 
     pub(crate) fn run_of(&self, handle: SoftBodyHandle) -> Run {
         self.runs_of(handle).particles
+    }
+
+    pub(crate) fn wake_all(&mut self) {
+        let states = &mut self.states;
+        let dirty = &mut self.dirty_states;
+        for handle in &self.alive {
+            states[handle.id as usize] = SoftBodyRecord::awake();
+            dirty.push(handle.id);
+        }
     }
 
     pub(crate) fn runs_of(&self, handle: SoftBodyHandle) -> SoftRuns {
@@ -131,6 +150,10 @@ impl SoftBodies {
     pub(crate) fn spawn(&mut self, desc: &SoftBodyDesc) -> SoftBodyHandle {
         let (id, generation) = self.ids.acquire();
         self.grow_to(id);
+        self.states
+            .resize(self.ids.len(), SoftBodyRecord::cleared());
+        self.states[id as usize] = SoftBodyRecord::awake();
+        self.dirty_states.push(id);
         let particles = self.particle_arena.take(desc.particles.len() as u32);
         let elements = self.take_element_run(desc.elements.len());
         let adjacency = self.take_adjacency_run(desc.elements.len() * ELEMENT_PARTICLES as usize);
@@ -201,6 +224,8 @@ impl SoftBodies {
         self.validate(handle);
         let id = handle.id as usize;
         let runs = self.runs[id];
+        self.states[id] = SoftBodyRecord::cleared();
+        self.dirty_states.push(handle.id);
         for index in runs.particles.span() {
             self.particles[index] = SoftParticleRecord::cleared();
         }
@@ -232,6 +257,17 @@ impl SoftBodies {
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
+        if !self.dirty_states.is_empty() {
+            self.uploaded = true;
+            let stride = streams.bodies.stride();
+            for id in self.dirty_states.drain(..) {
+                streams.bodies.write_at(
+                    queue,
+                    u64::from(id) * stride,
+                    bytemuck::bytes_of(&self.states[id as usize]),
+                );
+            }
+        }
         let particle_stride = streams.particles.stride();
         for run in self.pending_particles.drain(..) {
             if run.len == 0 {

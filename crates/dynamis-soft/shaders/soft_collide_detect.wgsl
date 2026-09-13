@@ -6,6 +6,7 @@
 @group(0) @binding(9) var<storage, read> elements: array<SoftElement>;
 @group(0) @binding(10) var<storage, read> adjacency: array<u32>;
 @group(0) @binding(11) var<storage, read_write> contacts: array<SoftContact>;
+@group(0) @binding(12) var<storage, read> bodies: array<SoftBody>;
 
 struct ParticleContact {
     separation: f32,
@@ -225,7 +226,8 @@ fn no_contact_record() -> SoftContact {
 
 fn work(index: u32) {
     let particle = particles[index];
-    if (particle.owner == NO_BODY) {
+    if (particle.owner == NO_BODY || bodies[particle.owner].sleeping != 0u) {
+        contacts[index] = no_contact_record();
         return;
     }
     let radius = particle.position.w;

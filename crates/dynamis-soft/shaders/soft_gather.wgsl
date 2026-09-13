@@ -3,10 +3,11 @@
 @group(0) @binding(2) var<storage, read> contributions: array<vec4f>;
 @group(0) @binding(3) var<storage, read> adjacency: array<u32>;
 @group(0) @binding(4) var<storage, read> elements: array<SoftElement>;
+@group(0) @binding(5) var<storage, read> bodies: array<SoftBody>;
 
 fn work(index: u32) {
     let particle = particles[index];
-    if (particle.owner == NO_BODY) {
+    if (particle.owner == NO_BODY || bodies[particle.owner].sleeping != 0u) {
         return;
     }
     let weight = particle.prev_position.w;

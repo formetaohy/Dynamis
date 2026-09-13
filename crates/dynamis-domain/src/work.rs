@@ -6,7 +6,7 @@ pub struct HostWork {
     pub constraint_commands: u32,
     pub queries: u32,
     pub shape_uploads: bool,
-    pub soft_bodies: u32,
+    pub soft_uploads: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

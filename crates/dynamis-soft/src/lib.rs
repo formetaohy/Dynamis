@@ -36,11 +36,18 @@ fn particle_collide_index() -> Vec<&'static str> {
     fragments
 }
 
+fn particle_wake_index() -> Vec<&'static str> {
+    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
+    fragments.extend_from_slice(PARTICLE_REACH);
+    fragments
+}
+
 domain_passes!(
     SoftPasses,
     "soft",
     bounds: Phase::Prepare => "soft_bounds",
     entries: Phase::Entries => "soft_entries",
+    settle: Phase::Deform => "soft_settle",
     substeps: Phase::Deform => "soft_substeps",
     apply: Phase::Deform => "soft_apply",
 );
@@ -56,6 +63,9 @@ pub struct Soft {
     passes: SoftPasses,
     bounds: Stage,
     entries: Stage,
+    activity: Stage,
+    wake: Stage,
+    rest: Stage,
     integrate: Stage,
     reset: Stage,
     elements: Stage,
@@ -71,9 +81,11 @@ pub struct Soft {
 impl Soft {
     pub fn new(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> Self {
         let particles = SoftStream::Particles;
+        let bodies = SoftStream::BodyStates;
         let index = particle_index();
         let reach = particle_reach_index();
         let collide = particle_collide_index();
+        let wake_fragments = particle_wake_index();
         Self {
             passes,
             bounds: Stage::build(
@@ -113,6 +125,64 @@ impl Soft {
                 ],
                 &[],
             ),
+            activity: Stage::build(
+                context,
+                "soft_activity",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_activity.wgsl"),
+                    CORE,
+                    Count::Particles.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("bodies", bodies.whole()),
+                ],
+                &[],
+            ),
+            wake: Stage::build(
+                context,
+                "soft_wake",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_wake.wgsl"),
+                    &wake_fragments,
+                    Count::Particles.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("bodies", bodies.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("colliders", StateStream::Colliders.whole()),
+                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
+                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
+                    ("entries", BroadphaseStream::Entries.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+            rest: Stage::build(
+                context,
+                "soft_rest",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_rest.wgsl"),
+                    CORE,
+                    Count::SoftBodies.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("bodies", bodies.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
             integrate: Stage::build(
                 context,
                 "soft_integrate",
@@ -126,6 +196,7 @@ impl Soft {
                 &[
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &[],
             ),
@@ -160,6 +231,7 @@ impl Soft {
                     ("particles", particles.whole()),
                     ("elements", SoftStream::Elements.whole()),
                     ("contributions", SoftStream::Contributions.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &[],
             ),
@@ -179,6 +251,7 @@ impl Soft {
                     ("contributions", SoftStream::Contributions.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
                     ("elements", SoftStream::Elements.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &[],
             ),
@@ -196,6 +269,7 @@ impl Soft {
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
                     ("pressure", SoftStream::Pressure.whole()),
+                    ("bodies", bodies.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
@@ -217,6 +291,7 @@ impl Soft {
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
                     ("pressure", SoftStream::Pressure.whole()),
+                    ("bodies", bodies.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
@@ -247,6 +322,7 @@ impl Soft {
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
                     ("counters", StateStream::Counters.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &dynamis_state::shape_resources(),
             ),
@@ -267,6 +343,7 @@ impl Soft {
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("contacts", SoftStream::Contacts.whole()),
                     ("reactions", SoftStream::Reactions.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &[],
             ),
@@ -284,6 +361,7 @@ impl Soft {
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
                     ("elements", SoftStream::Elements.whole()),
+                    ("bodies", bodies.whole()),
                 ],
                 &[],
             ),
@@ -329,6 +407,7 @@ impl Soft {
         }
         let particles = Count::Particles.rows(&frame.params);
         let elements = Count::Elements.rows(&frame.params);
+        let bodies = Count::SoftBodies.rows(&frame.params);
         match phase {
             Phase::Prepare => {
                 let mut bounds = schedule.open(encoder, self.passes.bounds);
@@ -341,6 +420,12 @@ impl Soft {
                 drop(entries);
             }
             Phase::Deform => {
+                let mut settle = schedule.open(encoder, self.passes.settle);
+                self.activity.record_rows(&mut settle, streams, particles);
+                self.wake.record_rows(&mut settle, streams, particles);
+                self.rest.record_rows(&mut settle, streams, bodies);
+                drop(settle);
+
                 let mut substeps = schedule.open(encoder, self.passes.substeps);
                 for _ in 0..frame.params.soft_substeps {
                     self.reset.record_rows(&mut substeps, streams, elements);

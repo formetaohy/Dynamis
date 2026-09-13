@@ -30,7 +30,10 @@ pub mod device {
         pub const COUNTER_SPILLOVER_NEIGHBOURS: usize = 25;
         pub const COUNTER_LIVE: usize = 26;
         pub const COUNTER_SPILLOVER_LIVE: usize = 27;
-        pub const COUNTER_DEVICE_COUNT: usize = 28;
+        pub const COUNTER_SOFT_ACTIVE: usize = 28;
+        pub const COUNTER_SOFT_SLEPT: usize = 29;
+        pub const COUNTER_SOFT_WOKE: usize = 30;
+        pub const COUNTER_DEVICE_COUNT: usize = 31;
     }
 }
 

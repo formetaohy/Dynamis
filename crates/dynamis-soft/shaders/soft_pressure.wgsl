@@ -1,6 +1,7 @@
 @group(0) @binding(4) var<uniform> params: StepParams;
 @group(0) @binding(5) var<storage, read_write> particles: array<SoftParticle>;
 @group(0) @binding(6) var<storage, read> pressure: array<vec4f>;
+@group(0) @binding(7) var<storage, read> bodies: array<SoftBody>;
 
 const POLY6_SLOPE: f32 = 945.0 / (32.0 * 3.141592653589793);
 const SHIFT_SCALE: f32 = 65536.0;
@@ -85,7 +86,10 @@ fn visit_level(
 fn work(index: u32) {
     var particle = particles[index];
     let support = particle.support;
-    if (particle.owner == NO_BODY || support <= 0.0 || particle.prev_position.w <= 0.0) {
+    if (particle.owner == NO_BODY
+        || support <= 0.0
+        || particle.prev_position.w <= 0.0
+        || bodies[particle.owner].sleeping != 0u) {
         return;
     }
     let lambda = pressure[index].x;

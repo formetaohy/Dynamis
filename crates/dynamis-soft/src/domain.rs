@@ -1,6 +1,6 @@
 use crate::capacity::{floor, plan};
 use crate::{Soft, SoftDemand, SoftFrame, SoftInputs, SoftPasses, SoftStreams};
-use dynamis_abi::Counters;
+use dynamis_abi::{COUNTER_SOFT_ACTIVE, Counters};
 use dynamis_domain::{Domain, HostWork, Ledger, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
@@ -33,8 +33,8 @@ impl Domain for SoftDomain {
         plan(inputs, ledger.idle(), ledger.bodies(), current)
     }
 
-    fn active(_: &Counters, work: &HostWork) -> bool {
-        work.soft_bodies > 0
+    fn active(measured: &Counters, work: &HostWork) -> bool {
+        measured[COUNTER_SOFT_ACTIVE] != 0 || work.soft_uploads
     }
 
     fn claim(order: &mut PassOrder) -> SoftPasses {
@@ -48,7 +48,7 @@ impl Domain for SoftDomain {
     fn frame(facts: &StepFacts, inputs: &SoftInputs) -> SoftFrame {
         SoftFrame {
             params: facts.params,
-            simulating: facts.soft && facts.work.soft_bodies > 0,
+            simulating: facts.soft && inputs.particles > 0,
             material: inputs.material,
         }
     }

@@ -31,7 +31,8 @@ struct StepParams {
     particle_count: u32,
     element_count: u32,
     soft_substep_dt: f32,
-    _tail: u32,
+    soft_body_count: u32,
+    settle_velocity: f32,
 }
 
 struct SoftParticle {
@@ -44,6 +45,13 @@ struct SoftParticle {
     neighbour_count: u32,
     owner: u32,
     generation: u32,
+}
+
+struct SoftBody {
+    sleep_timer: f32,
+    sleeping: u32,
+    moving: atomic<u32>,
+    wake: atomic<u32>,
 }
 
 struct SoftElement {

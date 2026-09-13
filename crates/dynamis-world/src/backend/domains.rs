@@ -54,11 +54,11 @@ impl Liveness {
     };
 
     pub(crate) fn of(measured: &Counters, work: &HostWork) -> Self {
-        let soft = <Soft as Domain>::active(measured, work);
-        let rigid = <Rigid as Domain>::active(measured, work) || soft;
+        let soft_awake = <Soft as Domain>::active(measured, work);
+        let rigid_awake = <Rigid as Domain>::active(measured, work);
         Self {
-            rigid,
-            soft,
+            rigid: rigid_awake || soft_awake,
+            soft: soft_awake || rigid_awake,
             host: <State as Domain>::active(measured, work),
         }
     }
@@ -433,6 +433,7 @@ impl World {
                 particles,
                 elements,
                 adjacency,
+                bodies: self.soft.ids_len() as u32,
                 material: self.soft.carries_strength(),
             },
         }
@@ -444,7 +445,7 @@ impl World {
             constraint_commands: self.constraints.last_commands + self.constraints.last_moves,
             queries: self.queries.pending.len() as u32,
             shape_uploads: self.shapes.uploaded,
-            soft_bodies: self.soft.count() as u32,
+            soft_uploads: self.soft.uploaded,
         }
     }
 
@@ -456,6 +457,7 @@ impl World {
             constraints: self.constraints.alive.len() as u32,
             particles: self.soft.used().0,
             elements: self.soft.used().1,
+            soft_bodies: self.soft.ids_len() as u32,
         }
     }
 
@@ -469,9 +471,13 @@ impl World {
     fn gated(&mut self, work: &HostWork) -> Liveness {
         let mut liveness = self.observed(work);
         let awake = self.backend.measured[dynamis_abi::COUNTER_ACTIVE] != 0
+            || self.backend.measured[dynamis_abi::COUNTER_SOFT_ACTIVE] != 0
             || work.body_commands > 0
-            || work.constraint_commands > 0;
-        liveness.rigid = self.backend.rest.gate(awake) || liveness.soft;
+            || work.constraint_commands > 0
+            || work.soft_uploads;
+        let lag = self.backend.rest.gate(awake);
+        liveness.rigid |= lag;
+        liveness.soft |= lag;
         liveness
     }
 

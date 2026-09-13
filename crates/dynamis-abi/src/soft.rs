@@ -2,7 +2,7 @@ use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
     ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT,
 };
-use crate::{SoftElementRecord, SoftParticleRecord};
+use crate::{SoftBodyRecord, SoftElementRecord, SoftParticleRecord};
 use dynamis_model::{SoftElement, SoftElementKind, SoftElementState};
 
 pub struct SoftParticleInit {
@@ -88,6 +88,24 @@ impl SoftParticleRecord {
 
     pub const fn carries_continuum(&self) -> bool {
         self.support > 0.0
+    }
+}
+
+impl SoftBodyRecord {
+    pub const fn awake() -> Self {
+        Self {
+            sleep_timer: 0.0,
+            sleeping: 0,
+            moving: 0,
+            wake: 0,
+        }
+    }
+
+    pub const fn cleared() -> Self {
+        Self {
+            sleeping: 1,
+            ..Self::awake()
+        }
     }
 }
 

@@ -25,6 +25,7 @@ pub struct PhysicsConfig {
     pub sleep_velocity: f32,
     pub sleep_angular_velocity: f32,
     pub sleep_time: f32,
+    pub settle_velocity: f32,
     pub friction_combine: MaterialCombine,
     pub restitution_combine: MaterialCombine,
 }
@@ -56,6 +57,10 @@ impl PhysicsConfig {
             "soft substeps must be strictly positive"
         );
         assert!(
+            self.settle_velocity >= 0.0,
+            "the soft settle velocity must be non-negative"
+        );
+        assert!(
             (0.0..=1.0).contains(&self.relaxation),
             "position relaxation must be within (0, 1]"
         );
@@ -82,6 +87,7 @@ impl Default for PhysicsConfig {
             sleep_velocity: 0.2,
             sleep_angular_velocity: 0.5,
             sleep_time: 0.5,
+            settle_velocity: 1.0e-4,
             friction_combine: MaterialCombine::Multiply,
             restitution_combine: MaterialCombine::Max,
         }

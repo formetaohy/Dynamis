@@ -2,6 +2,7 @@
 @group(0) @binding(1) var<storage, read> particles: array<SoftParticle>;
 @group(0) @binding(2) var<storage, read_write> elements: array<SoftElement>;
 @group(0) @binding(3) var<storage, read_write> contributions: array<vec4f>;
+@group(0) @binding(4) var<storage, read> bodies: array<SoftBody>;
 
 fn work(index: u32) {
     var element = elements[index];
@@ -10,6 +11,10 @@ fn work(index: u32) {
         contributions[base + slot] = vec4f(0.0);
     }
     if (element.particles[0] == NO_SLOT || (element.kind & ELEMENT_BROKEN) != 0u) {
+        return;
+    }
+    let owner = particles[element.particles[0]].owner;
+    if (owner == NO_BODY || bodies[owner].sleeping != 0u) {
         return;
     }
     let kind = element.kind & ELEMENT_KIND_MASK;

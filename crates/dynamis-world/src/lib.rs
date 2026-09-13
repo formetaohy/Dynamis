@@ -23,6 +23,7 @@ use backend::Backend;
 use body::Bodies;
 use clock::Clock;
 use colliders::ColliderPool;
+use commands::BodyCommand;
 use constraint::Constraints;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
@@ -83,10 +84,19 @@ impl World {
     pub fn set_config(&mut self, config: PhysicsConfig) {
         config.assert_valid();
         self.config = config;
+        self.wake_all();
     }
 
     pub fn set_gravity(&mut self, gravity: [f32; 3]) {
         self.config.gravity = gravity;
+        self.wake_all();
+    }
+
+    fn wake_all(&mut self) {
+        for row in 0..self.bodies.alive.len() as u32 {
+            self.bodies.commands.push(BodyCommand::Wake { row });
+        }
+        self.soft.wake_all();
     }
 
     pub fn stream_capacity(&self) -> StreamCapacity {
@@ -106,12 +116,13 @@ impl World {
         let pending = work.body_commands > 0
             || work.constraint_commands > 0
             || work.queries > 0
-            || work.shape_uploads;
+            || work.shape_uploads
+            || work.soft_uploads;
         !self.backend.working
             && !pending
             && self.backend.measured_step.is_some()
             && self.backend.measured[dynamis_abi::COUNTER_ACTIVE] == 0
-            && work.soft_bodies == 0
+            && self.backend.measured[dynamis_abi::COUNTER_SOFT_ACTIVE] == 0
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {

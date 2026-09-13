@@ -46,9 +46,11 @@ impl World {
         self.backend.working = work.body_commands > 0
             || work.constraint_commands > 0
             || work.queries > 0
-            || work.shape_uploads;
+            || work.shape_uploads
+            || work.soft_uploads;
         let frames = self.frames(&live, &work, dt);
         self.shapes.uploaded = false;
+        self.soft.uploaded = false;
         self.write_step_records(&frames);
         self.declare_step(step);
         let batch = self.submit_queries(step, query_count);

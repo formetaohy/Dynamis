@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(4) var<storage, read> contacts: array<SoftContact>;
 @group(0) @binding(5) var<storage, read_write> reactions: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read> bodies: array<SoftBody>;
 
 const REACTION_SCALE: f32 = 65536.0;
 const REACTION_WORDS: u32 = 8u;
@@ -59,7 +60,7 @@ fn work(index: u32) {
         return;
     }
     var particle = particles[index];
-    if (particle.owner == NO_BODY) {
+    if (particle.owner == NO_BODY || bodies[particle.owner].sleeping != 0u) {
         return;
     }
     let weight = particle.prev_position.w;

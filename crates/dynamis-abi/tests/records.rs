@@ -241,6 +241,7 @@ fn step_params_record_maps_config() {
         sleep_velocity: 0.3,
         sleep_angular_velocity: 0.4,
         sleep_time: 0.8,
+        settle_velocity: 0.001,
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
@@ -254,6 +255,7 @@ fn step_params_record_maps_config() {
             constraints: 2,
             particles: 17,
             elements: 19,
+            soft_bodies: 23,
         },
         RowStreams {
             edit_runs: 5,
@@ -278,6 +280,8 @@ fn step_params_record_maps_config() {
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.particle_count, 17);
     assert_eq!(record.element_count, 19);
+    assert_eq!(record.soft_body_count, 23);
+    assert_eq!(record.settle_velocity, 0.001);
     assert_eq!(record.solve_iterations, 7);
     assert_eq!(record.position_iterations, 5);
     assert_eq!(record.soft_substeps, 3);

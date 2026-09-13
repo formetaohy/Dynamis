@@ -1,10 +1,15 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read> particles: array<SoftParticle>;
 @group(0) @binding(2) var<storage, read_write> elements: array<SoftElement>;
+@group(0) @binding(3) var<storage, read> bodies: array<SoftBody>;
 
 fn work(index: u32) {
     var element = elements[index];
     if (element.particles[0] == NO_SLOT || (element.kind & ELEMENT_BROKEN) != 0u) {
+        return;
+    }
+    let first = particles[element.particles[0]];
+    if (first.owner == NO_BODY || bodies[first.owner].sleeping != 0u) {
         return;
     }
     let kind = element.kind & ELEMENT_KIND_MASK;
