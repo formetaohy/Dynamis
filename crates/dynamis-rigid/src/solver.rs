@@ -2,7 +2,7 @@ use super::streams::RigidStream;
 use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::Count;
-use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS};
+use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows, stream, stream_warm, workgroups};
 use dynamis_pass::Resources;
@@ -184,11 +184,12 @@ impl Solver {
         let block_apply = Stage::build(
             context,
             "solver block apply",
-            rows(
+            stream(
                 context,
                 include_str!("../shaders/solver_block_apply.wgsl"),
                 CORE,
-                Count::Dynamic.field(),
+                "work",
+                RigidStream::LiveBodies,
             ),
             streams,
             &[
@@ -202,6 +203,8 @@ impl Solver {
                 ("block_counts", RigidStream::SolverBlockCounts.whole()),
                 ("block_deltas", RigidStream::SolverBlockDeltas.whole()),
                 ("block_count", block_count),
+                ("live_bodies", RigidStream::LiveBodies.whole()),
+                ("live_count", dynamis_state::counter(COUNTER_LIVE)),
             ],
             &[],
         );
@@ -243,11 +246,12 @@ impl Solver {
         let position_apply = Stage::build(
             context,
             "position apply",
-            rows(
+            stream(
                 context,
                 include_str!("../shaders/position_apply.wgsl"),
                 CORE,
-                Count::Dynamic.field(),
+                "work",
+                RigidStream::LiveBodies,
             ),
             streams,
             &[
@@ -265,6 +269,8 @@ impl Solver {
                 ("block_count", block_count),
                 ("resolution", RigidStream::SolverResolution.whole()),
                 ("contributions", RigidStream::SolverContributions.whole()),
+                ("live_bodies", RigidStream::LiveBodies.whole()),
+                ("live_count", dynamis_state::counter(COUNTER_LIVE)),
             ],
             &[],
         );
@@ -328,15 +334,9 @@ impl Solver {
         self.boundaries.record_stream(recorder, streams);
     }
 
-    pub fn record_warm(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
+    pub fn record_warm(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.block_solve.record_warm(recorder, streams);
-        self.block_apply
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.block_apply.record_stream(recorder, streams);
     }
 
     pub fn record_iterations(
@@ -345,10 +345,9 @@ impl Solver {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        let dynamic = Count::Dynamic.rows(&frame.params);
         for _ in 0..frame.params.solve_iterations {
             self.block_solve.record_stream(recorder, streams);
-            self.block_apply.record_rows(recorder, streams, dynamic);
+            self.block_apply.record_stream(recorder, streams);
         }
     }
 
@@ -360,8 +359,7 @@ impl Solver {
     ) {
         for _ in 0..frame.params.position_iterations {
             self.position_block.record_stream(recorder, streams);
-            self.position_apply
-                .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+            self.position_apply.record_stream(recorder, streams);
         }
     }
 }

@@ -2,9 +2,10 @@ use super::streams::RigidStream;
 use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::COUNTER_JOINTS;
+use dynamis_abi::COUNTER_LIVE;
 use dynamis_abi::Count;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows};
+use dynamis_kernel::{CORE, rows, stream};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
@@ -40,33 +41,39 @@ impl Integrate {
             substep_integrate: Stage::build(
                 context,
                 "substep_integrate",
-                rows(
+                stream(
                     context,
                     include_str!("../shaders/substep_integrate.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    "work",
+                    RigidStream::LiveBodies,
                 ),
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("live_bodies", RigidStream::LiveBodies.whole()),
+                    ("live_count", dynamis_state::counter(COUNTER_LIVE)),
                 ],
                 &[],
             ),
             substep_advance: Stage::build(
                 context,
                 "substep_advance",
-                rows(
+                stream(
                     context,
                     include_str!("../shaders/substep_advance.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    "work",
+                    RigidStream::LiveBodies,
                 ),
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
+                    ("live_bodies", RigidStream::LiveBodies.whole()),
+                    ("live_count", dynamis_state::counter(COUNTER_LIVE)),
                 ],
                 &[],
             ),
@@ -104,25 +111,12 @@ impl Integrate {
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
     }
 
-    pub fn record_substep(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        let dynamic = Count::Dynamic.rows(&frame.params);
-        self.substep_integrate
-            .record_rows(recorder, streams, dynamic);
+    pub fn record_substep(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+        self.substep_integrate.record_stream(recorder, streams);
     }
 
-    pub fn record_substep_advance(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.substep_advance
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+    pub fn record_substep_advance(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+        self.substep_advance.record_stream(recorder, streams);
     }
 
     pub fn record_broadphase(

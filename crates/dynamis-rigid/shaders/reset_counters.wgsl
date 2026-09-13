@@ -23,6 +23,8 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_GRID_EXTENT ||
         slot == COUNTER_PARTICLE_REACH ||
         slot == COUNTER_SPILLOVER_NEIGHBOURS ||
+        slot == COUNTER_LIVE ||
+        slot == COUNTER_SPILLOVER_LIVE ||
         slot == COUNTER_BREAKS) {
         atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], 0u);
     }

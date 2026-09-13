@@ -6,8 +6,6 @@ fn work(index: u32) {
     ccd_factor[index] = bitcast<u32>(1.0);
     var state = body_states[index];
     if (state.sleeping != 0u) {
-        freeze_body(&state);
-        body_states[index] = state;
         return;
     }
     state.prev_position = state.position;

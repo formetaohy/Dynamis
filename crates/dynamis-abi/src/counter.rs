@@ -28,7 +28,9 @@ pub mod device {
         pub const COUNTER_BREAKS: usize = 23;
         pub const COUNTER_PARTICLE_REACH: usize = 24;
         pub const COUNTER_SPILLOVER_NEIGHBOURS: usize = 25;
-        pub const COUNTER_DEVICE_COUNT: usize = 26;
+        pub const COUNTER_LIVE: usize = 26;
+        pub const COUNTER_SPILLOVER_LIVE: usize = 27;
+        pub const COUNTER_DEVICE_COUNT: usize = 28;
     }
 }
 

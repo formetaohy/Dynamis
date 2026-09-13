@@ -1,7 +1,7 @@
 use super::common::{DT, asleep, gravity_config, new_world, settle, settle_until, static_config};
 use dynamis_abi::{
-    COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING,
-    COUNTER_SLEPT, COUNTER_WOKE,
+    COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_LIVE, COUNTER_PAIRS,
+    COUNTER_RESTING, COUNTER_SLEPT, COUNTER_WOKE,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, ColliderDesc, ContactEventKind, ContactEventMode, PhysicsConfig, Shape,
@@ -450,5 +450,52 @@ fn falling_asleep_holds_the_pose_the_body_slept_at() {
         held.position, frozen,
         "falling asleep must not rewind the pose, {frozen:?} -> {:?}",
         held.position
+    );
+}
+
+#[test]
+fn the_live_set_holds_exactly_the_simulated_bodies() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let sleeper = world.spawn(BodyDesc::sphere(0.4).position([0.0, 0.4, 0.0]));
+    let lonely = world.spawn(BodyDesc::sphere(0.4).position([4.0, 0.4, 4.0]));
+
+    settle_until(&mut world, 400, |world| {
+        world.measured()[COUNTER_ACTIVE] == 0
+    });
+    assert!(
+        world.read_state(sleeper).sleeping && world.read_state(lonely).sleeping,
+        "the scene must fall asleep before the live set empties"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_LIVE],
+        0,
+        "a sleeping world must hold no live body"
+    );
+
+    world.wake(lonely);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_LIVE],
+        1,
+        "only the woken body joins the live set"
+    );
+
+    world.spawn(
+        BodyDesc::cuboid([0.5, 0.1, 0.5])
+            .kinematic(true)
+            .position([0.0, 3.0, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_LIVE],
+        2,
+        "a driven body stays live beside the awake body"
     );
 }

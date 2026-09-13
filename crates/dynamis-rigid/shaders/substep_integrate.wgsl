@@ -1,8 +1,14 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(3) var<storage, read> live_bodies: array<u32>;
+@group(0) @binding(4) var<storage, read> live_count: array<u32>;
 
 const GYROSCOPIC_ITERATIONS: u32 = 4u;
+
+fn extent() -> u32 {
+    return min(live_count[0], arrayLength(&live_bodies));
+}
 
 fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
     if (inertia_is_isotropic(desc)) {
@@ -22,11 +28,9 @@ fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
 }
 
 fn work(index: u32) {
-    var state = body_states[index];
-    if (state.sleeping != 0u) {
-        return;
-    }
-    let desc = body_descs[index];
+    let row = live_bodies[index];
+    var state = body_states[row];
+    let desc = body_descs[row];
     let q = state.orientation;
     let kinematic = (desc.flags & BODY_KINEMATIC) != 0u;
     if (!kinematic) {
@@ -47,5 +51,5 @@ fn work(index: u32) {
     }
     state.velocity = state.velocity / (1.0 + desc.linear_damping * params.substep_dt);
     state.angular_velocity = state.angular_velocity / (1.0 + desc.angular_damping * params.substep_dt);
-    body_states[index] = state;
+    body_states[row] = state;
 }

@@ -6,6 +6,7 @@ mod domain;
 mod entries;
 mod integrate;
 mod islands;
+mod live;
 mod narrowphase;
 mod solver;
 mod sort;
@@ -59,6 +60,7 @@ use entries::Entries;
 use integrate::Integrate;
 use islands::Islands;
 use islands::Sleep;
+use live::Live;
 use narrowphase::Narrowphase;
 use solver::Solver;
 
@@ -76,6 +78,7 @@ domain_passes!(
     narrowphase: Phase::Contacts => "narrowphase",
     islands: Phase::Contacts => "islands",
     wake: Phase::Contacts => "wake",
+    live: Phase::Contacts => "live",
     solver_prepare: Phase::Contacts => "solver_prepare",
     substeps: Phase::Contacts => "substeps",
 );
@@ -98,6 +101,7 @@ pub struct Rigid {
     narrowphase: Narrowphase,
     islands: Islands,
     sleep: Sleep,
+    live: Live,
     solver: Solver,
     commit: Commit,
     sort: RadixSort,
@@ -119,6 +123,7 @@ impl Rigid {
             narrowphase: Narrowphase::build(context, streams),
             islands: Islands::build(context, streams),
             sleep: Sleep::build(context, streams),
+            live: Live::build(context, streams),
             solver: Solver::build(context, streams),
             commit: Commit::build(context, streams),
             sort: RadixSort::new(context, "rigid sort", sort_capacity(streams)),
@@ -165,6 +170,10 @@ impl Rigid {
                 self.islands.record_wake(&mut wake, streams, frame);
                 drop(wake);
 
+                let mut live = schedule.open(encoder, self.passes.live);
+                self.live.record(&mut live, streams, frame);
+                drop(live);
+
                 let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
                 self.solver.record_prepare(&mut prepare, streams, frame);
                 drop(prepare);
@@ -173,13 +182,13 @@ impl Rigid {
                 self.solver
                     .record_topology(&mut substeps, streams, frame, &self.sort);
                 for substep in 0..frame.params.substeps {
-                    self.integrate.record_substep(&mut substeps, streams, frame);
+                    self.integrate.record_substep(&mut substeps, streams);
                     if substep == 0 {
-                        self.solver.record_warm(&mut substeps, streams, frame);
+                        self.solver.record_warm(&mut substeps, streams);
                     }
                     self.solver.record_iterations(&mut substeps, streams, frame);
                     self.integrate
-                        .record_substep_advance(&mut substeps, streams, frame);
+                        .record_substep_advance(&mut substeps, streams);
                     self.solver
                         .record_position_iterations(&mut substeps, streams, frame);
                 }
