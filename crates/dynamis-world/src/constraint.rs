@@ -478,7 +478,7 @@ impl World {
         )
     }
 
-    fn validate_constraint(&self, handle: ConstraintHandle) {
+    pub(crate) fn validate_constraint(&self, handle: ConstraintHandle) {
         let id = handle.id as usize;
         if id >= self.constraints.ids.len() {
             panic!("constraint handle {handle:?} is out of range");

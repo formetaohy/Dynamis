@@ -91,7 +91,7 @@ fn warm_start(index: u32) {
     if (block < contact_blocks) {
         warm_contact_block(block, index);
     } else {
-        commit_block(index, 0u, 0u, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        warm_constraint_block(block - contact_blocks, index);
     }
 }
 

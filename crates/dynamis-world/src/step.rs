@@ -35,6 +35,7 @@ impl World {
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
         self.backend.gpu.assert_alive();
+        self.clock.sub_dt = dt;
         let step = self.clock.step;
         self.collect_readbacks();
         let live = self.live();

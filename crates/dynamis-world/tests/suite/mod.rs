@@ -18,6 +18,7 @@ pub mod mass;
 pub mod material;
 pub mod observation;
 pub mod query;
+pub mod reaction;
 pub mod rest;
 pub mod rotation;
 pub mod shape;

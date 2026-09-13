@@ -1,6 +1,76 @@
 struct FrameForces {
-    linear: f32,
-    angular: f32,
+    linear_first: vec3f,
+    angular_first: vec3f,
+    linear_second: vec3f,
+    angular_second: vec3f,
+}
+
+fn frame_forces_zero() -> FrameForces {
+    var forces: FrameForces;
+    forces.linear_first = vec3f(0.0);
+    forces.angular_first = vec3f(0.0);
+    forces.linear_second = vec3f(0.0);
+    forces.angular_second = vec3f(0.0);
+    return forces;
+}
+
+fn reaction_of(forces: FrameForces) -> ConstraintReaction {
+    var reaction: ConstraintReaction;
+    reaction.linear_first = forces.linear_first;
+    reaction._pad_linear_first = 0.0;
+    reaction.angular_first = forces.angular_first;
+    reaction._pad_angular_first = 0.0;
+    reaction.linear_second = forces.linear_second;
+    reaction._pad_linear_second = 0.0;
+    reaction.angular_second = forces.angular_second;
+    reaction._pad_angular_second = 0.0;
+    return reaction;
+}
+
+fn accumulate_reaction(
+    forces: FrameForces,
+    first: Body,
+    second: Body,
+    point_a: vec3f,
+    point_b: vec3f,
+    impulse_first: vec3f,
+    impulse_second: vec3f,
+) -> FrameForces {
+    var forces_out = forces;
+    forces_out.linear_first = forces_out.linear_first + impulse_first;
+    forces_out.linear_second = forces_out.linear_second + impulse_second;
+    forces_out.angular_first = forces_out.angular_first + cross(point_a - body_com(first), impulse_first);
+    forces_out.angular_second = forces_out.angular_second + cross(point_b - body_com(second), impulse_second);
+    return forces_out;
+}
+
+fn accumulate_angular_reaction(
+    forces: FrameForces,
+    couple_first: vec3f,
+    couple_second: vec3f,
+) -> FrameForces {
+    var forces_out = forces;
+    forces_out.angular_first = forces_out.angular_first + couple_first;
+    forces_out.angular_second = forces_out.angular_second + couple_second;
+    return forces_out;
+}
+
+fn point_reaction(
+    forces: FrameForces,
+    first: Body,
+    second: Body,
+    point_a: vec3f,
+    point_b: vec3f,
+    axis: vec3f,
+    accumulated: f32,
+) -> FrameForces {
+    let impulse = axis * accumulated;
+    return accumulate_reaction(forces, first, second, point_a, point_b, -impulse, impulse);
+}
+
+fn angular_reaction(forces: FrameForces, axis: vec3f, accumulated: f32) -> FrameForces {
+    let impulse = axis * accumulated;
+    return accumulate_angular_reaction(forces, -impulse, impulse);
 }
 
 struct RowOutcome {
@@ -16,11 +86,11 @@ struct RowImpulse {
 }
 
 fn row_impulse(accumulated: f32, next: f32, cap: f32) -> RowImpulse {
-    var applied = next - accumulated;
+    var total = next;
     if (cap > 0.0) {
-        applied = clamp(applied, -cap, cap);
+        total = clamp(next, -cap, cap);
     }
-    return RowImpulse(applied, accumulated + applied);
+    return RowImpulse(total - accumulated, total);
 }
 
 fn solve_point_row(
@@ -47,7 +117,7 @@ fn solve_point_row(
         let impulse = row_impulse(accumulated, next, 0.0);
         apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * impulse.applied);
         accumulated_out = impulse.accumulated;
-        forces_out.linear = forces_out.linear + abs(impulse.applied);
+        forces_out = point_reaction(forces_out, first, second, point_a, point_b, axis, accumulated_out);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -85,7 +155,7 @@ fn solve_angular_row(
         second_out.state.angular_velocity =
             second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * impulse.applied);
         accumulated_out = impulse.accumulated;
-        forces_out.angular = forces_out.angular + abs(impulse.applied);
+        forces_out = angular_reaction(forces_out, axis_normalized, accumulated_out);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -128,7 +198,7 @@ fn solve_driven_point_row(
         let impulse = row_impulse(accumulated, next, cap);
         apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * impulse.applied);
         accumulated_out = impulse.accumulated;
-        forces_out.linear = forces_out.linear + abs(impulse.applied);
+        forces_out = point_reaction(forces_out, first, second, point_a, point_b, axis, accumulated_out);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -176,7 +246,7 @@ fn solve_driven_angular_row(
         second_out.state.angular_velocity =
             second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * impulse.applied);
         accumulated_out = impulse.accumulated;
-        forces_out.angular = forces_out.angular + abs(impulse.applied);
+        forces_out = angular_reaction(forces_out, axis_normalized, accumulated_out);
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -227,9 +297,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     var accumulated = runtime.accumulated;
-    var forces: FrameForces;
-    forces.linear = 0.0;
-    forces.angular = 0.0;
+    var forces = frame_forces_zero();
     if (constraint.kind == CONSTRAINT_DISTANCE) {
         let axis = sign_normalize(anchor_b - anchor_a);
         if ((constraint.flags & CONSTRAINT_IS_SPRING) == 0u) {
@@ -252,7 +320,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             let impulse = -(stiffness * error + damping * jacobian_speed) * params.dt;
             apply_pair_impulse(&first, &second, anchor_a, anchor_b, axis * impulse);
             accumulated[0] = accumulated[0] + impulse;
-            forces.linear = forces.linear + abs(impulse);
+            forces = point_reaction(forces, first, second, anchor_a, anchor_b, axis, accumulated[0]);
         }
     } else if (constraint.kind == CONSTRAINT_REVOLUTE) {
         for (var i = 0u; i < 3u; i = i + 1u) {
@@ -427,7 +495,11 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             first.state.angular_velocity = first.state.angular_velocity - apply_inverse_inertia(first, axis_a * ratio * impulse.applied);
             second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, axis_b * impulse.applied);
             accumulated[0] = impulse.accumulated;
-            forces.angular = forces.angular + abs(impulse.applied);
+            forces = accumulate_angular_reaction(
+                forces,
+                axis_a * ratio * accumulated[0],
+                axis_b * accumulated[0],
+            );
         }
     } else if (constraint.kind == CONSTRAINT_PULLEY) {
         let dir_a = sign_normalize(constraint.pulley_fixed_a - anchor_a);
@@ -450,7 +522,15 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             second.state.velocity = second.state.velocity + dir_b * impulse.applied * second.desc.inverse_mass;
             second.state.angular_velocity = second.state.angular_velocity + apply_inverse_inertia(second, cross(anchor_b - body_com(second), dir_b * impulse.applied));
             accumulated[0] = impulse.accumulated;
-            forces.linear = forces.linear + abs(impulse.applied);
+            forces = accumulate_reaction(
+                forces,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                dir_a * accumulated[0],
+                dir_b * accumulated[0],
+            );
         }
     } else if (constraint.kind == CONSTRAINT_CONE) {
         for (var i = 0u; i < 3u; i = i + 1u) {
@@ -596,13 +676,15 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         }
     }
     if ((constraint.flags & CONSTRAINT_HAS_BREAK) != 0u ) {
-        let linear_limit = constraint.break_force * params.dt;
-        let angular_limit = constraint.break_torque * params.dt;
-        if ((linear_limit > 0.0 && forces.linear > linear_limit) || (angular_limit > 0.0 && forces.angular > angular_limit)) {
+        let force = length(forces.linear_second) / params.dt;
+        let torque = length(forces.angular_second) / params.dt;
+        if ((constraint.break_force > 0.0 && force > constraint.break_force)
+            || (constraint.break_torque > 0.0 && torque > constraint.break_torque)) {
             runtime.broken = 1u;
         }
     }
     runtime.accumulated = accumulated;
+    runtime.reaction = reaction_of(forces);
     constraint_runtime[constraint_index] = runtime;
     commit_block(
         slot,
@@ -612,5 +694,39 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         first.state.angular_velocity - pair.first.state.angular_velocity,
         second.state.velocity - pair.second.state.velocity,
         second.state.angular_velocity - pair.second.state.angular_velocity,
+    );
+}
+
+fn warm_constraint_block(constraint_index: u32, slot: u32) {
+    let constraint = constraint_descs[constraint_index];
+    let runtime = constraint_runtime[constraint_index];
+    let rows = constraint_rows[constraint_index];
+    let first_loaded = load_body(rows.first_row);
+    let second_loaded = load_body(rows.second_row);
+    var first = first_loaded;
+    var second = second_loaded;
+    if (body_is_inert(first_loaded)) {
+        first = body_frozen(first_loaded);
+    }
+    if (body_is_inert(second_loaded)) {
+        second = body_frozen(second_loaded);
+    }
+    if ((constraint.flags & CONSTRAINT_WARM_START) != 0u && runtime.broken == 0u) {
+        first.state.velocity = first.state.velocity + runtime.reaction.linear_first * first.desc.inverse_mass;
+        first.state.angular_velocity =
+            first.state.angular_velocity + apply_inverse_inertia(first, runtime.reaction.angular_first);
+        second.state.velocity =
+            second.state.velocity + runtime.reaction.linear_second * second.desc.inverse_mass;
+        second.state.angular_velocity =
+            second.state.angular_velocity + apply_inverse_inertia(second, runtime.reaction.angular_second);
+    }
+    commit_block(
+        slot,
+        rows.first_row,
+        rows.second_row,
+        first.state.velocity - first_loaded.state.velocity,
+        first.state.angular_velocity - first_loaded.state.angular_velocity,
+        second.state.velocity - second_loaded.state.velocity,
+        second.state.angular_velocity - second_loaded.state.angular_velocity,
     );
 }

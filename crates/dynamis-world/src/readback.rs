@@ -1,8 +1,8 @@
 use super::World;
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ContactRecord, Counters,
-    DeclaredCounters,
+    COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
+    ConstraintRuntimeRecord, ContactRecord, Counters, DeclaredCounters,
 };
 use dynamis_model::{BodyHandle, ConstraintHandle};
 use std::collections::HashSet;
@@ -23,6 +23,14 @@ pub struct ContactManifold {
     pub normal: [f32; 3],
     pub points: Vec<ContactPoint>,
     pub step: u64,
+}
+
+pub struct ConstraintForce {
+    pub constraint: ConstraintHandle,
+    pub first: BodyHandle,
+    pub second: BodyHandle,
+    pub force_on_second: [f32; 3],
+    pub torque_on_second: [f32; 3],
 }
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
@@ -79,6 +87,71 @@ impl World {
         declared.write_into(&mut self.backend.measured);
         measured_counters(bytes, &mut self.backend.measured);
         self.accept_measured(step);
+    }
+
+    pub fn constraint_forces(&mut self) -> Vec<ConstraintForce> {
+        let count = self.constraints.alive.len();
+        if count == 0 {
+            return Vec::new();
+        }
+        self.wait();
+        let runtime = &self.backend.streams.state.constraint_runtime;
+        let bytes = count as u64 * runtime.stride();
+        let buffer = runtime.buffer().clone();
+        let read = self.read_regions("constraint force readback", &[(&buffer, 0, bytes)]);
+        dynamis_abi::decode::<ConstraintRuntimeRecord>(&read)
+            .into_iter()
+            .enumerate()
+            .map(|(row, runtime)| {
+                let constraint = self.constraints.alive[row];
+                let (first, second) = self.constraint_bodies(constraint);
+                self.constraint_force_of(constraint, first, second, runtime.reaction)
+            })
+            .collect()
+    }
+
+    pub fn constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
+        self.validate_constraint(handle);
+        let row = self.constraints.index_of[handle.id as usize];
+        self.wait();
+        let runtime = &self.backend.streams.state.constraint_runtime;
+        let stride = runtime.stride();
+        let buffer = runtime.buffer().clone();
+        let read = self.read_regions(
+            "constraint force readback",
+            &[(&buffer, u64::from(row) * stride, stride)],
+        );
+        let record = dynamis_abi::decode::<ConstraintRuntimeRecord>(&read)
+            .first()
+            .copied()
+            .expect("a constraint force read covers exactly one record");
+        let (first, second) = self.constraint_bodies(handle);
+        self.constraint_force_of(handle, first, second, record.reaction)
+    }
+
+    fn constraint_force_of(
+        &self,
+        constraint: ConstraintHandle,
+        first: BodyHandle,
+        second: BodyHandle,
+        reaction: ConstraintReactionRecord,
+    ) -> ConstraintForce {
+        let step_dt = self.clock.sub_dt;
+        ConstraintForce {
+            constraint,
+            first,
+            second,
+            force_on_second: [
+                reaction.linear_second[0] / step_dt,
+                reaction.linear_second[1] / step_dt,
+                reaction.linear_second[2] / step_dt,
+            ],
+            torque_on_second: [
+                reaction.angular_second[0] / step_dt,
+                reaction.angular_second[1] / step_dt,
+                reaction.angular_second[2] / step_dt,
+            ],
+        }
     }
 
     pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {

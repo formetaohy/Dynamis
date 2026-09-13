@@ -534,6 +534,32 @@ fn motor_force_cap_limits_driving_torque() {
 }
 
 #[test]
+fn a_motor_force_cap_bounds_the_impulse_of_one_step() {
+    let mut world = new_world(static_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let slider = world.spawn(BodyDesc::sphere(0.2).mass(2.0).position([1.0, 0.0, 0.0]));
+    world.add_constraint(
+        anchor,
+        slider,
+        ConstraintDesc::prismatic([0.0; 3], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0])
+            .motor(100.0)
+            .motor_force(1.0),
+    );
+    world.step(DT);
+    world.wait();
+    let speed = world.read_state(slider).velocity[0];
+    let limit = 1.0 * DT / 2.0;
+    assert!(
+        speed <= limit * 1.05,
+        "a one newton motor may not exceed {limit} m/s in one step, got {speed}"
+    );
+    assert!(
+        speed > 0.0,
+        "the motor must still drive the slider, got {speed}"
+    );
+}
+
+#[test]
 fn cone_constraint_caps_swing_angle() {
     let mut world = new_world(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0));

@@ -294,6 +294,7 @@ struct ConstraintDescriptor {
 }
 
 struct ConstraintRuntime {
+    reaction: ConstraintReaction,
     accumulated: array<f32, CONSTRAINT_ACCUMULATOR_SLOTS>,
     broken: u32,
     constraint_id: u32,
@@ -309,6 +310,17 @@ struct BrokenConstraint {
 struct ConstraintRows {
     first_row: u32,
     second_row: u32,
+}
+
+struct ConstraintReaction {
+    linear_first: vec3f,
+    _pad_linear_first: f32,
+    angular_first: vec3f,
+    _pad_angular_first: f32,
+    linear_second: vec3f,
+    _pad_linear_second: f32,
+    angular_second: vec3f,
+    _pad_angular_second: f32,
 }
 
 struct Query {

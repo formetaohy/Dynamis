@@ -191,6 +191,7 @@ impl ConstraintDescriptorRecord {
 impl ConstraintRuntimeRecord {
     pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
+            reaction: bytemuck::Zeroable::zeroed(),
             accumulated: [0.0; CONSTRAINT_ACCUMULATOR_SLOTS as usize],
             broken: 0,
             constraint_id,

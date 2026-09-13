@@ -39,7 +39,7 @@ pub use dynamis_rigid::RigidShape;
 pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::ShapeCapacity;
 pub use query_pool::{QueryHandle, QueryHit};
-pub use readback::{ContactManifold, ContactPoint};
+pub use readback::{ConstraintForce, ContactManifold, ContactPoint};
 pub use snapshot::Snapshot;
 
 pub struct World {
