@@ -6,17 +6,17 @@ use dynamis_abi::{
     CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
     ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
     EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
-    ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS,
-    FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR,
-    OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
-    QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID,
-    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
-    SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord,
-    dof_driven, dof_limited, dof_locked,
+    ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC,
+    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT,
+    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
+    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
+    SHAPE_SPHERE, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
+    StepParamsRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
-    PhysicsConfig, QueryFilter, Shape,
+    PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState,
 };
 use std::panic::catch_unwind;
 
@@ -634,10 +634,29 @@ fn soft_particle_packs_its_scalar_lanes() {
         particles: [0, 1, 2, 3],
         rest: 0.5,
         compliance: 0.25,
+        yield_strain: 0.1,
+        break_strain: 0.4,
+        plastic_flow: 0.5,
     });
     assert_eq!(element.particles, [0, 1, 2, 3]);
     assert_eq!((element.rest, element.compliance), (0.5, 0.25));
     assert_eq!((element.lambda, element.kind), (0.0, ELEMENT_VOLUME));
+    assert_eq!(
+        (
+            element.yield_strain,
+            element.break_strain,
+            element.plastic_flow
+        ),
+        (0.1, 0.4, 0.5)
+    );
+    assert_eq!(
+        element.state(),
+        SoftElementState::new(SoftElementKind::Volume, [0, 1, 2, 3], 0.5, false)
+    );
+    let mut broken = element;
+    broken.kind |= ELEMENT_BROKEN;
+    assert!(broken.state().broken());
+    assert_eq!(broken.state().kind(), SoftElementKind::Volume);
     assert_eq!(
         SoftElementRecord::cleared().particles,
         [NO_SLOT; ELEMENT_PARTICLES as usize]

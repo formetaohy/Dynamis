@@ -52,6 +52,9 @@ struct SoftElement {
     compliance: f32,
     lambda: f32,
     kind: u32,
+    yield_strain: f32,
+    break_strain: f32,
+    plastic_flow: f32,
 }
 
 struct SoftContact {

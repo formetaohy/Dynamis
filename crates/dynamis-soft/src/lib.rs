@@ -13,6 +13,7 @@ use dynamis_state::{Count, StateStream, StepFrame};
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
 const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
+const ELEMENT_SAMPLE: &[&str] = &[include_str!("../shaders/element_sample.wgsl")];
 
 fn particle_index() -> Vec<&'static str> {
     let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
@@ -53,6 +54,7 @@ pub struct Soft {
     pressure: Stage,
     detect: Stage,
     resolve: Stage,
+    material: Stage,
     apply: Stage,
 }
 
@@ -139,7 +141,7 @@ impl Soft {
                 rows(
                     context,
                     include_str!("../shaders/soft_elements.wgsl"),
-                    CORE,
+                    ELEMENT_SAMPLE,
                     Count::Elements.field(),
                 ),
                 streams,
@@ -166,6 +168,7 @@ impl Soft {
                     ("particles", particles.whole()),
                     ("contributions", SoftStream::Contributions.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
+                    ("elements", SoftStream::Elements.whole()),
                 ],
                 &[],
             ),
@@ -257,6 +260,23 @@ impl Soft {
                 ],
                 &[],
             ),
+            material: Stage::build(
+                context,
+                "soft_material",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_material.wgsl"),
+                    ELEMENT_SAMPLE,
+                    Count::Elements.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("elements", SoftStream::Elements.whole()),
+                ],
+                &[],
+            ),
             apply: Stage::build(
                 context,
                 "soft_apply",
@@ -324,6 +344,9 @@ impl Soft {
                     }
                     self.detect.record_rows(&mut substeps, streams, particles);
                     self.resolve.record_rows(&mut substeps, streams, particles);
+                    if frame.soft_strength {
+                        self.material.record_rows(&mut substeps, streams, elements);
+                    }
                 }
                 drop(substeps);
 

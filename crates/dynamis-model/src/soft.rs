@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+const ELASTIC_STRAIN: f32 = f32::INFINITY;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoftBodyHandle {
     pub id: u32,
@@ -30,6 +32,9 @@ pub struct SoftElement {
     particles: [u32; SoftElement::PARTICLES],
     rest: f32,
     compliance: f32,
+    yield_strain: f32,
+    break_strain: f32,
+    plastic_flow: f32,
 }
 
 impl SoftElement {
@@ -49,6 +54,9 @@ impl SoftElement {
             particles,
             rest,
             compliance: 0.0,
+            yield_strain: ELASTIC_STRAIN,
+            break_strain: ELASTIC_STRAIN,
+            plastic_flow: 0.0,
         }
     }
 
@@ -99,6 +107,17 @@ impl SoftElement {
         self
     }
 
+    pub fn yielding(mut self, yield_strain: f32, plastic_flow: f32) -> Self {
+        self.yield_strain = assert_strain(yield_strain, "yield");
+        self.plastic_flow = assert_flow(plastic_flow);
+        self
+    }
+
+    pub fn fracturing(mut self, break_strain: f32) -> Self {
+        self.break_strain = assert_strain(break_strain, "break");
+        self
+    }
+
     pub const fn kind(&self) -> SoftElementKind {
         self.kind
     }
@@ -109,6 +128,22 @@ impl SoftElement {
 
     pub const fn compliance_of(&self) -> f32 {
         self.compliance
+    }
+
+    pub const fn yield_strain_of(&self) -> f32 {
+        self.yield_strain
+    }
+
+    pub const fn break_strain_of(&self) -> f32 {
+        self.break_strain
+    }
+
+    pub const fn plastic_flow_of(&self) -> f32 {
+        self.plastic_flow
+    }
+
+    pub fn carries_strength(&self) -> bool {
+        self.yield_strain.is_finite() || self.break_strain.is_finite()
     }
 
     pub const fn particles(&self) -> [u32; Self::PARTICLES] {
@@ -126,6 +161,9 @@ pub struct SoftMaterial {
     pub shear: f32,
     pub bend: f32,
     pub volume: f32,
+    pub yield_strain: f32,
+    pub break_strain: f32,
+    pub plastic_flow: f32,
 }
 
 impl SoftMaterial {
@@ -135,6 +173,9 @@ impl SoftMaterial {
             shear: 0.0,
             bend: 0.0,
             volume: 0.0,
+            yield_strain: ELASTIC_STRAIN,
+            break_strain: ELASTIC_STRAIN,
+            plastic_flow: 0.0,
         }
     }
 
@@ -144,6 +185,7 @@ impl SoftMaterial {
             shear,
             bend,
             volume,
+            ..Self::rigid()
         };
         assert!(
             material.stretch >= 0.0
@@ -153,6 +195,76 @@ impl SoftMaterial {
             "soft material compliances must be non-negative"
         );
         material
+    }
+
+    pub fn yielding(mut self, yield_strain: f32, plastic_flow: f32) -> Self {
+        self.yield_strain = assert_strain(yield_strain, "yield");
+        self.plastic_flow = assert_flow(plastic_flow);
+        self
+    }
+
+    pub fn fracturing(mut self, break_strain: f32) -> Self {
+        self.break_strain = assert_strain(break_strain, "break");
+        self
+    }
+}
+
+fn assert_strain(strain: f32, role: &str) -> f32 {
+    assert!(strain >= 0.0, "a soft {role} strain must be non-negative");
+    strain
+}
+
+fn assert_flow(plastic_flow: f32) -> f32 {
+    assert!(
+        (0.0..=1.0).contains(&plastic_flow),
+        "a soft plastic flow must be within [0, 1]"
+    );
+    plastic_flow
+}
+
+fn apply_strength(material: &SoftMaterial, element: SoftElement) -> SoftElement {
+    element
+        .yielding(material.yield_strain, material.plastic_flow)
+        .fracturing(material.break_strain)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftElementState {
+    kind: SoftElementKind,
+    particles: [u32; SoftElement::PARTICLES],
+    rest: f32,
+    broken: bool,
+}
+
+impl SoftElementState {
+    pub const fn new(
+        kind: SoftElementKind,
+        particles: [u32; SoftElement::PARTICLES],
+        rest: f32,
+        broken: bool,
+    ) -> Self {
+        Self {
+            kind,
+            particles,
+            rest,
+            broken,
+        }
+    }
+
+    pub const fn kind(&self) -> SoftElementKind {
+        self.kind
+    }
+
+    pub const fn rest(&self) -> f32 {
+        self.rest
+    }
+
+    pub const fn broken(&self) -> bool {
+        self.broken
+    }
+
+    pub fn participants(&self) -> impl Iterator<Item = u32> + '_ {
+        self.particles[..self.kind.arity()].iter().copied()
     }
 }
 
@@ -293,25 +405,32 @@ impl SoftBodyDesc {
         for column in 0..columns {
             for row in 0..rows {
                 if row + 1 < rows {
-                    elements.push(edge_element(
-                        &particles,
-                        index(row, column),
-                        index(row + 1, column),
-                        material.stretch,
+                    elements.push(apply_strength(
+                        &material,
+                        edge_element(
+                            &particles,
+                            index(row, column),
+                            index(row + 1, column),
+                            material.stretch,
+                        ),
                     ));
                 }
                 if column + 1 < columns {
-                    elements.push(edge_element(
-                        &particles,
-                        index(row, column),
-                        index(row, column + 1),
-                        material.stretch,
+                    elements.push(apply_strength(
+                        &material,
+                        edge_element(
+                            &particles,
+                            index(row, column),
+                            index(row, column + 1),
+                            material.stretch,
+                        ),
                     ));
                 }
             }
         }
         for triangle in &triangles {
-            elements.push(
+            elements.push(apply_strength(
+                &material,
                 SoftElement::area(
                     triangle[0],
                     triangle[1],
@@ -319,10 +438,11 @@ impl SoftBodyDesc {
                     triangle_area(&particles, *triangle),
                 )
                 .compliance(material.shear),
-            );
+            ));
         }
         for [edge_a, edge_b, apex_a, apex_b] in shared_edges(&triangles) {
-            elements.push(
+            elements.push(apply_strength(
+                &material,
                 SoftElement::bend(
                     apex_a,
                     apex_b,
@@ -331,7 +451,7 @@ impl SoftBodyDesc {
                     dihedral_angle(&particles, apex_a, apex_b, edge_a, edge_b),
                 )
                 .compliance(material.bend),
-            );
+            ));
         }
         Self::new(particles, elements)
     }
@@ -398,10 +518,14 @@ impl SoftBodyDesc {
             } else {
                 material.shear
             };
-            elements.push(edge_element(&particles, edge[0], edge[1], compliance));
+            elements.push(apply_strength(
+                &material,
+                edge_element(&particles, edge[0], edge[1], compliance),
+            ));
         }
         for tet in &tets {
-            elements.push(
+            elements.push(apply_strength(
+                &material,
                 SoftElement::volume(
                     tet[0],
                     tet[1],
@@ -410,7 +534,7 @@ impl SoftBodyDesc {
                     tetrahedron_volume(&particles, *tet),
                 )
                 .compliance(material.volume),
-            );
+            ));
         }
         Self::new(particles, elements)
     }
@@ -438,6 +562,24 @@ impl SoftBodyDesc {
             *element = element.compliance(compliance);
         }
         self
+    }
+
+    pub fn yielding(mut self, yield_strain: f32, plastic_flow: f32) -> Self {
+        for element in &mut self.elements {
+            *element = element.yielding(yield_strain, plastic_flow);
+        }
+        self
+    }
+
+    pub fn fracturing(mut self, break_strain: f32) -> Self {
+        for element in &mut self.elements {
+            *element = element.fracturing(break_strain);
+        }
+        self
+    }
+
+    pub fn carries_strength(&self) -> bool {
+        self.elements.iter().any(SoftElement::carries_strength)
     }
 
     pub fn pinned(mut self, indices: &[u32]) -> Self {

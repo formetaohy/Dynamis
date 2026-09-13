@@ -41,6 +41,7 @@ pub struct StepFrame {
     pub awake_bodies: Option<u32>,
     pub ccd_bodies: bool,
     pub soft_bodies: bool,
+    pub soft_strength: bool,
 }
 
 impl StepFrame {

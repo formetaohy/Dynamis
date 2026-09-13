@@ -1,9 +1,9 @@
 use crate::constant::{
-    ELEMENT_AREA, ELEMENT_BEND, ELEMENT_DISTANCE, ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY,
-    NO_SLOT,
+    ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
+    ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT,
 };
 use crate::{SoftElementRecord, SoftParticleRecord};
-use dynamis_model::{SoftElement, SoftElementKind};
+use dynamis_model::{SoftElement, SoftElementKind, SoftElementState};
 
 pub struct SoftParticleInit {
     pub position: [f32; 3],
@@ -96,6 +96,9 @@ pub struct SoftElementInit {
     pub particles: [u32; ELEMENT_PARTICLES as usize],
     pub rest: f32,
     pub compliance: f32,
+    pub yield_strain: f32,
+    pub break_strain: f32,
+    pub plastic_flow: f32,
 }
 
 impl SoftElementRecord {
@@ -106,6 +109,9 @@ impl SoftElementRecord {
             compliance: init.compliance,
             lambda: 0.0,
             kind: init.kind,
+            yield_strain: init.yield_strain,
+            break_strain: init.break_strain,
+            plastic_flow: init.plastic_flow,
         }
     }
 
@@ -116,7 +122,29 @@ impl SoftElementRecord {
             compliance: 0.0,
             lambda: 0.0,
             kind: ELEMENT_DISTANCE,
+            yield_strain: f32::INFINITY,
+            break_strain: f32::INFINITY,
+            plastic_flow: 0.0,
         }
+    }
+
+    pub fn state(&self) -> SoftElementState {
+        SoftElementState::new(
+            element_kind(self.kind),
+            self.particles,
+            self.rest,
+            self.kind & ELEMENT_BROKEN != 0,
+        )
+    }
+}
+
+fn element_kind(kind: u32) -> SoftElementKind {
+    match kind & ELEMENT_KIND_MASK {
+        ELEMENT_DISTANCE => SoftElementKind::Distance,
+        ELEMENT_AREA => SoftElementKind::Area,
+        ELEMENT_BEND => SoftElementKind::Bend,
+        ELEMENT_VOLUME => SoftElementKind::Volume,
+        kind => panic!("soft element kind {kind} is outside the material table"),
     }
 }
 

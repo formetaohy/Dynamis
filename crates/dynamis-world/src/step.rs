@@ -110,6 +110,7 @@ impl World {
             awake_bodies: synced.map(|_| self.backend.measured[COUNTER_ACTIVE]),
             ccd_bodies: self.ccd_active(),
             soft_bodies: self.soft_active(),
+            soft_strength: self.soft.carries_strength(),
         }
     }
 

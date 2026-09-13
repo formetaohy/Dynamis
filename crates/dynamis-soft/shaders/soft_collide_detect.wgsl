@@ -78,6 +78,9 @@ fn directly_linked(first: u32, second: u32) -> bool {
     let particle = particles[first];
     for (var slot = 0u; slot < particle.neighbour_count; slot = slot + 1u) {
         let element = elements[adjacency[particle.neighbour_offset + slot] >> ELEMENT_ROLE_BITS];
+        if ((element.kind & ELEMENT_BROKEN) != 0u) {
+            continue;
+        }
         for (var role = 0u; role < ELEMENT_PARTICLES; role = role + 1u) {
             if (element.particles[role] == second) {
                 return true;

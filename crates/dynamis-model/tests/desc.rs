@@ -1,6 +1,6 @@
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, FluidMaterial, MaterialCombine, PhysicsConfig, Shape,
-    SoftBodyDesc,
+    SoftBodyDesc, SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -137,5 +137,61 @@ fn a_fluid_material_bounds_its_spacing_and_support() {
     assert!(
         crowded.is_err(),
         "a fluid particle must fit its rest spacing"
+    );
+}
+
+#[test]
+fn a_soft_element_bounds_its_strength() {
+    let yielding = SoftElement::distance(0, 1, 1.0)
+        .yielding(0.2, 0.5)
+        .fracturing(0.4);
+    assert_eq!(yielding.yield_strain_of(), 0.2);
+    assert_eq!(yielding.break_strain_of(), 0.4);
+    assert_eq!(yielding.plastic_flow_of(), 0.5);
+    assert!(yielding.carries_strength());
+    assert!(!SoftElement::distance(0, 1, 1.0).carries_strength());
+    let brittle = SoftElement::area(0, 1, 2, 0.5).fracturing(0.05);
+    assert!(brittle.carries_strength());
+    assert!(brittle.yield_strain_of().is_infinite());
+    assert!(catch_unwind(|| SoftElement::distance(0, 1, 1.0).yielding(-0.1, 0.5)).is_err());
+    assert!(catch_unwind(|| SoftElement::distance(0, 1, 1.0).yielding(0.1, 1.5)).is_err());
+    assert!(catch_unwind(|| SoftElement::distance(0, 1, 1.0).fracturing(-0.1)).is_err());
+}
+
+#[test]
+fn a_soft_material_spreads_its_strength_over_its_elements() {
+    let material = SoftMaterial::new(0.01, 0.02, 0.03, 0.04)
+        .yielding(0.2, 0.25)
+        .fracturing(0.4);
+    let desc = SoftBodyDesc::cloth([3, 3], 1.0, material);
+    assert!(desc.carries_strength());
+    assert!(desc.elements.iter().all(|element| {
+        element.yield_strain_of() == 0.2
+            && element.break_strain_of() == 0.4
+            && element.plastic_flow_of() == 0.25
+    }));
+    assert!(
+        desc.elements
+            .iter()
+            .any(|element| element.kind() == SoftElementKind::Area)
+    );
+    let elastic = SoftBodyDesc::cloth([3, 3], 1.0, SoftMaterial::rigid());
+    assert!(!elastic.carries_strength());
+    let overridden = desc.clone().yielding(0.05, 1.0).fracturing(0.1);
+    assert!(
+        overridden.elements.iter().all(|element| {
+            element.yield_strain_of() == 0.05 && element.break_strain_of() == 0.1
+        })
+    );
+    assert_eq!(
+        SoftElementState::new(
+            SoftElementKind::Distance,
+            [3, 4, u32::MAX, u32::MAX],
+            0.5,
+            true
+        )
+        .participants()
+        .collect::<Vec<_>>(),
+        vec![3, 4]
     );
 }

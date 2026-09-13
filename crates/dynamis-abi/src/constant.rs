@@ -44,6 +44,8 @@ declare_constants! {
     pub const ELEMENT_AREA: u32 = 1;
     pub const ELEMENT_BEND: u32 = 2;
     pub const ELEMENT_VOLUME: u32 = 3;
+    pub const ELEMENT_KIND_MASK: u32 = 3;
+    pub const ELEMENT_BROKEN: u32 = 1 << 31;
     pub const FEATURE_POINT: u32 = 0;
     pub const FEATURE_VERTEX: u32 = 1 << 28;
     pub const FEATURE_EDGE: u32 = 2 << 28;
@@ -140,6 +142,10 @@ const _: () = assert!(
 const _: () = assert!(
     ELEMENT_DISTANCE < ELEMENT_AREA && ELEMENT_AREA < ELEMENT_BEND && ELEMENT_BEND < ELEMENT_VOLUME,
     "element kinds must fill their code space"
+);
+const _: () = assert!(
+    ELEMENT_VOLUME & ELEMENT_KIND_MASK == ELEMENT_VOLUME && ELEMENT_KIND_MASK & ELEMENT_BROKEN == 0,
+    "an element failure must sit above its kind code space"
 );
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER <= 1 << 3,

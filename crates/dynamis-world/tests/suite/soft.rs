@@ -654,3 +654,213 @@ fn probe_hinge(compliance: f32) -> SoftBodyDesc {
     )
     .pinned(&[1, 2, 3])
 }
+
+fn hanging_link(element: SoftElement) -> SoftBodyDesc {
+    SoftBodyDesc::new(vec![[0.0, 0.0, 0.0], [0.0, -1.0, 0.0]], vec![element]).pinned(&[0])
+}
+
+#[test]
+fn a_yielding_link_keeps_the_stretch_it_creeps_into() {
+    let compliance = 0.05;
+    let mut world = new_world(dynamis_model::PhysicsConfig {
+        damping: 2.0,
+        ..gravity_config()
+    });
+    let plastic = world.add_soft_body(hanging_link(
+        SoftElement::distance(0, 1, 1.0)
+            .compliance(compliance)
+            .yielding(0.2, 0.1),
+    ));
+    let elastic = world.add_soft_body(hanging_link(
+        SoftElement::distance(0, 1, 1.0).compliance(compliance),
+    ));
+    let link_length = |world: &mut dynamis_world::World, handle| {
+        let positions = world.soft_body_positions(handle);
+        distance(positions[0], positions[1])
+    };
+    settle(&mut world, 400);
+    let crept = world.soft_body_elements(plastic)[0].rest();
+    let stretched = link_length(&mut world, plastic);
+    println!(
+        "probe rest {crept:.4} length {stretched:.4} elastic {:.4}",
+        link_length(&mut world, elastic)
+    );
+    assert!(
+        crept > 1.5,
+        "a link loaded past its yield strain must creep into a new rest length, got {crept}"
+    );
+    let strain = stretched / crept - 1.0;
+    assert!(
+        strain < 0.21,
+        "plastic flow must stop at the yield strain, got {strain}"
+    );
+    world.set_gravity([0.0, 0.0, 0.0]);
+    settle(&mut world, 400);
+    let kept = link_length(&mut world, plastic);
+    let released = link_length(&mut world, elastic);
+    println!("probe kept {kept:.4} released {released:.4} rest {crept:.4}");
+    assert!(
+        kept > 1.5 && (kept / crept - 1.0).abs() < 0.1,
+        "a yielded link must keep its new rest length, got {kept} for {crept}"
+    );
+    assert!(
+        (released - 1.0).abs() < 0.1,
+        "an elastic link must return to its rest length, got {released}"
+    );
+}
+
+#[test]
+fn a_link_loaded_past_its_break_strain_tears() {
+    let mut world = new_world(dynamis_model::PhysicsConfig {
+        damping: 2.0,
+        ..gravity_config()
+    });
+    let torn = world.add_soft_body(hanging_link(
+        SoftElement::distance(0, 1, 1.0)
+            .compliance(0.02)
+            .fracturing(0.05),
+    ));
+    let held = world.add_soft_body(hanging_link(
+        SoftElement::distance(0, 1, 1.0).compliance(0.02),
+    ));
+    settle(&mut world, 200);
+    let elements = world.soft_body_elements(torn);
+    assert_eq!(elements.len(), 1, "a link observes its own element");
+    assert!(
+        elements[0].broken(),
+        "a link stretched past its break strain must fail"
+    );
+    let fallen = world.soft_body_positions(torn)[1][1];
+    assert!(
+        fallen < -1.6,
+        "a torn particle must fall away from its anchor, got {fallen}"
+    );
+    assert!(!world.soft_body_elements(held)[0].broken());
+    let suspended = world.soft_body_positions(held)[1][1];
+    assert!(
+        (suspended + 1.196).abs() < 0.02,
+        "an unbreakable link must keep hanging at its Hookean elongation, got {suspended}"
+    );
+}
+
+#[test]
+fn a_lattice_fractures_where_its_material_fails() {
+    let mut world = new_world(gravity_config());
+    let material = SoftMaterial::new(0.01, 0.01, 0.0, 0.001)
+        .yielding(0.05, 0.5)
+        .fracturing(0.1);
+    let handle = world.add_soft_body(
+        SoftBodyDesc::lattice([2, 2, 2], 0.5, material)
+            .radius(0.1)
+            .position([0.0, 3.0, 0.0])
+            .pinned(&[0]),
+    );
+    settle(&mut world, 120);
+    let elements = world.soft_body_elements(handle);
+    assert!(
+        elements.iter().any(|element| element.broken()),
+        "a lattice pinned below its load must tear"
+    );
+    let positions = world.soft_body_positions(handle);
+    assert!(
+        positions[7][1] < 1.0,
+        "a fractured lattice must fall away from its pin, got {:?}",
+        positions[7]
+    );
+}
+
+#[test]
+fn a_yielding_body_stays_bit_identical_across_worlds() {
+    let mut first = new_world(gravity_config());
+    let mut second = new_world(gravity_config());
+    let desc = hanging_link(
+        SoftElement::distance(0, 1, 1.0)
+            .compliance(0.05)
+            .yielding(0.2, 0.25),
+    );
+    let first_body = first.add_soft_body(desc.clone());
+    let second_body = second.add_soft_body(desc);
+    settle(&mut first, 240);
+    settle(&mut second, 240);
+    let rests = |state: &dynamis_model::SoftElementState| state.rest().to_bits();
+    assert_eq!(
+        first
+            .soft_body_elements(first_body)
+            .iter()
+            .map(rests)
+            .collect::<Vec<_>>(),
+        second
+            .soft_body_elements(second_body)
+            .iter()
+            .map(rests)
+            .collect::<Vec<_>>(),
+        "plastic flow must stay bit identical"
+    );
+    assert_eq!(
+        first.soft_body_positions(first_body),
+        second.soft_body_positions(second_body)
+    );
+}
+
+#[test]
+fn two_element_bodies_keep_their_own_particles() {
+    let mut world = new_world(gravity_config());
+    let bodies = [
+        world.add_soft_body(
+            SoftBodyDesc::lattice([2, 2, 2], 0.5, SoftMaterial::rigid())
+                .radius(0.1)
+                .position([-3.0, 1.0, 0.0]),
+        ),
+        world.add_soft_body(
+            SoftBodyDesc::lattice([2, 2, 2], 0.5, SoftMaterial::rigid())
+                .radius(0.1)
+                .position([3.0, 1.0, 0.0]),
+        ),
+    ];
+    let before = bodies.map(|handle| world.soft_body_positions(handle));
+    settle(&mut world, 60);
+    for (body, original) in bodies.into_iter().zip(before) {
+        let after = world.soft_body_positions(body);
+        let mut drift = 0.0f32;
+        for first in 0..after.len() {
+            for second in first + 1..after.len() {
+                let held = distance(original[first], original[second]);
+                let moved = distance(after[first], after[second]);
+                drift = drift.max((held - moved).abs());
+            }
+        }
+        assert!(
+            drift < 0.05,
+            "a rigid lattice must keep its own span while it falls, drifted {drift}"
+        );
+    }
+}
+
+#[test]
+fn a_snapshot_keeps_the_material_state_a_body_crept_into() {
+    let mut world = new_world(dynamis_model::PhysicsConfig {
+        damping: 2.0,
+        ..gravity_config()
+    });
+    let handle = world.add_soft_body(hanging_link(
+        SoftElement::distance(0, 1, 1.0)
+            .compliance(0.02)
+            .fracturing(0.05),
+    ));
+    let snapshot = world.snapshot();
+    settle(&mut world, 60);
+    assert!(
+        world.soft_body_elements(handle)[0].broken(),
+        "a link loaded past its break strain must fail"
+    );
+    world.restore(&snapshot);
+    assert!(
+        !world.soft_body_elements(handle)[0].broken(),
+        "a restored world must keep the link its snapshot captured intact"
+    );
+    settle(&mut world, 60);
+    assert!(
+        world.soft_body_elements(handle)[0].broken(),
+        "a restored world must fail the same link again"
+    );
+}

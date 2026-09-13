@@ -2,18 +2,19 @@ use super::World;
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
 use dynamis_abi::{
-    ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, SoftElementInit, SoftElementRecord, SoftParticleInit,
-    SoftParticleRecord,
+    ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftElementInit, SoftElementRecord,
+    SoftParticleInit, SoftParticleRecord,
 };
 use dynamis_math::{add, quat_rotate};
-use dynamis_model::{SoftBodyDesc, SoftBodyHandle, SoftElement};
+use dynamis_model::{SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState};
 use dynamis_soft::SoftStreams;
 
 #[derive(Clone, Copy)]
-struct SoftRuns {
+pub(crate) struct SoftRuns {
     particles: Run,
     elements: Run,
     adjacency: Run,
+    strength: bool,
 }
 
 impl SoftRuns {
@@ -21,6 +22,7 @@ impl SoftRuns {
         particles: Run::EMPTY,
         elements: Run::EMPTY,
         adjacency: Run::EMPTY,
+        strength: false,
     };
 }
 
@@ -64,6 +66,12 @@ impl SoftBodies {
         self.alive.len()
     }
 
+    pub(crate) fn carries_strength(&self) -> bool {
+        self.alive
+            .iter()
+            .any(|handle| self.runs[handle.id as usize].strength)
+    }
+
     pub(crate) fn bodies(&self) -> &[SoftBodyHandle] {
         &self.alive
     }
@@ -77,8 +85,12 @@ impl SoftBodies {
     }
 
     pub(crate) fn run_of(&self, handle: SoftBodyHandle) -> Run {
+        self.runs_of(handle).particles
+    }
+
+    pub(crate) fn runs_of(&self, handle: SoftBodyHandle) -> SoftRuns {
         self.validate(handle);
-        self.runs[handle.id as usize].particles
+        self.runs[handle.id as usize]
     }
 
     fn validate(&self, handle: SoftBodyHandle) {
@@ -162,15 +174,19 @@ impl SoftBodies {
             self.elements[elements.offset as usize + slot] =
                 SoftElementRecord::build(SoftElementInit {
                     kind: element.kind() as u32,
-                    particles: element.particles(),
+                    particles: global_particles(element, particles.offset),
                     rest: element.rest(),
                     compliance: element.compliance_of(),
+                    yield_strain: element.yield_strain_of(),
+                    break_strain: element.break_strain_of(),
+                    plastic_flow: element.plastic_flow_of(),
                 });
         }
         self.runs[id as usize] = SoftRuns {
             particles,
             elements,
             adjacency,
+            strength: desc.carries_strength(),
         };
         let handle = SoftBodyHandle { id, generation };
         self.index_of[id as usize] = self.alive.len() as u32;
@@ -255,6 +271,22 @@ impl SoftBodies {
             self.particles[run.offset as usize + slot] = *record;
         }
     }
+
+    pub(crate) fn observe_elements(&mut self, run: Run, records: &[SoftElementRecord]) {
+        for (slot, record) in records.iter().enumerate() {
+            self.elements[run.offset as usize + slot] = *record;
+        }
+    }
+}
+
+fn global_particles(element: &SoftElement, base: u32) -> [u32; ELEMENT_PARTICLES as usize] {
+    element.particles().map(|particle| {
+        if particle == SoftElement::UNUSED {
+            NO_SLOT
+        } else {
+            base + particle
+        }
+    })
 }
 
 fn assemble_adjacency(
@@ -331,5 +363,37 @@ impl World {
             .collect();
         self.soft.observe(run, &records);
         positions
+    }
+
+    pub fn soft_body_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        self.apply_plan();
+        self.flush_rows();
+        let runs = self.soft.runs_of(handle);
+        if runs.elements.len == 0 {
+            return Vec::new();
+        }
+        let stride = self.backend.streams.soft.elements.stride();
+        let bytes = runs.elements.len as u64 * stride;
+        let buffer = self.backend.streams.soft.elements.buffer().clone();
+        let raw = self.read_regions(
+            "soft body elements",
+            &[(&buffer, runs.elements.offset as u64 * stride, bytes)],
+        );
+        let records = dynamis_abi::decode::<SoftElementRecord>(&raw);
+        let states = records
+            .iter()
+            .map(SoftElementRecord::state)
+            .collect::<Vec<_>>();
+        assert!(
+            states
+                .iter()
+                .flat_map(|state| state.participants())
+                .all(|particle| runs.particles.span().contains(&(particle as usize))),
+            "a soft body readback must return only its own elements"
+        );
+        self.soft.observe_elements(runs.elements, &records);
+        states
     }
 }
