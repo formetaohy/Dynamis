@@ -61,7 +61,7 @@ fn collect_cell(range: vec2u) {
             atomicStore(&overflow_flag, 1u);
             continue;
         }
-        candidates[slot] = entry_colliders[entry];
+        candidates[slot] = entry_collider(entry);
     }
 }
 
@@ -71,7 +71,7 @@ fn collect_level_entries(level: u32, query_box: Aabb, invocation: u32) {
     let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
     var entry = first + invocation;
     while (entry < end && atomicLoad(&candidate_count) <= CANDIDATES_PER_QUERY) {
-        let collider = entry_colliders[entry];
+        let collider = entry_collider(entry);
         if (aabb_overlaps(aabbs[collider], query_box)) {
             let slot = atomicAdd(&candidate_count, 1u);
             if (slot >= CANDIDATES_PER_QUERY) {

@@ -37,7 +37,7 @@ impl Broadphase {
                     ("collider_owners", SceneStream::ColliderOwners.whole()),
                     ("aabbs", RigidStream::ColliderAabbs.whole()),
                     ("entry_keys", RigidStream::GridEntryKeys.whole()),
-                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("entry_info", RigidStream::GridEntryInfo.whole()),
                     ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
@@ -60,7 +60,7 @@ impl Broadphase {
                     ("collider_owners", SceneStream::ColliderOwners.whole()),
                     ("body_activity", RigidStream::BodyActivity.whole()),
                     ("entry_keys", RigidStream::GridEntryKeys.whole()),
-                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("entry_info", RigidStream::GridEntryInfo.whole()),
                     ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
@@ -78,7 +78,7 @@ impl Broadphase {
         let channels = streams.sort_lanes(
             streams.scene.counter(COUNTER_ENTRIES),
             RigidStream::GridEntryKeys.whole(),
-            RigidStream::GridEntryColliders.whole(),
+            RigidStream::GridEntryInfo.whole(),
         );
         sort.sort(recorder, &channels, 4, 0, streams.rigid.entry_capacity());
         self.cell_pairs.record_stream(recorder, streams);

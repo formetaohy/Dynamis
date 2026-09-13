@@ -1,5 +1,5 @@
 @group(0) @binding(0) var<storage, read_write> entry_keys: array<u32>;
-@group(0) @binding(1) var<storage, read_write> entry_colliders: array<u32>;
+@group(0) @binding(1) var<storage, read_write> entry_info: array<u32>;
 @group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn counter_load(slot: u32) -> u32 {
@@ -15,11 +15,17 @@ fn counter_or(slot: u32, value: u32) {
 }
 
 fn entry_live() -> u32 {
-    return min(counter_load(COUNTER_ENTRIES), arrayLength(&entry_colliders));
+    return min(counter_load(COUNTER_ENTRIES), arrayLength(&entry_info));
 }
 
-fn grid_base_cell() -> f32 {
-    return grid_cell_size(counter_load(COUNTER_GRID_SCALE), counter_load(COUNTER_GRID_EXTENT));
+fn entry_collider(slot: u32) -> u32 {
+    return entry_info[slot] & ENTRY_COLLIDER_MASK;
+}
+
+fn entry_cell(slot: u32, aabb: Aabb, cell_size: f32) -> vec3i {
+    let bits = entry_info[slot] >> ENTRY_CELL_SHIFT;
+    let offset = vec3i(i32(bits & 1u), i32((bits >> 1u) & 1u), i32((bits >> 2u) & 1u));
+    return vec3i(floor(aabb.min / cell_size)) + offset;
 }
 
 fn entry_bounds(live: u32, key: u32) -> vec2u {
@@ -48,4 +54,8 @@ fn entry_bounds(live: u32, key: u32) -> vec2u {
 
 fn entry_bounds_of(level: u32, coord: vec3i) -> vec2u {
     return entry_bounds(entry_live(), cell_key(level, coord));
+}
+
+fn grid_base_cell() -> f32 {
+    return grid_cell_size(counter_load(COUNTER_GRID_SCALE), counter_load(COUNTER_GRID_EXTENT));
 }

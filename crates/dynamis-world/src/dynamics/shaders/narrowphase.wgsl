@@ -607,9 +607,6 @@ fn extent() -> u32 {
 
 fn work(index: u32) {
     contact_valid[index] = 0u;
-    if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
-        return;
-    }
     let first_slot = pair_major[index];
     let second_slot = pair_minor[index];
     let first_body_slot = collider_owners[first_slot];

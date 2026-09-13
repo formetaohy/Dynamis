@@ -35,25 +35,21 @@ impl Capacity {
         live: &Live,
         current: &RigidStreams,
     ) -> (RigidDemand, bool) {
-        self.cooldown = self.cooldown.saturating_sub(1);
         let open = self.cooldown == 0;
         self.pairs.observe(
             measured[COUNTER_PAIRS],
             measured[COUNTER_SPILLOVER_PAIRS] > 0 || measured[COUNTER_SPILLOVER_RESTING] > 0,
             current.pair_capacity(),
-            open,
         );
         self.entries.observe(
             measured[COUNTER_ENTRIES],
             measured[COUNTER_SPILLOVER_ENTRIES] > 0,
             current.entry_capacity(),
-            open,
         );
         self.events.observe(
             measured[COUNTER_EVENTS],
             measured[COUNTER_SPILLOVER_EVENTS] > 0,
             current.event_capacity(),
-            open,
         );
         let pressured =
             self.pairs.pressured() || self.entries.pressured() || self.events.pressured();
@@ -64,11 +60,17 @@ impl Capacity {
             && self.events.is_idle()
             && live.body_commands == 0
             && live.constraint_commands == 0;
-        if open && (pressured || idle) {
+        if pressured {
+            self.entries.settle(false);
+            self.pairs.settle(false);
+            self.events.settle(false);
+        } else if idle {
+            self.entries.settle(true);
+            self.pairs.settle(true);
+            self.events.settle(true);
             self.cooldown = PLAN_COOLDOWN;
-            self.entries.settle(idle);
-            self.pairs.settle(idle);
-            self.events.settle(idle);
+        } else {
+            self.cooldown = self.cooldown.saturating_sub(1);
         }
         let entry_budget = product(live.colliders, MAX_CELLS_PER_COLLIDER, "grid entry");
         let pair_budget = product(live.colliders, STREAM_DENSITY_PAIRS, "pair");

@@ -39,7 +39,7 @@ streams! {
         ccd_factor, CcdFactor: "ccd retreat factors", 4, Contents::Reset, demand.bodies;
         ccd_impact, CcdImpact: "ccd impacts", 16, Contents::Reset, demand.bodies;
         grid_entry_keys, GridEntryKeys: "grid entry keys", 4, Contents::Reset, demand.entries;
-        grid_entry_colliders, GridEntryColliders: "grid entry colliders", 4, Contents::Reset, demand.entries;
+        grid_entry_info, GridEntryInfo: "grid entry info", 4, Contents::Reset, demand.entries;
         pair_major, PairMajor: "pairs major", 4, Contents::Reset, demand.pairs;
         pair_minor, PairMinor: "pairs minor", 4, Contents::Reset, demand.pairs;
         contacts_raw, ContactsRaw: "contacts raw", size_of::<ContactRecord>() as u64, Contents::Reset, demand.pairs;

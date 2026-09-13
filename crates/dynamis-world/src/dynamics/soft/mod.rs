@@ -106,7 +106,7 @@ impl Soft {
                 streams,
                 &[
                     ("entry_keys", RigidStream::GridEntryKeys.whole()),
-                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("entry_info", RigidStream::GridEntryInfo.whole()),
                     ("counters", SceneStream::Counters.whole()),
                     ("params", SceneStream::Params.whole()),
                     ("particles", particles.whole()),

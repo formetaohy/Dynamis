@@ -3,11 +3,11 @@
 @group(0) @binding(5) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(6) var<storage, read> body_activity: array<u32>;
 
-fn emit_entry(collider: u32, level: u32, coord: vec3i) {
+fn emit_entry(collider: u32, level: u32, coord: vec3i, offset: u32) {
     let slot = counter_add(COUNTER_ENTRIES, 1u);
     if (slot < arrayLength(&entry_keys)) {
         entry_keys[slot] = cell_key(level, coord);
-        entry_colliders[slot] = collider;
+        entry_info[slot] = collider | (offset << ENTRY_CELL_SHIFT);
     } else {
         counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
     }
@@ -36,8 +36,11 @@ fn work(index: u32) {
                     counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
                     continue;
                 }
+                let offset = u32(dx - min_cell.x)
+                    | (u32(dy - min_cell.y) << 1u)
+                    | (u32(dz - min_cell.z) << 2u);
                 cells = cells + 1u;
-                emit_entry(index, level, vec3i(dx, dy, dz));
+                emit_entry(index, level, vec3i(dx, dy, dz), offset);
             }
         }
     }

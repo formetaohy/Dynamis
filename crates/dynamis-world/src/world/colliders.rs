@@ -1,5 +1,5 @@
 use super::arena::{Arena, Run};
-use dynamis_layout::ColliderRecord;
+use dynamis_layout::{ColliderRecord, ENTRY_COLLIDER_MASK};
 
 pub(crate) struct ColliderPool {
     arena: Arena,
@@ -60,6 +60,10 @@ impl ColliderPool {
 
     fn take(&mut self, len: u32) -> Run {
         let run = self.arena.take(len);
+        assert!(
+            self.arena.used() <= ENTRY_COLLIDER_MASK,
+            "a collider slot must fit a grid entry"
+        );
         self.records
             .resize(self.arena.used() as usize, ColliderRecord::cleared());
         run

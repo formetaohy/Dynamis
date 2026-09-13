@@ -120,7 +120,7 @@ fn scan_cell(
 ) {
     let range = entry_bounds_of(level, coord);
     for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-        visit_entry(entry_colliders[entry], box, center, radius, held, held_slot);
+        visit_entry(entry_collider(entry), box, center, radius, held, held_slot);
     }
 }
 
@@ -141,7 +141,7 @@ fn scan_level(
             break;
         }
         scanned = scanned + 1u;
-        visit_entry(entry_colliders[entry], box, center, radius, held, held_slot);
+        visit_entry(entry_collider(entry), box, center, radius, held, held_slot);
     }
 }
 

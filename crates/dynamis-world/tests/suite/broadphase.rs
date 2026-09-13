@@ -288,6 +288,93 @@ fn a_reoriented_static_collider_pairs_at_its_new_pose() {
     );
 }
 
+#[test]
+fn a_collider_pair_enters_the_candidate_stream_exactly_once() {
+    for offset in [0.05f32, 0.2, 0.35, 0.5, 0.65] {
+        let mut world = new_world(static_config());
+        world.spawn(BodyDesc::sphere(0.35).mass(0.0).position([0.0, 0.0, 0.0]));
+        world.spawn(BodyDesc::sphere(0.35).position([offset, 0.0, 0.0]));
+        world.step(DT);
+        world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_PAIRS],
+            1,
+            "two overlapping spheres at {offset} span several cells but stay one candidate pair, got {}",
+            world.measured()[COUNTER_PAIRS]
+        );
+        assert_eq!(world.measured()[COUNTER_SPILLOVER_PAIRS], 0);
+    }
+}
+
+#[test]
+fn a_chain_of_colliders_emits_one_pair_per_touching_neighbour() {
+    let mut world = new_world(static_config());
+    for index in 0..16 {
+        world.spawn(BodyDesc::sphere(0.4).position([index as f32 * 0.5, 0.0, 0.0]));
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_PAIRS],
+        15,
+        "sixteen chained spheres hold fifteen touching neighbours, got {}",
+        world.measured()[COUNTER_PAIRS]
+    );
+}
+
+#[test]
+fn a_coarse_collider_emits_one_pair_per_covered_collider() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::cuboid([WIDE, 0.5, WIDE])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    for index in 0..CROWD {
+        let column = (index % 8) as f32 - 3.5;
+        let row = (index / 8) as f32 - 3.5;
+        world.spawn(BodyDesc::sphere(0.4).position([column, 0.4, row]));
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_PAIRS],
+        CROWD as u32,
+        "a wide floor owns exactly one candidate pair per resting body, got {}",
+        world.measured()[COUNTER_PAIRS]
+    );
+}
+
+#[test]
+fn a_dense_pile_fits_the_planned_pair_stream_from_its_first_collapse() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([WIDE, 0.5, WIDE])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    for index in 0..512 {
+        let x = (index % 8) as f32 * 0.8 - 2.8;
+        let z = ((index / 8) % 8) as f32 * 0.8 - 2.8;
+        let y = 1.0 + (index / 64) as f32 * 0.8;
+        world.spawn(BodyDesc::sphere(0.35).position([x, y, z]));
+    }
+    for _ in 0..240 {
+        world.step(DT);
+        world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_SPILLOVER_PAIRS],
+            0,
+            "a collapsing pile must never truncate its candidate pairs, capacity {}",
+            world.stream_capacity().pairs
+        );
+    }
+    assert!(
+        world.measured()[COUNTER_RESTING] > 0,
+        "a settled pile must keep its contacts"
+    );
+}
+
 fn sparse_grains(world: &mut dynamis_world::World, side: usize, spacing: f32) {
     for index in 0..side * side * side {
         let x = (index % side) as f32 * spacing;
@@ -327,27 +414,18 @@ fn a_dense_grain_cluster_pairs_with_its_neighbours_only() {
 }
 
 #[test]
-fn a_dense_grain_cluster_stops_spilling_once_the_plan_catches_up() {
+fn a_dense_grain_cluster_never_spills_its_pair_stream() {
     let mut world = new_world(static_config());
     dense_grains(&mut world, 10);
-    for _ in 0..3 {
+    for frame in 0..6 {
         world.step(DT);
         world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_SPILLOVER_PAIRS],
+            0,
+            "a grain lattice must hold every candidate pair on frame {frame}"
+        );
     }
-    assert_eq!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS],
-        0,
-        "a settled grain lattice must fit the planned pair stream"
-    );
-    for _ in 0..3 {
-        world.step(DT);
-        world.wait();
-    }
-    assert_eq!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS],
-        0,
-        "a settled grain lattice must keep fitting the planned pair stream"
-    );
 }
 
 #[test]

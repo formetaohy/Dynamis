@@ -214,7 +214,7 @@ impl Commit {
                     ("colliders", SceneStream::Colliders.whole()),
                     ("aabbs", RigidStream::ColliderAabbs.whole()),
                     ("entry_keys", RigidStream::GridEntryKeys.whole()),
-                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("entry_info", RigidStream::GridEntryInfo.whole()),
                     ("counters", SceneStream::Counters.whole()),
                     ("query_results", SceneStream::QueryResults.whole()),
                     ("params", SceneStream::Params.whole()),

@@ -26,8 +26,16 @@ fn emit_pair(first: u32, second: u32) {
     }
 }
 
-fn emit_cell_mate(first: u32, second: u32) {
+fn emit_cell_mate(first: u32, first_slot: u32, second: u32, second_slot: u32, cell_size: f32) {
     if (!aabb_overlaps(aabbs[first], aabbs[second])) {
+        return;
+    }
+    let cell = entry_cell(first_slot, aabbs[first], cell_size);
+    if (any(entry_cell(second_slot, aabbs[second], cell_size) != cell)) {
+        return;
+    }
+    let overlap_min = max(aabbs[first].min, aabbs[second].min);
+    if (any(vec3i(floor(overlap_min / cell_size)) != cell)) {
         return;
     }
     emit_pair(first, second);
@@ -39,21 +47,25 @@ fn extent() -> u32 {
 
 fn work(index: u32) {
     let live = extent();
-    if (!collider_is_awake(entry_colliders[index])) {
+    let collider = entry_collider(index);
+    if (!collider_is_awake(collider)) {
         return;
     }
+    let aabb = aabbs[collider];
+    let grid = grid_base_cell();
+    let cell_size = level_cell_size(shape_levels(aabb, grid), grid);
     let key = entry_keys[index];
     var cursor = index + 1u;
     while (cursor < live && entry_keys[cursor] == key) {
-        emit_cell_mate(entry_colliders[index], entry_colliders[cursor]);
+        emit_cell_mate(collider, index, entry_collider(cursor), cursor, cell_size);
         cursor = cursor + 1u;
     }
     var back = index;
     while (back > 0u && entry_keys[back - 1u] == key) {
         back = back - 1u;
-        if (!collider_is_awake(entry_colliders[back])) {
-            emit_cell_mate(entry_colliders[back], entry_colliders[index]);
+        let other = entry_collider(back);
+        if (!collider_is_awake(other)) {
+            emit_cell_mate(other, back, collider, index, cell_size);
         }
     }
 }
-

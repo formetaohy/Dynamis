@@ -28,9 +28,10 @@ fn link_level(collider: u32, aabb: Aabb, level: u32, awake: bool, live: u32, gri
     for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
         for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
             for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
-                let range = entry_bounds(live, cell_key(level, vec3i(dx, dy, dz)));
+                let cell = vec3i(dx, dy, dz);
+                let range = entry_bounds(live, cell_key(level, cell));
                 for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-                    let other = entry_colliders[entry];
+                    let other = entry_collider(entry);
                     if (other == collider) {
                         continue;
                     }
@@ -42,6 +43,13 @@ fn link_level(collider: u32, aabb: Aabb, level: u32, awake: bool, live: u32, gri
                         continue;
                     }
                     if (!aabb_overlaps(aabb, aabbs[other])) {
+                        continue;
+                    }
+                    if (any(entry_cell(entry, aabbs[other], cell_size) != cell)) {
+                        continue;
+                    }
+                    let overlap_min = max(aabb.min, aabbs[other].min);
+                    if (any(vec3i(floor(overlap_min / cell_size)) != cell)) {
                         continue;
                     }
                     emit_pair(collider, other);

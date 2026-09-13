@@ -2,7 +2,6 @@ pub(crate) const MIN_SLOTS: u32 = 64;
 pub(crate) const STREAM_FLOOR: u32 = 256;
 pub(crate) const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 pub(crate) const SLOTS_HEADROOM: u32 = 2;
-pub(crate) const PRESSURE_HEADROOM: u32 = 8;
 pub(crate) const IDLE_FRACTION: u32 = 4;
 pub(crate) const IDLE_DELAY: u32 = 120;
 
@@ -86,12 +85,9 @@ impl StreamWatch {
         idle_steps: 0,
     };
 
-    pub(crate) fn observe(&mut self, observed: u32, spilled: bool, lanes: u32, open: bool) {
-        let free = lanes.saturating_sub(observed);
-        if spilled || free < lanes / PRESSURE_HEADROOM {
-            if open {
-                self.served = self.served.max(observed.saturating_mul(SLOTS_HEADROOM));
-            }
+    pub(crate) fn observe(&mut self, observed: u32, spilled: bool, lanes: u32) {
+        if spilled || observed.saturating_mul(SLOTS_HEADROOM) > lanes {
+            self.served = self.served.max(observed.saturating_mul(SLOTS_HEADROOM));
             self.pressure = true;
             self.idle_steps = 0;
         } else if observed.saturating_mul(IDLE_FRACTION) < lanes {

@@ -53,6 +53,8 @@ declare_constants! {
     pub const FEATURE_TRIANGLE_MASK: u32 = FEATURE_TRIANGLE_SIDE - 1;
     pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
+    pub const ENTRY_CELL_SHIFT: u32 = 29;
+    pub const ENTRY_COLLIDER_MASK: u32 = (1 << ENTRY_CELL_SHIFT) - 1;
     pub const LEVEL_KEY_SHIFT: u32 = 27;
     pub const CELL_HASH_MASK: u32 = 0x07FF_FFFF;
     pub const CONSTRAINT_BALL: u32 = 0;
@@ -114,6 +116,10 @@ const _: () = assert!(
 const _: () = assert!(
     CELL_HASH_MASK == (1 << LEVEL_KEY_SHIFT) - 1,
     "a cell hash must fill every bit below the level"
+);
+const _: () = assert!(
+    MAX_CELLS_PER_COLLIDER <= 1 << (32 - ENTRY_CELL_SHIFT),
+    "a grid entry must pack its cell offset above the collider slot"
 );
 
 pub const DOF_COUNT: u32 = 6;

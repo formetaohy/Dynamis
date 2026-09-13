@@ -238,7 +238,7 @@ impl Rigid {
         let channels = streams.sort_lanes(
             streams.scene.counter(COUNTER_ENTRIES),
             RigidStream::GridEntryKeys.whole(),
-            RigidStream::GridEntryColliders.whole(),
+            RigidStream::GridEntryInfo.whole(),
         );
         self.sort
             .sort(&mut flush, &channels, 4, 0, streams.rigid.entry_capacity());

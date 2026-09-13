@@ -31,7 +31,7 @@ impl Grid {
                     ("collider_owners", SceneStream::ColliderOwners.whole()),
                     ("body_activity", RigidStream::BodyActivity.whole()),
                     ("entry_keys", RigidStream::GridEntryKeys.whole()),
-                    ("entry_colliders", RigidStream::GridEntryColliders.whole()),
+                    ("entry_info", RigidStream::GridEntryInfo.whole()),
                     ("counters", SceneStream::Counters.whole()),
                 ],
                 &[],
