@@ -30,6 +30,7 @@ streams! {
         constraint_commands: u32,
         queries: u32,
         shapes: crate::ShapeCapacity,
+        observed: u32,
     }
     streams {
         params, Params: "step params", size_of::<StepParamsRecord>() as u64, Contents::Scratch, 1, UNIFORM;
@@ -54,6 +55,8 @@ streams! {
         shape_nodes, ShapeNodes: "shape bvh nodes", size_of::<BvhNodeRecord>() as u64, Contents::Durable, demand.shapes.nodes;
         query_records, QueryRecords: "queries", QUERY_BYTES, Contents::Scratch, demand.queries;
         query_results, QueryResults: "query results", QUERY_RESULT_BYTES, Contents::Scratch, demand.queries;
+        observed_ids, ObservedIds: "observed body ids", 4, Contents::Durable, demand.observed;
+        observed_states, ObservedStates: "observed body states", size_of::<BodyStateRecord>() as u64, Contents::Scratch, demand.observed;
         counters, Counters: "world counters", COUNTER_STRIDE, Contents::Durable, COUNTER_DEVICE_COUNT as u32;
     }
 }

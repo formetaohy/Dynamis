@@ -546,7 +546,7 @@ fn a_recycled_source_reuses_the_slots_it_released() {
         }
     }
     assert!(
-        world.stream_capacity().state.vertices < 3 * vertices.len() as u32,
+        world.stream_capacity().state.shapes.vertices < 3 * vertices.len() as u32,
         "the plan must follow the sources that are alive, not the sources that ever were"
     );
 }

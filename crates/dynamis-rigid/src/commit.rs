@@ -26,6 +26,7 @@ pub struct Commit {
     archive_count_sync: Stage,
     static_wake_clear: Stage,
     query: Stage,
+    observe: Stage,
 }
 
 impl Commit {
@@ -228,6 +229,25 @@ impl Commit {
                 ],
                 &dynamis_state::shape_resources(),
             ),
+            observe: Stage::build(
+                context,
+                "observe",
+                rows(
+                    context,
+                    include_str!("../shaders/observe.wgsl"),
+                    CORE,
+                    Count::Observed.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("observed_ids", StateStream::ObservedIds.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("observed_states", StateStream::ObservedStates.whole()),
+                ],
+                &[],
+            ),
         }
     }
 
@@ -239,6 +259,15 @@ impl Commit {
     ) {
         self.query
             .record_workgroups(recorder, streams, frame.query_count);
+    }
+
+    pub fn record_observe(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        count: u32,
+    ) {
+        self.observe.record_rows(recorder, streams, count);
     }
 
     pub fn record(
@@ -260,6 +289,7 @@ impl Commit {
             Count::Constraints.rows(&frame.params),
         );
         self.record_query(recorder, streams, frame);
+        self.record_observe(recorder, streams, frame.observed_count);
     }
 
     pub fn record_gather(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {

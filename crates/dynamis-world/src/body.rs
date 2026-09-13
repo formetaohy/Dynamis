@@ -11,6 +11,8 @@ use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MassProperties, Shape,
 };
 
+pub(crate) const NEVER_REPORTED: u64 = u64::MAX;
+
 #[derive(Clone)]
 pub(crate) struct Bodies {
     pub(crate) alive: Vec<BodyHandle>,
@@ -25,6 +27,7 @@ pub(crate) struct Bodies {
     pub(crate) kinematic: Vec<bool>,
     pub(crate) ccd_count: u32,
     pub(crate) states: Vec<Option<BodyState>>,
+    pub(crate) covered: Vec<u64>,
     pub(crate) device_count: u32,
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) dirty: Vec<u32>,
@@ -47,6 +50,7 @@ impl Bodies {
             kinematic: Vec::new(),
             ccd_count: 0,
             states: Vec::new(),
+            covered: Vec::new(),
             device_count: 0,
             commands: Vec::new(),
             dirty: Vec::new(),
@@ -69,6 +73,7 @@ impl Bodies {
             .resize(rows, BodyDescriptorRecord::zeroed());
         self.kinematic.resize(rows, false);
         self.states.resize(rows, None);
+        self.covered.resize(rows, NEVER_REPORTED);
     }
 }
 
@@ -153,6 +158,8 @@ impl World {
         }
         self.colliders.release(id as u32);
         self.bodies.states[id] = None;
+        self.bodies.covered[id] = NEVER_REPORTED;
+        self.view.forget(handle.id);
         self.bodies.kinematic[id] = false;
         if self.bodies.descriptors[id].flags & BODY_CCD != 0 {
             self.bodies.ccd_count -= 1;
@@ -212,8 +219,8 @@ impl World {
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
         self.validate(handle);
         assert!(
-            self.states_current(),
-            "body states require poll() or wait() after stepping"
+            self.body_current(handle.id),
+            "a body state older than the last step requires wait() or an observation of that body"
         );
         self.bodies.states[handle.id as usize].expect("body state is unavailable")
     }
@@ -230,6 +237,7 @@ impl World {
             sleeping: false,
             step: self.clock.step,
         });
+        self.bodies.covered[id] = self.clock.step;
     }
 
     fn validate_world_geometry(&self, desc: &BodyDesc) {
@@ -657,8 +665,8 @@ impl World {
 impl World {
     pub(crate) fn state_snapshot(&self, id: usize) -> Option<BodyState> {
         assert!(
-            self.states_current(),
-            "body states require poll() or wait() after stepping"
+            self.body_current(id as u32),
+            "a constraint frame requires a current body state; call wait() or observe the body"
         );
         self.bodies.states[id]
     }

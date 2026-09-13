@@ -245,8 +245,11 @@ impl World {
         for (batch, bytes) in self.backend.readback.queries.collect() {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (step, bytes) in self.backend.readback.states.collect() {
-            self.consume_states(step, &bytes);
+        for (sequence, bytes) in self.backend.readback.observations.collect() {
+            self.consume_observations(sequence, &bytes);
+        }
+        for (sequence, bytes) in self.backend.readback.collect_states() {
+            self.consume_states(sequence, &bytes);
         }
         #[cfg(feature = "profile")]
         for timings in self.backend.passes.collect_timings() {
@@ -267,8 +270,11 @@ impl World {
         for (batch, bytes) in self.backend.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (step, bytes) in self.backend.readback.states.drain() {
-            self.consume_states(step, &bytes);
+        for (sequence, bytes) in self.backend.readback.observations.drain() {
+            self.consume_observations(sequence, &bytes);
+        }
+        for (sequence, bytes) in self.backend.readback.drain_states() {
+            self.consume_states(sequence, &bytes);
         }
         #[cfg(feature = "profile")]
         for timings in self.backend.passes.collect_timings() {

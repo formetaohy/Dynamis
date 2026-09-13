@@ -16,6 +16,7 @@ pub struct RigidInputs {
     pub collider_pool: u32,
     pub constraints: u32,
     pub queries: u32,
+    pub observed: u32,
     pub ccd: bool,
 }
 

@@ -1,4 +1,5 @@
 use crate::StepParamsRecord;
+use bytemuck::Zeroable;
 use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 impl StepParamsRecord {
@@ -47,13 +48,14 @@ impl StepParamsRecord {
             edit_run_count: streams.edit_runs,
             body_move_count: streams.body_moves,
             constraint_move_count: streams.constraint_moves,
+            observed_count: streams.observed,
             event_slot,
             particle_count: particles,
             element_count: elements,
             soft_substep_dt: dt / config.soft_substeps as f32,
             soft_body_count: soft_bodies,
             settle_velocity: config.settle_velocity,
-            _wgsl_pad0: [0; 12],
+            ..Self::zeroed()
         }
     }
 }
@@ -74,6 +76,7 @@ pub struct RowStreams {
     pub edit_runs: u32,
     pub body_moves: u32,
     pub constraint_moves: u32,
+    pub observed: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +91,7 @@ pub enum Count {
     EditRuns,
     BodyMoves,
     ConstraintMoves,
+    Observed,
 }
 
 impl Count {
@@ -103,6 +107,7 @@ impl Count {
             Self::EditRuns => "edit_run_count",
             Self::BodyMoves => "body_move_count",
             Self::ConstraintMoves => "constraint_move_count",
+            Self::Observed => "observed_count",
         }
     }
 
@@ -118,6 +123,7 @@ impl Count {
             Self::EditRuns => params.edit_run_count,
             Self::BodyMoves => params.body_move_count,
             Self::ConstraintMoves => params.constraint_move_count,
+            Self::Observed => params.observed_count,
         }
     }
 }

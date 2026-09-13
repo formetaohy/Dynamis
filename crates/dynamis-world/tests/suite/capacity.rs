@@ -346,7 +346,7 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
     let mut world = new_world(gravity_config());
     flat_mesh_floor(&mut world);
     settle(&mut world, 2);
-    let plan = world.stream_capacity();
+    let plan = world.stream_capacity().state.shapes;
     let before = floor_hit_height(&mut world).expect("the floor must answer a downward ray");
 
     let (vertices, triangles) = lifted_mesh();
@@ -359,7 +359,7 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
     settle(&mut world, 2);
 
     assert!(
-        world.stream_capacity().state.vertices > plan.state.vertices,
+        world.stream_capacity().state.shapes.vertices > plan.vertices,
         "the lifted mesh must widen the shape streams"
     );
     let after = floor_hit_height(&mut world)

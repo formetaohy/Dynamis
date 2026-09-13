@@ -13,6 +13,12 @@ pub struct ShapeCapacity {
     pub nodes: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateCapacity {
+    pub shapes: ShapeCapacity,
+    pub observed: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct StateInputs {
     pub bodies: u32,
@@ -23,14 +29,18 @@ pub struct StateInputs {
     pub constraint_commands: u32,
     pub queries: u32,
     pub shapes: ShapeCapacity,
+    pub observed: u32,
 }
 
-pub fn capacity(streams: &StateStreams) -> ShapeCapacity {
-    ShapeCapacity {
-        sources: streams.shape_sources.slots(),
-        vertices: streams.shape_vertices.slots(),
-        triangles: streams.shape_triangles.slots(),
-        nodes: streams.shape_nodes.slots(),
+pub fn capacity(streams: &StateStreams) -> StateCapacity {
+    StateCapacity {
+        shapes: ShapeCapacity {
+            sources: streams.shape_sources.slots(),
+            vertices: streams.shape_vertices.slots(),
+            triangles: streams.shape_triangles.slots(),
+            nodes: streams.shape_nodes.slots(),
+        },
+        observed: streams.observed_ids.slots(),
     }
 }
 
@@ -49,6 +59,7 @@ pub fn floor() -> StateDemand {
             triangles: MIN_SLOTS,
             nodes: MIN_SLOTS,
         },
+        observed: MIN_SLOTS,
     }
 }
 
@@ -122,5 +133,6 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
             ),
             nodes: grown(current.shape_nodes.slots(), inputs.shapes.nodes, MIN_SLOTS),
         },
+        observed: grown(current.observed_ids.slots(), inputs.observed, MIN_SLOTS),
     }
 }

@@ -47,6 +47,7 @@ pub struct RigidFrame {
     pub params: StepParamsRecord,
     pub shape: RigidShape,
     pub query_count: u32,
+    pub observed_count: u32,
     pub simulating: bool,
     pub indexing: bool,
     pub ccd: bool,

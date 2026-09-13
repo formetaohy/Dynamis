@@ -45,6 +45,7 @@ fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
 impl World {
     pub(crate) fn flush_rows(&mut self) {
         let queue = self.backend.gpu.queue().clone();
+        self.flush_observed();
         if self.shapes.dirty {
             self.upload_shapes(&queue);
         }

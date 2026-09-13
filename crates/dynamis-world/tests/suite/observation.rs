@@ -1,9 +1,79 @@
 use super::common::{DT, gravity_config, new_world, settle, static_config};
-use dynamis_model::{BodyDesc, BodyHandle, QueryFilter};
+use dynamis_model::{BodyDesc, BodyHandle, BodyState, QueryFilter};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn falling_sphere(world: &mut dynamis_world::World) -> BodyHandle {
     world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]))
+}
+
+fn crowd(world: &mut dynamis_world::World, count: usize) -> Vec<BodyHandle> {
+    (0..count)
+        .map(|index| {
+            world.spawn(BodyDesc::sphere(0.25).position([
+                (index % 16) as f32 * 0.6,
+                5.0 + (index / 16) as f32 * 0.6,
+                0.0,
+            ]))
+        })
+        .collect()
+}
+
+fn poll_observation(world: &mut dynamis_world::World, body: BodyHandle) -> BodyState {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        world.poll();
+        if let Some(state) = world.try_state(body) {
+            return state;
+        }
+        std::thread::yield_now();
+    }
+    panic!("an observed body must reach the mirror without a sync");
+}
+
+#[test]
+fn an_observation_reports_only_the_bodies_it_observes() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 192);
+    let observed = bodies[0];
+    let untouched = bodies[1];
+    world.try_state(observed);
+    world.step(DT);
+    let state = poll_observation(&mut world, observed);
+    assert!(
+        state.position[1] < 5.0,
+        "an observed body must report its stepped state"
+    );
+    assert_eq!(
+        world.read_state(observed),
+        state,
+        "an observed body must answer a strict read on its own"
+    );
+    assert!(
+        world.stream_capacity().state.observed < world.count() as u32,
+        "the observation streams must follow the observed set, not the world"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(untouched))).is_err(),
+        "an unobserved body must not claim a current state"
+    );
+}
+
+#[test]
+fn observing_more_bodies_widens_the_observation_streams() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 192);
+    for body in &bodies {
+        world.try_state(*body);
+    }
+    world.step(DT);
+    let observed = world.stream_capacity().state.observed;
+    assert!(
+        observed >= bodies.len() as u32,
+        "the observation streams must hold every observed body, got {observed}"
+    );
+    for body in &bodies {
+        poll_observation(&mut world, *body);
+    }
 }
 
 #[test]

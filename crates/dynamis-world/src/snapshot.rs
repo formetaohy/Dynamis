@@ -2,6 +2,7 @@ use super::World;
 use super::backend::archive::StreamArchive;
 use super::backend::registry::Planning;
 use super::body::Bodies;
+use super::body::NEVER_REPORTED;
 use super::clock::Clock;
 use super::colliders::ColliderPool;
 use super::constraint::Constraints;
@@ -84,6 +85,7 @@ impl World {
 
     fn abandon_observations(&mut self) {
         self.view = View::new();
+        self.bodies.covered.fill(NEVER_REPORTED);
         self.events.contact.clear();
         self.events.due.clear();
         self.queries.pending.clear();

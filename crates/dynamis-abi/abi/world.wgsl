@@ -22,6 +22,7 @@ struct StepParams {
     edit_run_count: u32,
     body_move_count: u32,
     constraint_move_count: u32,
+    observed_count: u32,
     event_slot: u32,
     position_iterations: u32,
     contact_margin: f32,

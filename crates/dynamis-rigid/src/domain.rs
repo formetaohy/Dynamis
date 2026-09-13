@@ -82,6 +82,7 @@ impl Domain for RigidDomain {
             params: facts.params,
             shape: RigidShape::of(&facts.counts),
             query_count: inputs.queries,
+            observed_count: inputs.observed,
             simulating: run.awake,
             indexing: run.indexing,
             ccd: inputs.ccd,

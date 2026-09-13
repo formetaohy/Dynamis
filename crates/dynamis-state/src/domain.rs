@@ -1,5 +1,5 @@
 use crate::capacity::floor;
-use crate::{ShapeCapacity, StateDemand, StateInputs, StateStreams};
+use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
@@ -25,7 +25,7 @@ impl Domain for StateDomain {
     type Passes = ();
     type Runtime = ();
     type Frame = ();
-    type Capacity = ShapeCapacity;
+    type Capacity = StateCapacity;
 
     fn minimum() -> StateDemand {
         floor()
@@ -45,7 +45,7 @@ impl Domain for StateDomain {
 
     fn frame(_: &StepFacts, _: &StateInputs, _: Run) {}
 
-    fn capacity(streams: &StateStreams) -> ShapeCapacity {
+    fn capacity(streams: &StateStreams) -> StateCapacity {
         crate::capacity(streams)
     }
 
