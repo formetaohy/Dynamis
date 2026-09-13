@@ -2,9 +2,6 @@
 @group(0) @binding(1) var<storage, read_write> particles: array<SoftParticle>;
 
 fn work(index: u32) {
-    if (index >= params.particle_count) {
-        return;
-    }
     var particle = particles[index];
     if (particle.owner == NO_BODY) {
         return;
@@ -28,6 +25,3 @@ fn work(index: u32) {
     particles[index] = particle;
 }
 
-fn extent() -> u32 {
-    return arrayLength(&particles);
-}

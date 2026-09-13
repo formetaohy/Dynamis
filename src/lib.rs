@@ -22,7 +22,7 @@ pub use dynamis_model::{
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
     ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, MassProperties,
     MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle, SoftBodyDesc,
-    SoftBodyHandle,
+    SoftBodyHandle, SoftElement, SoftElementKind, SoftMaterial,
 };
 pub use dynamis_world::{
     ContactManifold, ContactPoint, QueryHandle, QueryHit, ShapeCapacity, SoftCapacity,

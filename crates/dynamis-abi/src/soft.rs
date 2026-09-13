@@ -1,5 +1,9 @@
-use crate::constant::{NO_BODY, NO_SLOT};
+use crate::constant::{
+    ELEMENT_AREA, ELEMENT_BEND, ELEMENT_DISTANCE, ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY,
+    NO_SLOT,
+};
 use crate::{SoftElementRecord, SoftParticleRecord};
+use dynamis_model::{SoftElement, SoftElementKind};
 
 pub struct SoftParticleInit {
     pub position: [f32; 3],
@@ -68,7 +72,8 @@ impl SoftParticleRecord {
 }
 
 pub struct SoftElementInit {
-    pub particles: [u32; 2],
+    pub kind: u32,
+    pub particles: [u32; ELEMENT_PARTICLES as usize],
     pub rest: f32,
     pub compliance: f32,
 }
@@ -80,15 +85,24 @@ impl SoftElementRecord {
             rest: init.rest,
             compliance: init.compliance,
             lambda: 0.0,
+            kind: init.kind,
         }
     }
 
     pub const fn cleared() -> Self {
         Self {
-            particles: [NO_SLOT; 2],
+            particles: [NO_SLOT; ELEMENT_PARTICLES as usize],
             rest: 0.0,
             compliance: 0.0,
             lambda: 0.0,
+            kind: ELEMENT_DISTANCE,
         }
     }
 }
+
+const _: () = assert!(ELEMENT_PARTICLES as usize == SoftElement::PARTICLES);
+const _: () = assert!(SoftElement::UNUSED == NO_SLOT);
+const _: () = assert!(SoftElementKind::Distance as u32 == ELEMENT_DISTANCE);
+const _: () = assert!(SoftElementKind::Area as u32 == ELEMENT_AREA);
+const _: () = assert!(SoftElementKind::Bend as u32 == ELEMENT_BEND);
+const _: () = assert!(SoftElementKind::Volume as u32 == ELEMENT_VOLUME);

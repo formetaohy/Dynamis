@@ -6,12 +6,13 @@ use dynamis_abi::{
     CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
     ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
     EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
-    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord,
-    RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SoftElementInit, SoftElementRecord, SoftParticleInit,
-    SoftParticleRecord, StepParamsRecord, dof_driven, dof_limited, dof_locked,
+    ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS,
+    FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR,
+    OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE,
+    QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE, SHAPE_CUBOID,
+    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
+    SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord,
+    dof_driven, dof_limited, dof_locked,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
@@ -624,12 +625,16 @@ fn soft_particle_packs_its_scalar_lanes() {
     let cleared = SoftParticleRecord::cleared();
     assert_eq!(cleared.owner, NO_BODY);
     let element = SoftElementRecord::build(SoftElementInit {
-        particles: [0, 1],
+        kind: ELEMENT_VOLUME,
+        particles: [0, 1, 2, 3],
         rest: 0.5,
         compliance: 0.25,
     });
-    assert_eq!(element.particles, [0, 1]);
+    assert_eq!(element.particles, [0, 1, 2, 3]);
     assert_eq!((element.rest, element.compliance), (0.5, 0.25));
-    assert_eq!(element.lambda, 0.0);
-    assert_eq!(SoftElementRecord::cleared().particles, [NO_SLOT; 2]);
+    assert_eq!((element.lambda, element.kind), (0.0, ELEMENT_VOLUME));
+    assert_eq!(
+        SoftElementRecord::cleared().particles,
+        [NO_SLOT; ELEMENT_PARTICLES as usize]
+    );
 }

@@ -22,9 +22,6 @@ fn emit_entry(particle: u32, owner: u32, box: Aabb, level: u32, coord: vec3i, of
 }
 
 fn work(index: u32) {
-    if (index >= params.particle_count) {
-        return;
-    }
     let particle = particles[index];
     if (particle.owner == NO_BODY) {
         return;
@@ -64,6 +61,3 @@ fn work(index: u32) {
     }
 }
 
-fn extent() -> u32 {
-    return arrayLength(&particles);
-}

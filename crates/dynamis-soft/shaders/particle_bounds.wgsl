@@ -7,9 +7,6 @@ fn counter_max(slot: u32, value: u32) {
 }
 
 fn work(index: u32) {
-    if (index >= params.particle_count) {
-        return;
-    }
     let particle = particles[index];
     if (particle.owner == NO_BODY) {
         return;
@@ -24,6 +21,3 @@ fn work(index: u32) {
     );
 }
 
-fn extent() -> u32 {
-    return arrayLength(&particles);
-}

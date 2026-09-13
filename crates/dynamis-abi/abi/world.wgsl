@@ -49,6 +49,18 @@ struct SoftElement {
     rest: f32,
     compliance: f32,
     lambda: f32,
+    kind: u32,
+}
+
+struct SoftContact {
+    normal: vec3f,
+    depth: f32,
+    point: vec3f,
+    friction: f32,
+    partner: u32,
+    group: u32,
+    kind: u32,
+    partner_inverse_mass: f32,
 }
 
 struct BodyState {

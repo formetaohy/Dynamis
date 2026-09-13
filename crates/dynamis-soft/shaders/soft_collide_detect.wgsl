@@ -1,15 +1,13 @@
 @group(0) @binding(4) var<uniform> params: StepParams;
-@group(0) @binding(5) var<storage, read_write> particles: array<SoftParticle>;
+@group(0) @binding(5) var<storage, read> particles: array<SoftParticle>;
 @group(0) @binding(6) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(7) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(8) var<storage, read> colliders: array<Collider>;
 @group(0) @binding(9) var<storage, read> elements: array<SoftElement>;
 @group(0) @binding(10) var<storage, read> adjacency: array<u32>;
-@group(0) @binding(11) var<storage, read_write> reactions: array<atomic<u32>>;
+@group(0) @binding(11) var<storage, read_write> contacts: array<SoftContact>;
 
 const CELL_SCAN_BUDGET: u32 = 4096u;
-const REACTION_SCALE: f32 = 65536.0;
-const REACTION_WORDS: u32 = 8u;
 
 struct ParticleContact {
     separation: f32,
@@ -31,10 +29,6 @@ fn no_contact() -> ParticleContact {
     contact.group = NO_BODY;
     contact.friction = 0.0;
     return contact;
-}
-
-fn load_body(row: u32) -> Body {
-    return Body(body_states[row], body_descs[row]);
 }
 
 fn sphere_probe(center: vec3f, radius: f32) -> WorldShape {
@@ -59,28 +53,19 @@ fn particle_contact(world: WorldShape, center: vec3f, radius: f32) -> ParticleCo
         contact.point = center - normal * radius;
         return contact;
     }
+    let probe = sphere_probe(center, radius);
     if (world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD) {
         var triangle = 0u;
-        let closest = scene_convex_closest(world, sphere_probe(center, radius), &triangle);
+        let closest = scene_convex_closest(world, probe, &triangle);
         contact.separation = closest.distance;
         contact.normal = closest.normal;
         contact.point = closest.point_a;
         return contact;
     }
-    let probe = sphere_probe(center, 0.0);
-    var simplex: array<SimplexPoint, 4>;
-    var count = 0u;
-    let closest = convex_closest(probe, world, &simplex, &count);
-    if (closest.penetrating) {
-        let hit = convex_hit(probe, world);
-        contact.separation = hit.distance - radius;
-        contact.normal = -hit.normal;
-        contact.point = hit.point;
-        return contact;
-    }
-    contact.separation = closest.distance - radius;
-    contact.normal = -closest.normal;
-    contact.point = closest.point_b;
+    let hit = convex_hit(probe, world);
+    contact.separation = hit.distance;
+    contact.normal = -hit.normal;
+    contact.point = hit.point;
     return contact;
 }
 
@@ -94,9 +79,11 @@ fn contact_precedes(candidate: ParticleContact, held: ParticleContact) -> bool {
 fn directly_linked(first: u32, second: u32) -> bool {
     let particle = particles[first];
     for (var slot = 0u; slot < particle.neighbour_count; slot = slot + 1u) {
-        let element = elements[adjacency[particle.neighbour_offset + slot] >> 1u];
-        if (element.particles[0] == second || element.particles[1] == second) {
-            return true;
+        let element = elements[adjacency[particle.neighbour_offset + slot] >> ELEMENT_ROLE_BITS];
+        for (var role = 0u; role < ELEMENT_PARTICLES; role = role + 1u) {
+            if (element.particles[role] == second) {
+                return true;
+            }
         }
     }
     return false;
@@ -198,56 +185,24 @@ fn scan_level(
     }
 }
 
-fn fixed_word(value: f32) -> u32 {
-    return u32(i32(clamp(value * REACTION_SCALE, -2.0e9, 2.0e9)));
-}
-
-fn accumulate_reaction(row: u32, shift: vec3f, spin: vec3f) {
-    let base = row * REACTION_WORDS;
-    atomicAdd(&reactions[base], fixed_word(shift.x));
-    atomicAdd(&reactions[base + 1u], fixed_word(shift.y));
-    atomicAdd(&reactions[base + 2u], fixed_word(shift.z));
-    atomicAdd(&reactions[base + 4u], fixed_word(spin.x));
-    atomicAdd(&reactions[base + 5u], fixed_word(spin.y));
-    atomicAdd(&reactions[base + 6u], fixed_word(spin.z));
-}
-
-fn apply_friction(
-    particle: ptr<function, SoftParticle>,
-    normal: vec3f,
-    depth: f32,
-    friction: f32,
-) {
-    let velocity = (*particle).velocity.xyz;
-    let tangential = velocity - normal * dot(velocity, normal);
-    let slide = length(tangential) * params.soft_substep_dt;
-    if (slide <= 1e-6) {
-        return;
-    }
-    let magnitude = min(slide, sqrt(max(friction, 0.0)) * depth);
-    (*particle).position = vec4f(
-        (*particle).position.xyz - normalize(tangential) * magnitude,
-        (*particle).position.w,
-    );
-}
-
-fn hold_contact_velocity(particle: ptr<function, SoftParticle>, normal: vec3f) {
-    let velocity = (*particle).velocity.xyz;
-    let closing = dot(velocity, normal);
-    if (closing < 0.0) {
-        (*particle).velocity = vec4f(velocity - normal * closing, (*particle).velocity.w);
-    }
+fn no_contact_record() -> SoftContact {
+    var record: SoftContact;
+    record.normal = vec3f(0.0, 1.0, 0.0);
+    record.depth = 0.0;
+    record.point = vec3f(0.0);
+    record.friction = 0.0;
+    record.partner = NO_SLOT;
+    record.group = NO_BODY;
+    record.kind = ENTRY_KIND_PARTICLE;
+    record.partner_inverse_mass = 0.0;
+    return record;
 }
 
 fn work(index: u32) {
-    if (index >= params.particle_count) {
-        return;
-    }
-    var particle = particles[index];
+    let particle = particles[index];
     if (particle.owner == NO_BODY) {
         return;
     }
-    let weight = particle.prev_position.w;
     let radius = particle.position.w;
     let center = particle.position.xyz;
     var held = no_contact();
@@ -297,48 +252,18 @@ fn work(index: u32) {
             }
         }
     }
-    if (held.partner == NO_SLOT || held.separation >= 0.0) {
-        particles[index] = particle;
-        return;
-    }
-    let depth = -held.separation;
-    let normal = held.normal;
-    let friction = max(particle.velocity.w, 0.0) * max(held.friction, 0.0);
-    if (held.kind == ENTRY_KIND_COLLIDER) {
-        let body = load_body(held.group);
-        var shifted = center + normal * depth;
-        if (body.desc.inverse_mass > 0.0) {
-            let ra = held.point - body_com(body);
-            let rn = cross(ra, normal);
-            let body_weight = body.desc.inverse_mass;
-            let k = weight + body_weight + dot(rn, apply_inverse_inertia(body, rn));
-            if (k > 0.0) {
-                let lambda = depth / k;
-                shifted = center + normal * (lambda * weight);
-                accumulate_reaction(
-                    held.group,
-                    -normal * (lambda * body_weight),
-                    -apply_inverse_inertia(body, rn) * lambda,
-                );
-            }
-        }
-        if (weight > 0.0) {
-            particle.position = vec4f(shifted, radius);
-            hold_contact_velocity(&particle, normal);
-            apply_friction(&particle, normal, depth, friction);
-        }
-    } else if (weight > 0.0) {
-        let other_weight = particles[held.partner].prev_position.w;
-        let total = weight + other_weight;
-        if (total > 0.0) {
-            particle.position = vec4f(center - normal * (depth * weight / total), radius);
-            hold_contact_velocity(&particle, normal);
-            apply_friction(&particle, normal, depth, friction);
+    var record = no_contact_record();
+    if (held.partner != NO_SLOT && held.separation < 0.0) {
+        record.normal = held.normal;
+        record.depth = -held.separation;
+        record.point = held.point;
+        record.friction = max(held.friction, 0.0);
+        record.partner = held.partner;
+        record.group = held.group;
+        record.kind = held.kind;
+        if (held.kind == ENTRY_KIND_PARTICLE) {
+            record.partner_inverse_mass = particles[held.partner].prev_position.w;
         }
     }
-    particles[index] = particle;
-}
-
-fn extent() -> u32 {
-    return arrayLength(&particles);
+    contacts[index] = record;
 }

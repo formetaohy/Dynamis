@@ -1,7 +1,10 @@
 use super::World;
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use dynamis_abi::{SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord};
+use dynamis_abi::{
+    ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, SoftElementInit, SoftElementRecord, SoftParticleInit,
+    SoftParticleRecord,
+};
 use dynamis_math::{add, quat_rotate};
 use dynamis_model::{SoftBodyDesc, SoftBodyHandle, SoftElement};
 use dynamis_soft::SoftStreams;
@@ -117,7 +120,7 @@ impl SoftBodies {
         self.grow_to(id);
         let particles = self.particle_arena.take(desc.particles.len() as u32);
         let elements = self.take_element_run(desc.elements.len());
-        let adjacency = self.take_adjacency_run(desc.elements.len() * 4);
+        let adjacency = self.take_adjacency_run(desc.elements.len() * ELEMENT_PARTICLES as usize);
         self.particles.resize(
             self.particle_arena.used() as usize,
             SoftParticleRecord::cleared(),
@@ -155,12 +158,10 @@ impl SoftBodies {
         for (slot, element) in desc.elements.iter().enumerate() {
             self.elements[elements.offset as usize + slot] =
                 SoftElementRecord::build(SoftElementInit {
-                    particles: [
-                        particles.offset + element.particles[0],
-                        particles.offset + element.particles[1],
-                    ],
-                    rest: element.rest,
-                    compliance: element.compliance,
+                    kind: element.kind() as u32,
+                    particles: element.particles(),
+                    rest: element.rest(),
+                    compliance: element.compliance_of(),
                 });
         }
         self.runs[id as usize] = SoftRuns {
@@ -276,7 +277,7 @@ fn assemble_adjacency(
     }
     for (slot, element) in elements.iter().enumerate() {
         for (role, particle) in element.participants().enumerate() {
-            let entry = ((element_base + slot as u32) << 1) | role as u32;
+            let entry = ((element_base + slot as u32) << ELEMENT_ROLE_BITS) | role as u32;
             adjacency[cursor[particle as usize] as usize] = entry;
             cursor[particle as usize] += 1;
         }

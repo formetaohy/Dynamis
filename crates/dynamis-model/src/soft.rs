@@ -1,25 +1,93 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoftBodyHandle {
     pub id: u32,
     pub generation: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoftElementKind {
+    Distance = 0,
+    Area = 1,
+    Bend = 2,
+    Volume = 3,
+}
+
+impl SoftElementKind {
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::Distance => 2,
+            Self::Area => 3,
+            Self::Bend | Self::Volume => SoftElement::PARTICLES,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SoftElement {
-    pub particles: [u32; 2],
-    pub rest: f32,
-    pub compliance: f32,
+    kind: SoftElementKind,
+    particles: [u32; SoftElement::PARTICLES],
+    rest: f32,
+    compliance: f32,
 }
 
 impl SoftElement {
-    pub fn distance(first: u32, second: u32, rest: f32) -> Self {
-        assert!(first != second, "a soft element needs distinct particles");
-        assert!(rest > 0.0, "a soft element needs a positive rest length");
+    pub const PARTICLES: usize = 4;
+    pub const UNUSED: u32 = u32::MAX;
+
+    fn build(kind: SoftElementKind, particles: [u32; Self::PARTICLES], rest: f32) -> Self {
+        let participants = &particles[..kind.arity()];
+        for (slot, particle) in participants.iter().enumerate() {
+            assert!(
+                participants[..slot].iter().all(|other| other != particle),
+                "a soft element needs distinct particles"
+            );
+        }
         Self {
-            particles: [first, second],
+            kind,
+            particles,
             rest,
             compliance: 0.0,
         }
+    }
+
+    pub fn distance(first: u32, second: u32, rest: f32) -> Self {
+        assert!(
+            rest > 0.0,
+            "a distance element needs a positive rest length"
+        );
+        let mut particles = [Self::UNUSED; Self::PARTICLES];
+        particles[..2].copy_from_slice(&[first, second]);
+        Self::build(SoftElementKind::Distance, particles, rest)
+    }
+
+    pub fn area(first: u32, second: u32, third: u32, rest: f32) -> Self {
+        assert!(rest > 0.0, "an area element needs a positive rest area");
+        let mut particles = [Self::UNUSED; Self::PARTICLES];
+        particles[..3].copy_from_slice(&[first, second, third]);
+        Self::build(SoftElementKind::Area, particles, rest)
+    }
+
+    pub fn bend(apex_a: u32, apex_b: u32, edge_a: u32, edge_b: u32, rest: f32) -> Self {
+        assert!(
+            (0.0..=std::f32::consts::PI).contains(&rest),
+            "a bend element needs a rest angle within [0, pi]"
+        );
+        Self::build(
+            SoftElementKind::Bend,
+            [apex_a, apex_b, edge_a, edge_b],
+            rest,
+        )
+    }
+
+    pub fn volume(first: u32, second: u32, third: u32, fourth: u32, rest: f32) -> Self {
+        assert!(rest > 0.0, "a volume element needs a positive rest volume");
+        Self::build(
+            SoftElementKind::Volume,
+            [first, second, third, fourth],
+            rest,
+        )
     }
 
     pub fn compliance(mut self, compliance: f32) -> Self {
@@ -31,8 +99,24 @@ impl SoftElement {
         self
     }
 
+    pub const fn kind(&self) -> SoftElementKind {
+        self.kind
+    }
+
+    pub const fn rest(&self) -> f32 {
+        self.rest
+    }
+
+    pub const fn compliance_of(&self) -> f32 {
+        self.compliance
+    }
+
+    pub const fn particles(&self) -> [u32; Self::PARTICLES] {
+        self.particles
+    }
+
     pub fn participants(&self) -> impl Iterator<Item = u32> + '_ {
-        self.particles.iter().copied()
+        self.particles[..self.kind.arity()].iter().copied()
     }
 }
 
@@ -149,44 +233,60 @@ impl SoftBodyDesc {
                 particles.push([row as f32 * spacing, 0.0, column as f32 * spacing]);
             }
         }
+        let mut triangles = Vec::new();
+        for column in 0..columns - 1 {
+            for row in 0..rows - 1 {
+                let first = index(row, column);
+                let second = index(row + 1, column);
+                let third = index(row, column + 1);
+                let fourth = index(row + 1, column + 1);
+                triangles.push([first, second, fourth]);
+                triangles.push([first, fourth, third]);
+            }
+        }
         let mut elements = Vec::new();
-        let mut distance = |first: u32, second: u32, compliance: f32| {
-            elements.push(
-                SoftElement::distance(
-                    first,
-                    second,
-                    particle_distance(&particles[first as usize], &particles[second as usize]),
-                )
-                .compliance(compliance),
-            );
-        };
         for column in 0..columns {
             for row in 0..rows {
                 if row + 1 < rows {
-                    distance(index(row, column), index(row + 1, column), material.stretch);
+                    elements.push(edge_element(
+                        &particles,
+                        index(row, column),
+                        index(row + 1, column),
+                        material.stretch,
+                    ));
                 }
                 if column + 1 < columns {
-                    distance(index(row, column), index(row, column + 1), material.stretch);
-                }
-                if row + 1 < rows && column + 1 < columns {
-                    distance(
+                    elements.push(edge_element(
+                        &particles,
                         index(row, column),
-                        index(row + 1, column + 1),
-                        material.shear,
-                    );
-                    distance(
-                        index(row + 1, column),
                         index(row, column + 1),
-                        material.shear,
-                    );
-                }
-                if row + 2 < rows {
-                    distance(index(row, column), index(row + 2, column), material.bend);
-                }
-                if column + 2 < columns {
-                    distance(index(row, column), index(row, column + 2), material.bend);
+                        material.stretch,
+                    ));
                 }
             }
+        }
+        for triangle in &triangles {
+            elements.push(
+                SoftElement::area(
+                    triangle[0],
+                    triangle[1],
+                    triangle[2],
+                    triangle_area(&particles, *triangle),
+                )
+                .compliance(material.shear),
+            );
+        }
+        for [edge_a, edge_b, apex_a, apex_b] in shared_edges(&triangles) {
+            elements.push(
+                SoftElement::bend(
+                    apex_a,
+                    apex_b,
+                    edge_a,
+                    edge_b,
+                    dihedral_angle(&particles, apex_a, apex_b, edge_a, edge_b),
+                )
+                .compliance(material.bend),
+            );
         }
         Self::new(particles, elements)
     }
@@ -215,46 +315,58 @@ impl SoftBodyDesc {
                 }
             }
         }
-        let mut edges: Vec<[u32; 2]> = Vec::new();
+        let mut edges: BTreeSet<[u32; 2]> = BTreeSet::new();
+        let mut tets: Vec<[u32; 4]> = Vec::new();
         for layer in 0..layers.saturating_sub(1) {
             for column in 0..columns.saturating_sub(1) {
                 for row in 0..rows.saturating_sub(1) {
                     let corners = [
                         index(row, column, layer),
                         index(row + 1, column, layer),
-                        index(row, column + 1, layer),
-                        index(row + 1, column + 1, layer),
                         index(row, column, layer + 1),
                         index(row + 1, column, layer + 1),
+                        index(row, column + 1, layer),
+                        index(row + 1, column + 1, layer),
                         index(row, column + 1, layer + 1),
                         index(row + 1, column + 1, layer + 1),
                     ];
                     for tet in cube_tetrahedra(corners) {
                         for first in 0..3 {
                             for second in first + 1..4 {
-                                let edge = [tet[first], tet[second]];
-                                if !edges.contains(&edge) {
-                                    edges.push(edge);
-                                }
+                                let edge = if tet[first] < tet[second] {
+                                    [tet[first], tet[second]]
+                                } else {
+                                    [tet[second], tet[first]]
+                                };
+                                edges.insert(edge);
                             }
                         }
+                        tets.push(tet);
                     }
                 }
             }
         }
-        let elements = edges
-            .into_iter()
-            .map(|edge| {
-                let rest =
-                    particle_distance(&particles[edge[0] as usize], &particles[edge[1] as usize]);
-                let compliance = if axis_aligned(&particles, edge) {
-                    material.stretch
-                } else {
-                    material.shear
-                };
-                SoftElement::distance(edge[0], edge[1], rest).compliance(compliance)
-            })
-            .collect();
+        let mut elements = Vec::new();
+        for edge in &edges {
+            let compliance = if axis_aligned(&particles, *edge) {
+                material.stretch
+            } else {
+                material.shear
+            };
+            elements.push(edge_element(&particles, edge[0], edge[1], compliance));
+        }
+        for tet in &tets {
+            elements.push(
+                SoftElement::volume(
+                    tet[0],
+                    tet[1],
+                    tet[2],
+                    tet[3],
+                    tetrahedron_volume(&particles, *tet),
+                )
+                .compliance(material.volume),
+            );
+        }
         Self::new(particles, elements)
     }
 
@@ -278,7 +390,7 @@ impl SoftBodyDesc {
             "soft body compliance must be non-negative"
         );
         for element in &mut self.elements {
-            element.compliance = compliance;
+            *element = element.compliance(compliance);
         }
         self
     }
@@ -340,6 +452,113 @@ fn particle_distance(first: &[f32; 3], second: &[f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+fn offset(particles: &[[f32; 3]], first: u32, second: u32) -> [f32; 3] {
+    let from = particles[first as usize];
+    let to = particles[second as usize];
+    [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+}
+
+fn cross(first: [f32; 3], second: [f32; 3]) -> [f32; 3] {
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
+}
+
+fn dot(first: [f32; 3], second: [f32; 3]) -> f32 {
+    first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
+}
+
+fn length(vector: [f32; 3]) -> f32 {
+    dot(vector, vector).sqrt()
+}
+
+fn edge_element(particles: &[[f32; 3]], first: u32, second: u32, compliance: f32) -> SoftElement {
+    SoftElement::distance(
+        first,
+        second,
+        particle_distance(&particles[first as usize], &particles[second as usize]),
+    )
+    .compliance(compliance)
+}
+
+fn triangle_area(particles: &[[f32; 3]], triangle: [u32; 3]) -> f32 {
+    0.5 * length(cross(
+        offset(particles, triangle[0], triangle[1]),
+        offset(particles, triangle[0], triangle[2]),
+    ))
+}
+
+fn tetrahedron_volume(particles: &[[f32; 3]], tet: [u32; 4]) -> f32 {
+    dot(
+        cross(
+            offset(particles, tet[0], tet[1]),
+            offset(particles, tet[0], tet[2]),
+        ),
+        offset(particles, tet[0], tet[3]),
+    )
+    .abs()
+        / 6.0
+}
+
+fn dihedral_angle(
+    particles: &[[f32; 3]],
+    apex_a: u32,
+    apex_b: u32,
+    edge_a: u32,
+    edge_b: u32,
+) -> f32 {
+    let first = cross(
+        offset(particles, apex_a, edge_a),
+        offset(particles, apex_a, edge_b),
+    );
+    let second = cross(
+        offset(particles, apex_b, edge_b),
+        offset(particles, apex_b, edge_a),
+    );
+    let first_length = length(first);
+    let second_length = length(second);
+    assert!(
+        first_length > 0.0 && second_length > 0.0,
+        "a bend element needs two non-degenerate triangles"
+    );
+    (dot(first, second) / (first_length * second_length))
+        .clamp(-1.0, 1.0)
+        .acos()
+}
+
+fn shared_edges(triangles: &[[u32; 3]]) -> Vec<[u32; 4]> {
+    let mut apexes: BTreeMap<[u32; 2], Vec<u32>> = BTreeMap::new();
+    for triangle in triangles {
+        for role in 0..3 {
+            let edge_a = triangle[role];
+            let edge_b = triangle[(role + 1) % 3];
+            let apex = triangle[(role + 2) % 3];
+            let key = if edge_a < edge_b {
+                [edge_a, edge_b]
+            } else {
+                [edge_b, edge_a]
+            };
+            let shared = apexes.entry(key).or_default();
+            assert!(
+                shared.len() < 2,
+                "a cloth edge must belong to at most two triangles"
+            );
+            shared.push(apex);
+        }
+    }
+    apexes
+        .into_iter()
+        .filter_map(|([edge_a, edge_b], shared)| {
+            let [apex_a, apex_b] = shared[..] else {
+                return None;
+            };
+            Some([edge_a, edge_b, apex_a, apex_b])
+        })
+        .collect()
+}
+
 fn axis_aligned(particles: &[[f32; 3]], edge: [u32; 2]) -> bool {
     let first = particles[edge[0] as usize];
     let second = particles[edge[1] as usize];
@@ -352,10 +571,10 @@ fn axis_aligned(particles: &[[f32; 3]], edge: [u32; 2]) -> bool {
 fn cube_tetrahedra(corners: [u32; 8]) -> [[u32; 4]; 6] {
     [
         [corners[0], corners[1], corners[3], corners[7]],
-        [corners[0], corners[1], corners[5], corners[7]],
-        [corners[0], corners[2], corners[3], corners[7]],
+        [corners[0], corners[3], corners[2], corners[7]],
         [corners[0], corners[2], corners[6], corners[7]],
+        [corners[0], corners[6], corners[4], corners[7]],
         [corners[0], corners[4], corners[5], corners[7]],
-        [corners[0], corners[4], corners[6], corners[7]],
+        [corners[0], corners[5], corners[1], corners[7]],
     ]
 }

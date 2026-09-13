@@ -37,7 +37,13 @@ declare_constants! {
     pub const CONTACT_ANNOUNCED: u32 = 0x8000_0000;
     pub const ISLAND_WAKE: u32 = 1;
     pub const CONTACT_MAX_POINTS: u32 = 4;
-    pub const ELEMENT_PARTICLES: u32 = 2;
+    pub const ELEMENT_PARTICLES: u32 = 4;
+    pub const ELEMENT_ROLE_BITS: u32 = 2;
+    pub const ELEMENT_ROLE_MASK: u32 = (1 << ELEMENT_ROLE_BITS) - 1;
+    pub const ELEMENT_DISTANCE: u32 = 0;
+    pub const ELEMENT_AREA: u32 = 1;
+    pub const ELEMENT_BEND: u32 = 2;
+    pub const ELEMENT_VOLUME: u32 = 3;
     pub const FEATURE_POINT: u32 = 0;
     pub const FEATURE_VERTEX: u32 = 1 << 28;
     pub const FEATURE_EDGE: u32 = 2 << 28;
@@ -126,6 +132,14 @@ const _: () = assert!(
 const _: () = assert!(
     CELL_HASH_MASK == (1 << LEVEL_KEY_SHIFT) - 1,
     "a cell hash must fill every bit below the level"
+);
+const _: () = assert!(
+    1 << ELEMENT_ROLE_BITS == ELEMENT_PARTICLES,
+    "an element role must be addressable by a fixed bit width"
+);
+const _: () = assert!(
+    ELEMENT_DISTANCE < ELEMENT_AREA && ELEMENT_AREA < ELEMENT_BEND && ELEMENT_BEND < ELEMENT_VOLUME,
+    "element kinds must fill their code space"
 );
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER <= 1 << 3,

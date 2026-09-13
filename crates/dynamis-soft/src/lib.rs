@@ -6,7 +6,7 @@ pub use streams::{DOMAIN, SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
-use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows, stream};
+use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
 use dynamis_state::{Count, StateStream, StepFrame};
@@ -25,7 +25,8 @@ domain_passes!(
     bounds: Phase::Prepare => "soft_bounds",
     entries: Phase::Entries => "soft_entries",
     substeps: Phase::Deform => "soft_substeps",
-    collide: Phase::Deform => "soft_collide",
+    detect: Phase::Deform => "soft_collide_detect",
+    resolve: Phase::Deform => "soft_collide_resolve",
     apply: Phase::Deform => "soft_apply",
 );
 
@@ -37,7 +38,8 @@ pub struct Soft {
     reset: Stage,
     elements: Stage,
     gather: Stage,
-    collide: Stage,
+    detect: Stage,
+    resolve: Stage,
     apply: Stage,
 }
 
@@ -50,12 +52,11 @@ impl Soft {
             bounds: Stage::build(
                 context,
                 "soft_bounds",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/particle_bounds.wgsl"),
                     PARTICLE_SHAPE,
-                    "work",
-                    particles,
+                    Count::Particles.field(),
                 ),
                 streams,
                 &[
@@ -68,12 +69,11 @@ impl Soft {
             entries: Stage::build(
                 context,
                 "soft_entries",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/particle_entries.wgsl"),
                     &index,
-                    "work",
-                    particles,
+                    Count::Particles.field(),
                 ),
                 streams,
                 &[
@@ -89,12 +89,11 @@ impl Soft {
             integrate: Stage::build(
                 context,
                 "soft_integrate",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/soft_integrate.wgsl"),
                     CORE,
-                    "work",
-                    particles,
+                    Count::Particles.field(),
                 ),
                 streams,
                 &[
@@ -106,12 +105,11 @@ impl Soft {
             reset: Stage::build(
                 context,
                 "soft_reset",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/soft_reset.wgsl"),
                     CORE,
-                    "work",
-                    SoftStream::Elements,
+                    Count::Elements.field(),
                 ),
                 streams,
                 &[
@@ -123,51 +121,47 @@ impl Soft {
             elements: Stage::build(
                 context,
                 "soft_elements",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/soft_elements.wgsl"),
                     CORE,
-                    "work",
-                    SoftStream::Elements,
+                    Count::Elements.field(),
                 ),
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
                     ("elements", SoftStream::Elements.whole()),
-                    ("element_deltas", SoftStream::ElementDeltas.whole()),
+                    ("contributions", SoftStream::Contributions.whole()),
                 ],
                 &[],
             ),
             gather: Stage::build(
                 context,
                 "soft_gather",
-                stream(
+                rows(
                     context,
                     include_str!("../shaders/soft_gather.wgsl"),
                     CORE,
-                    "work",
-                    particles,
+                    Count::Particles.field(),
                 ),
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
-                    ("elements", SoftStream::Elements.whole()),
-                    ("element_deltas", SoftStream::ElementDeltas.whole()),
+                    ("contributions", SoftStream::Contributions.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
                 ],
                 &[],
             ),
-            collide: Stage::build(
+            detect: Stage::build(
                 context,
-                "soft_collide",
-                stream(
+                "soft_collide_detect",
+                rows(
                     context,
-                    include_str!("../shaders/soft_collide.wgsl"),
+                    include_str!("../shaders/soft_collide_detect.wgsl"),
                     GEOMETRY_INDEX,
-                    "work",
-                    particles,
+                    Count::Particles.field(),
                 ),
                 streams,
                 &[
@@ -178,13 +172,33 @@ impl Soft {
                     ("colliders", StateStream::Colliders.whole()),
                     ("elements", SoftStream::Elements.whole()),
                     ("adjacency", SoftStream::Adjacency.whole()),
-                    ("reactions", SoftStream::Reactions.whole()),
+                    ("contacts", SoftStream::Contacts.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
                     ("counters", StateStream::Counters.whole()),
                 ],
                 &dynamis_state::shape_resources(),
+            ),
+            resolve: Stage::build(
+                context,
+                "soft_collide_resolve",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_collide_resolve.wgsl"),
+                    CORE,
+                    Count::Particles.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("contacts", SoftStream::Contacts.whole()),
+                    ("reactions", SoftStream::Reactions.whole()),
+                ],
+                &[],
             ),
             apply: Stage::build(
                 context,
@@ -226,32 +240,39 @@ impl Soft {
         if !frame.soft_bodies {
             return;
         }
+        let particles = Count::Particles.rows(&frame.params);
+        let elements = Count::Elements.rows(&frame.params);
         match phase {
             Phase::Prepare => {
                 let mut bounds = schedule.open(encoder, self.passes.bounds);
-                self.bounds.record_stream(&mut bounds, streams);
+                self.bounds.record_rows(&mut bounds, streams, particles);
                 drop(bounds);
             }
             Phase::Entries => {
                 let mut entries = schedule.open(encoder, self.passes.entries);
-                self.entries.record_stream(&mut entries, streams);
+                self.entries.record_rows(&mut entries, streams, particles);
                 drop(entries);
             }
             Phase::Deform => {
                 let mut substeps = schedule.open(encoder, self.passes.substeps);
                 for _ in 0..frame.params.soft_substeps {
-                    self.reset.record_stream(&mut substeps, streams);
-                    self.integrate.record_stream(&mut substeps, streams);
+                    self.reset.record_rows(&mut substeps, streams, elements);
+                    self.integrate
+                        .record_rows(&mut substeps, streams, particles);
                     for _ in 0..frame.params.soft_iterations {
-                        self.elements.record_stream(&mut substeps, streams);
-                        self.gather.record_stream(&mut substeps, streams);
+                        self.elements.record_rows(&mut substeps, streams, elements);
+                        self.gather.record_rows(&mut substeps, streams, particles);
                     }
                 }
                 drop(substeps);
 
-                let mut collide = schedule.open(encoder, self.passes.collide);
-                self.collide.record_stream(&mut collide, streams);
-                drop(collide);
+                let mut detect = schedule.open(encoder, self.passes.detect);
+                self.detect.record_rows(&mut detect, streams, particles);
+                drop(detect);
+
+                let mut resolve = schedule.open(encoder, self.passes.resolve);
+                self.resolve.record_rows(&mut resolve, streams, particles);
+                drop(resolve);
 
                 let mut apply = schedule.open(encoder, self.passes.apply);
                 self.apply

@@ -1,5 +1,5 @@
 use super::common::{DT, distance, gravity_config, new_world, settle};
-use dynamis_model::{BodyDesc, SoftBodyDesc, SoftMaterial};
+use dynamis_model::{BodyDesc, SoftBodyDesc, SoftElement, SoftMaterial};
 
 fn chain() -> SoftBodyDesc {
     SoftBodyDesc::net(
@@ -200,16 +200,18 @@ fn a_wider_soft_body_widens_the_soft_streams() {
 fn two_identical_soft_bodies_observe_identical_positions() {
     let mut first = new_world(gravity_config());
     let mut second = new_world(gravity_config());
-    let desc = SoftBodyDesc::lattice([3, 3, 3], 0.25, SoftMaterial::rigid())
-        .radius(0.12)
-        .position([0.0, 3.0, 0.0]);
+    let desc = SoftBodyDesc::lattice([3, 3, 3], 0.3, SoftMaterial::new(0.001, 0.001, 0.0, 0.0001))
+        .radius(0.15)
+        .position([0.0, 2.0, 0.0]);
     let first_body = first.add_soft_body(desc.clone());
     let second_body = second.add_soft_body(desc);
+    super::common::static_sphere_ground(&mut first, 1.0);
+    super::common::static_sphere_ground(&mut second, 1.0);
     let first_start = first.soft_body_positions(first_body);
     let second_start = second.soft_body_positions(second_body);
     assert_eq!(first_start, second_start);
-    settle(&mut first, 75);
-    settle(&mut second, 75);
+    settle(&mut first, 90);
+    settle(&mut second, 90);
     assert_eq!(
         first.soft_body_positions(first_body),
         second.soft_body_positions(second_body),
@@ -352,7 +354,7 @@ fn the_compliant_equilibrium_is_independent_of_the_iteration_count() {
     );
 }
 #[test]
-fn a_tetrahedral_lattice_resists_compression_while_a_net_collapses() {
+fn a_tetrahedral_lattice_keeps_its_shape_while_an_axis_only_net_shears_away() {
     let mut heights = Vec::new();
     for braced in [false, true] {
         let mut world = new_world(gravity_config());
@@ -399,19 +401,256 @@ fn a_tetrahedral_lattice_resists_compression_while_a_net_collapses() {
         let pinned = [0, 1, 2, 3, 4, 5, 6, 7, 8];
         let handle = world.add_soft_body(desc.pinned(&pinned));
         settle(&mut world, 200);
-        let positions = world.soft_body_positions(handle);
-        let lowest = positions
-            .iter()
-            .map(|position| position[1])
-            .fold(f32::MAX, f32::min);
-        let highest = positions
-            .iter()
-            .map(|position| position[1])
-            .fold(f32::MIN, f32::max);
-        heights.push(highest - lowest);
+        heights.push(height_of(&world.soft_body_positions(handle)));
     }
     assert!(
-        heights[1] > heights[0] * 1.2,
-        "shear bracing must keep the lattice taller than an axis-only net, {heights:?}"
+        heights[1] > heights[0] * 1.05,
+        "tetrahedral bracing must keep the lattice taller than an axis-only net, {heights:?}"
     );
+    assert!(
+        heights[1] > 0.78,
+        "a rigid lattice must hold its rest height, got {}",
+        heights[1]
+    );
+}
+
+#[test]
+fn a_volume_element_holds_its_tetrahedron_against_gravity() {
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(probe_tetrahedron(0.0));
+    settle(&mut world, 400);
+    let positions = world.soft_body_positions(handle);
+    assert!(
+        (positions[3][1] - 1.0).abs() < 0.01,
+        "a rigid volume element must hold its apex, got {:?}",
+        positions[3]
+    );
+    assert!(
+        (tetrahedron_volume(&positions) - 1.0 / 6.0).abs() < 0.005,
+        "a rigid volume element must hold its rest volume"
+    );
+}
+
+#[test]
+fn a_compliant_volume_element_reaches_its_hookean_volume_deficit() {
+    let compliance = 0.0002;
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(probe_tetrahedron(compliance));
+    settle(&mut world, 200);
+    let mut deficit = 0.0;
+    let mut samples = 0.0;
+    for _ in 0..300 {
+        world.step(DT);
+        deficit += 1.0 / 6.0 - tetrahedron_volume(&world.soft_body_positions(handle));
+        samples += 1.0;
+    }
+    let deficit = deficit / samples;
+    let expected = 6.0 * compliance * 9.81;
+    assert!(
+        (deficit - expected).abs() < 0.002,
+        "a compliant tetrahedron must sag by its Hookean volume deficit {expected}, got {deficit}"
+    );
+}
+
+#[test]
+fn a_volume_compliance_softens_the_lattice_under_load() {
+    let mut heights = Vec::new();
+    for volume in [0.0, 0.001] {
+        let mut world = new_world(gravity_config());
+        let handle = world.add_soft_body(
+            SoftBodyDesc::lattice([3, 3, 3], 0.4, SoftMaterial::new(0.002, 0.002, 0.0, volume))
+                .radius(0.1)
+                .position([0.0, 2.0, 0.0])
+                .pinned(&[0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        );
+        settle(&mut world, 240);
+        heights.push(height_of(&world.soft_body_positions(handle)));
+    }
+    assert!(
+        heights[0] < heights[1] * 0.95,
+        "a rigid volume element must hold the stretched lattice back, {heights:?}"
+    );
+}
+
+#[test]
+fn an_area_element_holds_its_triangle_against_gravity() {
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(probe_triangle(0.0));
+    settle(&mut world, 400);
+    let positions = world.soft_body_positions(handle);
+    assert!(
+        (positions[2][1] - 1.0).abs() < 0.01,
+        "a rigid area element must hold its apex, got {:?}",
+        positions[2]
+    );
+    assert!(
+        (triangle_area(&positions) - 0.5).abs() < 0.005,
+        "a rigid area element must hold its rest area"
+    );
+}
+
+#[test]
+fn a_compliant_area_element_reaches_its_hookean_area_deficit() {
+    let compliance = 0.005;
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(probe_triangle(compliance));
+    settle(&mut world, 200);
+    let mut deficit = 0.0;
+    let mut samples = 0.0;
+    for _ in 0..300 {
+        world.step(DT);
+        deficit += 0.5 - triangle_area(&world.soft_body_positions(handle));
+        samples += 1.0;
+    }
+    let deficit = deficit / samples;
+    let expected = 2.0 * compliance * 9.81;
+    assert!(
+        (deficit - expected).abs() < 0.01,
+        "a compliant triangle must sag by its Hookean area deficit {expected}, got {deficit}"
+    );
+}
+
+#[test]
+fn a_bend_element_holds_its_dihedral_angle_against_gravity() {
+    let mut folds = Vec::new();
+    for compliance in [0.0, 0.05] {
+        let mut world = new_world(gravity_config());
+        let handle = world.add_soft_body(probe_hinge(compliance));
+        settle(&mut world, 200);
+        let mut apex = 0.0;
+        let mut samples = 0.0;
+        for _ in 0..200 {
+            world.step(DT);
+            apex += world.soft_body_positions(handle)[0][1];
+            samples += 1.0;
+        }
+        folds.push(apex / samples);
+    }
+    assert!(
+        folds[0].abs() < 0.01,
+        "a rigid bend element must hold the flap in its rest plane, got {}",
+        folds[0]
+    );
+    assert!(
+        folds[1] < -0.05,
+        "a compliant bend element must let the flap fold, got {}",
+        folds[1]
+    );
+}
+
+#[test]
+fn a_fast_soft_body_never_sinks_into_a_solid_collider() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let handle = world.add_soft_body(
+        SoftBodyDesc::lattice([3, 3, 3], 0.3, SoftMaterial::rigid())
+            .radius(0.1)
+            .position([0.0, 3.0, 0.0]),
+    );
+    let mut lowest = f32::MAX;
+    for _ in 0..300 {
+        world.step(DT);
+        let positions = world.soft_body_positions(handle);
+        lowest = lowest.min(
+            positions
+                .iter()
+                .map(|position| position[1])
+                .fold(f32::MAX, f32::min),
+        );
+    }
+    assert!(
+        lowest > 0.0,
+        "a dropping soft body must never sink into a solid collider, got {lowest}"
+    );
+    assert!(
+        lowest < 0.15,
+        "the soft body must come to rest on the collider surface, got {lowest}"
+    );
+}
+
+fn height_of(positions: &[[f32; 3]]) -> f32 {
+    let lowest = positions
+        .iter()
+        .map(|position| position[1])
+        .fold(f32::MAX, f32::min);
+    let highest = positions
+        .iter()
+        .map(|position| position[1])
+        .fold(f32::MIN, f32::max);
+    highest - lowest
+}
+
+fn tetrahedron_volume(positions: &[[f32; 3]]) -> f32 {
+    let first = sub(positions[1], positions[0]);
+    let second = sub(positions[2], positions[0]);
+    let third = sub(positions[3], positions[0]);
+    dot(cross(first, second), third).abs() / 6.0
+}
+
+fn triangle_area(positions: &[[f32; 3]]) -> f32 {
+    let first = sub(positions[1], positions[0]);
+    let second = sub(positions[2], positions[0]);
+    0.5 * length(cross(first, second))
+}
+
+fn sub(first: [f32; 3], second: [f32; 3]) -> [f32; 3] {
+    [
+        first[0] - second[0],
+        first[1] - second[1],
+        first[2] - second[2],
+    ]
+}
+
+fn cross(first: [f32; 3], second: [f32; 3]) -> [f32; 3] {
+    [
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    ]
+}
+
+fn dot(first: [f32; 3], second: [f32; 3]) -> f32 {
+    first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
+}
+
+fn length(vector: [f32; 3]) -> f32 {
+    dot(vector, vector).sqrt()
+}
+
+fn probe_tetrahedron(compliance: f32) -> SoftBodyDesc {
+    SoftBodyDesc::new(
+        vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.25, 1.0, 0.25],
+        ],
+        vec![SoftElement::volume(0, 1, 2, 3, 1.0 / 6.0).compliance(compliance)],
+    )
+    .pinned(&[0, 1, 2])
+}
+
+fn probe_triangle(compliance: f32) -> SoftBodyDesc {
+    SoftBodyDesc::new(
+        vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.25, 1.0, 0.0]],
+        vec![SoftElement::area(0, 1, 2, 0.5).compliance(compliance)],
+    )
+    .pinned(&[0, 1])
+}
+
+fn probe_hinge(compliance: f32) -> SoftBodyDesc {
+    SoftBodyDesc::new(
+        vec![
+            [0.5, 0.0, 1.0],
+            [0.5, 0.0, -1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        vec![SoftElement::bend(0, 1, 2, 3, 0.0).compliance(compliance)],
+    )
+    .pinned(&[1, 2, 3])
 }

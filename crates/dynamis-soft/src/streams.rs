@@ -1,4 +1,4 @@
-use dynamis_abi::{SoftElementRecord, SoftParticleRecord};
+use dynamis_abi::{ELEMENT_PARTICLES, SoftContactRecord, SoftElementRecord, SoftParticleRecord};
 use dynamis_gpu::Contents;
 use dynamis_pass::streams;
 use std::mem::size_of;
@@ -19,7 +19,8 @@ streams! {
         particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Preserve, demand.particles;
         elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Preserve, demand.elements;
         adjacency, Adjacency: "soft adjacency", 4, Contents::Preserve, demand.adjacency;
-        element_deltas, ElementDeltas: "soft element multipliers", 4, Contents::Reset, demand.elements;
+        contributions, Contributions: "soft element contributions", size_of::<[f32; 4]>() as u64, Contents::Reset, demand.element_contributions();
+        contacts, Contacts: "soft particle contacts", size_of::<SoftContactRecord>() as u64, Contents::Reset, demand.particles;
         reactions, Reactions: "soft reactions", 4, Contents::Preserve, demand.reaction_words();
     }
 }
@@ -27,5 +28,9 @@ streams! {
 impl SoftDemand {
     pub const fn reaction_words(&self) -> u32 {
         self.bodies * REACTION_WORDS
+    }
+
+    pub const fn element_contributions(&self) -> u32 {
+        self.elements * ELEMENT_PARTICLES
     }
 }
