@@ -1,4 +1,5 @@
 use crate::{Readback, SubmissionEncoder};
+use std::collections::VecDeque;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, ComputePassTimestampWrites, Device, QUERY_SIZE,
     QuerySet, QuerySetDescriptor, QueryType,
@@ -24,6 +25,7 @@ pub struct GpuTimer {
     readback: Readback,
     labels: Vec<&'static str>,
     period_ns: f32,
+    ran: VecDeque<Vec<bool>>,
 }
 
 impl GpuTimer {
@@ -62,6 +64,7 @@ impl GpuTimer {
             readback,
             labels: labels.to_vec(),
             period_ns,
+            ran: VecDeque::new(),
         }
     }
 
@@ -90,24 +93,43 @@ impl GpuTimer {
         &mut self,
         encoder: &mut SubmissionEncoder,
         sequence: u64,
+        ran: &[bool],
     ) -> Option<(u64, Vec<GpuPassTiming>)> {
+        assert_eq!(
+            ran.len(),
+            self.labels.len(),
+            "a captured frame declares one activity flag per pass"
+        );
         let count = (self.labels.len() * 2) as u32;
         encoder.resolve_query_set(&self.query_set, 0..count, &self.resolved, 0);
         let displaced =
             self.readback
                 .enqueue(encoder, &self.resolved, 0, self.resolved.size(), sequence);
-        displaced.map(|(frame, bytes)| (frame, self.decode(&bytes)))
+        self.ran.push_back(ran.to_vec());
+        displaced.map(|(frame, bytes)| {
+            let ran = self.retired();
+            (frame, self.decode(&bytes, &ran))
+        })
     }
 
     pub fn collect(&mut self) -> Vec<(u64, Vec<GpuPassTiming>)> {
-        self.readback
-            .collect()
+        let retired = self.readback.collect();
+        retired
             .into_iter()
-            .map(|(frame, bytes)| (frame, self.decode(&bytes)))
+            .map(|(frame, bytes)| {
+                let ran = self.retired();
+                (frame, self.decode(&bytes, &ran))
+            })
             .collect()
     }
 
-    fn decode(&self, bytes: &[u8]) -> Vec<GpuPassTiming> {
+    fn retired(&mut self) -> Vec<bool> {
+        self.ran
+            .pop_front()
+            .expect("a retired frame declares the passes that ran")
+    }
+
+    fn decode(&self, bytes: &[u8], ran: &[bool]) -> Vec<GpuPassTiming> {
         let (chunks, remainder) = bytes.as_chunks::<QUERY_BYTES>();
         assert!(
             remainder.is_empty(),
@@ -125,6 +147,7 @@ impl GpuTimer {
         self.labels
             .iter()
             .enumerate()
+            .filter(|(slot, _)| ran[*slot])
             .map(|(slot, label)| GpuPassTiming {
                 label,
                 nanoseconds: ticks[slot * 2 + 1].wrapping_sub(ticks[slot * 2]) as f64

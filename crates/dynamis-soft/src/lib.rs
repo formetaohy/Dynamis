@@ -8,7 +8,7 @@ use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
 use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows, stream};
 use dynamis_pass::Resources;
-use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
 use dynamis_state::{Count, StateStream, StepFrame};
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
@@ -22,14 +22,11 @@ fn particle_index() -> Vec<&'static str> {
 domain_passes!(
     SoftPasses,
     "soft",
-    bounds => "soft_bounds",
-    entries => "soft_entries",
-    integrate => "soft_integrate",
-    reset => "soft_reset",
-    elements => "soft_elements",
-    gather => "soft_gather",
-    collide => "soft_collide",
-    apply => "soft_apply",
+    bounds: Phase::Prepare => "soft_bounds",
+    entries: Phase::Entries => "soft_entries",
+    substeps: Phase::Deform => "soft_substeps",
+    collide: Phase::Deform => "soft_collide",
+    apply: Phase::Deform => "soft_apply",
 );
 
 pub struct Soft {
@@ -210,47 +207,50 @@ impl Soft {
         }
     }
 
-    pub fn encode_bounds(
+    pub fn record(
         &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-    ) {
-        let mut bounds = schedule.open(encoder, self.passes.bounds);
-        self.bounds.record_stream(&mut bounds, streams);
-        drop(bounds);
-    }
-
-    pub fn encode_entries(
-        &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-    ) {
-        let mut entries = schedule.open(encoder, self.passes.entries);
-        self.entries.record_stream(&mut entries, streams);
-        drop(entries);
-    }
-
-    pub fn encode(
-        &self,
-        schedule: &Schedule,
+        phase: Phase,
+        schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
         frame: &StepFrame,
     ) {
-        let mut solve = schedule.open(encoder, self.passes.integrate);
-        for _ in 0..frame.params.soft_substeps {
-            self.reset.record_stream(&mut solve, streams);
-            self.integrate.record_stream(&mut solve, streams);
-            for _ in 0..frame.params.soft_iterations {
-                self.elements.record_stream(&mut solve, streams);
-                self.gather.record_stream(&mut solve, streams);
-            }
+        if !frame.soft_bodies {
+            return;
         }
-        self.collide.record_stream(&mut solve, streams);
-        self.apply
-            .record_rows(&mut solve, streams, Count::Bodies.rows(&frame.params));
-        drop(solve);
+        match phase {
+            Phase::Prepare => {
+                let mut bounds = schedule.open(encoder, self.passes.bounds);
+                self.bounds.record_stream(&mut bounds, streams);
+                drop(bounds);
+            }
+            Phase::Entries => {
+                let mut entries = schedule.open(encoder, self.passes.entries);
+                self.entries.record_stream(&mut entries, streams);
+                drop(entries);
+            }
+            Phase::Deform => {
+                let mut substeps = schedule.open(encoder, self.passes.substeps);
+                for _ in 0..frame.params.soft_substeps {
+                    self.reset.record_stream(&mut substeps, streams);
+                    self.integrate.record_stream(&mut substeps, streams);
+                    for _ in 0..frame.params.soft_iterations {
+                        self.elements.record_stream(&mut substeps, streams);
+                        self.gather.record_stream(&mut substeps, streams);
+                    }
+                }
+                drop(substeps);
+
+                let mut collide = schedule.open(encoder, self.passes.collide);
+                self.collide.record_stream(&mut collide, streams);
+                drop(collide);
+
+                let mut apply = schedule.open(encoder, self.passes.apply);
+                self.apply
+                    .record_rows(&mut apply, streams, Count::Bodies.rows(&frame.params));
+                drop(apply);
+            }
+            _ => {}
+        }
     }
 }

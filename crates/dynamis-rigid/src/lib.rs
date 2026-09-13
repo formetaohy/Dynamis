@@ -22,7 +22,7 @@ const CONTACT: &[&str] = &[
 use commands::Commands;
 use commit::Commit;
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{Schedule, domain_passes};
+use dynamis_pass::{Phase, Schedule, domain_passes};
 use dynamis_sort::RadixSort;
 use entries::Entries;
 use integrate::Integrate;
@@ -41,24 +41,24 @@ pub use streams::{
 domain_passes!(
     RigidPasses,
     "rigid",
-    commands => "commands",
-    integrate => "integrate",
-    entries => "entries",
-    narrowphase => "narrowphase",
-    islands => "islands",
-    solver_prepare => "solver_prepare",
-    solver => "solver",
-    advance => "advance",
+    commands: Phase::Commands => "commands",
+    integrate: Phase::Prepare => "integrate",
+    entries: Phase::Entries => "entries",
+    narrowphase: Phase::Contacts => "narrowphase",
+    islands: Phase::Contacts => "islands",
+    solver_prepare: Phase::Contacts => "solver_prepare",
+    solver: Phase::Contacts => "solver",
+    advance: Phase::Contacts => "advance",
 );
 
 domain_passes!(
     RigidResolutionPasses,
     "rigid resolution",
-    solver_position => "solver_position",
-    sleep => "sleep",
-    commit => "commit",
-    resting_gather => "resting_gather",
-    resting_index => "resting_index",
+    solver_position: Phase::Project => "solver_position",
+    sleep: Phase::Project => "sleep",
+    commit: Phase::Project => "commit",
+    resting_gather: Phase::Project => "resting_gather",
+    resting_index: Phase::Project => "resting_index",
 );
 
 fn island_rounds(streams: &impl Resources) -> u32 {
@@ -101,101 +101,79 @@ impl Rigid {
         }
     }
 
-    pub fn encode_commands(
+    pub fn record(
         &self,
-        schedule: &Schedule,
+        phase: Phase,
+        schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
         frame: &StepFrame,
     ) {
-        let mut commands = schedule.open(encoder, self.passes.commands);
-        self.commands.record(&mut commands, streams, frame);
-        drop(commands);
-    }
+        let simulating = frame.simulating();
+        match phase {
+            Phase::Commands => {
+                let mut commands = schedule.open(encoder, self.passes.commands);
+                self.commands.record(&mut commands, streams, frame);
+                drop(commands);
+            }
+            Phase::Prepare if simulating => {
+                let mut integrate = schedule.open(encoder, self.passes.integrate);
+                self.integrate
+                    .record(&mut integrate, streams, frame, &self.sort);
+                drop(integrate);
+            }
+            Phase::Entries if simulating => {
+                let mut entries = schedule.open(encoder, self.passes.entries);
+                self.entries.record(&mut entries, streams, frame);
+                drop(entries);
+            }
+            Phase::Contacts if simulating => {
+                let mut narrowphase = schedule.open(encoder, self.passes.narrowphase);
+                self.narrowphase
+                    .record(&mut narrowphase, streams, &self.sort);
+                drop(narrowphase);
 
-    pub fn encode_prepare(
-        &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-        frame: &StepFrame,
-    ) {
-        let mut integrate = schedule.open(encoder, self.passes.integrate);
-        self.integrate
-            .record(&mut integrate, streams, frame, &self.sort);
-        drop(integrate);
-    }
+                let mut islands = schedule.open(encoder, self.passes.islands);
+                self.islands
+                    .record(&mut islands, streams, frame, island_rounds(streams));
+                drop(islands);
 
-    pub fn encode_entries(
-        &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-        frame: &StepFrame,
-    ) {
-        let mut entries = schedule.open(encoder, self.passes.entries);
-        self.entries.record(&mut entries, streams, frame);
-        drop(entries);
-    }
+                let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
+                self.solver.record_prepare(&mut prepare, streams, frame);
+                drop(prepare);
 
-    pub fn encode_contacts(
-        &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-        frame: &StepFrame,
-    ) {
-        let mut narrowphase = schedule.open(encoder, self.passes.narrowphase);
-        self.narrowphase
-            .record(&mut narrowphase, streams, &self.sort);
-        drop(narrowphase);
+                let mut solver = schedule.open(encoder, self.passes.solver);
+                self.solver.record(&mut solver, streams, frame, &self.sort);
+                drop(solver);
 
-        let mut islands = schedule.open(encoder, self.passes.islands);
-        self.islands
-            .record(&mut islands, streams, frame, island_rounds(streams));
-        drop(islands);
+                let mut advance = schedule.open(encoder, self.passes.advance);
+                self.integrate.record_advance(&mut advance, streams, frame);
+                drop(advance);
+            }
+            Phase::Project => {
+                if simulating {
+                    let mut position = schedule.open(encoder, self.resolution.solver_position);
+                    self.solver
+                        .record_position_iterations(&mut position, streams, frame);
+                    drop(position);
 
-        let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
-        self.solver.record_prepare(&mut prepare, streams, frame);
-        drop(prepare);
-
-        let mut solver = schedule.open(encoder, self.passes.solver);
-        self.solver.record(&mut solver, streams, frame, &self.sort);
-        drop(solver);
-
-        let mut advance = schedule.open(encoder, self.passes.advance);
-        self.integrate.record_advance(&mut advance, streams, frame);
-        drop(advance);
-    }
-
-    pub fn encode_resolution(
-        &self,
-        schedule: &Schedule,
-        encoder: &mut wgpu::CommandEncoder,
-        streams: &impl Resources,
-        frame: &StepFrame,
-        idle: bool,
-    ) {
-        if !idle {
-            let mut position = schedule.open(encoder, self.resolution.solver_position);
-            self.solver
-                .record_position_iterations(&mut position, streams, frame);
-            drop(position);
-
-            let mut sleep = schedule.open(encoder, self.resolution.sleep);
-            self.sleep.record(&mut sleep, streams, frame);
-            drop(sleep);
-        }
-        let mut commit = schedule.open(encoder, self.resolution.commit);
-        self.commit.record(&mut commit, streams, frame);
-        drop(commit);
-        if !idle {
-            let mut gather = schedule.open(encoder, self.resolution.resting_gather);
-            self.commit.record_gather(&mut gather, streams);
-            drop(gather);
-            let mut index = schedule.open(encoder, self.resolution.resting_index);
-            self.commit.record_index(&mut index, streams, &self.sort);
-            drop(index);
+                    let mut sleep = schedule.open(encoder, self.resolution.sleep);
+                    self.sleep.record(&mut sleep, streams, frame);
+                    drop(sleep);
+                }
+                let mut commit = schedule.open(encoder, self.resolution.commit);
+                self.commit.record(&mut commit, streams, frame);
+                drop(commit);
+                if simulating {
+                    let mut gather = schedule.open(encoder, self.resolution.resting_gather);
+                    self.commit.record_gather(&mut gather, streams);
+                    drop(gather);
+                    let mut index = schedule.open(encoder, self.resolution.resting_index);
+                    self.commit.record_index(&mut index, streams, &self.sort);
+                    drop(index);
+                }
+            }
+            _ => {}
         }
     }
 

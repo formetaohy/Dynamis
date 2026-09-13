@@ -1,7 +1,7 @@
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_pass::Resources;
-use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
 use dynamis_state::{Count, StateStream, StepFrame};
 
 use dynamis_abi::COUNTER_PAIRS;
@@ -11,8 +11,8 @@ use dynamis_kernels::{CORE, GEOMETRY, rows, stream};
 domain_passes!(
     CcdPasses,
     "ccd",
-    sweep => "ccd_sweep",
-    apply => "ccd_apply",
+    sweep: Phase::Continuous => "ccd_sweep",
+    apply: Phase::Continuous => "ccd_apply",
 );
 
 pub struct Ccd {
@@ -71,13 +71,17 @@ impl Ccd {
         }
     }
 
-    pub fn encode(
+    pub fn record(
         &self,
-        schedule: &Schedule,
+        phase: Phase,
+        schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
         frame: &StepFrame,
     ) {
+        if phase != Phase::Continuous || !frame.ccd_bodies || !frame.simulating() {
+            return;
+        }
         let mut sweep = schedule.open(encoder, self.passes.sweep);
         self.sweep.record_stream(&mut sweep, streams);
         drop(sweep);

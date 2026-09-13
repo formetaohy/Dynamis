@@ -10,14 +10,14 @@ pub use streams::{
 use dynamis_abi::COUNTER_ENTRIES;
 use dynamis_gpu::GpuContext;
 use dynamis_kernels::{GRID_INDEX, stream};
-use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
+use dynamis_pass::{Phase, Resources, Schedule, Stage, domain_passes};
 use dynamis_sort::{RadixSort, SortChannels};
-use dynamis_state::StateStream;
+use dynamis_state::{StateStream, StepFrame};
 
 domain_passes!(
     BroadphasePasses,
     "broadphase",
-    index => "broadphase",
+    index: Phase::Index => "broadphase",
 );
 
 pub struct Broadphase {
@@ -99,12 +99,17 @@ impl Broadphase {
             .sort(recorder, &channels, 4, 0, entry_capacity(streams));
     }
 
-    pub fn encode(
+    pub fn record(
         &self,
-        schedule: &Schedule,
+        phase: Phase,
+        schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
+        frame: &StepFrame,
     ) {
+        if phase != Phase::Index || !frame.simulating() {
+            return;
+        }
         let mut index = schedule.open(encoder, self.passes.index);
         self.sort_entries(&mut index, streams);
         self.cell_pairs.record_stream(&mut index, streams);

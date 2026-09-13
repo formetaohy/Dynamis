@@ -44,16 +44,7 @@ impl World {
         let frame = self.frame(dt, query_count);
         self.write_step_records(&frame);
         let batch = self.submit_queries(step, query_count);
-        let quiet = self.backend.measured_step.is_some_and(|measured| {
-            self.backend.measured[COUNTER_ACTIVE] == 0
-                && self
-                    .backend
-                    .commanded_step
-                    .is_none_or(|commanded| commanded <= measured)
-        });
-        let soft_active = self.soft_active();
-        let idle = quiet && self.constraints.alive.is_empty() && query_count == 0 && !soft_active;
-        self.encode_step(&frame, batch, step, idle, soft_active);
+        self.encode_step(&frame, batch, step);
         self.bodies.device_count = frame.params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
@@ -79,6 +70,11 @@ impl World {
     }
 
     pub(crate) fn frame(&self, dt: f32, query_count: u32) -> StepFrame {
+        let synced = self.backend.measured_step.filter(|measured| {
+            self.backend
+                .commanded_step
+                .is_none_or(|commanded| commanded <= *measured)
+        });
         StepFrame {
             params: StepParamsRecord::new(
                 &self.config,
@@ -99,6 +95,9 @@ impl World {
                 self.event_slot_of(self.clock.step),
             ),
             query_count,
+            awake_bodies: synced.map(|_| self.backend.measured[COUNTER_ACTIVE]),
+            ccd_bodies: self.ccd_active(),
+            soft_bodies: self.soft_active(),
         }
     }
 
@@ -164,27 +163,15 @@ impl World {
         Some(batch)
     }
 
-    fn encode_step(
-        &mut self,
-        frame: &StepFrame,
-        batch: Option<u64>,
-        step: u64,
-        idle: bool,
-        soft_active: bool,
-    ) {
+    fn encode_step(&mut self, frame: &StepFrame, batch: Option<u64>, step: u64) {
         let device = self.backend.gpu.device().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
         self.copy_events(&mut encoder);
         self.copy_breaks(&mut encoder);
-        self.backend.passes.encode(
-            &mut encoder,
-            &self.backend.streams,
-            frame,
-            idle,
-            self.ccd_active(),
-            soft_active,
-        );
+        self.backend
+            .passes
+            .record(&mut encoder, &self.backend.streams, frame);
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);

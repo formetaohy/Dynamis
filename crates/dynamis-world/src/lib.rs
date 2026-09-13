@@ -141,6 +141,15 @@ impl World {
         self.backend.gpu.is_warm()
     }
 
+    pub fn pass_labels(&self) -> Vec<&'static str> {
+        self.backend
+            .passes
+            .declared()
+            .iter()
+            .map(|pass| pass.label)
+            .collect()
+    }
+
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
         (step % EVENT_SLOTS as u64) as u32
     }

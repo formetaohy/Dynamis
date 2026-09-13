@@ -105,7 +105,7 @@ fn pass_timings_split_a_step_by_stage() {
             );
             busy.record(pipeline.pipeline(), &[&group], 4096);
         }
-        if let Some((_, timings)) = timer.capture(&mut encoder, frame) {
+        if let Some((_, timings)) = timer.capture(&mut encoder, frame, &[true, true]) {
             reported = Some(timings);
             encoder.submit(context.queue());
             break;
@@ -130,6 +130,48 @@ fn pass_timings_split_a_step_by_stage() {
         "per-pass attribution must separate an empty pass ({}) from real work ({})",
         timings[0].nanoseconds,
         timings[1].nanoseconds
+    );
+}
+
+#[test]
+fn a_pass_that_never_opened_is_never_reported() {
+    let context = shared();
+    let labels: &'static [&'static str] = &["idle", "busy"];
+    let mut timer = GpuTimer::new(
+        context.device(),
+        labels,
+        context.timestamp_period_ns(),
+        "skipped",
+    );
+    let pipeline = burn_pipeline();
+    let group = burn_group(&pipeline);
+    let mut reported: Option<Vec<GpuPassTiming>> = None;
+    for frame in 0..6 {
+        let mut encoder = SubmissionEncoder::new(context.device(), "skipped frame");
+        {
+            let mut busy = ComputeRecorder::begin_timed(
+                &mut encoder,
+                labels[1],
+                Some(timer.writes(1)),
+                context.workgroups_per_row(),
+            );
+            busy.record(pipeline.pipeline(), &[&group], 4096);
+        }
+        if let Some((_, timings)) = timer.capture(&mut encoder, frame, &[false, true]) {
+            reported = Some(timings);
+            encoder.submit(context.queue());
+            break;
+        }
+        encoder.submit(context.queue());
+    }
+    let timings = reported.expect("a double-buffered timer must report a completed frame");
+    assert_eq!(
+        timings
+            .iter()
+            .map(|timing| timing.label)
+            .collect::<Vec<_>>(),
+        &["busy"],
+        "a pass that never opened must stay out of the profile"
     );
 }
 

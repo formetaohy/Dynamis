@@ -16,6 +16,18 @@ pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 pub struct StepFrame {
     pub params: StepParamsRecord,
     pub query_count: u32,
+    pub awake_bodies: Option<u32>,
+    pub ccd_bodies: bool,
+    pub soft_bodies: bool,
+}
+
+impl StepFrame {
+    pub fn simulating(&self) -> bool {
+        self.awake_bodies != Some(0)
+            || self.params.constraint_count > 0
+            || self.query_count > 0
+            || self.soft_bodies
+    }
 }
 
 #[derive(Clone, Copy)]

@@ -1,7 +1,7 @@
 use super::streams::Streams;
 use dynamis_broadphase::{Broadphase, BroadphasePasses};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Schedule};
+use dynamis_pass::{Pass, PassOrder, Phase, Schedule};
 use dynamis_rigid::{Ccd, CcdPasses, Rigid, RigidPasses, RigidResolutionPasses};
 use dynamis_soft::{Soft, SoftPasses};
 use dynamis_state::StepFrame;
@@ -37,43 +37,25 @@ impl StepPasses {
         }
     }
 
-    pub(crate) fn encode(
-        &self,
+    pub(crate) fn record(
+        &mut self,
         encoder: &mut CommandEncoder,
         streams: &Streams,
         frame: &StepFrame,
-        idle: bool,
-        ccd_active: bool,
-        soft_active: bool,
     ) {
-        self.rigid
-            .encode_commands(&self.schedule, encoder, streams, frame);
-        if idle {
-            self.rigid
-                .encode_resolution(&self.schedule, encoder, streams, frame, true);
-            return;
+        let schedule = &mut self.schedule;
+        schedule.begin_step();
+        for phase in Phase::ALL {
+            self.rigid.record(*phase, schedule, encoder, streams, frame);
+            self.broadphase
+                .record(*phase, schedule, encoder, streams, frame);
+            self.ccd.record(*phase, schedule, encoder, streams, frame);
+            self.soft.record(*phase, schedule, encoder, streams, frame);
         }
-        self.rigid
-            .encode_prepare(&self.schedule, encoder, streams, frame);
-        if soft_active {
-            self.soft.encode_bounds(&self.schedule, encoder, streams);
-        }
-        self.rigid
-            .encode_entries(&self.schedule, encoder, streams, frame);
-        if soft_active {
-            self.soft.encode_entries(&self.schedule, encoder, streams);
-        }
-        self.broadphase.encode(&self.schedule, encoder, streams);
-        self.rigid
-            .encode_contacts(&self.schedule, encoder, streams, frame);
-        if ccd_active {
-            self.ccd.encode(&self.schedule, encoder, streams, frame);
-        }
-        if soft_active {
-            self.soft.encode(&self.schedule, encoder, streams, frame);
-        }
-        self.rigid
-            .encode_resolution(&self.schedule, encoder, streams, frame, false);
+    }
+
+    pub(crate) fn declared(&self) -> &[Pass] {
+        self.schedule.declared()
     }
 
     pub(crate) fn encode_queries(
