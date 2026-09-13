@@ -104,7 +104,11 @@ impl World {
     fn reserve_streams(&mut self, archive: &StreamArchive) {
         let device = self.backend.gpu.device().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis snapshot reserve");
-        if self.backend.streams.require(&device, &mut encoder, archive) {
+        if self
+            .backend
+            .streams
+            .require(&device, &mut encoder, |label| archive.floor(label))
+        {
             self.submit(encoder);
         }
     }

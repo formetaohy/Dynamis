@@ -1,12 +1,15 @@
 pub(crate) mod archive;
 mod capacity;
+mod frame;
 mod passes;
 mod readback;
 pub(crate) mod streams;
 
 pub use capacity::StreamCapacity;
 
+pub(crate) use frame::StepFrames;
 pub(crate) use passes::StepPasses;
+pub(crate) use streams::Live;
 
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;

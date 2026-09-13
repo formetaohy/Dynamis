@@ -1,4 +1,6 @@
 use super::streams::RigidStream;
+use crate::RigidFrame;
+use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_DEVICE_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE,
 };
@@ -6,9 +8,7 @@ use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::{Stage, workgroups_of};
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Commands {
     reset_counters: Stage,
@@ -233,7 +233,7 @@ impl Commands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.reset(recorder, streams);
         self.record_moves(recorder, streams, frame);
@@ -250,7 +250,7 @@ impl Commands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.body_move_gather
             .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
@@ -274,7 +274,7 @@ impl Commands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.body_edits
             .record_rows(recorder, streams, Count::EditRuns.rows(&frame.params));

@@ -1,15 +1,16 @@
 mod capacity;
 mod streams;
 
-pub use capacity::{SoftCapacity, capacity, floor, plan};
+pub use capacity::{SoftCapacity, SoftInputs, capacity, floor, plan};
 pub use streams::{DOMAIN, SoftDemand, SoftStream, SoftStreams};
 
+use dynamis_abi::{Count, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
 use dynamis_kernel::{CORE, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
-use dynamis_state::{Count, StateStream, StepFrame};
+use dynamis_state::StateStream;
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
 const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
@@ -41,6 +42,13 @@ domain_passes!(
     substeps: Phase::Deform => "soft_substeps",
     apply: Phase::Deform => "soft_apply",
 );
+
+#[derive(Clone, Copy, Debug)]
+pub struct SoftFrame {
+    pub params: StepParamsRecord,
+    pub simulating: bool,
+    pub material: bool,
+}
 
 pub struct Soft {
     passes: SoftPasses,
@@ -312,9 +320,9 @@ impl Soft {
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &SoftFrame,
     ) {
-        if !frame.soft_bodies {
+        if !frame.simulating {
             return;
         }
         let particles = Count::Particles.rows(&frame.params);
@@ -344,7 +352,7 @@ impl Soft {
                     }
                     self.detect.record_rows(&mut substeps, streams, particles);
                     self.resolve.record_rows(&mut substeps, streams, particles);
-                    if frame.soft_strength {
+                    if frame.material {
                         self.material.record_rows(&mut substeps, streams, elements);
                     }
                 }

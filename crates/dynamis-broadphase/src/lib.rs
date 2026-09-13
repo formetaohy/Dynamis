@@ -1,7 +1,7 @@
 mod capacity;
 mod streams;
 
-pub use capacity::Capacity;
+pub use capacity::{BroadphaseCapacity, BroadphaseInputs, Capacity};
 pub use streams::{
     BroadphaseDemand, BroadphaseStream, BroadphaseStreams, DOMAIN, entry_capacity, pair_capacity,
     sort_capacity,
@@ -12,13 +12,25 @@ use dynamis_gpu::GpuContext;
 use dynamis_kernel::{GRID_INDEX, stream};
 use dynamis_pass::{Phase, Resources, Schedule, Stage, domain_passes};
 use dynamis_sort::{RadixSort, SortChannels};
-use dynamis_state::{StateStream, StepFrame};
+use dynamis_state::StateStream;
 
 domain_passes!(
     BroadphasePasses,
     "broadphase",
     index: Phase::Index => "broadphase",
 );
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BroadphaseFrame {
+    pub indexing: bool,
+}
+
+pub fn capacity(streams: &BroadphaseStreams) -> BroadphaseCapacity {
+    BroadphaseCapacity {
+        entries: streams.entry_keys.slots(),
+        pairs: streams.pair_major.slots(),
+    }
+}
 
 pub struct Broadphase {
     passes: BroadphasePasses,
@@ -104,9 +116,9 @@ impl Broadphase {
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: BroadphaseFrame,
     ) {
-        if phase != Phase::Index || !frame.simulating() {
+        if phase != Phase::Index || !frame.indexing {
             return;
         }
         let mut index = schedule.open(encoder, self.passes.index);

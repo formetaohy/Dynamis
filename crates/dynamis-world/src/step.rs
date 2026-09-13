@@ -1,9 +1,8 @@
 use super::World;
+use crate::backend::StepFrames;
 use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands};
-use dynamis_state::StepFrame;
-use dynamis_state::StepShape;
-
-use dynamis_abi::{COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord};
+use dynamis_abi::QueryResultRecord;
+use dynamis_rigid::RigidShape;
 use std::mem::size_of;
 
 impl World {
@@ -42,12 +41,12 @@ impl World {
         self.flush_rows();
         self.apply_pending_commands();
         let query_count = self.queries.pending.len() as u32;
-        let frame = self.frame(dt, query_count);
-        self.write_step_records(&frame);
+        let frames = self.frames(dt, query_count);
+        self.write_step_records(&frames);
         self.declare_step(step);
         let batch = self.submit_queries(step, query_count);
-        self.encode_step(&frame, batch, step);
-        self.bodies.device_count = frame.params.body_count;
+        self.encode_step(&frames, batch, step);
+        self.bodies.device_count = frames.params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
     }
@@ -71,53 +70,14 @@ impl World {
         self.constraints.commands.clear();
     }
 
-    pub(crate) fn frame_counts(&self) -> FrameCounts {
-        FrameCounts {
-            dynamic_bodies: self.bodies.dynamic_count as u32,
-            bodies: self.bodies.alive.len() as u32,
-            colliders: self.colliders.used(),
-            constraints: self.constraints.alive.len() as u32,
-            particles: self.soft.used().0,
-            elements: self.soft.used().1,
-        }
+    pub fn rigid_shape(&self) -> RigidShape {
+        RigidShape::of(&self.frame_counts())
     }
 
-    pub fn step_shape(&self) -> StepShape {
-        StepShape::of(&self.frame_counts())
-    }
-
-    pub(crate) fn frame(&self, dt: f32, query_count: u32) -> StepFrame {
-        let synced = self.backend.measured_step.filter(|measured| {
-            self.backend
-                .commanded_step
-                .is_none_or(|commanded| commanded <= *measured)
-        });
-        let counts = self.frame_counts();
-        StepFrame {
-            params: StepParamsRecord::new(
-                &self.config,
-                dt,
-                counts,
-                RowStreams {
-                    edit_runs: self.bodies.last_edits,
-                    body_moves: self.bodies.last_moves,
-                    constraint_moves: self.constraints.last_moves,
-                },
-                self.event_slot_of(self.clock.step),
-            ),
-            shape: StepShape::of(&counts),
-            query_count,
-            awake_bodies: synced.map(|_| self.backend.measured[COUNTER_ACTIVE]),
-            ccd_bodies: self.ccd_active(),
-            soft_bodies: self.soft_active(),
-            soft_strength: self.soft.carries_strength(),
-        }
-    }
-
-    fn write_step_records(&self, frame: &StepFrame) {
+    fn write_step_records(&self, frames: &StepFrames) {
         self.backend.streams.state.params.write(
             self.backend.gpu.queue(),
-            bytemuck::cast_slice(&[frame.params]),
+            bytemuck::cast_slice(&[frames.params]),
         );
     }
 
@@ -175,7 +135,7 @@ impl World {
         Some(batch)
     }
 
-    fn encode_step(&mut self, frame: &StepFrame, batch: Option<u64>, step: u64) {
+    fn encode_step(&mut self, frames: &StepFrames, batch: Option<u64>, step: u64) {
         let device = self.backend.gpu.device().clone();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
 
@@ -183,7 +143,7 @@ impl World {
         self.copy_breaks(&mut encoder);
         self.backend
             .passes
-            .record(&mut encoder, &self.backend.streams, frame);
+            .record(&mut encoder, &self.backend.streams, frames);
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
         let pack_bytes = self.pack_step(&mut encoder);

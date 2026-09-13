@@ -1,6 +1,8 @@
 use super::streams::RigidStream;
 use super::{CONTACT, IDENTITY};
+use crate::RigidFrame;
 use crate::sort;
+use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_BREAKS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING,
     COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT,
@@ -12,9 +14,7 @@ use dynamis_kernel::{CORE, GEOMETRY_INDEX, rows, stream, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Commit {
     thaw_contacts: Stage,
@@ -235,7 +235,7 @@ impl Commit {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.query
             .record_workgroups(recorder, streams, frame.query_count);
@@ -245,7 +245,7 @@ impl Commit {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.thaw_contacts.record_stream(recorder, streams);
         self.contact_archive.record_stream(recorder, streams);
@@ -270,7 +270,7 @@ impl Commit {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
         sort: &RadixSort,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);

@@ -10,13 +10,44 @@ mod solver;
 mod sort;
 mod streams;
 
+use dynamis_abi::{FrameCounts, StepParamsRecord};
 use dynamis_pass::Resources;
-use dynamis_state::StepFrame;
+
 const IDENTITY: &[&str] = &[include_str!("../shaders/identity.wgsl")];
 const CONTACT: &[&str] = &[
     include_str!("../shaders/identity.wgsl"),
     include_str!("../shaders/events.wgsl"),
 ];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RigidShape {
+    pub island_rounds: u32,
+    pub body_words: u32,
+    pub collider_words: u32,
+}
+
+impl RigidShape {
+    pub fn of(counts: &FrameCounts) -> Self {
+        Self {
+            island_rounds: propagation_rounds(counts.dynamic_bodies),
+            body_words: dynamis_sort::key_words(counts.bodies.max(1)),
+            collider_words: dynamis_sort::key_words(counts.colliders.max(1)),
+        }
+    }
+}
+
+fn propagation_rounds(bodies: u32) -> u32 {
+    bodies.max(2).ilog2() + 1
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RigidFrame {
+    pub params: StepParamsRecord,
+    pub shape: RigidShape,
+    pub query_count: u32,
+    pub simulating: bool,
+    pub ccd: bool,
+}
 
 use commands::Commands;
 use commit::Commit;
@@ -30,7 +61,7 @@ use islands::Sleep;
 use narrowphase::Narrowphase;
 use solver::Solver;
 
-pub use capacity::Capacity;
+pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
 pub use streams::{DOMAIN, RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
 
@@ -100,9 +131,9 @@ impl Rigid {
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
-        let simulating = frame.simulating();
+        let simulating = frame.simulating;
         match phase {
             Phase::Commands => {
                 let mut commands = schedule.open(encoder, self.passes.commands);
@@ -178,7 +209,7 @@ impl Rigid {
         &self,
         recorder: &mut dynamis_gpu::ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.commands.record_moves(recorder, streams, frame);
         self.commands.record_edits(recorder, streams, frame);
@@ -191,7 +222,7 @@ impl Rigid {
         &self,
         recorder: &mut dynamis_gpu::ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.commit.record_query(recorder, streams, frame);
     }

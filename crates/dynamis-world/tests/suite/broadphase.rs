@@ -365,7 +365,7 @@ fn a_dense_pile_fits_the_planned_pair_stream_from_its_first_collapse() {
             world.measured()[COUNTER_SPILLOVER_PAIRS],
             0,
             "a collapsing pile must never truncate its candidate pairs, capacity {}",
-            world.stream_capacity().pairs
+            world.stream_capacity().broadphase.pairs
         );
     }
     world.wait();

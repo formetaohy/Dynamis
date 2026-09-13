@@ -1,9 +1,27 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{COUNTER_EVENTS, COUNTER_SPILLOVER_EVENTS, Counters};
 use dynamis_pass::{MIN_SLOTS, StreamWatch, settled};
-use dynamis_state::Live;
 
 const STREAM_DENSITY_EVENTS: u32 = 8;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RigidCapacity {
+    pub events: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RigidInputs {
+    pub bodies: u32,
+    pub colliders: u32,
+    pub collider_pool: u32,
+    pub constraints: u32,
+}
+
+pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
+    RigidCapacity {
+        events: streams.events.slots() / dynamis_pass::EVENT_SLOTS,
+    }
+}
 
 pub struct Capacity {
     events: StreamWatch,
@@ -25,7 +43,7 @@ impl Capacity {
     pub fn plan(
         &mut self,
         measured: &Counters,
-        live: &Live,
+        inputs: &RigidInputs,
         idle: bool,
         pairs: u32,
         current: &RigidStreams,
@@ -40,7 +58,7 @@ impl Capacity {
         } else if idle {
             self.events.settle(true);
         }
-        let event_budget = dynamis_pass::product(live.colliders, STREAM_DENSITY_EVENTS, "event");
+        let event_budget = dynamis_pass::product(inputs.colliders, STREAM_DENSITY_EVENTS, "event");
         let events = if idle {
             self.events.released(
                 current.events.slots() / dynamis_pass::EVENT_SLOTS,
@@ -52,16 +70,16 @@ impl Capacity {
                 event_budget,
             )
         };
-        let bodies = dynamis_pass::grown(current.body_activity.slots(), live.bodies, MIN_SLOTS);
+        let bodies = dynamis_pass::grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS);
         let colliders = current
             .collider_aabbs
             .slots()
-            .max(live.collider_pool)
+            .max(inputs.collider_pool)
             .max(MIN_SLOTS);
         let constraints = settled(
             idle,
             current.constraint_rows.slots(),
-            live.constraints,
+            inputs.constraints,
             MIN_SLOTS,
         );
         let sort = RigidDemand::sort_slots(pairs, constraints).max(MIN_SLOTS);

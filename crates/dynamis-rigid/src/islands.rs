@@ -1,5 +1,7 @@
 use super::streams::RigidStream;
 use super::{CONTACT, IDENTITY};
+use crate::RigidFrame;
+use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
     COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
@@ -8,9 +10,7 @@ use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows, stream};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Islands {
     contact_relay: Stage,
@@ -241,7 +241,7 @@ impl Islands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         let dynamic = Count::Dynamic.rows(&frame.params);
         let constraints = Count::Constraints.rows(&frame.params);
@@ -263,7 +263,7 @@ impl Islands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.island_wake
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
@@ -301,7 +301,7 @@ impl Sleep {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.island_sleep
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));

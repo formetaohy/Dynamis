@@ -13,19 +13,25 @@ pub struct ShapeCapacity {
     pub nodes: u32,
 }
 
-pub struct Live {
+#[derive(Clone, Copy, Debug)]
+pub struct StateInputs {
     pub bodies: u32,
-    pub colliders: u32,
-    pub collider_pool: u32,
     pub body_ids: u32,
+    pub collider_pool: u32,
     pub constraints: u32,
     pub body_commands: u32,
     pub constraint_commands: u32,
     pub queries: u32,
     pub shapes: ShapeCapacity,
-    pub particles: u32,
-    pub elements: u32,
-    pub adjacency: u32,
+}
+
+pub fn capacity(streams: &StateStreams) -> ShapeCapacity {
+    ShapeCapacity {
+        sources: streams.shape_sources.slots(),
+        vertices: streams.shape_vertices.slots(),
+        triangles: streams.shape_triangles.slots(),
+        nodes: streams.shape_nodes.slots(),
+    }
 }
 
 pub fn floor() -> StateDemand {
@@ -46,35 +52,36 @@ pub fn floor() -> StateDemand {
     }
 }
 
-pub fn plan(live: &Live, idle: bool, current: &StateStreams) -> StateDemand {
-    let bodies = grown(current.body_states.slots(), live.bodies, MIN_SLOTS);
+pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDemand {
+    let bodies = grown(current.body_states.slots(), inputs.bodies, MIN_SLOTS);
     let body_ids = current
         .body_row_of_id
         .slots()
-        .max(live.body_ids)
+        .max(inputs.body_ids)
         .max(MIN_SLOTS);
     let colliders = current
         .collider_owners
         .slots()
-        .max(live.collider_pool)
+        .max(inputs.collider_pool)
         .max(MIN_SLOTS);
     let constraints = settled(
         idle,
         current.constraint_runtime.slots(),
-        live.constraints,
+        inputs.constraints,
         MIN_SLOTS,
     );
     let body_commands = settled(
         idle,
         current.body_edits.slots(),
-        live.body_commands
+        inputs
+            .body_commands
             .max(product(bodies, COMMANDS_PER_BODY, "body command")),
         STREAM_FLOOR,
     );
     let constraint_commands = settled(
         idle,
         current.constraint_fresh_rows.slots(),
-        live.constraint_commands.max(product(
+        inputs.constraint_commands.max(product(
             constraints,
             CONSTRAINT_COMMANDS_PER_CONSTRAINT,
             "constraint command",
@@ -84,7 +91,9 @@ pub fn plan(live: &Live, idle: bool, current: &StateStreams) -> StateDemand {
     let queries = settled(
         idle,
         current.query_records.slots(),
-        live.queries.max(product(bodies, QUERIES_PER_BODY, "query")),
+        inputs
+            .queries
+            .max(product(bodies, QUERIES_PER_BODY, "query")),
         STREAM_FLOOR,
     );
     StateDemand {
@@ -98,20 +107,20 @@ pub fn plan(live: &Live, idle: bool, current: &StateStreams) -> StateDemand {
         shapes: ShapeCapacity {
             sources: grown(
                 current.shape_sources.slots(),
-                live.shapes.sources,
+                inputs.shapes.sources,
                 MIN_SLOTS,
             ),
             vertices: grown(
                 current.shape_vertices.slots(),
-                live.shapes.vertices,
+                inputs.shapes.vertices,
                 MIN_SLOTS,
             ),
             triangles: grown(
                 current.shape_triangles.slots(),
-                live.shapes.triangles,
+                inputs.shapes.triangles,
                 MIN_SLOTS,
             ),
-            nodes: grown(current.shape_nodes.slots(), live.shapes.nodes, MIN_SLOTS),
+            nodes: grown(current.shape_nodes.slots(), inputs.shapes.nodes, MIN_SLOTS),
         },
     }
 }

@@ -1,5 +1,6 @@
 use super::streams::COMPACT_BLOCK;
 use super::streams::RigidStream;
+use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
@@ -9,7 +10,6 @@ use dynamis_pass::Resources;
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Narrowphase {
     narrowphase: Stage,
@@ -108,7 +108,7 @@ impl Narrowphase {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
         sort: &RadixSort,
     ) {
         let words = frame.shape.collider_words;

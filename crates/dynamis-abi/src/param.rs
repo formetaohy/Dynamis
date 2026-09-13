@@ -72,6 +72,49 @@ pub struct RowStreams {
     pub constraint_moves: u32,
 }
 
+#[derive(Clone, Copy)]
+pub enum Count {
+    Bodies,
+    Dynamic,
+    Colliders,
+    Constraints,
+    Particles,
+    Elements,
+    EditRuns,
+    BodyMoves,
+    ConstraintMoves,
+}
+
+impl Count {
+    pub const fn field(self) -> &'static str {
+        match self {
+            Self::Bodies => "body_count",
+            Self::Dynamic => "dynamic_count",
+            Self::Colliders => "collider_count",
+            Self::Constraints => "constraint_count",
+            Self::Particles => "particle_count",
+            Self::Elements => "element_count",
+            Self::EditRuns => "edit_run_count",
+            Self::BodyMoves => "body_move_count",
+            Self::ConstraintMoves => "constraint_move_count",
+        }
+    }
+
+    pub const fn rows(self, params: &StepParamsRecord) -> u32 {
+        match self {
+            Self::Bodies => params.body_count,
+            Self::Dynamic => params.dynamic_count,
+            Self::Colliders => params.collider_count,
+            Self::Constraints => params.constraint_count,
+            Self::Particles => params.particle_count,
+            Self::Elements => params.element_count,
+            Self::EditRuns => params.edit_run_count,
+            Self::BodyMoves => params.body_move_count,
+            Self::ConstraintMoves => params.constraint_move_count,
+        }
+    }
+}
+
 fn combine_code(combine: MaterialCombine) -> u32 {
     match combine {
         MaterialCombine::Multiply => 0,

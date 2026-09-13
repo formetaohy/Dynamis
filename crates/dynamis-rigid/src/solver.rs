@@ -1,14 +1,14 @@
 use super::streams::RigidStream;
+use crate::RigidFrame;
 use crate::sort;
+use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows, stream, stream_warm, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 const BLOCKS: &[&str] = &[
     include_str!("../shaders/solver_contact_block.wgsl"),
@@ -285,7 +285,7 @@ impl Solver {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.reset
             .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
@@ -296,7 +296,7 @@ impl Solver {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
         sort: &RadixSort,
     ) {
         let words = frame.shape.body_words;
@@ -340,7 +340,7 @@ impl Solver {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         for _ in 0..frame.params.position_iterations {
             self.position_block.record_stream(recorder, streams);

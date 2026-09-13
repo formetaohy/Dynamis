@@ -1,6 +1,5 @@
-use super::streams::{REACTION_WORDS, SoftDemand, SoftStream, SoftStreams};
-use dynamis_pass::{MIN_SLOTS, Resources, STREAM_FLOOR, settled};
-use dynamis_state::Live;
+use super::streams::{REACTION_WORDS, SoftDemand, SoftStreams};
+use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, settled};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftCapacity {
@@ -9,22 +8,29 @@ pub struct SoftCapacity {
     pub adjacency: u32,
 }
 
-pub fn capacity<R: Resources>(resources: &R) -> SoftCapacity {
+#[derive(Clone, Copy, Debug)]
+pub struct SoftInputs {
+    pub particles: u32,
+    pub elements: u32,
+    pub adjacency: u32,
+}
+
+pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
     SoftCapacity {
-        particles: resources.slots(SoftStream::Particles.into()),
-        elements: resources.slots(SoftStream::Elements.into()),
-        adjacency: resources.slots(SoftStream::Adjacency.into()),
+        particles: streams.particles.slots(),
+        elements: streams.elements.slots(),
+        adjacency: streams.adjacency.slots(),
     }
 }
 
-pub fn plan(live: &Live, idle: bool, bodies: u32, current: &SoftStreams) -> SoftDemand {
+pub fn plan(inputs: &SoftInputs, idle: bool, bodies: u32, current: &SoftStreams) -> SoftDemand {
     SoftDemand {
-        particles: settled(idle, current.particles.slots(), live.particles, MIN_SLOTS),
-        elements: settled(idle, current.elements.slots(), live.elements, MIN_SLOTS),
+        particles: settled(idle, current.particles.slots(), inputs.particles, MIN_SLOTS),
+        elements: settled(idle, current.elements.slots(), inputs.elements, MIN_SLOTS),
         adjacency: settled(
             idle,
             current.adjacency.slots(),
-            live.adjacency,
+            inputs.adjacency,
             STREAM_FLOOR,
         ),
         bodies: settled(

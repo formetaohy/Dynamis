@@ -2,14 +2,11 @@ use super::capacity::StreamCapacity;
 use super::readback::ReadbackBuffers;
 use dynamis_abi::Counters;
 use dynamis_broadphase as broadphase;
-use dynamis_gpu::GpuSlot;
+use dynamis_gpu::{GpuSlot, Stream};
 use dynamis_pass::{ResourceId, Resources};
 use dynamis_rigid as rigid;
-use dynamis_rigid::{RigidDemand, RigidStreams};
 use dynamis_soft as soft;
-use dynamis_soft::{SoftDemand, SoftStreams};
 use dynamis_state as state;
-use dynamis_state::{Live, ShapeCapacity, StateDemand, StateStreams};
 use wgpu::{CommandEncoder, Device, Queue};
 
 const _: () = {
@@ -22,10 +19,17 @@ const _: () = {
 };
 
 pub(crate) struct Plan {
-    pub(crate) state: StateDemand,
+    pub(crate) state: state::StateDemand,
     pub(crate) broadphase: broadphase::BroadphaseDemand,
-    pub(crate) rigid: RigidDemand,
-    pub(crate) soft: SoftDemand,
+    pub(crate) rigid: rigid::RigidDemand,
+    pub(crate) soft: soft::SoftDemand,
+}
+
+pub(crate) struct Live {
+    pub(crate) state: state::StateInputs,
+    pub(crate) broadphase: broadphase::BroadphaseInputs,
+    pub(crate) rigid: rigid::RigidInputs,
+    pub(crate) soft: soft::SoftInputs,
 }
 
 pub(crate) struct Planning {
@@ -34,10 +38,10 @@ pub(crate) struct Planning {
 }
 
 pub(crate) struct Streams {
-    pub(crate) state: StateStreams,
+    pub(crate) state: state::StateStreams,
     pub(crate) broadphase: broadphase::BroadphaseStreams,
-    pub(crate) rigid: RigidStreams,
-    pub(crate) soft: SoftStreams,
+    pub(crate) rigid: rigid::RigidStreams,
+    pub(crate) soft: soft::SoftStreams,
     pub(crate) readback: ReadbackBuffers,
     generation: u64,
 }
@@ -45,10 +49,10 @@ pub(crate) struct Streams {
 impl Streams {
     pub(crate) fn new(device: &Device, queue: &Queue, plan: &Plan) -> Self {
         Self {
-            state: StateStreams::new(device, queue, &plan.state),
+            state: state::StateStreams::new(device, queue, &plan.state),
             broadphase: broadphase::BroadphaseStreams::new(device, queue, &plan.broadphase),
-            rigid: RigidStreams::new(device, queue, &plan.rigid),
-            soft: SoftStreams::new(device, queue, &plan.soft),
+            rigid: rigid::RigidStreams::new(device, queue, &plan.rigid),
+            soft: soft::SoftStreams::new(device, queue, &plan.soft),
             readback: ReadbackBuffers::new(device, plan),
             generation: 0,
         }
@@ -86,18 +90,34 @@ impl Streams {
         changed
     }
 
+    pub(crate) fn durable(&self) -> Vec<(&'static str, &Stream)> {
+        let mut streams = Vec::new();
+        streams.extend(self.state.durable());
+        streams.extend(self.broadphase.durable());
+        streams.extend(self.rigid.durable());
+        streams.extend(self.soft.durable());
+        streams
+    }
+
+    pub(crate) fn require(
+        &mut self,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        floors: impl Fn(&'static str) -> Option<u32>,
+    ) -> bool {
+        let floors = &floors;
+        self.state.require(device, encoder, floors)
+            | self.broadphase.require(device, encoder, floors)
+            | self.rigid.require(device, encoder, floors)
+            | self.soft.require(device, encoder, floors)
+    }
+
     pub(crate) fn stream_capacity(&self) -> StreamCapacity {
         StreamCapacity {
-            entries: broadphase::entry_capacity(self),
-            pairs: broadphase::pair_capacity(self),
-            events: rigid::event_capacity(self),
-            shapes: ShapeCapacity {
-                sources: self.state.shape_sources.slots(),
-                vertices: self.state.shape_vertices.slots(),
-                triangles: self.state.shape_triangles.slots(),
-                nodes: self.state.shape_nodes.slots(),
-            },
-            soft: soft::capacity(self),
+            state: state::capacity(&self.state),
+            broadphase: broadphase::capacity(&self.broadphase),
+            rigid: rigid::capacity(&self.rigid),
+            soft: soft::capacity(&self.soft),
         }
     }
 }
@@ -157,12 +177,18 @@ impl Planning {
     }
 
     pub(crate) fn plan(&mut self, measured: &Counters, live: &Live, streams: &Streams) -> Plan {
-        let (broadphase, idle) = self.broadphase.plan(measured, live, &streams.broadphase);
-        let rigid = self
-            .rigid
-            .plan(measured, live, idle, broadphase.pairs, &streams.rigid);
-        let state = state::plan(live, idle, &streams.state);
-        let soft = soft::plan(live, idle, state.bodies, &streams.soft);
+        let (broadphase, idle) =
+            self.broadphase
+                .plan(measured, &live.broadphase, &streams.broadphase);
+        let rigid = self.rigid.plan(
+            measured,
+            &live.rigid,
+            idle,
+            broadphase.pairs,
+            &streams.rigid,
+        );
+        let state = state::plan(&live.state, idle, &streams.state);
+        let soft = soft::plan(&live.soft, idle, state.bodies, &streams.soft);
         Plan {
             state,
             broadphase,

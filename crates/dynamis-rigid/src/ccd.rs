@@ -1,12 +1,13 @@
+use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_pass::Resources;
 use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
-use dynamis_state::{Count, StateStream, StepFrame};
 
-use dynamis_abi::COUNTER_PAIRS;
+use dynamis_abi::{COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
 use dynamis_kernel::{CORE, GEOMETRY, rows, stream};
+use dynamis_state::StateStream;
 
 domain_passes!(
     CcdPasses,
@@ -77,9 +78,9 @@ impl Ccd {
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
-        if phase != Phase::Continuous || !frame.ccd_bodies || !frame.simulating() {
+        if phase != Phase::Continuous || !frame.ccd || !frame.simulating {
             return;
         }
         let mut sweep = schedule.open(encoder, self.passes.sweep);

@@ -4,10 +4,22 @@ use dynamis_abi::{
     ENTRY_CELLS_PER_PARTICLE, MAX_CELLS_PER_COLLIDER,
 };
 use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, product};
-use dynamis_state::Live;
 
 const STREAM_DENSITY_PAIRS: u32 = 16;
 const PLAN_COOLDOWN: u32 = 10;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BroadphaseCapacity {
+    pub entries: u32,
+    pub pairs: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BroadphaseInputs {
+    pub colliders: u32,
+    pub particles: u32,
+    pub pending_commands: bool,
+}
 
 pub struct Capacity {
     entries: StreamWatch,
@@ -33,7 +45,7 @@ impl Capacity {
     pub fn plan(
         &mut self,
         measured: &Counters,
-        live: &Live,
+        inputs: &BroadphaseInputs,
         current: &BroadphaseStreams,
     ) -> (BroadphaseDemand, bool) {
         let open = self.cooldown == 0;
@@ -52,8 +64,7 @@ impl Capacity {
             && !pressured
             && self.pairs.is_idle()
             && self.entries.is_idle()
-            && live.body_commands == 0
-            && live.constraint_commands == 0;
+            && !inputs.pending_commands;
         if pressured {
             self.entries.settle(false);
             self.pairs.settle(false);
@@ -65,17 +76,17 @@ impl Capacity {
             self.cooldown = self.cooldown.saturating_sub(1);
         }
         let entry_budget = product(
-            live.colliders,
+            inputs.colliders,
             MAX_CELLS_PER_COLLIDER,
             "grid collider entry",
         )
         .checked_add(product(
-            live.particles,
+            inputs.particles,
             ENTRY_CELLS_PER_PARTICLE,
             "grid particle entry",
         ))
         .unwrap_or_else(|| panic!("grid entry capacity exceeds the device index space"));
-        let pair_budget = product(live.colliders, STREAM_DENSITY_PAIRS, "pair");
+        let pair_budget = product(inputs.colliders, STREAM_DENSITY_PAIRS, "pair");
         let entries = if idle {
             self.entries
                 .released(current.entry_keys.slots(), entry_budget)

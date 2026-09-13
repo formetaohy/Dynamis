@@ -145,19 +145,19 @@ impl World {
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
-        let frame = self.frame(self.clock.sub_dt, count as u32);
+        let frames = self.frames(self.clock.sub_dt, count as u32);
         self.backend
             .streams
             .state
             .params
-            .write(&queue, bytemuck::cast_slice(&[frame.params]));
+            .write(&queue, bytemuck::cast_slice(&[frames.params]));
         let batch = self.queries.next_batch;
         self.queries.pool.submit(batch, step, count);
         self.queries.next_batch += 1;
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query resolve");
         self.backend
             .passes
-            .encode_queries(&mut encoder, &self.backend.streams, &frame);
+            .encode_queries(&mut encoder, &self.backend.streams, &frames);
         let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
         let arrived = self.backend.streams.readback.queries.enqueue(
             &mut encoder,

@@ -1,10 +1,10 @@
+use super::frame::StepFrames;
 use super::streams::Streams;
 use dynamis_broadphase::{Broadphase, BroadphasePasses};
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{Pass, PassOrder, Phase, Schedule};
 use dynamis_rigid::{Ccd, CcdPasses, Rigid, RigidPasses, RigidResolutionPasses};
 use dynamis_soft::{Soft, SoftPasses};
-use dynamis_state::StepFrame;
 use wgpu::CommandEncoder;
 
 pub(crate) struct StepPasses {
@@ -41,16 +41,19 @@ impl StepPasses {
         &mut self,
         encoder: &mut CommandEncoder,
         streams: &Streams,
-        frame: &StepFrame,
+        frames: &StepFrames,
     ) {
         let schedule = &mut self.schedule;
         schedule.begin_step();
         for phase in Phase::ALL {
-            self.rigid.record(*phase, schedule, encoder, streams, frame);
+            self.rigid
+                .record(*phase, schedule, encoder, streams, &frames.rigid);
             self.broadphase
-                .record(*phase, schedule, encoder, streams, frame);
-            self.ccd.record(*phase, schedule, encoder, streams, frame);
-            self.soft.record(*phase, schedule, encoder, streams, frame);
+                .record(*phase, schedule, encoder, streams, frames.broadphase);
+            self.ccd
+                .record(*phase, schedule, encoder, streams, &frames.rigid);
+            self.soft
+                .record(*phase, schedule, encoder, streams, &frames.soft);
         }
     }
 
@@ -62,12 +65,12 @@ impl StepPasses {
         &self,
         encoder: &mut CommandEncoder,
         streams: &Streams,
-        frame: &StepFrame,
+        frames: &StepFrames,
     ) {
         let mut commands =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query commands", self.schedule.per_row());
         self.rigid
-            .record_query_commands(&mut commands, streams, frame);
+            .record_query_commands(&mut commands, streams, &frames.rigid);
         drop(commands);
 
         let mut sort =
@@ -77,7 +80,8 @@ impl StepPasses {
 
         let mut flush =
             dynamis_gpu::ComputeRecorder::begin(encoder, "query flush", self.schedule.per_row());
-        self.rigid.record_query_flush(&mut flush, streams, frame);
+        self.rigid
+            .record_query_flush(&mut flush, streams, &frames.rigid);
         drop(flush);
     }
 

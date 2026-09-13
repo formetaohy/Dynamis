@@ -1,6 +1,5 @@
 use super::streams::Streams;
-use dynamis_gpu::Stream;
-use wgpu::{Buffer, CommandEncoder, Device, Queue};
+use wgpu::{Buffer, Queue};
 
 struct StreamRange {
     label: &'static str,
@@ -42,7 +41,7 @@ impl StreamArchive {
         Self { ranges, bytes }
     }
 
-    fn floor(&self, label: &'static str) -> Option<u32> {
+    pub(crate) fn floor(&self, label: &'static str) -> Option<u32> {
         self.ranges
             .iter()
             .find(|range| range.label == label)
@@ -51,33 +50,11 @@ impl StreamArchive {
 }
 
 impl Streams {
-    pub(crate) fn durable(&self) -> Vec<(&'static str, &Stream)> {
-        let mut streams = Vec::new();
-        streams.extend(self.state.durable());
-        streams.extend(self.broadphase.durable());
-        streams.extend(self.rigid.durable());
-        streams.extend(self.soft.durable());
-        streams
-    }
-
     pub(crate) fn durable_regions(&self) -> Vec<(&Buffer, u64, u64)> {
         self.durable()
             .into_iter()
             .map(|(_, stream)| (stream.gpu().buffer(), 0, stream.size()))
             .collect()
-    }
-
-    pub(crate) fn require(
-        &mut self,
-        device: &Device,
-        encoder: &mut CommandEncoder,
-        archive: &StreamArchive,
-    ) -> bool {
-        let floors = |label: &'static str| archive.floor(label);
-        self.state.require(device, encoder, floors)
-            | self.broadphase.require(device, encoder, floors)
-            | self.rigid.require(device, encoder, floors)
-            | self.soft.require(device, encoder, floors)
     }
 
     pub(crate) fn write(&self, queue: &Queue, archive: &StreamArchive) {

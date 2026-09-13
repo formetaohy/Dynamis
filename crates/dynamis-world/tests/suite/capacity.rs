@@ -3,7 +3,7 @@ use super::common::{
     static_sphere_ground,
 };
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_SPILLOVER_PAIRS};
-use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
+use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape, SoftBodyDesc};
 use dynamis_world::World;
 
 const PILE: usize = 320;
@@ -23,16 +23,16 @@ fn sphere_pile(world: &mut World) -> Vec<BodyHandle> {
 }
 
 #[test]
-fn the_step_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
+fn the_rigid_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
     let mut world = new_world(static_config());
     let floor = world.stream_capacity();
-    let quiet = world.step_shape();
+    let quiet = world.rigid_shape();
 
     let pile = sphere_pile(&mut world);
     settle(&mut world, 4);
-    let crowded = world.step_shape();
+    let crowded = world.rigid_shape();
     assert!(
-        world.stream_capacity().pairs > floor.pairs,
+        world.stream_capacity().broadphase.pairs > floor.broadphase.pairs,
         "the pile must widen the pair stream"
     );
     assert!(
@@ -48,13 +48,78 @@ fn the_step_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
         world.remove(body);
     }
     assert!(
-        world.stream_capacity().pairs > floor.pairs,
+        world.stream_capacity().broadphase.pairs > floor.broadphase.pairs,
         "removing the pile must leave the widened streams allocated"
     );
     assert_eq!(
-        world.step_shape(),
+        world.rigid_shape(),
         quiet,
         "an allocated peak may not keep shaping a step whose scene is gone"
+    );
+}
+
+fn cloth(side: usize) -> SoftBodyDesc {
+    let mut positions = Vec::new();
+    for row in 0..side {
+        for col in 0..side {
+            positions.push([col as f32 * 0.1, 0.0, row as f32 * 0.1]);
+        }
+    }
+    let mut links = Vec::new();
+    for row in 0..side {
+        for col in 0..side {
+            let here = (row * side + col) as u32;
+            if col + 1 < side {
+                links.push([here, here + 1]);
+            }
+            if row + 1 < side {
+                links.push([here, here + side as u32]);
+            }
+        }
+    }
+    SoftBodyDesc::net(positions, links)
+        .radius(0.02)
+        .position([0.0, 1.0, 0.0])
+}
+
+#[test]
+fn a_domain_plans_from_its_own_live_data_alone() {
+    let mut soft_world = new_world(static_config());
+    let soft_floor = soft_world.stream_capacity();
+    soft_world.add_soft_body(cloth(10));
+    settle(&mut soft_world, 8);
+    let soft = soft_world.stream_capacity();
+    assert!(
+        soft.soft.particles > soft_floor.soft.particles,
+        "a soft body must widen its own particle stream, {soft:?} vs {soft_floor:?}"
+    );
+    assert_eq!(
+        soft.rigid, soft_floor.rigid,
+        "a soft body may not shape the rigid streams"
+    );
+    assert_eq!(
+        soft.state, soft_floor.state,
+        "a soft body may not shape the state streams"
+    );
+
+    let mut rigid_world = new_world(static_config());
+    let rigid_floor = rigid_world.stream_capacity();
+    for index in 0..48 {
+        rigid_world.spawn(BodyDesc::sphere(6.0).position([
+            (index % 4) as f32,
+            (index / 4 % 3) as f32,
+            (index / 12) as f32,
+        ]));
+    }
+    settle(&mut rigid_world, 2);
+    let rigid = rigid_world.stream_capacity();
+    assert!(
+        rigid.broadphase.pairs > rigid_floor.broadphase.pairs,
+        "a body pile must widen its own pair stream, {rigid:?} vs {rigid_floor:?}"
+    );
+    assert_eq!(
+        rigid.soft, rigid_floor.soft,
+        "a body pile may not shape the soft streams"
     );
 }
 
@@ -72,14 +137,14 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     );
     let planned = world.stream_capacity();
     assert!(
-        planned.pairs > floor.pairs,
+        planned.broadphase.pairs > floor.broadphase.pairs,
         "the live rows alone must widen the plan"
     );
 
     world.step(DT);
     world.wait();
     assert!(
-        world.stream_capacity().pairs > planned.pairs,
+        world.stream_capacity().broadphase.pairs > planned.broadphase.pairs,
         "the spilled step must widen the plan further"
     );
     assert_eq!(
@@ -108,7 +173,7 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     }
     let released = world.stream_capacity();
     assert!(
-        released.pairs < widened.pairs,
+        released.broadphase.pairs < widened.broadphase.pairs,
         "an idle peak must be released, {released:?} vs {widened:?}"
     );
 
@@ -144,7 +209,8 @@ fn a_narrowed_world_still_resolves_recycled_body_identities() {
     }
     let released = world.stream_capacity();
     assert!(
-        released.pairs < widened.pairs && released.entries < widened.entries,
+        released.broadphase.pairs < widened.broadphase.pairs
+            && released.broadphase.entries < widened.broadphase.entries,
         "an idle world must release its widened streams, {released:?} vs {widened:?}"
     );
 
@@ -175,7 +241,7 @@ fn widening_one_stream_leaves_the_other_streams_allocated() {
         .collect::<Vec<_>>();
     settle(&mut world, 4);
     let states = world.state_buffer().token();
-    let pairs = world.stream_capacity().pairs;
+    let pairs = world.stream_capacity().broadphase.pairs;
     assert_eq!(
         world.measured()[COUNTER_SPILLOVER_PAIRS],
         0,
@@ -185,10 +251,10 @@ fn widening_one_stream_leaves_the_other_streams_allocated() {
         world.set_position(*body, spread_position(index, 1.0));
     }
     settle_until(&mut world, 120, |world| {
-        world.stream_capacity().pairs > pairs
+        world.stream_capacity().broadphase.pairs > pairs
     });
     assert!(
-        world.stream_capacity().pairs > pairs,
+        world.stream_capacity().broadphase.pairs > pairs,
         "the crowded pile must widen the pair stream"
     );
     assert_eq!(
@@ -293,7 +359,7 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
     settle(&mut world, 2);
 
     assert!(
-        world.stream_capacity().shapes.vertices > plan.shapes.vertices,
+        world.stream_capacity().state.vertices > plan.state.vertices,
         "the lifted mesh must widen the shape streams"
     );
     let after = floor_hit_height(&mut world)

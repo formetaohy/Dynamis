@@ -10,7 +10,6 @@ repository.workspace = true
 dynamis-abi = { workspace = true }
 dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-sort = { workspace = true }
 wgpu = { workspace = true }
 
 [lints]

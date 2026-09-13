@@ -25,6 +25,6 @@ pub use dynamis_model::{
     SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
 };
 pub use dynamis_world::{
-    ContactManifold, ContactPoint, QueryHandle, QueryHit, ShapeCapacity, Snapshot, SoftCapacity,
-    StepShape, StreamCapacity, World,
+    ContactManifold, ContactPoint, QueryHandle, QueryHit, RigidShape, ShapeCapacity, Snapshot,
+    SoftCapacity, StreamCapacity, World,
 };

@@ -1,14 +1,14 @@
 use super::streams::RigidStream;
+use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::COUNTER_JOINTS;
+use dynamis_abi::Count;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Integrate {
     integrate: Stage,
@@ -81,7 +81,7 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.advance
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
@@ -91,7 +91,7 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.broadphase_aabb
             .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
@@ -101,7 +101,7 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
         sort: &RadixSort,
     ) {
         if frame.params.constraint_count > 0 {

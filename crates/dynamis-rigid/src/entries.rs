@@ -1,12 +1,12 @@
 use super::streams::RigidStream;
+use crate::RigidFrame;
+use dynamis_abi::Count;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{GRID_INDEX, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
-use dynamis_state::Count;
 use dynamis_state::StateStream;
-use dynamis_state::StepFrame;
 
 pub struct Entries {
     emit: Stage,
@@ -46,7 +46,7 @@ impl Entries {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &StepFrame,
+        frame: &RigidFrame,
     ) {
         self.emit
             .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));

@@ -530,7 +530,6 @@ dependencies = [
  "dynamis-abi",
  "dynamis-gpu",
  "dynamis-pass",
- "dynamis-sort",
  "wgpu",
 ]
 
