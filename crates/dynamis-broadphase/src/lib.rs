@@ -9,7 +9,7 @@ pub use streams::{
 
 use dynamis_abi::COUNTER_ENTRIES;
 use dynamis_gpu::GpuContext;
-use dynamis_kernels::{GRID_INDEX, stream};
+use dynamis_kernel::{GRID_INDEX, stream};
 use dynamis_pass::{Phase, Resources, Schedule, Stage, domain_passes};
 use dynamis_sort::{RadixSort, SortChannels};
 use dynamis_state::{StateStream, StepFrame};

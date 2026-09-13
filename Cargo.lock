@@ -409,7 +409,7 @@ version = "0.6.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-gpu",
- "dynamis-kernels",
+ "dynamis-kernel",
  "dynamis-pass",
  "dynamis-sort",
  "dynamis-state",
@@ -455,7 +455,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dynamis-kernels"
+name = "dynamis-kernel"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
@@ -493,7 +493,7 @@ dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
  "dynamis-gpu",
- "dynamis-kernels",
+ "dynamis-kernel",
  "dynamis-pass",
  "dynamis-sort",
  "dynamis-state",
@@ -507,7 +507,7 @@ dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
  "dynamis-gpu",
- "dynamis-kernels",
+ "dynamis-kernel",
  "dynamis-pass",
  "dynamis-state",
  "wgpu",

@@ -6,7 +6,7 @@ pub use streams::{DOMAIN, SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
-use dynamis_kernels::{CORE, rows};
+use dynamis_kernel::{CORE, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
 use dynamis_state::{Count, StateStream, StepFrame};
@@ -15,19 +15,19 @@ const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")
 const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
 
 fn particle_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernels::GRID_INDEX.to_vec();
+    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_SHAPE);
     fragments
 }
 
 fn particle_reach_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernels::GRID_INDEX.to_vec();
+    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }
 
 fn particle_collide_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernels::GEOMETRY_INDEX.to_vec();
+    let mut fragments = dynamis_kernel::GEOMETRY_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }

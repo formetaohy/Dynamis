@@ -1,6 +1,7 @@
 use super::streams::Plan;
 use dynamis_abi::{
-    BodyStateRecord, BrokenConstraintRecord, COUNTER_COUNT, COUNTER_STRIDE, ContactEventRecord,
+    BodyStateRecord, BrokenConstraintRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE,
+    ContactEventRecord,
 };
 use dynamis_gpu::{GpuBuffer, Readback};
 use dynamis_state::QUERY_RESULT_BYTES;
@@ -9,7 +10,7 @@ use wgpu::Device;
 
 pub(crate) const STATE_DEPTH: usize = 2;
 
-const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_COUNT as u64;
+const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 
 pub(crate) struct ReadbackBuffers {
     pub(crate) pack: GpuBuffer,

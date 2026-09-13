@@ -1,7 +1,9 @@
 use super::streams::RigidStream;
-use dynamis_abi::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
+use dynamis_abi::{
+    COUNTER_ACTIVE, COUNTER_DEVICE_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE,
+};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernels::{CORE, rows, workgroups};
+use dynamis_kernel::{CORE, rows, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::{Stage, workgroups_of};
 use dynamis_state::Count;
@@ -223,7 +225,7 @@ impl Commands {
         self.reset_counters.record_workgroups(
             recorder,
             streams,
-            workgroups_of(COUNTER_COUNT as u32),
+            workgroups_of(COUNTER_DEVICE_COUNT as u32),
         );
     }
 

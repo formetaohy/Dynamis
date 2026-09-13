@@ -30,7 +30,7 @@ dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
 dynamis-abi = { version = "0.6.0", path = "crates/dynamis-abi" }
 dynamis-broadphase = { version = "0.6.0", path = "crates/dynamis-broadphase" }
 dynamis-pass = { version = "0.6.0", path = "crates/dynamis-pass" }
-dynamis-kernels = { version = "0.6.0", path = "crates/dynamis-kernels" }
+dynamis-kernel = { version = "0.6.0", path = "crates/dynamis-kernel" }
 dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
 dynamis-state = { version = "0.6.0", path = "crates/dynamis-state" }
 dynamis-rigid = { version = "0.6.0", path = "crates/dynamis-rigid" }

@@ -26,7 +26,7 @@ fn dof_driven(flags: u32, index: u32) -> bool { return (flags & (DOF_DRIVEN << i
 pub fn constants_wgsl() -> String {
     let mut out = String::new();
     constant::emit_constants(&mut out);
-    counter::emit_constants(&mut out);
+    counter::device::emit_constants(&mut out);
     out.push_str(&format!(
         "const NO_HIT: f32 = {:e};
 ",

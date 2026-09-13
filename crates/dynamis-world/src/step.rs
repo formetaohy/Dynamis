@@ -44,6 +44,7 @@ impl World {
         let query_count = self.queries.pending.len() as u32;
         let frame = self.frame(dt, query_count);
         self.write_step_records(&frame);
+        self.declare_step(step);
         let batch = self.submit_queries(step, query_count);
         self.encode_step(&frame, batch, step);
         self.bodies.device_count = frame.params.body_count;
@@ -113,7 +114,6 @@ impl World {
     }
 
     fn write_step_records(&self, frame: &StepFrame) {
-        self.write_declared_counters();
         self.backend.streams.state.params.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&[frame.params]),

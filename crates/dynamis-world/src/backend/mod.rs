@@ -10,6 +10,7 @@ pub(crate) use passes::StepPasses;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
+use std::collections::VecDeque;
 use streams::{Planning, Streams};
 use wgpu::SubmissionIndex;
 
@@ -21,6 +22,7 @@ pub(crate) struct Backend {
     pub(crate) passes: StepPasses,
     pub(crate) planning: Planning,
     pub(crate) measured: dynamis_abi::Counters,
+    pub(crate) declared: VecDeque<(u64, dynamis_abi::DeclaredCounters)>,
     pub(crate) measured_step: Option<u64>,
     pub(crate) commanded_step: Option<u64>,
     pub(crate) inspect: Option<dynamis_gpu::Readback>,
@@ -40,6 +42,7 @@ impl Backend {
             passes,
             planning: Planning::new(),
             measured: [0; dynamis_abi::COUNTER_COUNT],
+            declared: VecDeque::new(),
             measured_step: None,
             commanded_step: None,
             inspect: None,

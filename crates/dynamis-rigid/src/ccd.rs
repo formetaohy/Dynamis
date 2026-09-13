@@ -6,7 +6,7 @@ use dynamis_state::{Count, StateStream, StepFrame};
 
 use dynamis_abi::COUNTER_PAIRS;
 use dynamis_gpu::GpuContext;
-use dynamis_kernels::{CORE, GEOMETRY, rows, stream};
+use dynamis_kernel::{CORE, GEOMETRY, rows, stream};
 
 domain_passes!(
     CcdPasses,

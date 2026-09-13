@@ -1,7 +1,7 @@
 use super::streams::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernels::{GRID_INDEX, rows};
+use dynamis_kernel::{GRID_INDEX, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_state::Count;

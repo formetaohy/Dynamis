@@ -8,7 +8,7 @@ use dynamis_abi::{
 };
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows, stream, workgroups};
+use dynamis_kernel::{CORE, GEOMETRY_INDEX, rows, stream, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;

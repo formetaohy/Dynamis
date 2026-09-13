@@ -1,6 +1,9 @@
 use super::World;
 use dynamis_abi::COUNTER_RESTING;
-use dynamis_abi::{COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE, ContactRecord, Counters};
+use dynamis_abi::{
+    COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ContactRecord, Counters,
+    DeclaredCounters,
+};
 use dynamis_model::{BodyHandle, ConstraintHandle};
 use std::collections::HashSet;
 use std::mem::size_of;
@@ -22,17 +25,16 @@ pub struct ContactManifold {
     pub step: u64,
 }
 
-const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_COUNT as u64;
+const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
+const DECLARED_DEPTH: usize = 8;
 
-fn measured_counters(bytes: &[u8]) -> Counters {
+fn measured_counters(bytes: &[u8], counters: &mut Counters) {
     let stride = COUNTER_STRIDE as usize;
-    let mut counters: Counters = [0; COUNTER_COUNT];
-    for (slot, value) in counters.iter_mut().enumerate() {
+    for (slot, value) in counters.iter_mut().enumerate().take(COUNTER_DEVICE_COUNT) {
         let at = slot * stride;
         *value = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("counter slot"));
     }
-    counters
 }
 
 impl World {
@@ -47,8 +49,36 @@ impl World {
         COUNTER_BYTES
     }
 
+    pub(crate) fn declare_step(&mut self, step: u64) {
+        let declared = DeclaredCounters {
+            bodies: self.bodies.alive.len() as u32,
+            colliders: self.colliders.used(),
+            constraints: self.constraints.alive.len() as u32,
+            body_edits: self.bodies.last_edits,
+            body_moves: self.bodies.last_moves,
+            constraint_commands: self.constraints.last_commands,
+            constraint_moves: self.constraints.last_moves,
+        };
+        assert!(
+            self.backend.declared.len() < DECLARED_DEPTH,
+            "a step declaration outlived its counter readback"
+        );
+        self.backend.declared.push_back((step, declared));
+    }
+
     pub(crate) fn consume_pack(&mut self, step: u64, bytes: &[u8]) {
-        self.accept_measured(step, &measured_counters(bytes));
+        let (declared_step, declared) = self
+            .backend
+            .declared
+            .pop_front()
+            .expect("a counter readback retires a declared step");
+        assert_eq!(
+            declared_step, step,
+            "counter readbacks must retire in declaration order"
+        );
+        declared.write_into(&mut self.backend.measured);
+        measured_counters(bytes, &mut self.backend.measured);
+        self.accept_measured(step);
     }
 
     pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {
@@ -173,8 +203,7 @@ impl World {
         }
     }
 
-    pub(crate) fn accept_measured(&mut self, step: u64, measured: &Counters) {
-        self.backend.measured = *measured;
+    pub(crate) fn accept_measured(&mut self, step: u64) {
         self.backend.measured_step = Some(step);
         self.note_events_due(step);
         self.note_breaks_due(step);

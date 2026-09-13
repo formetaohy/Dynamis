@@ -1,5 +1,5 @@
 [package]
-name = "dynamis-kernels"
+name = "dynamis-kernel"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

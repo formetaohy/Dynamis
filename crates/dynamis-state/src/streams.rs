@@ -1,6 +1,6 @@
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
-    BrokenConstraintRecord, BvhNodeRecord, COUNTER_COUNT, COUNTER_STRIDE, ColliderRecord,
+    BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
     ConstraintDescriptorRecord, ConstraintRuntimeRecord, MAX_HITS_PER_QUERY, QueryHitRecord,
     QueryRecord, QueryResultHeaderRecord, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
     TriangleRecord,
@@ -54,7 +54,7 @@ streams! {
         shape_nodes, ShapeNodes: "shape bvh nodes", size_of::<BvhNodeRecord>() as u64, Contents::Preserve, demand.shapes.nodes;
         query_records, QueryRecords: "queries", QUERY_BYTES, Contents::Reset, demand.queries;
         query_results, QueryResults: "query results", QUERY_RESULT_BYTES, Contents::Reset, demand.queries;
-        counters, Counters: "world counters", COUNTER_STRIDE, Contents::Preserve, COUNTER_COUNT as u32;
+        counters, Counters: "world counters", COUNTER_STRIDE, Contents::Preserve, COUNTER_DEVICE_COUNT as u32;
     }
 }
 

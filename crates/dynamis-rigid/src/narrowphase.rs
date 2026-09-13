@@ -4,7 +4,7 @@ use crate::sort;
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernels::{CORE, GEOMETRY, stream, workgroups};
+use dynamis_kernel::{CORE, GEOMETRY, stream, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
 use dynamis_sort::RadixSort;

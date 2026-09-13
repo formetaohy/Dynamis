@@ -1,7 +1,4 @@
-use dynamis_abi::{
-    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_COMMANDS,
-    COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS, ColliderRecord,
-};
+use dynamis_abi::ColliderRecord;
 use dynamis_state::StateStreams;
 
 use crate::World;
@@ -135,24 +132,5 @@ impl World {
             owners.extend(std::iter::repeat_n(row, run.len as usize));
         }
         flush_pool_range(&self.backend.streams.state, queue, head, &records, &owners);
-    }
-
-    pub(crate) fn write_declared_counters(&self) {
-        let queue = self.backend.gpu.queue();
-        let declared = [
-            (COUNTER_BODIES, self.bodies.alive.len() as u32),
-            (COUNTER_CONSTRAINTS, self.constraints.alive.len() as u32),
-            (COUNTER_BODY_EDITS, self.bodies.last_edits),
-            (COUNTER_BODY_MOVES, self.bodies.last_moves),
-            (COUNTER_CONSTRAINT_COMMANDS, self.constraints.last_commands),
-            (COUNTER_CONSTRAINT_MOVES, self.constraints.last_moves),
-        ];
-        for (slot, value) in declared {
-            self.backend.streams.state.counters.write_at(
-                queue,
-                slot as u64 * dynamis_abi::COUNTER_STRIDE,
-                bytemuck::cast_slice(&[value]),
-            );
-        }
     }
 }

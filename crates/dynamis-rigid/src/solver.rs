@@ -2,7 +2,7 @@ use super::streams::RigidStream;
 use crate::sort;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernels::{CORE, rows, stream, stream_warm, workgroups};
+use dynamis_kernel::{CORE, rows, stream, stream_warm, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;

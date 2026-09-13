@@ -7,7 +7,7 @@ pub use streams::{
     VERTEX_BYTES,
 };
 
-use dynamis_abi::{COUNTER_COUNT, COUNTER_STRIDE, FrameCounts, StepParamsRecord};
+use dynamis_abi::{COUNTER_DEVICE_COUNT, COUNTER_STRIDE, FrameCounts, StepParamsRecord};
 use dynamis_pass::SlotRef;
 
 pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
@@ -97,7 +97,7 @@ impl Count {
 
 pub fn counter(slot: usize) -> SlotRef {
     assert!(
-        slot < COUNTER_COUNT,
+        slot < COUNTER_DEVICE_COUNT,
         "counter slot {slot} is outside the counter stream"
     );
     SlotRef::range(
