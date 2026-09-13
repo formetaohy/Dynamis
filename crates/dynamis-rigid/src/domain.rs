@@ -75,7 +75,8 @@ impl Domain for RigidDomain {
             params: facts.params,
             shape: RigidShape::of(&facts.counts),
             query_count: facts.work.queries,
-            simulating: facts.simulating,
+            simulating: facts.rigid,
+            indexing: facts.indexing,
             ccd: inputs.ccd,
         }
     }

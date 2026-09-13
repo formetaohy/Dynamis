@@ -1,10 +1,11 @@
 use super::common::{DT, asleep, gravity_config, new_world, settle, settle_until, static_config};
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_LIVE, COUNTER_PAIRS,
-    COUNTER_RESTING, COUNTER_SLEPT, COUNTER_WOKE,
+    COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_SLEPT, COUNTER_WOKE,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, ColliderDesc, ContactEventKind, ContactEventMode, PhysicsConfig, Shape,
+    BodyDesc, BodyHandle, ColliderDesc, ContactEventKind, ContactEventMode, PhysicsConfig,
+    QueryFilter, Shape,
 };
 
 fn rest_scene() -> (dynamis_world::World, BodyHandle) {
@@ -497,5 +498,44 @@ fn the_live_set_holds_exactly_the_simulated_bodies() {
         world.measured()[COUNTER_LIVE],
         2,
         "a driven body stays live beside the awake body"
+    );
+}
+
+#[test]
+fn a_query_never_wakes_a_sleeping_simulation() {
+    let (mut world, _) = rest_scene();
+    settle_until(&mut world, 400, |world| world.is_idle());
+    assert!(
+        world.measured()[COUNTER_RESTING] > 0,
+        "a settled pile must archive its resting contacts"
+    );
+
+    let filter = QueryFilter::default();
+    for _ in 0..8 {
+        let handle = world.ray_query([0.0, 4.0, 0.0], [0.0, -1.0, 0.0], 20.0, &filter);
+        world.step(DT);
+        world.wait();
+        assert!(
+            world.query_hit(handle).is_some(),
+            "a sleeping world must still answer its queries"
+        );
+    }
+
+    let measured = world.measured();
+    assert_eq!(
+        measured[COUNTER_ACTIVE], 0,
+        "a query must not wake a sleeping body"
+    );
+    assert_eq!(
+        measured[COUNTER_RESTING_GATHER], 0,
+        "a query must not drag the resting contacts back through the projection passes"
+    );
+    assert_eq!(
+        measured[COUNTER_CONTACTS], 0,
+        "a query must not reopen the narrowphase"
+    );
+    assert_eq!(
+        measured[COUNTER_LIVE], 0,
+        "a query must not open the live set"
     );
 }

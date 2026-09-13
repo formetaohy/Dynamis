@@ -39,11 +39,53 @@ pub(crate) struct Live {
     pub(crate) soft: <Soft as Domain>::Inputs,
 }
 
-pub(crate) fn any_active(measured: &Counters, work: &HostWork) -> bool {
-    <State as Domain>::active(measured, work)
-        || <Broadphase as Domain>::active(measured, work)
-        || <Rigid as Domain>::active(measured, work)
-        || <Soft as Domain>::active(measured, work)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Liveness {
+    pub(crate) rigid: bool,
+    pub(crate) soft: bool,
+    pub(crate) host: bool,
+}
+
+impl Liveness {
+    pub(crate) const AWAKE: Self = Self {
+        rigid: true,
+        soft: true,
+        host: true,
+    };
+
+    pub(crate) fn of(measured: &Counters, work: &HostWork) -> Self {
+        let soft = <Soft as Domain>::active(measured, work);
+        let rigid = <Rigid as Domain>::active(measured, work) || soft;
+        Self {
+            rigid,
+            soft,
+            host: <State as Domain>::active(measured, work),
+        }
+    }
+
+    pub(crate) const fn indexing(self) -> bool {
+        self.rigid || self.soft || self.host
+    }
+}
+
+pub(crate) const LIVENESS_LAG: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
+
+#[derive(Clone, Copy)]
+pub(crate) struct Rest {
+    quiet: u32,
+}
+
+impl Rest {
+    pub(crate) const IDLE: Self = Self { quiet: 0 };
+
+    pub(crate) fn gate(&mut self, awake: bool) -> bool {
+        if awake {
+            self.quiet = 0;
+            return true;
+        }
+        self.quiet = self.quiet.saturating_add(1);
+        self.quiet < LIVENESS_LAG
+    }
 }
 
 pub(crate) struct Planning {
@@ -417,11 +459,23 @@ impl World {
         }
     }
 
-    pub(crate) fn simulating(&self, work: &HostWork) -> bool {
-        self.backend.measured_step.is_none() || any_active(&self.backend.measured, work)
+    fn observed(&self, work: &HostWork) -> Liveness {
+        if self.backend.measured_step.is_none() {
+            return Liveness::AWAKE;
+        }
+        Liveness::of(&self.backend.measured, work)
     }
 
-    pub(crate) fn frames(&self, live: &Live, work: &HostWork, dt: f32) -> StepFrames {
+    fn gated(&mut self, work: &HostWork) -> Liveness {
+        let mut liveness = self.observed(work);
+        let awake = self.backend.measured[dynamis_abi::COUNTER_ACTIVE] != 0
+            || work.body_commands > 0
+            || work.constraint_commands > 0;
+        liveness.rigid = self.backend.rest.gate(awake) || liveness.soft;
+        liveness
+    }
+
+    pub(crate) fn frames(&mut self, live: &Live, work: &HostWork, dt: f32) -> StepFrames {
         let counts = self.frame_counts();
         let params = StepParamsRecord::new(
             &self.config,
@@ -434,8 +488,11 @@ impl World {
             },
             self.event_slot_of(self.clock.step),
         );
+        let liveness = self.gated(work);
         let facts = StepFacts {
-            simulating: self.simulating(work),
+            rigid: liveness.rigid,
+            soft: liveness.soft,
+            indexing: liveness.indexing(),
             params,
             counts,
             work: *work,

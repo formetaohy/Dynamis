@@ -5,7 +5,7 @@ mod readback;
 
 pub use capacity::StreamCapacity;
 
-use domains::{Live, Planning, StepPasses, Streams};
+use domains::{Live, Planning, Rest, StepPasses, Streams};
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
@@ -24,7 +24,8 @@ pub(crate) struct Backend {
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) declared: VecDeque<(u64, dynamis_abi::DeclaredCounters)>,
     pub(crate) measured_step: Option<u64>,
-    pub(crate) idle: bool,
+    pub(crate) working: bool,
+    pub(crate) rest: Rest,
     pub(crate) inspect: Option<dynamis_gpu::Readback>,
     pub(crate) submissions: u64,
     #[cfg(feature = "profile")]
@@ -44,7 +45,8 @@ impl Backend {
             measured: [0; dynamis_abi::COUNTER_COUNT],
             declared: VecDeque::new(),
             measured_step: None,
-            idle: false,
+            working: false,
+            rest: Rest::IDLE,
             inspect: None,
             submissions: 0,
             #[cfg(feature = "profile")]

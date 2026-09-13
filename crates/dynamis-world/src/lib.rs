@@ -102,7 +102,16 @@ impl World {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.backend.idle
+        let work = self.host_work();
+        let pending = work.body_commands > 0
+            || work.constraint_commands > 0
+            || work.queries > 0
+            || work.shape_uploads;
+        !self.backend.working
+            && !pending
+            && self.backend.measured_step.is_some()
+            && self.backend.measured[dynamis_abi::COUNTER_ACTIVE] == 0
+            && work.soft_bodies == 0
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {

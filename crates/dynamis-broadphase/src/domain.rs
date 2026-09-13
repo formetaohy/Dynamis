@@ -54,7 +54,7 @@ impl Domain for BroadphaseDomain {
 
     fn frame(facts: &StepFacts, _: &BroadphaseInputs) -> BroadphaseFrame {
         BroadphaseFrame {
-            indexing: facts.simulating,
+            indexing: facts.indexing,
         }
     }
 

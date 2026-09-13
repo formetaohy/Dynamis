@@ -9,9 +9,11 @@ pub struct HostWork {
     pub soft_bodies: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepFacts {
-    pub simulating: bool,
+    pub rigid: bool,
+    pub soft: bool,
+    pub indexing: bool,
     pub params: StepParamsRecord,
     pub counts: FrameCounts,
     pub work: HostWork,

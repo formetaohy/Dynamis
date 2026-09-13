@@ -48,6 +48,7 @@ pub struct RigidFrame {
     pub shape: RigidShape,
     pub query_count: u32,
     pub simulating: bool,
+    pub indexing: bool,
     pub ccd: bool,
 }
 
@@ -139,19 +140,20 @@ impl Rigid {
         frame: &RigidFrame,
     ) {
         let simulating = frame.simulating;
+        let indexing = frame.indexing;
         match phase {
             Phase::Commands => {
                 let mut commands = schedule.open(encoder, self.passes.commands);
                 self.commands.record(&mut commands, streams, frame);
                 drop(commands);
             }
-            Phase::Prepare if simulating => {
+            Phase::Prepare if indexing => {
                 let mut prepare = schedule.open(encoder, self.passes.prepare);
                 self.integrate
                     .record(&mut prepare, streams, frame, &self.sort);
                 drop(prepare);
             }
-            Phase::Entries if simulating => {
+            Phase::Entries if indexing => {
                 let mut entries = schedule.open(encoder, self.passes.entries);
                 self.entries.record(&mut entries, streams, frame);
                 drop(entries);

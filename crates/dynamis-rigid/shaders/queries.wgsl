@@ -17,11 +17,25 @@ fn load_body(slot: u32) -> Body {
 var<workgroup> candidates: array<u32, CANDIDATES_PER_QUERY>;
 var<workgroup> candidate_count: atomic<u32>;
 var<workgroup> overflow_flag: atomic<u32>;
+var<workgroup> valid_count: atomic<u32>;
+var<workgroup> pick_key: atomic<u32>;
+var<workgroup> pick_slot: atomic<u32>;
 
-fn bitonic_sort(local_invocation: u32) {
+fn sort_width(candidate_total: u32) -> u32 {
+    var width = WORKGROUP_SIZE;
+    loop {
+        if (width >= candidate_total || width >= CANDIDATES_PER_QUERY) {
+            break;
+        }
+        width = width * 2u;
+    }
+    return min(width, CANDIDATES_PER_QUERY);
+}
+
+fn bitonic_sort(local_invocation: u32, width: u32) {
     var k = 2u;
     loop {
-        if (k > CANDIDATES_PER_QUERY) {
+        if (k > width) {
             break;
         }
         var j = k / 2u;
@@ -30,7 +44,7 @@ fn bitonic_sort(local_invocation: u32) {
                 break;
             }
             var index = local_invocation;
-            while (index < CANDIDATES_PER_QUERY) {
+            while (index < width) {
                 let i = index ^ j;
                 if (i > index) {
                     let ascending = (index & k) == 0u;
@@ -309,7 +323,6 @@ fn query_world_aabb(query: Query) -> Aabb {
 
 const NO_KEY: u32 = 0xFFFFFFFFu;
 const NO_CANDIDATE: u32 = 0xFFFFFFFFu;
-const CANDIDATES_PER_THREAD: u32 = (CANDIDATES_PER_QUERY + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
 
 fn hit_key(distance: f32) -> u32 {
     let bits = bitcast<u32>(distance);
@@ -319,8 +332,48 @@ fn hit_key(distance: f32) -> u32 {
     return bits | 0x80000000u;
 }
 
-fn candidate_index_of(invocation: u32, slot: u32) -> u32 {
-    return invocation + slot * WORKGROUP_SIZE;
+fn keep_nearest(
+    keys: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
+    slots: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
+    stored: ptr<function, u32>,
+    capacity: u32,
+    key: u32,
+    slot: u32,
+) {
+    if (capacity == 0u || (*stored) >= capacity && key >= (*keys)[capacity - 1u]) {
+        return;
+    }
+    var position = min(*stored, capacity - 1u);
+    loop {
+        if (position == 0u) {
+            break;
+        }
+        let previous_key = (*keys)[position - 1u];
+        let previous_slot = (*slots)[position - 1u];
+        if (previous_key < key || (previous_key == key && previous_slot < slot)) {
+            break;
+        }
+        (*keys)[position] = previous_key;
+        (*slots)[position] = previous_slot;
+        position = position - 1u;
+    }
+    (*keys)[position] = key;
+    (*slots)[position] = slot;
+    if ((*stored) < capacity) {
+        (*stored) = (*stored) + 1u;
+    }
+}
+
+fn drop_nearest(
+    keys: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
+    slots: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
+    stored: ptr<function, u32>,
+) {
+    for (var index = 1u; index < (*stored); index = index + 1u) {
+        (*keys)[index - 1u] = (*keys)[index];
+        (*slots)[index - 1u] = (*slots)[index];
+    }
+    (*stored) = (*stored) - 1u;
 }
 
 fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
@@ -380,8 +433,6 @@ fn main(
     if (invocation_id.x == 0u) {
         atomicStore(&query_results[batch].header.count, 0u);
         atomicStore(&query_results[batch].header.overflow, 0u);
-        atomicStore(&query_results[batch].header.round_key, NO_KEY);
-        atomicStore(&query_results[batch].header.round_collider, NO_KEY);
     }
     workgroupBarrier();
     atomicStore(&candidate_count, 0u);
@@ -399,47 +450,44 @@ fn main(
         atomicStore(&query_results[batch].header.overflow, 1u);
     }
     let candidate_total = min(atomicLoad(&candidate_count), CANDIDATES_PER_QUERY);
-    for (var index = invocation_id.x; index < CANDIDATES_PER_QUERY; index = index + WORKGROUP_SIZE) {
+    let width = sort_width(candidate_total);
+    for (var index = invocation_id.x; index < width; index = index + WORKGROUP_SIZE) {
         if (index >= candidate_total) {
             candidates[index] = NO_CANDIDATE;
         }
     }
     workgroupBarrier();
-    bitonic_sort(invocation_id.x);
+    bitonic_sort(invocation_id.x, width);
     workgroupBarrier();
-    var keys: array<u32, CANDIDATES_PER_THREAD>;
-    var best_key = NO_KEY;
-    var best_collider = NO_KEY;
+    let capacity = min(query.max_hits, MAX_HITS_PER_QUERY);
+    var nearest_key: array<u32, MAX_HITS_PER_QUERY>;
+    var nearest_slot: array<u32, MAX_HITS_PER_QUERY>;
+    var stored = 0u;
+    var resolved = 0u;
     var candidate_index = invocation_id.x;
-    var slot_index = 0u;
     while (candidate_index < candidate_total) {
         let collider_slot = candidates[candidate_index];
         let duplicate = candidate_index > 0u && collider_slot == candidates[candidate_index - 1u];
-        keys[slot_index] = NO_KEY;
         if (!duplicate) {
             let body = load_body(collider_owners[collider_slot]);
             let collider = colliders[collider_slot];
             if (body_passes(body, collider, query)) {
                 let hit = resolve_hit(query, body, collider);
                 if (hit.distance < NO_HIT) {
-                    let key = hit_key(hit.distance);
-                    keys[slot_index] = key;
-                    atomicAdd(&query_results[batch].header.count, 1u);
-                    if (key < best_key) {
-                        best_key = key;
-                        best_collider = collider_slot;
-                    } else if (key == best_key) {
-                        best_collider = min(best_collider, collider_slot);
-                    }
+                    resolved = resolved + 1u;
+                    keep_nearest(&nearest_key, &nearest_slot, &stored, capacity, hit_key(hit.distance), collider_slot);
                 }
             }
         }
-        slot_index = slot_index + 1u;
         candidate_index = candidate_index + WORKGROUP_SIZE;
     }
-    let capacity = min(query.max_hits, MAX_HITS_PER_QUERY);
-    storageBarrier();
-    let total_hits = atomicLoad(&query_results[batch].header.count);
+    if (invocation_id.x == 0u) {
+        atomicStore(&valid_count, 0u);
+    }
+    workgroupBarrier();
+    atomicAdd(&valid_count, resolved);
+    workgroupBarrier();
+    let total_hits = atomicLoad(&valid_count);
     let emitted_total = min(total_hits, capacity);
     var round = 0u;
     loop {
@@ -447,45 +495,36 @@ fn main(
             break;
         }
         if (invocation_id.x == 0u) {
-            atomicStore(&query_results[batch].header.round_key, NO_KEY);
-            atomicStore(&query_results[batch].header.round_collider, NO_KEY);
+            atomicStore(&pick_key, NO_KEY);
+            atomicStore(&pick_slot, NO_KEY);
         }
-        storageBarrier();
-        atomicMin(&query_results[batch].header.round_key, best_key);
-        storageBarrier();
-        let chosen_key = atomicLoad(&query_results[batch].header.round_key);
-        if (chosen_key == NO_KEY) {
-            break;
+        workgroupBarrier();
+        var head_key = NO_KEY;
+        var head_slot = NO_KEY;
+        if (stored > 0u) {
+            head_key = nearest_key[0];
+            head_slot = nearest_slot[0];
         }
-        if (best_key == chosen_key) {
-            atomicMin(&query_results[batch].header.round_collider, best_collider);
+        atomicMin(&pick_key, head_key);
+        workgroupBarrier();
+        let chosen_key = atomicLoad(&pick_key);
+        if (head_key == chosen_key) {
+            atomicMin(&pick_slot, head_slot);
         }
-        storageBarrier();
-        let chosen_collider = atomicLoad(&query_results[batch].header.round_collider);
-        if (best_key == chosen_key && best_collider == chosen_collider) {
-            let body = load_body(collider_owners[chosen_collider]);
-            let collider = colliders[chosen_collider];
+        workgroupBarrier();
+        let chosen_slot = atomicLoad(&pick_slot);
+        if (head_key == chosen_key && head_slot == chosen_slot) {
+            let body = load_body(collider_owners[chosen_slot]);
+            let collider = colliders[chosen_slot];
             let hit = resolve_hit(query, body, collider);
             query_results[batch].hits[round] = QueryHit(body.state.body_id, body.state.generation, hit.distance, collider.slot, hit.point, 0.0, hit.normal, 0.0);
-            best_key = NO_KEY;
-            best_collider = NO_KEY;
-            for (var slot = 0u; slot < slot_index; slot = slot + 1u) {
-                if (keys[slot] == chosen_key) {
-                    keys[slot] = NO_KEY;
-                }
-                if (keys[slot] < best_key) {
-                    best_key = keys[slot];
-                    best_collider = candidates[candidate_index_of(invocation_id.x, slot)];
-                } else if (keys[slot] == best_key) {
-                    best_collider = min(best_collider, candidates[candidate_index_of(invocation_id.x, slot)]);
-                }
-            }
+            drop_nearest(&nearest_key, &nearest_slot, &stored);
         }
         round = round + 1u;
-        storageBarrier();
+        workgroupBarrier();
     }
     if (invocation_id.x == 0u) {
-        let spilling = atomicLoad(&query_results[batch].header.overflow) != 0u;
+        let spilling = atomicLoad(&overflow_flag) != 0u;
         atomicStore(&query_results[batch].header.count, emitted_total);
         atomicStore(&query_results[batch].header.overflow, select(0u, 1u, spilling || emitted_total < total_hits));
     }

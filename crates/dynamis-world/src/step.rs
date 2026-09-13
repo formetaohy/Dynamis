@@ -43,8 +43,11 @@ impl World {
         self.apply_pending_commands();
         let work = self.host_work();
         let query_count = work.queries;
+        self.backend.working = work.body_commands > 0
+            || work.constraint_commands > 0
+            || work.queries > 0
+            || work.shape_uploads;
         let frames = self.frames(&live, &work, dt);
-        self.backend.idle = !frames.rigid.simulating;
         self.shapes.uploaded = false;
         self.write_step_records(&frames);
         self.declare_step(step);

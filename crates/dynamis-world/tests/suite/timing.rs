@@ -112,3 +112,60 @@ fn a_profiled_world_keeps_reporting_after_a_snapshot() {
         "a restored world must keep profiling the passes it steps"
     );
 }
+
+#[test]
+fn a_query_on_a_sleeping_world_profiles_only_the_index() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    for index in 0..16 {
+        world.spawn(BodyDesc::sphere(0.4).position([
+            (index % 4) as f32 * 0.85 - 1.3,
+            0.4,
+            (index / 4) as f32 * 0.85 - 1.3,
+        ]));
+    }
+    settle(&mut world, 400);
+
+    for _ in 0..4 {
+        let _ = world.ray_query(
+            [0.0, 4.0, 0.0],
+            [0.0, -1.0, 0.0],
+            20.0,
+            &dynamis_model::QueryFilter::default(),
+        );
+        world.step(super::common::DT);
+    }
+    world.wait();
+
+    let timings = world.gpu_pass_timings();
+    for timing in timings {
+        assert!(
+            !matches!(
+                timing.label,
+                "narrowphase"
+                    | "islands"
+                    | "wake"
+                    | "live"
+                    | "solver_prepare"
+                    | "substeps"
+                    | "sleep"
+                    | "resting_gather"
+                    | "resting_index"
+            ),
+            "pass {} ran while the world only had a query pending",
+            timing.label
+        );
+    }
+    assert!(
+        timings.iter().any(|timing| timing.label == "broadphase"),
+        "a query must still refresh the broadphase index"
+    );
+    assert!(
+        timings.iter().any(|timing| timing.label == "commit"),
+        "a query must still resolve inside the commit pass"
+    );
+}

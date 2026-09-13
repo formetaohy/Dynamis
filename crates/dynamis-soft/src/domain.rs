@@ -48,7 +48,7 @@ impl Domain for SoftDomain {
     fn frame(facts: &StepFacts, inputs: &SoftInputs) -> SoftFrame {
         SoftFrame {
             params: facts.params,
-            simulating: facts.simulating && facts.work.soft_bodies > 0,
+            simulating: facts.soft && facts.work.soft_bodies > 0,
             material: inputs.material,
         }
     }

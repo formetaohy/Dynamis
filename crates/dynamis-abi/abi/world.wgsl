@@ -332,8 +332,6 @@ struct Query {
 struct QueryResultHeader {
     count: atomic<u32>,
     overflow: atomic<u32>,
-    round_key: atomic<u32>,
-    round_collider: atomic<u32>,
 }
 
 struct QueryHit {
