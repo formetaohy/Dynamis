@@ -5,7 +5,7 @@ pub use facts::{Run, StepFacts};
 
 use dynamis_abi::Counters;
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
+use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub trait Domain {
@@ -25,7 +25,9 @@ pub trait Domain {
 
     fn active(measured: &Counters, work: &Self::Work) -> bool;
 
-    fn claim(order: &mut PassOrder) -> Self::Passes;
+    fn pass_groups() -> &'static [PassGroup];
+
+    fn resolve(pipeline: &Pipeline) -> Self::Passes;
 
     fn build(context: &GpuContext, streams: &impl Resources, passes: Self::Passes)
     -> Self::Runtime;
@@ -36,7 +38,7 @@ pub trait Domain {
 
     fn record(
         runtime: &Self::Runtime,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
         streams: &impl Resources,

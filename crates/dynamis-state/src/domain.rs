@@ -3,7 +3,7 @@ use crate::{ShapeCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
+use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct StateDomain;
@@ -35,7 +35,11 @@ impl Domain for StateDomain {
         work.queries > 0 || work.shape_uploads
     }
 
-    fn claim(_: &mut PassOrder) {}
+    fn pass_groups() -> &'static [PassGroup] {
+        &[]
+    }
+
+    fn resolve(_: &Pipeline) {}
 
     fn build(_: &GpuContext, _: &impl Resources, _: ()) {}
 
@@ -47,7 +51,7 @@ impl Domain for StateDomain {
 
     fn record(
         _: &(),
-        _: Phase,
+        _: u32,
         _: &mut Schedule,
         _: &mut CommandEncoder,
         _: &impl Resources,

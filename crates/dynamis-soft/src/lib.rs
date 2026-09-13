@@ -11,7 +11,7 @@ use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
 use dynamis_kernel::{CORE, rows};
 use dynamis_pass::Resources;
-use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
+use dynamis_pass::{Schedule, Stage, domain_passes};
 use dynamis_state::StateStream;
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
@@ -44,12 +44,11 @@ fn particle_wake_index() -> Vec<&'static str> {
 
 domain_passes!(
     SoftPasses,
-    "soft",
-    bounds: Phase::Prepare => "soft_bounds",
-    entries: Phase::Entries => "soft_entries",
-    settle: Phase::Deform => "soft_settle",
-    substeps: Phase::Deform => "soft_substeps",
-    apply: Phase::Deform => "soft_apply",
+    soft_bounds => &[],
+    soft_entries => &["soft_bounds", "prepare"],
+    soft_settle => &["ccd_apply"],
+    soft_substeps => &["soft_settle"],
+    soft_apply => &["soft_substeps"],
 );
 
 #[derive(Clone, Copy, Debug)]
@@ -396,7 +395,7 @@ impl Soft {
 
     pub fn record(
         &self,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
@@ -408,49 +407,44 @@ impl Soft {
         let particles = Count::Particles.rows(&frame.params);
         let elements = Count::Elements.rows(&frame.params);
         let bodies = Count::SoftBodies.rows(&frame.params);
-        match phase {
-            Phase::Prepare => {
-                let mut bounds = schedule.open(encoder, self.passes.bounds);
-                self.bounds.record_rows(&mut bounds, streams, particles);
-                drop(bounds);
-            }
-            Phase::Entries => {
-                let mut entries = schedule.open(encoder, self.passes.entries);
-                self.entries.record_rows(&mut entries, streams, particles);
-                drop(entries);
-            }
-            Phase::Deform => {
-                let mut settle = schedule.open(encoder, self.passes.settle);
-                self.activity.record_rows(&mut settle, streams, particles);
-                self.wake.record_rows(&mut settle, streams, particles);
-                self.rest.record_rows(&mut settle, streams, bodies);
-                drop(settle);
-
-                let mut substeps = schedule.open(encoder, self.passes.substeps);
-                for _ in 0..frame.params.soft_substeps {
-                    self.reset.record_rows(&mut substeps, streams, elements);
-                    self.integrate
-                        .record_rows(&mut substeps, streams, particles);
-                    for _ in 0..frame.params.soft_iterations {
-                        self.elements.record_rows(&mut substeps, streams, elements);
-                        self.gather.record_rows(&mut substeps, streams, particles);
-                        self.density.record_rows(&mut substeps, streams, particles);
-                        self.pressure.record_rows(&mut substeps, streams, particles);
-                    }
-                    self.detect.record_rows(&mut substeps, streams, particles);
-                    self.resolve.record_rows(&mut substeps, streams, particles);
-                    if frame.material {
-                        self.material.record_rows(&mut substeps, streams, elements);
-                    }
+        if pass == self.passes.soft_bounds {
+            let mut bounds = schedule.open(encoder, pass);
+            self.bounds.record_rows(&mut bounds, streams, particles);
+            drop(bounds);
+        } else if pass == self.passes.soft_entries {
+            let mut entries = schedule.open(encoder, pass);
+            self.entries.record_rows(&mut entries, streams, particles);
+            drop(entries);
+        } else if pass == self.passes.soft_settle {
+            let mut settle = schedule.open(encoder, pass);
+            self.activity.record_rows(&mut settle, streams, particles);
+            self.wake.record_rows(&mut settle, streams, particles);
+            self.rest.record_rows(&mut settle, streams, bodies);
+            drop(settle);
+        } else if pass == self.passes.soft_substeps {
+            let mut substeps = schedule.open(encoder, pass);
+            for _ in 0..frame.params.soft_substeps {
+                self.reset.record_rows(&mut substeps, streams, elements);
+                self.integrate
+                    .record_rows(&mut substeps, streams, particles);
+                for _ in 0..frame.params.soft_iterations {
+                    self.elements.record_rows(&mut substeps, streams, elements);
+                    self.gather.record_rows(&mut substeps, streams, particles);
+                    self.density.record_rows(&mut substeps, streams, particles);
+                    self.pressure.record_rows(&mut substeps, streams, particles);
                 }
-                drop(substeps);
-
-                let mut apply = schedule.open(encoder, self.passes.apply);
-                self.apply
-                    .record_rows(&mut apply, streams, Count::Bodies.rows(&frame.params));
-                drop(apply);
+                self.detect.record_rows(&mut substeps, streams, particles);
+                self.resolve.record_rows(&mut substeps, streams, particles);
+                if frame.material {
+                    self.material.record_rows(&mut substeps, streams, elements);
+                }
             }
-            _ => {}
+            drop(substeps);
+        } else if pass == self.passes.soft_apply {
+            let mut apply = schedule.open(encoder, pass);
+            self.apply
+                .record_rows(&mut apply, streams, Count::Bodies.rows(&frame.params));
+            drop(apply);
         }
     }
 }

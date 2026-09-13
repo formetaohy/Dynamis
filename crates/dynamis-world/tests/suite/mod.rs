@@ -17,6 +17,7 @@ pub mod joint_precision;
 pub mod mass;
 pub mod material;
 pub mod observation;
+pub mod pipeline;
 pub mod query;
 pub mod reaction;
 pub mod rest;

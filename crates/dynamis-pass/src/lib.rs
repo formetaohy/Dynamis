@@ -6,7 +6,7 @@ mod stage;
 mod streams;
 
 pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled};
-pub use order::{DomainPasses, Pass, PassOrder, Phase};
+pub use order::{Pass, PassGroup, PassSpec, Pipeline, PipelineBuilder};
 pub use resource::{ResourceId, Resources, SlotRef};
 pub use schedule::Schedule;
 pub use stage::{

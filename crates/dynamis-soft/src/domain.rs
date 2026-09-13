@@ -4,7 +4,7 @@ use dynamis_abi::COUNTER_SOFT_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
+use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct SoftDomain;
@@ -35,8 +35,12 @@ impl Domain for SoftDomain {
         measured[COUNTER_SOFT_ACTIVE] != 0 || work.uploads
     }
 
-    fn claim(order: &mut PassOrder) -> SoftPasses {
-        SoftPasses::claim(order)
+    fn pass_groups() -> &'static [PassGroup] {
+        &[SoftPasses::GROUP]
+    }
+
+    fn resolve(pipeline: &Pipeline) -> SoftPasses {
+        SoftPasses::resolve(pipeline)
     }
 
     fn build(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> Soft {
@@ -57,12 +61,12 @@ impl Domain for SoftDomain {
 
     fn record(
         runtime: &Soft,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
         streams: &impl Resources,
         frame: &SoftFrame,
     ) {
-        runtime.record(phase, schedule, encoder, streams, frame);
+        runtime.record(pass, schedule, encoder, streams, frame);
     }
 }

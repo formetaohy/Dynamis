@@ -173,14 +173,23 @@ macro_rules! domains {
             }
         }
 
-        pub(crate) struct PassClaims {
+        pub(crate) struct PassIds {
             $( pub(crate) $field: <$domain as $crate::Domain>::Passes, )*
         }
 
-        impl PassClaims {
-            pub(crate) fn claim(order: &mut dynamis_pass::PassOrder) -> Self {
-                $( let $field = <$domain as $crate::Domain>::claim(order); )*
-                Self { $( $field, )* }
+        impl PassIds {
+            pub(crate) fn declare(builder: &mut dynamis_pass::PipelineBuilder) {
+                $(
+                    for group in <$domain as $crate::Domain>::pass_groups() {
+                        builder.declare(<$domain as $crate::Domain>::ID, *group);
+                    }
+                )*
+            }
+
+            pub(crate) fn resolve(pipeline: &dynamis_pass::Pipeline) -> Self {
+                Self {
+                    $( $field: <$domain as $crate::Domain>::resolve(pipeline), )*
+                }
             }
         }
 
@@ -192,9 +201,9 @@ macro_rules! domains {
             pub(crate) fn build(
                 context: &dynamis_gpu::GpuContext,
                 resources: &impl dynamis_pass::Resources,
-                claims: PassClaims,
+                ids: PassIds,
             ) -> Self {
-                let PassClaims { $( $field, )* } = claims;
+                let PassIds { $( $field, )* } = ids;
                 Self {
                     $(
                         $field: <$domain as $crate::Domain>::build(
@@ -208,22 +217,30 @@ macro_rules! domains {
 
             pub(crate) fn record(
                 &self,
-                phase: dynamis_pass::Phase,
+                pass: dynamis_pass::Pass,
+                index: u32,
                 schedule: &mut dynamis_pass::Schedule,
                 encoder: &mut wgpu::CommandEncoder,
                 resources: &impl dynamis_pass::Resources,
                 frames: &StepFrames,
             ) {
                 $(
-                    <$domain as $crate::Domain>::record(
-                        &self.$field,
-                        phase,
-                        schedule,
-                        encoder,
-                        resources,
-                        &frames.$field,
-                    );
+                    if pass.domain == <$domain as $crate::Domain>::ID {
+                        <$domain as $crate::Domain>::record(
+                            &self.$field,
+                            index,
+                            schedule,
+                            encoder,
+                            resources,
+                            &frames.$field,
+                        );
+                        return;
+                    }
                 )*
+                panic!(
+                    "pass {:?} names no registered domain",
+                    pass.label,
+                );
             }
         }
     };

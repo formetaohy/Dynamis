@@ -1,8 +1,7 @@
 use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_pass::Resources;
-use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
+use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
@@ -11,9 +10,8 @@ use dynamis_state::StateStream;
 
 domain_passes!(
     CcdPasses,
-    "ccd",
-    sweep: Phase::Continuous => "ccd_sweep",
-    apply: Phase::Continuous => "ccd_apply",
+    ccd_sweep => &["substeps"],
+    ccd_apply => &["ccd_sweep"],
 );
 
 pub struct Ccd {
@@ -74,22 +72,24 @@ impl Ccd {
 
     pub fn record(
         &self,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        if phase != Phase::Continuous || !frame.ccd || !frame.simulating {
+        if !frame.ccd || !frame.simulating {
             return;
         }
-        let mut sweep = schedule.open(encoder, self.passes.sweep);
-        self.sweep.record_stream(&mut sweep, streams);
-        drop(sweep);
-
-        let mut apply = schedule.open(encoder, self.passes.apply);
-        self.apply
-            .record_rows(&mut apply, streams, Count::Dynamic.rows(&frame.params));
-        drop(apply);
+        if pass == self.passes.ccd_sweep {
+            let mut sweep = schedule.open(encoder, pass);
+            self.sweep.record_stream(&mut sweep, streams);
+            drop(sweep);
+        } else if pass == self.passes.ccd_apply {
+            let mut apply = schedule.open(encoder, pass);
+            self.apply
+                .record_rows(&mut apply, streams, Count::Dynamic.rows(&frame.params));
+            drop(apply);
+        }
     }
 }

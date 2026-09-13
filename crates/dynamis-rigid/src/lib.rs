@@ -55,7 +55,7 @@ pub struct RigidFrame {
 use commands::Commands;
 use commit::Commit;
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{Phase, Schedule, domain_passes};
+use dynamis_pass::{Schedule, domain_passes};
 use dynamis_sort::RadixSort;
 use entries::Entries;
 use integrate::Integrate;
@@ -72,25 +72,23 @@ pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_c
 
 domain_passes!(
     RigidPasses,
-    "rigid",
-    commands: Phase::Commands => "commands",
-    prepare: Phase::Prepare => "prepare",
-    entries: Phase::Entries => "entries",
-    narrowphase: Phase::Contacts => "narrowphase",
-    islands: Phase::Contacts => "islands",
-    wake: Phase::Contacts => "wake",
-    live: Phase::Contacts => "live",
-    solver_prepare: Phase::Contacts => "solver_prepare",
-    substeps: Phase::Contacts => "substeps",
+    commands => &[],
+    prepare => &["commands"],
+    entries => &["prepare", "soft_bounds"],
+    narrowphase => &["broadphase"],
+    islands => &["narrowphase"],
+    wake => &["islands"],
+    live => &["wake"],
+    solver_prepare => &["live"],
+    substeps => &["solver_prepare"],
 );
 
 domain_passes!(
     RigidResolutionPasses,
-    "rigid resolution",
-    sleep: Phase::Project => "sleep",
-    commit: Phase::Project => "commit",
-    resting_gather: Phase::Project => "resting_gather",
-    resting_index: Phase::Project => "resting_index",
+    sleep => &["soft_apply"],
+    commit => &["sleep"],
+    resting_gather => &["commit"],
+    resting_index => &["resting_gather"],
 );
 
 pub struct Rigid {
@@ -133,7 +131,7 @@ impl Rigid {
 
     pub fn record(
         &self,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
@@ -141,81 +139,106 @@ impl Rigid {
     ) {
         let simulating = frame.simulating;
         let indexing = frame.indexing;
-        match phase {
-            Phase::Commands => {
-                let mut commands = schedule.open(encoder, self.passes.commands);
-                self.commands.record(&mut commands, streams, frame);
-                drop(commands);
+        if pass == self.passes.commands {
+            let mut commands = schedule.open(encoder, pass);
+            self.commands.record(&mut commands, streams, frame);
+            drop(commands);
+        } else if pass == self.passes.prepare {
+            if !indexing {
+                return;
             }
-            Phase::Prepare if indexing => {
-                let mut prepare = schedule.open(encoder, self.passes.prepare);
+            let mut prepare = schedule.open(encoder, pass);
+            self.integrate
+                .record(&mut prepare, streams, frame, &self.sort);
+            drop(prepare);
+        } else if pass == self.passes.entries {
+            if !indexing {
+                return;
+            }
+            let mut entries = schedule.open(encoder, pass);
+            self.entries.record(&mut entries, streams, frame);
+            drop(entries);
+        } else if pass == self.passes.narrowphase {
+            if !simulating {
+                return;
+            }
+            let mut narrowphase = schedule.open(encoder, pass);
+            self.narrowphase
+                .record(&mut narrowphase, streams, frame, &self.sort);
+            drop(narrowphase);
+        } else if pass == self.passes.islands {
+            if !simulating {
+                return;
+            }
+            let mut islands = schedule.open(encoder, pass);
+            self.islands.record(&mut islands, streams, frame);
+            drop(islands);
+        } else if pass == self.passes.wake {
+            if !simulating {
+                return;
+            }
+            let mut wake = schedule.open(encoder, pass);
+            self.islands.record_wake(&mut wake, streams, frame);
+            drop(wake);
+        } else if pass == self.passes.live {
+            if !simulating {
+                return;
+            }
+            let mut live = schedule.open(encoder, pass);
+            self.live.record(&mut live, streams, frame);
+            drop(live);
+        } else if pass == self.passes.solver_prepare {
+            if !simulating {
+                return;
+            }
+            let mut prepare = schedule.open(encoder, pass);
+            self.solver.record_prepare(&mut prepare, streams, frame);
+            drop(prepare);
+        } else if pass == self.passes.substeps {
+            if !simulating {
+                return;
+            }
+            let mut substeps = schedule.open(encoder, pass);
+            self.solver
+                .record_topology(&mut substeps, streams, frame, &self.sort);
+            for substep in 0..frame.params.substeps {
+                self.integrate.record_substep(&mut substeps, streams);
+                if substep == 0 {
+                    self.solver.record_warm(&mut substeps, streams);
+                }
+                self.solver.record_iterations(&mut substeps, streams, frame);
                 self.integrate
-                    .record(&mut prepare, streams, frame, &self.sort);
-                drop(prepare);
-            }
-            Phase::Entries if indexing => {
-                let mut entries = schedule.open(encoder, self.passes.entries);
-                self.entries.record(&mut entries, streams, frame);
-                drop(entries);
-            }
-            Phase::Contacts if simulating => {
-                let mut narrowphase = schedule.open(encoder, self.passes.narrowphase);
-                self.narrowphase
-                    .record(&mut narrowphase, streams, frame, &self.sort);
-                drop(narrowphase);
-
-                let mut islands = schedule.open(encoder, self.passes.islands);
-                self.islands.record(&mut islands, streams, frame);
-                drop(islands);
-
-                let mut wake = schedule.open(encoder, self.passes.wake);
-                self.islands.record_wake(&mut wake, streams, frame);
-                drop(wake);
-
-                let mut live = schedule.open(encoder, self.passes.live);
-                self.live.record(&mut live, streams, frame);
-                drop(live);
-
-                let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
-                self.solver.record_prepare(&mut prepare, streams, frame);
-                drop(prepare);
-
-                let mut substeps = schedule.open(encoder, self.passes.substeps);
+                    .record_substep_advance(&mut substeps, streams);
                 self.solver
-                    .record_topology(&mut substeps, streams, frame, &self.sort);
-                for substep in 0..frame.params.substeps {
-                    self.integrate.record_substep(&mut substeps, streams);
-                    if substep == 0 {
-                        self.solver.record_warm(&mut substeps, streams);
-                    }
-                    self.solver.record_iterations(&mut substeps, streams, frame);
-                    self.integrate
-                        .record_substep_advance(&mut substeps, streams);
-                    self.solver
-                        .record_position_iterations(&mut substeps, streams, frame);
-                }
-                drop(substeps);
+                    .record_position_iterations(&mut substeps, streams, frame);
             }
-            Phase::Project => {
-                if simulating {
-                    let mut sleep = schedule.open(encoder, self.resolution.sleep);
-                    self.sleep.record(&mut sleep, streams, frame);
-                    drop(sleep);
-                }
-                let mut commit = schedule.open(encoder, self.resolution.commit);
-                self.commit.record(&mut commit, streams, frame);
-                drop(commit);
-                if simulating {
-                    let mut gather = schedule.open(encoder, self.resolution.resting_gather);
-                    self.commit.record_gather(&mut gather, streams);
-                    drop(gather);
-                    let mut index = schedule.open(encoder, self.resolution.resting_index);
-                    self.commit
-                        .record_index(&mut index, streams, frame, &self.sort);
-                    drop(index);
-                }
+            drop(substeps);
+        } else if pass == self.resolution.sleep {
+            if !simulating {
+                return;
             }
-            _ => {}
+            let mut sleep = schedule.open(encoder, pass);
+            self.sleep.record(&mut sleep, streams, frame);
+            drop(sleep);
+        } else if pass == self.resolution.commit {
+            let mut commit = schedule.open(encoder, pass);
+            self.commit.record(&mut commit, streams, frame);
+            drop(commit);
+        } else if pass == self.resolution.resting_gather {
+            if !simulating {
+                return;
+            }
+            let mut gather = schedule.open(encoder, pass);
+            self.commit.record_gather(&mut gather, streams);
+            drop(gather);
+        } else if pass == self.resolution.resting_index {
+            if !simulating {
+                return;
+            }
+            let mut index = schedule.open(encoder, pass);
+            self.commit
+                .record_index(&mut index, streams, frame, &self.sort);
+            drop(index);
         }
     }
 

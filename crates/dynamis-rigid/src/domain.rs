@@ -7,15 +7,15 @@ use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
+use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct RigidDomain;
 
 pub struct RigidDomainPasses {
     pub simulation: RigidPasses,
-    pub resolution: RigidResolutionPasses,
     pub continuous: CcdPasses,
+    pub resolution: RigidResolutionPasses,
 }
 
 pub struct RigidDomainRuntime {
@@ -50,11 +50,19 @@ impl Domain for RigidDomain {
         measured[COUNTER_ACTIVE] != 0 || work.body_commands > 0 || work.constraint_commands > 0
     }
 
-    fn claim(order: &mut PassOrder) -> RigidDomainPasses {
+    fn pass_groups() -> &'static [PassGroup] {
+        &[
+            RigidPasses::GROUP,
+            CcdPasses::GROUP,
+            RigidResolutionPasses::GROUP,
+        ]
+    }
+
+    fn resolve(pipeline: &Pipeline) -> RigidDomainPasses {
         RigidDomainPasses {
-            simulation: RigidPasses::claim(order),
-            resolution: RigidResolutionPasses::claim(order),
-            continuous: CcdPasses::claim(order),
+            simulation: RigidPasses::resolve(pipeline),
+            continuous: CcdPasses::resolve(pipeline),
+            resolution: RigidResolutionPasses::resolve(pipeline),
         }
     }
 
@@ -86,7 +94,7 @@ impl Domain for RigidDomain {
 
     fn record(
         runtime: &RigidDomainRuntime,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
         streams: &impl Resources,
@@ -94,9 +102,9 @@ impl Domain for RigidDomain {
     ) {
         runtime
             .simulation
-            .record(phase, schedule, encoder, streams, frame);
+            .record(pass, schedule, encoder, streams, frame);
         runtime
             .continuous
-            .record(phase, schedule, encoder, streams, frame);
+            .record(pass, schedule, encoder, streams, frame);
     }
 }

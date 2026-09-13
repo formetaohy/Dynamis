@@ -3,7 +3,7 @@ use dynamis_abi::{Counters, FrameCounts, RowStreams, StepParamsRecord};
 use dynamis_broadphase::BroadphaseDomain;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::{Pass, PassOrder, Phase, Schedule};
+use dynamis_pass::{Pass, PipelineBuilder, Schedule};
 use dynamis_rigid::RigidDomain;
 use dynamis_soft::SoftDomain;
 use dynamis_state::StateDomain;
@@ -110,16 +110,18 @@ pub(crate) struct StepPasses {
 
 impl StepPasses {
     pub(crate) fn new(context: &GpuContext, streams: &Streams) -> Self {
-        let mut order = PassOrder::new();
-        let claims = PassClaims::claim(&mut order);
+        let mut builder = PipelineBuilder::new();
+        PassIds::declare(&mut builder);
+        let pipeline = builder.resolve();
+        let ids = PassIds::resolve(&pipeline);
         Self {
             schedule: Schedule::new(
                 context,
-                order,
+                pipeline,
                 #[cfg(feature = "profile")]
                 "dynamis step",
             ),
-            runtimes: PassRuntimes::build(context, streams, claims),
+            runtimes: PassRuntimes::build(context, streams, ids),
         }
     }
 
@@ -130,9 +132,10 @@ impl StepPasses {
         frames: &StepFrames,
     ) {
         self.schedule.begin_step();
-        for phase in Phase::ALL {
-            self.runtimes
-                .record(*phase, &mut self.schedule, encoder, streams, frames);
+        let Self { schedule, runtimes } = self;
+        for index in 0..schedule.pipeline().len() as u32 {
+            let pass = schedule.pass(index);
+            runtimes.record(pass, index, schedule, encoder, streams, frames);
         }
     }
 
@@ -163,7 +166,7 @@ impl StepPasses {
     }
 
     pub(crate) fn declared(&self) -> &[Pass] {
-        self.schedule.declared()
+        self.schedule.pipeline().passes()
     }
 
     #[cfg(feature = "profile")]

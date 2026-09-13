@@ -3,7 +3,7 @@ use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
+use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct BroadphaseDomain;
@@ -29,8 +29,12 @@ impl Domain for BroadphaseDomain {
         false
     }
 
-    fn claim(order: &mut PassOrder) -> BroadphasePasses {
-        BroadphasePasses::claim(order)
+    fn pass_groups() -> &'static [PassGroup] {
+        &[BroadphasePasses::GROUP]
+    }
+
+    fn resolve(pipeline: &Pipeline) -> BroadphasePasses {
+        BroadphasePasses::resolve(pipeline)
     }
 
     fn build(
@@ -53,12 +57,12 @@ impl Domain for BroadphaseDomain {
 
     fn record(
         runtime: &Broadphase,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
         streams: &impl Resources,
         frame: &BroadphaseFrame,
     ) {
-        runtime.record(phase, schedule, encoder, streams, *frame);
+        runtime.record(pass, schedule, encoder, streams, *frame);
     }
 }

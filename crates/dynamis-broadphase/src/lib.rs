@@ -12,15 +12,11 @@ pub use streams::{
 use dynamis_abi::COUNTER_ENTRIES;
 use dynamis_gpu::GpuContext;
 use dynamis_kernel::{GRID_INDEX, stream};
-use dynamis_pass::{Phase, Resources, Schedule, Stage, domain_passes};
+use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
 use dynamis_sort::{RadixSort, SortChannels};
 use dynamis_state::StateStream;
 
-domain_passes!(
-    BroadphasePasses,
-    "broadphase",
-    index: Phase::Index => "broadphase",
-);
+domain_passes!(BroadphasePasses, broadphase => &["entries", "soft_entries"]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BroadphaseFrame {
@@ -114,16 +110,16 @@ impl Broadphase {
 
     pub fn record(
         &self,
-        phase: Phase,
+        pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
         frame: BroadphaseFrame,
     ) {
-        if phase != Phase::Index || !frame.indexing {
+        if pass != self.passes.broadphase || !frame.indexing {
             return;
         }
-        let mut index = schedule.open(encoder, self.passes.index);
+        let mut index = schedule.open(encoder, pass);
         self.sort_entries(&mut index, streams);
         self.cell_pairs.record_stream(&mut index, streams);
         self.level_links.record_stream(&mut index, streams);

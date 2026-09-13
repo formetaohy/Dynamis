@@ -1,14 +1,14 @@
-use crate::{Pass, PassOrder, Phase};
+use crate::{Pass, Pipeline};
 #[cfg(feature = "profile")]
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use wgpu::CommandEncoder;
 
 pub struct Schedule {
-    order: PassOrder,
+    pipeline: Pipeline,
     per_row: u32,
     opened: Vec<bool>,
-    phase: Option<Phase>,
+    last: Option<u32>,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
 }
@@ -16,24 +16,24 @@ pub struct Schedule {
 impl Schedule {
     pub fn new(
         context: &GpuContext,
-        order: PassOrder,
+        pipeline: Pipeline,
         #[cfg(feature = "profile")] label: &str,
     ) -> Self {
         assert!(
-            !order.passes().is_empty(),
+            !pipeline.is_empty(),
             "a step schedule needs at least one pass"
         );
         #[cfg(feature = "profile")]
-        let labels = order
+        let labels = pipeline
             .passes()
             .iter()
             .map(|pass| pass.label)
             .collect::<Vec<_>>();
         Self {
             per_row: context.workgroups_per_row(),
-            opened: vec![false; order.passes().len()],
-            phase: None,
-            order,
+            opened: vec![false; pipeline.len()],
+            last: None,
+            pipeline,
             #[cfg(feature = "profile")]
             timer: context.supports_pass_timing().then(|| {
                 dynamis_gpu::GpuTimer::new(
@@ -50,45 +50,46 @@ impl Schedule {
         self.per_row
     }
 
-    pub fn declared(&self) -> &[Pass] {
-        self.order.passes()
+    pub fn pipeline(&self) -> &Pipeline {
+        &self.pipeline
+    }
+
+    pub fn pass(&self, index: u32) -> Pass {
+        self.pipeline.pass(index)
     }
 
     pub fn begin_step(&mut self) {
         self.opened.fill(false);
-        self.phase = None;
+        self.last = None;
     }
 
     pub fn open<'a>(
         &'a mut self,
         encoder: &'a mut CommandEncoder,
-        pass: usize,
+        pass: u32,
     ) -> ComputeRecorder<'a> {
-        let declared = *self
-            .order
-            .passes()
-            .get(pass)
-            .unwrap_or_else(|| panic!("pass {pass} is not part of the step schedule"));
+        let declared = self.pipeline.pass(pass);
         assert!(
-            !self.opened[pass],
+            !self.opened[pass as usize],
             "pass {:?} opens twice in one step",
             declared.label
         );
-        assert!(
-            self.phase.is_none_or(|phase| phase <= declared.phase),
-            "pass {:?} opens in {:?} after {:?}",
-            declared.label,
-            declared.phase,
-            self.phase.expect("an open pass declares a phase")
-        );
-        self.opened[pass] = true;
-        self.phase = Some(declared.phase);
+        if let Some(last) = self.last {
+            assert!(
+                last < pass,
+                "pass {:?} opens after {:?} in the resolved step",
+                declared.label,
+                self.pipeline.pass(last).label
+            );
+        }
+        self.opened[pass as usize] = true;
+        self.last = Some(pass);
         #[cfg(feature = "profile")]
         if let Some(timer) = &self.timer {
             return ComputeRecorder::begin_timed(
                 encoder,
                 declared.label,
-                Some(timer.writes(pass)),
+                Some(timer.writes(pass as usize)),
                 self.per_row,
             );
         }
