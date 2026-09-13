@@ -42,6 +42,8 @@ impl World {
         self.apply_pending_commands();
         let query_count = self.queries.pending.len() as u32;
         let frames = self.frames(dt, query_count);
+        self.backend.idle = !frames.rigid.simulating;
+        self.shapes.uploaded = false;
         self.write_step_records(&frames);
         self.declare_step(step);
         let batch = self.submit_queries(step, query_count);
@@ -59,7 +61,6 @@ impl World {
             self.constraints.last_moves = 0;
             return;
         }
-        self.backend.commanded_step = Some(self.clock.step);
         let body_commands = self.compile_body_commands();
         let constraint_commands = self.compile_constraint_commands();
         self.upload_body_commands(&body_commands);

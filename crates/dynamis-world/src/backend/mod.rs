@@ -28,7 +28,7 @@ pub(crate) struct Backend {
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) declared: VecDeque<(u64, dynamis_abi::DeclaredCounters)>,
     pub(crate) measured_step: Option<u64>,
-    pub(crate) commanded_step: Option<u64>,
+    pub(crate) idle: bool,
     pub(crate) inspect: Option<dynamis_gpu::Readback>,
     pub(crate) submissions: u64,
     #[cfg(feature = "profile")]
@@ -48,7 +48,7 @@ impl Backend {
             measured: [0; dynamis_abi::COUNTER_COUNT],
             declared: VecDeque::new(),
             measured_step: None,
-            commanded_step: None,
+            idle: false,
             inspect: None,
             submissions: 0,
             #[cfg(feature = "profile")]

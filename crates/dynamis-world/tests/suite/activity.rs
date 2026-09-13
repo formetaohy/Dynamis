@@ -56,6 +56,52 @@ fn a_pile_at_rest_leaves_the_simulation_domain() {
         settled[COUNTER_CONTACTS], 0,
         "a sleeping world must not hold live contacts"
     );
+    assert!(
+        world.is_idle(),
+        "a sleeping world must leave the simulation domain"
+    );
+}
+
+#[test]
+fn a_slept_constrained_island_leaves_the_simulation_domain() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let first = world.spawn(BodyDesc::cuboid([0.4; 3]).position([-0.5, 0.4, 0.0]));
+    let second = world.spawn(BodyDesc::cuboid([0.4; 3]).position([0.5, 0.4, 0.0]));
+    world.add_constraint(
+        first,
+        second,
+        dynamis_model::ConstraintDesc::fixed([0.5, 0.0, 0.0], [-0.5, 0.0, 0.0]),
+    );
+    settle(&mut world, 4);
+    assert!(!world.is_idle(), "a fresh constrained island must simulate");
+    world.sleep(first);
+    world.sleep(second);
+    settle(&mut world, 4);
+    assert!(asleep(&world), "the constrained island must be asleep");
+    assert!(
+        world.is_idle(),
+        "a sleeping island must leave the simulation domain even while its constraint lives"
+    );
+    settle(&mut world, 4);
+    assert!(world.is_idle(), "an idle world must stay idle");
+    world.wake(first);
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.is_idle(),
+        "waking a body must ask the domain for work again"
+    );
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.is_idle(),
+        "an awake body must keep the domain simulating"
+    );
 }
 
 #[test]

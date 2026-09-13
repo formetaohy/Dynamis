@@ -140,8 +140,8 @@ impl World {
         }
     }
 
-    pub(crate) fn soft_active(&self) -> bool {
-        self.soft.count() > 0
+    pub fn is_idle(&self) -> bool {
+        self.backend.idle
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {

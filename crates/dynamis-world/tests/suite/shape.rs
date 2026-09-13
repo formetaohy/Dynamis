@@ -552,6 +552,34 @@ fn a_recycled_source_reuses_the_slots_it_released() {
 }
 
 #[test]
+fn a_shape_update_asks_the_domain_for_work() {
+    let mut world = new_world(static_config());
+    let (vertices, triangles) = grid_floor(2.0, 4);
+    let source = world.add_mesh(&vertices, &triangles);
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(source))).mass(0.0));
+    for _ in 0..4 {
+        world.step(DT);
+    }
+    world.wait();
+    assert!(world.is_idle(), "a static mesh world must idle");
+
+    let (wider, wider_triangles) = grid_floor(4.0, 2);
+    world.update_mesh(source, &wider, &wider_triangles);
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.is_idle(),
+        "a shape update must ask the domain for work"
+    );
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.is_idle(),
+        "a shape update must not keep the domain awake"
+    );
+}
+
+#[test]
 fn resizing_a_source_repossesses_its_slots() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = grid_floor(2.0, 4);

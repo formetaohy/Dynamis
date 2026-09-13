@@ -8,6 +8,7 @@ use dynamis_model::{Shape, ShapeSourceHandle};
 pub(crate) struct Shapes {
     pub(crate) pool: ShapePool,
     pub(crate) dirty: bool,
+    pub(crate) uploaded: bool,
 }
 
 impl Shapes {
@@ -15,6 +16,7 @@ impl Shapes {
         Self {
             pool: ShapePool::new(),
             dirty: false,
+            uploaded: false,
         }
     }
 }

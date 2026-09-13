@@ -90,6 +90,7 @@ impl World {
             &state.shape_nodes,
         );
         self.shapes.dirty = false;
+        self.shapes.uploaded = true;
     }
 
     fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {

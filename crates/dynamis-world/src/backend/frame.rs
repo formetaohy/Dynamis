@@ -23,16 +23,22 @@ impl World {
         }
     }
 
+    pub(crate) fn simulating(&self, query_count: u32) -> bool {
+        let commands = self.bodies.last_edits > 0
+            || self.bodies.last_moves > 0
+            || self.constraints.last_commands > 0
+            || self.constraints.last_moves > 0;
+        self.backend.measured_step.is_none()
+            || self.backend.measured[COUNTER_ACTIVE] != 0
+            || commands
+            || query_count > 0
+            || self.shapes.uploaded
+            || self.soft.count() > 0
+    }
+
     pub(crate) fn frames(&self, dt: f32, query_count: u32) -> StepFrames {
         let counts = self.frame_counts();
-        let synced = self.backend.measured_step.filter(|measured| {
-            self.backend
-                .commanded_step
-                .is_none_or(|commanded| commanded <= *measured)
-        });
-        let awake = synced.map(|_| self.backend.measured[COUNTER_ACTIVE]);
-        let simulating =
-            awake != Some(0) || counts.constraints > 0 || query_count > 0 || self.soft_active();
+        let simulating = self.simulating(query_count);
         let params = StepParamsRecord::new(
             &self.config,
             dt,
@@ -58,7 +64,7 @@ impl World {
             },
             soft: SoftFrame {
                 params,
-                simulating: self.soft_active(),
+                simulating: simulating && self.soft.count() > 0,
                 material: self.soft.carries_strength(),
             },
         }
