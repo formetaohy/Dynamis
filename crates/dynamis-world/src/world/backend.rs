@@ -1,6 +1,6 @@
 use super::World;
-use crate::dynamics::Pipeline;
-use crate::dynamics::streams::{Planning, Streams};
+use crate::device::Pipeline;
+use crate::device::streams::{Planning, Streams};
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
@@ -11,7 +11,7 @@ pub(crate) struct Backend {
     pub(crate) streams: Streams,
     pub(crate) pipeline: Pipeline,
     pub(crate) planning: Planning,
-    pub(crate) measured: dynamis_layout::Counters,
+    pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) commanded_step: Option<u64>,
     pub(crate) inspect: Option<dynamis_gpu::Readback>,
@@ -30,7 +30,7 @@ impl Backend {
             streams,
             pipeline,
             planning: Planning::new(),
-            measured: [0; dynamis_layout::COUNTER_COUNT],
+            measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,
             commanded_step: None,
             inspect: None,

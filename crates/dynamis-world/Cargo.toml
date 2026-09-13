@@ -10,16 +10,20 @@ repository.workspace = true
 workspace = true
 
 [features]
-profile = ["dynamis-gpu/profile"]
+profile = ["dynamis-engine/profile", "dynamis-gpu/profile"]
 
 [dependencies]
 bytemuck = { workspace = true }
+dynamis-abi = { workspace = true }
+dynamis-broadphase = { workspace = true }
+dynamis-engine = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-sort = { workspace = true }
-dynamis-layout = { workspace = true }
 dynamis-math = { workspace = true }
 dynamis-mesh = { workspace = true }
 dynamis-model = { workspace = true }
+dynamis-rigid = { workspace = true }
+dynamis-scene = { workspace = true }
+dynamis-soft = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]

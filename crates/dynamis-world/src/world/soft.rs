@@ -1,10 +1,10 @@
 use super::World;
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use crate::dynamics::soft::SoftStreams;
-use dynamis_layout::{SoftLinkRecord, SoftParticleInit, SoftParticleRecord};
+use dynamis_abi::{SoftLinkRecord, SoftParticleInit, SoftParticleRecord};
 use dynamis_math::{add, quat_rotate};
 use dynamis_model::{SoftBodyDesc, SoftBodyHandle};
+use dynamis_soft::SoftStreams;
 
 #[derive(Clone, Copy)]
 struct SoftRuns {
@@ -143,6 +143,7 @@ impl SoftBodies {
                     velocity: desc.velocity,
                     radius: desc.radius,
                     inverse_mass: desc.inverse_masses[slot],
+                    friction: desc.friction,
                     neighbour_offset: offset,
                     neighbour_count: count,
                     owner: id,
@@ -316,7 +317,7 @@ impl World {
             "soft body particles",
             &[(&buffer, run.offset as u64 * stride, bytes)],
         );
-        let records = dynamis_layout::decode::<SoftParticleRecord>(&raw);
+        let records = dynamis_abi::decode::<SoftParticleRecord>(&raw);
         assert!(
             records
                 .iter()

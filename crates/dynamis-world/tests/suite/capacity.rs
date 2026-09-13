@@ -2,7 +2,7 @@ use super::common::{
     DT, flat_mesh_floor, gravity_config, new_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
-use dynamis_layout::{COUNTER_CONTACTS, COUNTER_SPILLOVER_PAIRS};
+use dynamis_abi::{COUNTER_CONTACTS, COUNTER_SPILLOVER_PAIRS};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
 use dynamis_world::World;
 

@@ -1,6 +1,6 @@
 use super::World;
 use super::rows::{RowJournal, RowMap};
-use dynamis_layout::{
+use dynamis_abi::{
     BodyEditRecord, BodyEditRunRecord, BodyStateRecord, ConstraintRuntimeRecord, RowMoveRecord,
 };
 

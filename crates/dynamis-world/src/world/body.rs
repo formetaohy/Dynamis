@@ -2,7 +2,7 @@ use super::World;
 use super::commands::BodyCommand;
 use super::ids::IdSpace;
 use bytemuck::Zeroable;
-use dynamis_layout::{
+use dynamis_abi::{
     BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
     PATCH_POSITION, PATCH_VELOCITY,

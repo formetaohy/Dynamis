@@ -1,10 +1,8 @@
 use super::World;
-use crate::dynamics::Frame;
 use crate::world::commands::{CompiledBodyCommands, CompiledConstraintCommands};
+use dynamis_scene::Frame;
 
-use dynamis_layout::{
-    COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord,
-};
+use dynamis_abi::{COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord};
 use std::mem::size_of;
 
 impl World {
@@ -90,6 +88,8 @@ impl World {
                     bodies: self.bodies.alive.len() as u32,
                     colliders: self.colliders.used(),
                     constraints: self.constraints.alive.len() as u32,
+                    particles: self.soft.used().0,
+                    links: self.soft.used().1,
                 },
                 RowStreams {
                     edit_runs: self.bodies.last_edits,

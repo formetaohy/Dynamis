@@ -1,4 +1,4 @@
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryResultHeaderRecord, QueryResultRecord};
+use dynamis_abi::{MAX_HITS_PER_QUERY, QueryResultHeaderRecord, QueryResultRecord};
 use dynamis_model::BodyHandle;
 use std::collections::VecDeque;
 
@@ -90,7 +90,7 @@ impl QueryPool {
             .find(|batch| batch.batch == batch_id)
             .unwrap_or_else(|| panic!("no query batch is registered for batch {batch_id}"));
         let step = batch.step;
-        let records = dynamis_layout::decode::<QueryResultRecord>(bytes);
+        let records = dynamis_abi::decode::<QueryResultRecord>(bytes);
         let mut hits = vec![Vec::new(); batch.width];
         let mut overflow = vec![false; batch.width];
         for (index, result) in records.iter().take(batch.width).enumerate() {

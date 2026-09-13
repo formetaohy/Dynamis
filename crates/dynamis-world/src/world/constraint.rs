@@ -1,9 +1,9 @@
 use super::World;
 use super::commands::ConstraintCommand;
 use super::ids::IdSpace;
-use crate::dynamics::EVENT_SLOTS;
+use dynamis_abi::{BrokenConstraintRecord, COUNTER_BREAKS, ConstraintDescriptorRecord};
+use dynamis_engine::EVENT_SLOTS;
 use dynamis_gpu::SubmissionEncoder;
-use dynamis_layout::{BrokenConstraintRecord, COUNTER_BREAKS, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing,
@@ -158,7 +158,7 @@ impl World {
             record.motor_target = 0.0;
             record.motor_stiffness = 0.0;
             record.motor_damping = 0.0;
-            record.flags |= dynamis_layout::CONSTRAINT_HAS_MOTOR;
+            record.flags |= dynamis_abi::CONSTRAINT_HAS_MOTOR;
         });
     }
 
@@ -173,9 +173,9 @@ impl World {
             Some(limit) => {
                 record.limit_min = limit.min;
                 record.limit_max = limit.max;
-                record.flags |= dynamis_layout::CONSTRAINT_HAS_LIMIT;
+                record.flags |= dynamis_abi::CONSTRAINT_HAS_LIMIT;
             }
-            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_LIMIT,
+            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_LIMIT,
         });
     }
 
@@ -194,9 +194,9 @@ impl World {
             Some(spring) => {
                 record.spring_frequency = spring.frequency;
                 record.spring_damping_ratio = spring.damping_ratio;
-                record.flags |= dynamis_layout::CONSTRAINT_IS_SPRING;
+                record.flags |= dynamis_abi::CONSTRAINT_IS_SPRING;
             }
-            None => record.flags &= !dynamis_layout::CONSTRAINT_IS_SPRING,
+            None => record.flags &= !dynamis_abi::CONSTRAINT_IS_SPRING,
         });
     }
 
@@ -213,17 +213,17 @@ impl World {
             Some(threshold) => {
                 record.break_force = threshold.force;
                 record.break_torque = threshold.torque;
-                record.flags |= dynamis_layout::CONSTRAINT_HAS_BREAK;
+                record.flags |= dynamis_abi::CONSTRAINT_HAS_BREAK;
             }
-            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_BREAK,
+            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_BREAK,
         });
     }
 
     pub fn set_warm_start(&mut self, handle: ConstraintHandle, warm_start: bool) {
         self.patch_record(handle, |record| {
-            record.flags = (record.flags & !dynamis_layout::CONSTRAINT_WARM_START)
+            record.flags = (record.flags & !dynamis_abi::CONSTRAINT_WARM_START)
                 | if warm_start {
-                    dynamis_layout::CONSTRAINT_WARM_START
+                    dynamis_abi::CONSTRAINT_WARM_START
                 } else {
                     0
                 };
@@ -249,7 +249,7 @@ impl World {
             record.motor_target = target_position;
             record.motor_stiffness = stiffness;
             record.motor_damping = damping;
-            record.flags |= dynamis_layout::CONSTRAINT_HAS_MOTOR;
+            record.flags |= dynamis_abi::CONSTRAINT_HAS_MOTOR;
         });
     }
 
@@ -262,17 +262,17 @@ impl World {
             Some(swing) => {
                 record.swing_a = swing.swing_a;
                 record.swing_b = swing.swing_b;
-                record.flags |= dynamis_layout::CONSTRAINT_HAS_SWING;
+                record.flags |= dynamis_abi::CONSTRAINT_HAS_SWING;
             }
-            None => record.flags &= !dynamis_layout::CONSTRAINT_HAS_SWING,
+            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_SWING,
         });
     }
 
     pub fn set_constraint_disable_collisions(&mut self, handle: ConstraintHandle, disable: bool) {
         self.patch_record(handle, |record| {
-            record.flags = (record.flags & !dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS)
+            record.flags = (record.flags & !dynamis_abi::CONSTRAINT_DISABLE_COLLISIONS)
                 | if disable {
-                    dynamis_layout::CONSTRAINT_DISABLE_COLLISIONS
+                    dynamis_abi::CONSTRAINT_DISABLE_COLLISIONS
                 } else {
                     0
                 };
@@ -282,7 +282,7 @@ impl World {
     pub fn set_dof_locked(&mut self, handle: ConstraintHandle, index: usize, locked: bool) {
         self.assert_dof_index(index);
         self.patch_record(handle, |record| {
-            record.flags = dynamis_layout::set_dof_locked(record.flags, index as u32, locked);
+            record.flags = dynamis_abi::set_dof_locked(record.flags, index as u32, locked);
         });
     }
 
@@ -305,14 +305,12 @@ impl World {
                 Some(limit) => {
                     *min = limit.min;
                     *max = limit.max;
-                    record.flags =
-                        dynamis_layout::set_dof_limited(record.flags, index as u32, true);
+                    record.flags = dynamis_abi::set_dof_limited(record.flags, index as u32, true);
                 }
                 None => {
                     *min = 0.0;
                     *max = 0.0;
-                    record.flags =
-                        dynamis_layout::set_dof_limited(record.flags, index as u32, false);
+                    record.flags = dynamis_abi::set_dof_limited(record.flags, index as u32, false);
                 }
             }
         });
@@ -333,15 +331,14 @@ impl World {
                     *stiffness = motor.stiffness;
                     *damping = motor.damping;
                     *force = motor.max_force;
-                    record.flags = dynamis_layout::set_dof_driven(record.flags, index as u32, true);
+                    record.flags = dynamis_abi::set_dof_driven(record.flags, index as u32, true);
                 }
                 None => {
                     *target = 0.0;
                     *stiffness = 0.0;
                     *damping = 0.0;
                     *force = 0.0;
-                    record.flags =
-                        dynamis_layout::set_dof_driven(record.flags, index as u32, false);
+                    record.flags = dynamis_abi::set_dof_driven(record.flags, index as u32, false);
                 }
             }
         });
@@ -360,9 +357,9 @@ impl World {
 
     fn assert_dof_index(&self, index: usize) {
         assert!(
-            index < dynamis_layout::DOF_COUNT as usize,
+            index < dynamis_abi::DOF_COUNT as usize,
             "dof index must be below {}",
-            dynamis_layout::DOF_COUNT
+            dynamis_abi::DOF_COUNT
         );
     }
 
@@ -436,7 +433,7 @@ impl World {
     }
 
     pub(crate) fn consume_breaks(&mut self, bytes: &[u8]) {
-        for record in dynamis_layout::decode::<BrokenConstraintRecord>(bytes) {
+        for record in dynamis_abi::decode::<BrokenConstraintRecord>(bytes) {
             self.accept_constraint_break(record.constraint_id, record.generation);
         }
     }

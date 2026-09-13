@@ -1,5 +1,5 @@
 use super::common::{DT, asleep, gravity_config, new_world, settle, settle_until, static_config};
-use dynamis_layout::{
+use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING,
     COUNTER_SLEPT, COUNTER_WOKE,
 };

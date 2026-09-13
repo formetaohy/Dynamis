@@ -991,7 +991,7 @@ fn every_simultaneous_break_reaches_the_host() {
         "a broken joint must leave the live set"
     );
     assert_eq!(
-        world.measured()[dynamis_layout::COUNTER_BREAKS],
+        world.measured()[dynamis_abi::COUNTER_BREAKS],
         0,
         "a settled world must stop publishing breaks"
     );
@@ -1037,7 +1037,7 @@ fn unloaded_joints_never_publish_breaks() {
         );
     }
     assert_eq!(
-        world.measured()[dynamis_layout::COUNTER_BREAKS],
+        world.measured()[dynamis_abi::COUNTER_BREAKS],
         0,
         "an unbroken world must publish no break records"
     );

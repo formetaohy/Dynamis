@@ -1,6 +1,6 @@
 use super::World;
-use dynamis_layout::COUNTER_RESTING;
-use dynamis_layout::{COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE, ContactRecord, Counters};
+use dynamis_abi::COUNTER_RESTING;
+use dynamis_abi::{COUNTER_CONTACTS, COUNTER_COUNT, COUNTER_STRIDE, ContactRecord, Counters};
 use dynamis_model::{BodyHandle, ConstraintHandle};
 use std::collections::HashSet;
 use std::mem::size_of;
@@ -76,7 +76,7 @@ impl World {
         let mut manifolds = Vec::with_capacity(active + resting);
         let mut seen = HashSet::new();
         let active_bytes = active * size_of::<ContactRecord>();
-        for record in dynamis_layout::decode::<ContactRecord>(&bytes[..active_bytes]) {
+        for record in dynamis_abi::decode::<ContactRecord>(&bytes[..active_bytes]) {
             if seen.insert((record.a, record.b)) {
                 manifolds.push(manifold_of(&record, step));
             }
@@ -84,7 +84,7 @@ impl World {
         if resting > 0 {
             let live = &bytes[active_bytes..active_bytes + resting * 4];
             let resting_bytes = &bytes[active_bytes + resting * 4..];
-            for (index, record) in dynamis_layout::decode::<ContactRecord>(resting_bytes)
+            for (index, record) in dynamis_abi::decode::<ContactRecord>(resting_bytes)
                 .into_iter()
                 .enumerate()
             {

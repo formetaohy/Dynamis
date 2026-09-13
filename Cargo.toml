@@ -24,15 +24,21 @@ wgpu = { version = "30", default-features = false, features = [
 winit = "0.30"
 glam = "0.32"
 font8x8 = "0.3"
-dynamis = { path = "." }
-dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
-dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
-dynamis-layout = { version = "0.6.0", path = "crates/dynamis-layout" }
 dynamis-math = { version = "0.6.0", path = "crates/dynamis-math" }
-dynamis-mesh = { version = "0.6.0", path = "crates/dynamis-mesh" }
+dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
 dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
+dynamis-abi = { version = "0.6.0", path = "crates/dynamis-abi" }
+dynamis-broadphase = { version = "0.6.0", path = "crates/dynamis-broadphase" }
+dynamis-engine = { version = "0.6.0", path = "crates/dynamis-engine" }
+dynamis-kernels = { version = "0.6.0", path = "crates/dynamis-kernels" }
+dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
+dynamis-scene = { version = "0.6.0", path = "crates/dynamis-scene" }
+dynamis-rigid = { version = "0.6.0", path = "crates/dynamis-rigid" }
+dynamis-soft = { version = "0.6.0", path = "crates/dynamis-soft" }
+dynamis-mesh = { version = "0.6.0", path = "crates/dynamis-mesh" }
 dynamis-world = { version = "0.6.0", path = "crates/dynamis-world" }
 dynamis-character = { version = "0.6.0", path = "crates/dynamis-character" }
+dynamis = { path = "." }
 dynamis-example-profile = { path = "examples/profile" }
 dynamis-example-render = { path = "examples/render" }
 
@@ -52,12 +58,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dynamis-character = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-layout = { workspace = true }
-dynamis-mesh = { workspace = true }
+dynamis-abi = { workspace = true }
 dynamis-model = { workspace = true }
+dynamis-mesh = { workspace = true }
 dynamis-world = { workspace = true }
+dynamis-character = { workspace = true }
 
 [features]
 profile = ["dynamis-gpu/profile", "dynamis-world/profile"]

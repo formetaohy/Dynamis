@@ -1,6 +1,6 @@
 use super::World;
 use crate::world::shape_pool::{ShapePool, height_field_triangles};
-use dynamis_layout::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
+use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_mesh::convex_hull_mesh;
 use dynamis_model::{Shape, ShapeSourceHandle};
 

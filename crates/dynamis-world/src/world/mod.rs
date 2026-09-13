@@ -17,21 +17,21 @@ mod soft;
 mod step;
 mod view;
 
-use crate::dynamics::Live;
-use crate::dynamics::StreamCapacity;
-use crate::dynamics::scene::SceneStreams;
+use crate::device::StreamCapacity;
 use backend::Backend;
 use body::Bodies;
 use clock::Clock;
 use colliders::ColliderPool;
 use constraint::Constraints;
-use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
-use dynamis_layout::ColliderRecord;
-use dynamis_layout::{
+use dynamis_abi::ColliderRecord;
+use dynamis_abi::{
     COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_COMMANDS,
     COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
 };
+use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
+use dynamis_scene::Live;
+use dynamis_scene::SceneStreams;
 use event::Events;
 use query::Queries;
 use shape::Shapes;
@@ -236,7 +236,7 @@ impl World {
     fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
         for cleared in self.colliders.take_cleared() {
             let records = vec![ColliderRecord::cleared(); cleared.len as usize];
-            let owners = vec![dynamis_layout::NO_BODY; cleared.len as usize];
+            let owners = vec![dynamis_abi::NO_BODY; cleared.len as usize];
             flush_pool_range(
                 &self.backend.streams.scene,
                 queue,
@@ -288,7 +288,7 @@ impl World {
         for (slot, value) in declared {
             self.backend.streams.scene.counters.write_at(
                 queue,
-                slot as u64 * dynamis_layout::COUNTER_STRIDE,
+                slot as u64 * dynamis_abi::COUNTER_STRIDE,
                 bytemuck::cast_slice(&[value]),
             );
         }
@@ -315,6 +315,6 @@ impl World {
     }
 
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
-        (step % crate::dynamics::EVENT_SLOTS as u64) as u32
+        (step % dynamis_engine::EVENT_SLOTS as u64) as u32
     }
 }

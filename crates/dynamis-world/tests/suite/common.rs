@@ -1,5 +1,5 @@
+use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_gpu::{Backends, GpuContext, GpuRequest, WarmupBudget};
-use dynamis_layout::COUNTER_ACTIVE;
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
 use dynamis_world::World;
 use std::sync::OnceLock;

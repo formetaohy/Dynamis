@@ -384,15 +384,36 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 name = "dynamis"
 version = "0.6.0"
 dependencies = [
+ "dynamis-abi",
  "dynamis-character",
  "dynamis-example-profile",
  "dynamis-example-render",
  "dynamis-gpu",
- "dynamis-layout",
  "dynamis-mesh",
  "dynamis-model",
  "dynamis-world",
  "pollster",
+]
+
+[[package]]
+name = "dynamis-abi"
+version = "0.6.0"
+dependencies = [
+ "bytemuck",
+ "dynamis-model",
+]
+
+[[package]]
+name = "dynamis-broadphase"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-engine",
+ "dynamis-gpu",
+ "dynamis-kernels",
+ "dynamis-scene",
+ "dynamis-sort",
+ "wgpu",
 ]
 
 [[package]]
@@ -404,6 +425,14 @@ dependencies = [
  "dynamis-model",
  "dynamis-world",
  "pollster",
+]
+
+[[package]]
+name = "dynamis-engine"
+version = "0.6.0"
+dependencies = [
+ "dynamis-gpu",
+ "wgpu",
 ]
 
 [[package]]
@@ -434,11 +463,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "dynamis-layout"
+name = "dynamis-kernels"
 version = "0.6.0"
 dependencies = [
- "bytemuck",
- "dynamis-model",
+ "dynamis-abi",
+ "dynamis-engine",
+ "dynamis-gpu",
 ]
 
 [[package]]
@@ -457,6 +487,44 @@ name = "dynamis-model"
 version = "0.6.0"
 
 [[package]]
+name = "dynamis-rigid"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-broadphase",
+ "dynamis-engine",
+ "dynamis-gpu",
+ "dynamis-kernels",
+ "dynamis-scene",
+ "dynamis-sort",
+ "wgpu",
+]
+
+[[package]]
+name = "dynamis-scene"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-engine",
+ "dynamis-gpu",
+ "dynamis-sort",
+ "wgpu",
+]
+
+[[package]]
+name = "dynamis-soft"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-broadphase",
+ "dynamis-engine",
+ "dynamis-gpu",
+ "dynamis-kernels",
+ "dynamis-scene",
+ "wgpu",
+]
+
+[[package]]
 name = "dynamis-sort"
 version = "0.6.0"
 dependencies = [
@@ -471,12 +539,16 @@ name = "dynamis-world"
 version = "0.6.0"
 dependencies = [
  "bytemuck",
+ "dynamis-abi",
+ "dynamis-broadphase",
+ "dynamis-engine",
  "dynamis-gpu",
- "dynamis-layout",
  "dynamis-math",
  "dynamis-mesh",
  "dynamis-model",
- "dynamis-sort",
+ "dynamis-rigid",
+ "dynamis-scene",
+ "dynamis-soft",
  "pollster",
  "wgpu",
 ]

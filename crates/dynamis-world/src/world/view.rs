@@ -1,6 +1,6 @@
 use super::World;
+use dynamis_abi::BodyStateRecord;
 use dynamis_gpu::SubmissionEncoder;
-use dynamis_layout::BodyStateRecord;
 use dynamis_model::{BodyHandle, BodyState};
 use std::mem::size_of;
 

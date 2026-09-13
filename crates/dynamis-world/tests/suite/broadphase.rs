@@ -1,5 +1,5 @@
 use super::common::{DT, gravity_config, new_world, settle, settle_until, static_config};
-use dynamis_layout::{
+use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_SPILLOVER_PAIRS,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
@@ -205,7 +205,7 @@ fn a_coarse_collider_has_an_entry_span_within_budget() {
     world.wait();
     let entries = world.measured()[COUNTER_ENTRIES];
     assert!(
-        entries <= 20 * dynamis_layout::MAX_CELLS_PER_COLLIDER,
+        entries <= 20 * dynamis_abi::MAX_CELLS_PER_COLLIDER,
         "grid entries must stay within the per collider budget, got {entries}"
     );
 }

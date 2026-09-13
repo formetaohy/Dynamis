@@ -1,5 +1,5 @@
 use super::common::{DT, new_world, static_config};
-use dynamis_layout::{
+use dynamis_abi::{
     COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
 };
 use dynamis_model::{BodyDesc, ConstraintDesc};

@@ -1,4 +1,4 @@
-use dynamis_layout::RowMoveRecord;
+use dynamis_abi::RowMoveRecord;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

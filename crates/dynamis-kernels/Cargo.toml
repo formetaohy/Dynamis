@@ -1,0 +1,15 @@
+[package]
+name = "dynamis-kernels"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dynamis-abi = { workspace = true }
+dynamis-engine = { workspace = true }
+dynamis-gpu = { workspace = true }
+
+[lints]
+workspace = true

@@ -135,8 +135,8 @@ fn contact_manifolds_surface_contact_points() {
     let measured = world.measured().to_owned();
     assert_eq!(
         (
-            measured[dynamis_layout::COUNTER_SPILLOVER_PAIRS],
-            measured[dynamis_layout::COUNTER_SPILLOVER_EVENTS],
+            measured[dynamis_abi::COUNTER_SPILLOVER_PAIRS],
+            measured[dynamis_abi::COUNTER_SPILLOVER_EVENTS],
         ),
         (0, 0),
         "quiet world must not spill"

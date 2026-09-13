@@ -1,0 +1,19 @@
+[package]
+name = "dynamis-broadphase"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dynamis-abi = { workspace = true }
+dynamis-engine = { workspace = true }
+dynamis-gpu = { workspace = true }
+dynamis-kernels = { workspace = true }
+dynamis-scene = { workspace = true }
+dynamis-sort = { workspace = true }
+wgpu = { workspace = true }
+
+[lints]
+workspace = true

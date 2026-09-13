@@ -210,3 +210,36 @@ fn two_identical_soft_bodies_observe_identical_positions() {
         "identical soft bodies must stay bit identical"
     );
 }
+
+#[test]
+fn overlapping_particles_of_a_body_push_apart() {
+    let mut world = new_world(super::common::static_config());
+    let handle = world.add_soft_body(
+        SoftBodyDesc::new(vec![[-0.3, 0.0, 0.0], [0.3, 0.0, 0.0]], Vec::new()).radius(0.5),
+    );
+    settle(&mut world, 60);
+    let after = world.soft_body_positions(handle);
+    let separation = distance(after[0], after[1]);
+    assert!(
+        separation > 0.9,
+        "unlinked particles of one body must self collide, got {separation}"
+    );
+}
+
+#[test]
+fn overlapping_soft_bodies_push_apart() {
+    let mut world = new_world(super::common::static_config());
+    let first =
+        world.add_soft_body(SoftBodyDesc::new(vec![[-0.3, 0.0, 0.0]], Vec::new()).radius(0.5));
+    let second =
+        world.add_soft_body(SoftBodyDesc::new(vec![[0.3, 0.0, 0.0]], Vec::new()).radius(0.5));
+    settle(&mut world, 60);
+    let separation = distance(
+        world.soft_body_positions(first)[0],
+        world.soft_body_positions(second)[0],
+    );
+    assert!(
+        separation > 0.9,
+        "soft bodies must collide with each other, got {separation}"
+    );
+}

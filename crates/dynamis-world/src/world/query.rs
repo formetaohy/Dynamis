@@ -1,6 +1,6 @@
 use super::World;
 use crate::world::query_pool::{QueryHandle, QueryHit, QueryPool};
-use dynamis_layout::{MAX_HITS_PER_QUERY, QueryRecord};
+use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
 use std::mem::size_of;
 
@@ -158,7 +158,7 @@ impl World {
         self.backend
             .pipeline
             .encode_queries(&mut encoder, &self.backend.streams, &frame);
-        let bytes = count as u64 * size_of::<dynamis_layout::QueryResultRecord>() as u64;
+        let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
         let arrived = self.backend.streams.readback.queries.enqueue(
             &mut encoder,
             self.backend.streams.scene.query_results.buffer(),

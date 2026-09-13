@@ -1,6 +1,6 @@
 use super::World;
-use crate::dynamics::EVENT_SLOTS;
-use dynamis_layout::{COUNTER_EVENTS, ContactEventRecord};
+use dynamis_abi::{COUNTER_EVENTS, ContactEventRecord};
+use dynamis_engine::EVENT_SLOTS;
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
 use std::collections::VecDeque;
 use std::mem::size_of;
@@ -77,14 +77,14 @@ impl World {
     }
 
     pub(crate) fn consume_events(&mut self, bytes: &[u8]) {
-        let records = dynamis_layout::decode::<ContactEventRecord>(bytes);
+        let records = dynamis_abi::decode::<ContactEventRecord>(bytes);
         let count = records.len();
         let mut fresh = Vec::with_capacity(count);
         for record in &records[..count] {
             let kind = match record.kind {
-                dynamis_layout::EVENT_BEGIN => ContactEventKind::Begin,
-                dynamis_layout::EVENT_END => ContactEventKind::End,
-                dynamis_layout::EVENT_PERSIST => ContactEventKind::Persist,
+                dynamis_abi::EVENT_BEGIN => ContactEventKind::Begin,
+                dynamis_abi::EVENT_END => ContactEventKind::End,
+                dynamis_abi::EVENT_PERSIST => ContactEventKind::Persist,
                 other => panic!("GPU event record has an invalid kind {other}"),
             };
             fresh.push(ContactEvent {

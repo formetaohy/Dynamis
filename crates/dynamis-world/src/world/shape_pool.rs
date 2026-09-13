@@ -1,10 +1,10 @@
 use super::arena::{Arena, Run};
 use super::ids::IdSpace;
-use crate::dynamics::ShapeCapacity;
-use crate::dynamics::scene::{TRIANGLE_BYTES, VERTEX_BYTES};
 use bytemuck::Zeroable;
-use dynamis_layout::{BvhNodeRecord, TriangleRecord};
+use dynamis_abi::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;
+use dynamis_scene::ShapeCapacity;
+use dynamis_scene::{TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
 
 struct Geometry<T> {
@@ -278,10 +278,10 @@ impl ShapePool {
         }
     }
 
-    fn layouts(&self) -> Vec<dynamis_layout::ShapeSourceRecord> {
+    fn layouts(&self) -> Vec<dynamis_abi::ShapeSourceRecord> {
         self.sources
             .iter()
-            .map(|source| dynamis_layout::ShapeSourceRecord {
+            .map(|source| dynamis_abi::ShapeSourceRecord {
                 kind: source.kind,
                 vertex_offset: source.vertices.offset,
                 vertex_count: source.vertices.len,
@@ -301,15 +301,15 @@ impl ShapePool {
 
 fn validate_geometry(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) {
     assert!(
-        kind != dynamis_layout::SHAPE_HULL
-            || vertices.len() <= dynamis_layout::FEATURE_INDEX_LIMIT as usize,
+        kind != dynamis_abi::SHAPE_HULL
+            || vertices.len() <= dynamis_abi::FEATURE_INDEX_LIMIT as usize,
         "a hull must not exceed {} vertices so its features stay addressable",
-        dynamis_layout::FEATURE_INDEX_LIMIT
+        dynamis_abi::FEATURE_INDEX_LIMIT
     );
     assert!(
-        triangles.len() <= dynamis_layout::FEATURE_TRIANGLE_MASK as usize,
+        triangles.len() <= dynamis_abi::FEATURE_TRIANGLE_MASK as usize,
         "a shape source must not exceed {} triangles so its features stay addressable",
-        dynamis_layout::FEATURE_TRIANGLE_MASK
+        dynamis_abi::FEATURE_TRIANGLE_MASK
     );
 }
 
