@@ -24,6 +24,7 @@ impl SoftRuns {
     };
 }
 
+#[derive(Clone)]
 pub(crate) struct SoftBodies {
     alive: Vec<SoftBodyHandle>,
     ids: IdSpace,

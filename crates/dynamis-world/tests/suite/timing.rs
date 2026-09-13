@@ -94,3 +94,21 @@ fn a_full_scene_profiles_every_declared_pass() {
         "every pass the schedule declares must be profiled while the scene speaks to every domain"
     );
 }
+
+#[test]
+fn a_profiled_world_keeps_reporting_after_a_snapshot() {
+    let mut world = new_world(gravity_config());
+    for index in 0..8 {
+        world.spawn(BodyDesc::sphere(0.4).position([index as f32, 2.0, 0.0]));
+    }
+    settle(&mut world, 12);
+    let snapshot = world.snapshot();
+    settle(&mut world, 12);
+    world.restore(&snapshot);
+    settle(&mut world, 12);
+    let timings = world.gpu_pass_timings();
+    assert!(
+        timings.iter().any(|timing| timing.label == "integrate"),
+        "a restored world must keep profiling the passes it steps"
+    );
+}

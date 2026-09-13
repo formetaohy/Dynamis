@@ -7,6 +7,7 @@ use dynamis_state::ShapeCapacity;
 use dynamis_state::{TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
 
+#[derive(Clone)]
 struct Geometry<T> {
     arena: Arena,
     rows: Vec<T>,
@@ -101,6 +102,7 @@ impl Source {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ShapePool {
     ids: IdSpace,
     refs: Vec<u32>,

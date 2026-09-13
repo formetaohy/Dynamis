@@ -85,13 +85,12 @@ impl StepPasses {
     pub(crate) fn capture_timings(
         &mut self,
         encoder: &mut dynamis_gpu::SubmissionEncoder,
-        sequence: u64,
-    ) -> Option<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
-        self.schedule.capture_timings(encoder, sequence)
+    ) -> Option<Vec<dynamis_gpu::GpuPassTiming>> {
+        self.schedule.capture_timings(encoder)
     }
 
     #[cfg(feature = "profile")]
-    pub(crate) fn collect_timings(&mut self) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+    pub(crate) fn collect_timings(&mut self) -> Vec<Vec<dynamis_gpu::GpuPassTiming>> {
         self.schedule.collect_timings()
     }
 }

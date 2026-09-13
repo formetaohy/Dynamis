@@ -184,7 +184,7 @@ impl World {
             .passes
             .record(&mut encoder, &self.backend.streams, frame);
         #[cfg(feature = "profile")]
-        let timings = self.backend.passes.capture_timings(&mut encoder, step);
+        let timings = self.backend.passes.capture_timings(&mut encoder);
         let pack_bytes = self.pack_step(&mut encoder);
         self.write_states(&mut encoder, step);
         let pack = self.backend.streams.readback.step.enqueue(
@@ -206,7 +206,7 @@ impl World {
         };
         self.submit(encoder);
         #[cfg(feature = "profile")]
-        if let Some((_step, timings)) = timings {
+        if let Some(timings) = timings {
             self.backend.pass_timings = timings;
         }
         if let Some((step, bytes)) = pack {

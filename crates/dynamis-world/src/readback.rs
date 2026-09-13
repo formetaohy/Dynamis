@@ -176,7 +176,7 @@ impl World {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.backend.passes.collect_timings() {
+        for timings in self.backend.passes.collect_timings() {
             self.backend.pass_timings = timings;
         }
     }
@@ -198,7 +198,7 @@ impl World {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.backend.passes.collect_timings() {
+        for timings in self.backend.passes.collect_timings() {
             self.backend.pass_timings = timings;
         }
     }

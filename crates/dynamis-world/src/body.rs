@@ -11,6 +11,7 @@ use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MassProperties, Shape,
 };
 
+#[derive(Clone)]
 pub(crate) struct Bodies {
     pub(crate) alive: Vec<BodyHandle>,
     pub(crate) ids: IdSpace,

@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub(crate) struct Clock {
     pub(crate) step: u64,
     pub(crate) accumulator: f32,

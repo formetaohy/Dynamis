@@ -16,13 +16,13 @@ streams! {
         bodies: u32,
     }
     streams {
-        particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Preserve, demand.particles;
-        elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Preserve, demand.elements;
-        adjacency, Adjacency: "soft adjacency", 4, Contents::Preserve, demand.adjacency;
-        contributions, Contributions: "soft element contributions", size_of::<[f32; 4]>() as u64, Contents::Reset, demand.element_contributions();
-        contacts, Contacts: "soft particle contacts", size_of::<SoftContactRecord>() as u64, Contents::Reset, demand.particles;
-        pressure, Pressure: "soft particle pressure", size_of::<[f32; 4]>() as u64, Contents::Reset, demand.particles;
-        reactions, Reactions: "soft reactions", 4, Contents::Preserve, demand.reaction_words();
+        particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Durable, demand.particles;
+        elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Durable, demand.elements;
+        adjacency, Adjacency: "soft adjacency", 4, Contents::Durable, demand.adjacency;
+        contributions, Contributions: "soft element contributions", size_of::<[f32; 4]>() as u64, Contents::Scratch, demand.element_contributions();
+        contacts, Contacts: "soft particle contacts", size_of::<SoftContactRecord>() as u64, Contents::Scratch, demand.particles;
+        pressure, Pressure: "soft particle pressure", size_of::<[f32; 4]>() as u64, Contents::Scratch, demand.particles;
+        reactions, Reactions: "soft reactions", 4, Contents::Durable, demand.reaction_words();
     }
 }
 

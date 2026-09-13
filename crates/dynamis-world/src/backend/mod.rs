@@ -1,3 +1,4 @@
+pub(crate) mod archive;
 mod capacity;
 mod passes;
 mod readback;

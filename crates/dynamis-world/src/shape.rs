@@ -4,6 +4,7 @@ use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_mesh::convex_hull_mesh;
 use dynamis_model::{Shape, ShapeSourceHandle};
 
+#[derive(Clone)]
 pub(crate) struct Shapes {
     pub(crate) pool: ShapePool,
     pub(crate) dirty: bool,

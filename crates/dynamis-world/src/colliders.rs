@@ -1,6 +1,7 @@
 use super::arena::{Arena, Run};
 use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK};
 
+#[derive(Clone)]
 pub(crate) struct ColliderPool {
     arena: Arena,
     records: Vec<ColliderRecord>,

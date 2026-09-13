@@ -6,6 +6,7 @@ pub enum MaterialCombine {
     Average,
 }
 
+#[derive(Clone, Copy)]
 pub struct PhysicsConfig {
     pub gravity: [f32; 3],
     pub damping: f32,

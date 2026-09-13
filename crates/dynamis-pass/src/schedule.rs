@@ -99,16 +99,15 @@ impl Schedule {
     pub fn capture_timings(
         &mut self,
         encoder: &mut SubmissionEncoder,
-        sequence: u64,
-    ) -> Option<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+    ) -> Option<Vec<dynamis_gpu::GpuPassTiming>> {
         let ran = self.opened.clone();
         self.timer
             .as_mut()
-            .and_then(|timer| timer.capture(encoder, sequence, &ran))
+            .and_then(|timer| timer.capture(encoder, &ran))
     }
 
     #[cfg(feature = "profile")]
-    pub fn collect_timings(&mut self) -> Vec<(u64, Vec<dynamis_gpu::GpuPassTiming>)> {
+    pub fn collect_timings(&mut self) -> Vec<Vec<dynamis_gpu::GpuPassTiming>> {
         match &mut self.timer {
             Some(timer) => timer.collect(),
             None => Vec::new(),

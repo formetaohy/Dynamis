@@ -43,6 +43,22 @@ macro_rules! streams {
         impl $id {
             pub const ALL: &'static [Self] = &[ $( Self::$variant, )* ];
 
+            pub const CONTENTS: &'static [::dynamis_gpu::Contents] = &[ $( $contents ),* ];
+
+            pub const fn contents(self) -> ::dynamis_gpu::Contents {
+                Self::CONTENTS[self as usize]
+            }
+
+            pub const fn label(self) -> &'static str {
+                match self {
+                    $( Self::$variant => $label, )*
+                }
+            }
+
+            pub const fn durable(self) -> bool {
+                self.contents().durable()
+            }
+
             pub const fn whole(self) -> $crate::SlotRef {
                 $crate::SlotRef::whole($crate::ResourceId::new(
                     $domain,
@@ -102,6 +118,16 @@ macro_rules! streams {
                 true $( && self.$name.slots() == $slots )*
             }
 
+            pub fn durable(
+                &self,
+            ) -> impl Iterator<Item = (&'static str, &::dynamis_gpu::Stream)> {
+                $id::ALL
+                    .iter()
+                    .copied()
+                    .filter(|id| id.durable())
+                    .map(|id| (id.label(), id.stream(self)))
+            }
+
             pub fn reserve(
                 &mut self,
                 device: &::wgpu::Device,
@@ -110,6 +136,29 @@ macro_rules! streams {
             ) -> bool {
                 let mut changed = false;
                 $( changed |= self.$name.reserve(device, encoder, $slots); )*
+                changed
+            }
+
+            pub fn require(
+                &mut self,
+                device: &::wgpu::Device,
+                encoder: &mut ::wgpu::CommandEncoder,
+                floors: impl Fn(&'static str) -> Option<u32>,
+            ) -> bool {
+                let mut changed = false;
+                $(
+                    if $contents.durable() {
+                        let slots = floors($label).unwrap_or_else(|| {
+                            panic!("a snapshot must answer the durable stream {:?}", $label)
+                        });
+                        assert!(
+                            slots >= self.$name.slots(),
+                            "durable stream {:?} cannot be restored below its snapshot size",
+                            $label,
+                        );
+                        changed |= self.$name.reserve(device, encoder, slots);
+                    }
+                )*
                 changed
             }
 

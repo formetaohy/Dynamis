@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub(crate) struct IdSpace {
     free: Vec<u32>,
     generations: Vec<u32>,

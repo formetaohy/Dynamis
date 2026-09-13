@@ -32,29 +32,29 @@ streams! {
         shapes: crate::ShapeCapacity,
     }
     streams {
-        params, Params: "step params", size_of::<StepParamsRecord>() as u64, Contents::Reset, 1, UNIFORM;
-        body_states, BodyStates: "body states", size_of::<BodyStateRecord>() as u64, Contents::Preserve, demand.bodies;
-        body_row_of_id, BodyRowOfId: "body row of id", 4, Contents::Preserve, demand.body_ids;
-        body_descriptors, BodyDescriptors: "body descriptors", size_of::<BodyDescriptorRecord>() as u64, Contents::Preserve, demand.bodies;
-        colliders, Colliders: "colliders", size_of::<ColliderRecord>() as u64, Contents::Preserve, demand.colliders;
-        collider_owners, ColliderOwners: "collider owners", 4, Contents::Preserve, demand.colliders;
-        body_edits, BodyEdits: "body edits", size_of::<BodyEditRecord>() as u64, Contents::Reset, demand.body_commands;
-        body_edit_runs, BodyEditRuns: "body edit runs", size_of::<BodyEditRunRecord>() as u64, Contents::Reset, demand.body_commands;
-        body_row_moves, BodyRowMoves: "body row moves", size_of::<RowMoveRecord>() as u64, Contents::Reset, demand.body_moves();
-        body_fresh_rows, BodyFreshRows: "fresh body rows", size_of::<BodyStateRecord>() as u64, Contents::Reset, demand.body_commands;
-        constraint_descriptors, ConstraintDescriptors: "constraint descriptors", size_of::<ConstraintDescriptorRecord>() as u64, Contents::Preserve, demand.constraints;
-        constraint_runtime, ConstraintRuntime: "constraint runtime", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Preserve, demand.constraints;
-        wake_flags, WakeFlags: "body wake flags", 4, Contents::Reset, demand.bodies;
-        constraint_row_moves, ConstraintRowMoves: "constraint row moves", size_of::<RowMoveRecord>() as u64, Contents::Reset, demand.constraint_moves();
-        constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Reset, demand.constraint_commands;
-        constraint_breaks, ConstraintBreaks: "constraint breaks", size_of::<BrokenConstraintRecord>() as u64, Contents::Reset, demand.constraints.saturating_mul(EVENT_SLOTS);
-        shape_sources, ShapeSources: "shape sources", size_of::<ShapeSourceRecord>() as u64, Contents::Preserve, demand.shapes.sources;
-        shape_vertices, ShapeVertices: "shape vertices", VERTEX_BYTES, Contents::Preserve, demand.shapes.vertices;
-        shape_triangles, ShapeTriangles: "shape triangles", TRIANGLE_BYTES, Contents::Preserve, demand.shapes.triangles;
-        shape_nodes, ShapeNodes: "shape bvh nodes", size_of::<BvhNodeRecord>() as u64, Contents::Preserve, demand.shapes.nodes;
-        query_records, QueryRecords: "queries", QUERY_BYTES, Contents::Reset, demand.queries;
-        query_results, QueryResults: "query results", QUERY_RESULT_BYTES, Contents::Reset, demand.queries;
-        counters, Counters: "world counters", COUNTER_STRIDE, Contents::Preserve, COUNTER_DEVICE_COUNT as u32;
+        params, Params: "step params", size_of::<StepParamsRecord>() as u64, Contents::Scratch, 1, UNIFORM;
+        body_states, BodyStates: "body states", size_of::<BodyStateRecord>() as u64, Contents::Durable, demand.bodies;
+        body_row_of_id, BodyRowOfId: "body row of id", 4, Contents::Durable, demand.body_ids;
+        body_descriptors, BodyDescriptors: "body descriptors", size_of::<BodyDescriptorRecord>() as u64, Contents::Durable, demand.bodies;
+        colliders, Colliders: "colliders", size_of::<ColliderRecord>() as u64, Contents::Durable, demand.colliders;
+        collider_owners, ColliderOwners: "collider owners", 4, Contents::Durable, demand.colliders;
+        body_edits, BodyEdits: "body edits", size_of::<BodyEditRecord>() as u64, Contents::Scratch, demand.body_commands;
+        body_edit_runs, BodyEditRuns: "body edit runs", size_of::<BodyEditRunRecord>() as u64, Contents::Scratch, demand.body_commands;
+        body_row_moves, BodyRowMoves: "body row moves", size_of::<RowMoveRecord>() as u64, Contents::Scratch, demand.body_moves();
+        body_fresh_rows, BodyFreshRows: "fresh body rows", size_of::<BodyStateRecord>() as u64, Contents::Scratch, demand.body_commands;
+        constraint_descriptors, ConstraintDescriptors: "constraint descriptors", size_of::<ConstraintDescriptorRecord>() as u64, Contents::Durable, demand.constraints;
+        constraint_runtime, ConstraintRuntime: "constraint runtime", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Durable, demand.constraints;
+        wake_flags, WakeFlags: "body wake flags", 4, Contents::Scratch, demand.bodies;
+        constraint_row_moves, ConstraintRowMoves: "constraint row moves", size_of::<RowMoveRecord>() as u64, Contents::Scratch, demand.constraint_moves();
+        constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Scratch, demand.constraint_commands;
+        constraint_breaks, ConstraintBreaks: "constraint breaks", size_of::<BrokenConstraintRecord>() as u64, Contents::Scratch, demand.constraints.saturating_mul(EVENT_SLOTS);
+        shape_sources, ShapeSources: "shape sources", size_of::<ShapeSourceRecord>() as u64, Contents::Durable, demand.shapes.sources;
+        shape_vertices, ShapeVertices: "shape vertices", VERTEX_BYTES, Contents::Durable, demand.shapes.vertices;
+        shape_triangles, ShapeTriangles: "shape triangles", TRIANGLE_BYTES, Contents::Durable, demand.shapes.triangles;
+        shape_nodes, ShapeNodes: "shape bvh nodes", size_of::<BvhNodeRecord>() as u64, Contents::Durable, demand.shapes.nodes;
+        query_records, QueryRecords: "queries", QUERY_BYTES, Contents::Scratch, demand.queries;
+        query_results, QueryResults: "query results", QUERY_RESULT_BYTES, Contents::Scratch, demand.queries;
+        counters, Counters: "world counters", COUNTER_STRIDE, Contents::Durable, COUNTER_DEVICE_COUNT as u32;
     }
 }
 

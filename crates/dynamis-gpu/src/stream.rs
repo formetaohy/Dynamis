@@ -3,14 +3,21 @@ use wgpu::{BufferAddress, BufferUsages, CommandEncoder, Device, Queue};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Contents {
-    Reset,
-    Preserve,
-    PreserveSeeded(u32),
+    Scratch,
+    Durable,
+    Seeded(u32),
 }
 
 impl Contents {
-    fn survives_resize(self) -> bool {
-        !matches!(self, Self::Reset)
+    pub const fn durable(self) -> bool {
+        matches!(self, Self::Durable | Self::Seeded(_))
+    }
+
+    pub const fn seed(self) -> Option<u32> {
+        match self {
+            Self::Seeded(word) => Some(word),
+            Self::Scratch | Self::Durable => None,
+        }
     }
 }
 
@@ -63,7 +70,7 @@ impl Stream {
             usage,
             contents,
         };
-        if let Contents::PreserveSeeded(word) = contents {
+        if let Some(word) = contents.seed() {
             stream.write_at(queue, 0, &word.to_le_bytes());
         }
         stream
@@ -113,7 +120,7 @@ impl Stream {
         let bytes = slots as BufferAddress * self.stride;
         assert_fits(device, self.label, bytes);
         let next = GpuBuffer::new(device, self.label, bytes, self.usage);
-        if self.contents.survives_resize() {
+        if self.contents.durable() {
             encoder.copy_buffer_to_buffer(
                 self.buffer.buffer(),
                 0,

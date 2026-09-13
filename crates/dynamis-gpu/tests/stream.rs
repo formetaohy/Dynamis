@@ -43,7 +43,7 @@ fn a_preserving_stream_keeps_its_leading_slots_across_resizes() {
         4,
         4,
         STREAM_USAGE,
-        Contents::Preserve,
+        Contents::Durable,
     );
     seed(&stream, &[7, 8, 9, 10]);
     assert!(!resized(&mut stream, 4));
@@ -64,7 +64,7 @@ fn a_reset_stream_drops_its_contents_across_resizes() {
         4,
         4,
         STREAM_USAGE,
-        Contents::Reset,
+        Contents::Scratch,
     );
     seed(&stream, &[7, 8, 9, 10]);
     assert!(resized(&mut stream, 8));
@@ -81,7 +81,7 @@ fn a_seeded_stream_starts_with_its_head_word() {
         1,
         4,
         STREAM_USAGE,
-        Contents::PreserveSeeded(u32::MAX),
+        Contents::Seeded(u32::MAX),
     );
     assert_eq!(read(&stream, 1), vec![u32::MAX]);
 }
@@ -96,7 +96,7 @@ fn a_stream_reports_its_stride_and_bytes() {
         3,
         64,
         STREAM_USAGE,
-        Contents::Reset,
+        Contents::Scratch,
     );
     assert_eq!(stream.slots(), 3);
     assert_eq!(stream.stride(), 64);
@@ -114,7 +114,7 @@ fn a_stream_refuses_an_empty_capacity() {
         0,
         4,
         STREAM_USAGE,
-        Contents::Reset,
+        Contents::Scratch,
     );
 }
 
@@ -129,7 +129,7 @@ fn a_stream_refuses_an_unaligned_stride() {
         4,
         6,
         STREAM_USAGE,
-        Contents::Reset,
+        Contents::Scratch,
     );
 }
 
@@ -144,6 +144,6 @@ fn a_stream_refuses_to_exceed_the_binding_limit() {
         u32::MAX,
         64,
         STREAM_USAGE,
-        Contents::Reset,
+        Contents::Scratch,
     );
 }

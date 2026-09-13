@@ -12,6 +12,7 @@ impl Run {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Arena {
     free: Vec<Run>,
     used: u32,

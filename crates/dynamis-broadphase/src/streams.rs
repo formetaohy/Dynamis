@@ -13,15 +13,15 @@ streams! {
         sort: u32,
     }
     streams {
-        entry_keys, EntryKeys: "grid entry keys", 4, Contents::Reset, demand.entries;
-        entry_order, EntryOrder: "grid entry order", 4, Contents::Reset, demand.entries;
-        entries, Entries: "grid entries", size_of::<GridEntryRecord>() as u64, Contents::Reset, demand.entries;
-        pair_major, PairMajor: "pairs major", 4, Contents::Reset, demand.pairs;
-        pair_minor, PairMinor: "pairs minor", 4, Contents::Reset, demand.pairs;
-        sort_dummy, SortDummy: "sort key dummy", 4, Contents::Reset, demand.sort;
-        sort_scratch_major, SortScratchMajor: "sort scratch major", 4, Contents::Reset, demand.sort;
-        sort_scratch_minor, SortScratchMinor: "sort scratch minor", 4, Contents::Reset, demand.sort;
-        sort_scratch_payload, SortScratchPayload: "sort scratch payload", 4, Contents::Reset, demand.sort;
+        entry_keys, EntryKeys: "grid entry keys", 4, Contents::Scratch, demand.entries;
+        entry_order, EntryOrder: "grid entry order", 4, Contents::Scratch, demand.entries;
+        entries, Entries: "grid entries", size_of::<GridEntryRecord>() as u64, Contents::Scratch, demand.entries;
+        pair_major, PairMajor: "pairs major", 4, Contents::Scratch, demand.pairs;
+        pair_minor, PairMinor: "pairs minor", 4, Contents::Scratch, demand.pairs;
+        sort_dummy, SortDummy: "sort key dummy", 4, Contents::Scratch, demand.sort;
+        sort_scratch_major, SortScratchMajor: "sort scratch major", 4, Contents::Scratch, demand.sort;
+        sort_scratch_minor, SortScratchMinor: "sort scratch minor", 4, Contents::Scratch, demand.sort;
+        sort_scratch_payload, SortScratchPayload: "sort scratch payload", 4, Contents::Scratch, demand.sort;
     }
 }
 

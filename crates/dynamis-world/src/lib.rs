@@ -13,6 +13,7 @@ mod readback;
 mod rows;
 mod shape;
 mod shape_pool;
+mod snapshot;
 mod soft;
 mod step;
 mod upload;
@@ -38,6 +39,7 @@ pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::{ShapeCapacity, StepShape};
 pub use query_pool::{QueryHandle, QueryHit};
 pub use readback::{ContactManifold, ContactPoint};
+pub use snapshot::Snapshot;
 
 pub struct World {
     config: PhysicsConfig,

@@ -11,6 +11,7 @@ use dynamis_pass::EVENT_SLOTS;
 use std::collections::VecDeque;
 use std::mem::size_of;
 
+#[derive(Clone)]
 pub(crate) struct Constraints {
     pub(crate) alive: Vec<ConstraintHandle>,
     pub(crate) ids: IdSpace,

@@ -26,6 +26,7 @@ pub struct GpuTimer {
     labels: Vec<&'static str>,
     period_ns: f32,
     ran: VecDeque<Vec<bool>>,
+    sequence: u64,
 }
 
 impl GpuTimer {
@@ -65,6 +66,7 @@ impl GpuTimer {
             labels: labels.to_vec(),
             period_ns,
             ran: VecDeque::new(),
+            sequence: 0,
         }
     }
 
@@ -92,9 +94,8 @@ impl GpuTimer {
     pub fn capture(
         &mut self,
         encoder: &mut SubmissionEncoder,
-        sequence: u64,
         ran: &[bool],
-    ) -> Option<(u64, Vec<GpuPassTiming>)> {
+    ) -> Option<Vec<GpuPassTiming>> {
         assert_eq!(
             ran.len(),
             self.labels.len(),
@@ -102,23 +103,28 @@ impl GpuTimer {
         );
         let count = (self.labels.len() * 2) as u32;
         encoder.resolve_query_set(&self.query_set, 0..count, &self.resolved, 0);
-        let displaced =
-            self.readback
-                .enqueue(encoder, &self.resolved, 0, self.resolved.size(), sequence);
+        let displaced = self.readback.enqueue(
+            encoder,
+            &self.resolved,
+            0,
+            self.resolved.size(),
+            self.sequence,
+        );
+        self.sequence += 1;
         self.ran.push_back(ran.to_vec());
-        displaced.map(|(frame, bytes)| {
+        displaced.map(|(_, bytes)| {
             let ran = self.retired();
-            (frame, self.decode(&bytes, &ran))
+            self.decode(&bytes, &ran)
         })
     }
 
-    pub fn collect(&mut self) -> Vec<(u64, Vec<GpuPassTiming>)> {
+    pub fn collect(&mut self) -> Vec<Vec<GpuPassTiming>> {
         let retired = self.readback.collect();
         retired
             .into_iter()
-            .map(|(frame, bytes)| {
+            .map(|(_, bytes)| {
                 let ran = self.retired();
-                (frame, self.decode(&bytes, &ran))
+                self.decode(&bytes, &ran)
             })
             .collect()
     }

@@ -85,7 +85,7 @@ fn pass_timings_split_a_step_by_stage() {
     let pipeline = burn_pipeline();
     let group = burn_group(&pipeline);
     let mut reported: Option<Vec<GpuPassTiming>> = None;
-    for frame in 0..6 {
+    for _ in 0..6 {
         let mut encoder = SubmissionEncoder::new(context.device(), "timing frame");
         {
             let mut idle = ComputeRecorder::begin_timed(
@@ -105,7 +105,7 @@ fn pass_timings_split_a_step_by_stage() {
             );
             busy.record(pipeline.pipeline(), &[&group], 4096);
         }
-        if let Some((_, timings)) = timer.capture(&mut encoder, frame, &[true, true]) {
+        if let Some(timings) = timer.capture(&mut encoder, &[true, true]) {
             reported = Some(timings);
             encoder.submit(context.queue());
             break;
@@ -146,7 +146,7 @@ fn a_pass_that_never_opened_is_never_reported() {
     let pipeline = burn_pipeline();
     let group = burn_group(&pipeline);
     let mut reported: Option<Vec<GpuPassTiming>> = None;
-    for frame in 0..6 {
+    for _ in 0..6 {
         let mut encoder = SubmissionEncoder::new(context.device(), "skipped frame");
         {
             let mut busy = ComputeRecorder::begin_timed(
@@ -157,7 +157,7 @@ fn a_pass_that_never_opened_is_never_reported() {
             );
             busy.record(pipeline.pipeline(), &[&group], 4096);
         }
-        if let Some((_, timings)) = timer.capture(&mut encoder, frame, &[false, true]) {
+        if let Some(timings) = timer.capture(&mut encoder, &[false, true]) {
             reported = Some(timings);
             encoder.submit(context.queue());
             break;
