@@ -1,10 +1,11 @@
 use crate::capacity::Capacity;
 use crate::{
-    Ccd, CcdPasses, Rigid, RigidDemand, RigidFrame, RigidInputs, RigidPasses,
+    Ccd, CcdPasses, Rigid, RigidCapacity, RigidDemand, RigidFrame, RigidInputs, RigidPasses,
     RigidResolutionPasses, RigidShape, RigidStreams,
 };
-use dynamis_abi::{COUNTER_ACTIVE, Counters};
-use dynamis_domain::{Domain, HostWork, Ledger, StepFacts};
+use dynamis_abi::COUNTER_ACTIVE;
+use dynamis_abi::Counters;
+use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
 use wgpu::CommandEncoder;
@@ -22,32 +23,30 @@ pub struct RigidDomainRuntime {
     pub continuous: Ccd,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RigidWork {
+    pub body_commands: u32,
+    pub constraint_commands: u32,
+}
+
 impl Domain for RigidDomain {
     const ID: u32 = 2;
 
     type Demand = RigidDemand;
     type Inputs = RigidInputs;
+    type Work = RigidWork;
     type Streams = RigidStreams;
     type Planner = Capacity;
     type Passes = RigidDomainPasses;
     type Runtime = RigidDomainRuntime;
     type Frame = RigidFrame;
+    type Capacity = RigidCapacity;
 
     fn minimum() -> RigidDemand {
-        Capacity::floor(dynamis_broadphase::BroadphaseDomain::minimum().pairs)
+        Capacity::floor(dynamis_pass::STREAM_FLOOR)
     }
 
-    fn plan(
-        planner: &mut Capacity,
-        measured: &Counters,
-        inputs: &RigidInputs,
-        ledger: &mut Ledger,
-        current: &RigidStreams,
-    ) -> RigidDemand {
-        planner.plan(measured, inputs, ledger.idle(), ledger.pairs(), current)
-    }
-
-    fn active(measured: &Counters, work: &HostWork) -> bool {
+    fn active(measured: &Counters, work: &RigidWork) -> bool {
         measured[COUNTER_ACTIVE] != 0 || work.body_commands > 0 || work.constraint_commands > 0
     }
 
@@ -70,15 +69,19 @@ impl Domain for RigidDomain {
         }
     }
 
-    fn frame(facts: &StepFacts, inputs: &RigidInputs) -> RigidFrame {
+    fn frame(facts: &StepFacts, inputs: &RigidInputs, run: Run) -> RigidFrame {
         RigidFrame {
             params: facts.params,
             shape: RigidShape::of(&facts.counts),
-            query_count: facts.work.queries,
-            simulating: facts.rigid,
-            indexing: facts.indexing,
+            query_count: inputs.queries,
+            simulating: run.awake,
+            indexing: run.indexing,
             ccd: inputs.ccd,
         }
+    }
+
+    fn capacity(streams: &RigidStreams) -> RigidCapacity {
+        crate::capacity(streams)
     }
 
     fn record(

@@ -1,7 +1,7 @@
 use crate::{Broadphase, BroadphaseDemand, BroadphaseFrame, BroadphaseInputs, BroadphasePasses};
-use crate::{BroadphaseStreams, Capacity};
+use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
 use dynamis_abi::Counters;
-use dynamis_domain::{Domain, HostWork, Ledger, StepFacts};
+use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{PassOrder, Phase, Resources, Schedule};
 use wgpu::CommandEncoder;
@@ -13,30 +13,19 @@ impl Domain for BroadphaseDomain {
 
     type Demand = BroadphaseDemand;
     type Inputs = BroadphaseInputs;
+    type Work = ();
     type Streams = BroadphaseStreams;
     type Planner = Capacity;
     type Passes = BroadphasePasses;
     type Runtime = Broadphase;
     type Frame = BroadphaseFrame;
+    type Capacity = BroadphaseCapacity;
 
     fn minimum() -> BroadphaseDemand {
         Capacity::floor()
     }
 
-    fn plan(
-        planner: &mut Capacity,
-        measured: &Counters,
-        inputs: &BroadphaseInputs,
-        ledger: &mut Ledger,
-        current: &BroadphaseStreams,
-    ) -> BroadphaseDemand {
-        let (demand, idle) = planner.plan(measured, inputs, current);
-        ledger.set_idle(idle);
-        ledger.set_pairs(demand.pairs);
-        demand
-    }
-
-    fn active(_: &Counters, _: &HostWork) -> bool {
+    fn active(_: &Counters, _: &()) -> bool {
         false
     }
 
@@ -52,10 +41,14 @@ impl Domain for BroadphaseDomain {
         Broadphase::new(context, streams, passes)
     }
 
-    fn frame(facts: &StepFacts, _: &BroadphaseInputs) -> BroadphaseFrame {
+    fn frame(_: &StepFacts, _: &BroadphaseInputs, run: Run) -> BroadphaseFrame {
         BroadphaseFrame {
-            indexing: facts.indexing,
+            indexing: run.indexing,
         }
+    }
+
+    fn capacity(streams: &BroadphaseStreams) -> BroadphaseCapacity {
+        crate::capacity(streams)
     }
 
     fn record(

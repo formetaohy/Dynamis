@@ -3,7 +3,7 @@ mod domain;
 mod streams;
 
 pub use capacity::{SoftCapacity, SoftInputs, capacity, floor, plan};
-pub use domain::SoftDomain;
+pub use domain::{SoftDomain, SoftWork};
 pub use streams::{SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_abi::{Count, StepParamsRecord};

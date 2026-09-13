@@ -100,7 +100,7 @@ impl World {
     }
 
     pub fn stream_capacity(&self) -> StreamCapacity {
-        self.backend.streams.stream_capacity()
+        self.backend.streams.capacity()
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {
@@ -112,17 +112,9 @@ impl World {
     }
 
     pub fn is_idle(&self) -> bool {
-        let work = self.host_work();
-        let pending = work.body_commands > 0
-            || work.constraint_commands > 0
-            || work.queries > 0
-            || work.shape_uploads
-            || work.soft_uploads;
         !self.backend.working
-            && !pending
             && self.backend.measured_step.is_some()
-            && self.backend.measured[dynamis_abi::COUNTER_ACTIVE] == 0
-            && self.backend.measured[dynamis_abi::COUNTER_SOFT_ACTIVE] == 0
+            && !self.busy(&self.host_work())
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {

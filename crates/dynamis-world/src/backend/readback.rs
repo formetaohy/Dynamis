@@ -1,4 +1,4 @@
-use super::domains::Plan;
+use super::registry::Plan;
 use dynamis_abi::{
     BodyStateRecord, BrokenConstraintRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE,
     ContactEventRecord,

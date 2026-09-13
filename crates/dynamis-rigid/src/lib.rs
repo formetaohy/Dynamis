@@ -67,7 +67,7 @@ use solver::Solver;
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
-pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime};
+pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
 pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
 
 domain_passes!(

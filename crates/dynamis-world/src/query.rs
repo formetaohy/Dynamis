@@ -147,12 +147,13 @@ impl World {
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
         let work = self.host_work();
-        let frames = self.frames(&live, &work, self.clock.sub_dt);
+        let params = self.step_params(self.clock.sub_dt);
+        let frames = self.frames(&live, &work, params);
         self.backend
             .streams
             .state
             .params
-            .write(&queue, bytemuck::cast_slice(&[frames.params]));
+            .write(&queue, bytemuck::cast_slice(&[params]));
         let batch = self.queries.next_batch;
         self.queries.pool.submit(batch, step, count);
         self.queries.next_batch += 1;
@@ -161,7 +162,7 @@ impl World {
             .passes
             .encode_queries(&mut encoder, &self.backend.streams, &frames);
         let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
-        let arrived = self.backend.streams.readback.queries.enqueue(
+        let arrived = self.backend.readback.queries.enqueue(
             &mut encoder,
             self.backend.streams.state.query_results.buffer(),
             0,
@@ -181,7 +182,7 @@ impl World {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
         if !self.queries.pool.is_ready(handle) {
-            let pending = self.backend.streams.readback.queries.drain();
+            let pending = self.backend.readback.queries.drain();
             for (batch, bytes) in pending {
                 self.queries.pool.collect(batch, &bytes);
             }

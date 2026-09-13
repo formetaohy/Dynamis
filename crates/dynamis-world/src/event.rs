@@ -50,7 +50,7 @@ impl World {
             let segment = self.backend.streams.rigid.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
-            let displaced = self.backend.streams.readback.events.enqueue(
+            let displaced = self.backend.readback.events.enqueue(
                 encoder,
                 self.backend.streams.rigid.events.buffer(),
                 offset,
@@ -71,7 +71,7 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis event readback");
         self.copy_events(&mut encoder);
         self.submit(encoder);
-        for (_, bytes) in self.backend.streams.readback.events.drain() {
+        for (_, bytes) in self.backend.readback.events.drain() {
             self.consume_events(&bytes);
         }
     }

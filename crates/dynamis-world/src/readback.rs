@@ -50,7 +50,7 @@ impl World {
         encoder.copy_buffer_to_buffer(
             self.backend.streams.state.counters.buffer(),
             0,
-            self.backend.streams.readback.pack.buffer(),
+            self.backend.readback.pack.buffer(),
             0,
             COUNTER_BYTES,
         );
@@ -233,19 +233,19 @@ impl World {
 
     pub(crate) fn collect_readbacks(&mut self) {
         self.backend.gpu.poll();
-        for (step, bytes) in self.backend.streams.readback.step.collect() {
+        for (step, bytes) in self.backend.readback.step.collect() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self.backend.streams.readback.events.collect() {
+        for (_, bytes) in self.backend.readback.events.collect() {
             self.consume_events(&bytes);
         }
-        for (_, bytes) in self.backend.streams.readback.breaks.collect() {
+        for (_, bytes) in self.backend.readback.breaks.collect() {
             self.consume_breaks(&bytes);
         }
-        for (batch, bytes) in self.backend.streams.readback.queries.collect() {
+        for (batch, bytes) in self.backend.readback.queries.collect() {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (step, bytes) in self.backend.streams.readback.states.collect() {
+        for (step, bytes) in self.backend.readback.states.collect() {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]
@@ -255,19 +255,19 @@ impl World {
     }
 
     pub(crate) fn drain_readbacks(&mut self) {
-        for (step, bytes) in self.backend.streams.readback.step.drain() {
+        for (step, bytes) in self.backend.readback.step.drain() {
             self.consume_pack(step, &bytes);
         }
-        for (_, bytes) in self.backend.streams.readback.events.drain() {
+        for (_, bytes) in self.backend.readback.events.drain() {
             self.consume_events(&bytes);
         }
-        for (_, bytes) in self.backend.streams.readback.breaks.drain() {
+        for (_, bytes) in self.backend.readback.breaks.drain() {
             self.consume_breaks(&bytes);
         }
-        for (batch, bytes) in self.backend.streams.readback.queries.drain() {
+        for (batch, bytes) in self.backend.readback.queries.drain() {
             self.queries.pool.collect(batch, &bytes);
         }
-        for (step, bytes) in self.backend.streams.readback.states.drain() {
+        for (step, bytes) in self.backend.readback.states.drain() {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]

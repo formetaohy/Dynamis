@@ -1,6 +1,6 @@
 use super::World;
 use super::backend::archive::StreamArchive;
-use super::backend::domains::Planning;
+use super::backend::registry::Planning;
 use super::body::Bodies;
 use super::clock::Clock;
 use super::colliders::ColliderPool;

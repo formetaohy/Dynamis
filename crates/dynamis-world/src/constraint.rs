@@ -407,7 +407,7 @@ impl World {
                 bytes <= segment,
                 "constraint break reports for step {step} outrun their segment"
             );
-            let displaced = self.backend.streams.readback.breaks.enqueue(
+            let displaced = self.backend.readback.breaks.enqueue(
                 encoder,
                 self.backend.streams.state.constraint_breaks.buffer(),
                 offset,
@@ -428,7 +428,7 @@ impl World {
         let mut encoder = SubmissionEncoder::new(&device, "dynamis constraint break readback");
         self.copy_breaks(&mut encoder);
         self.submit(encoder);
-        for (_, bytes) in self.backend.streams.readback.breaks.drain() {
+        for (_, bytes) in self.backend.readback.breaks.drain() {
             self.consume_breaks(&bytes);
         }
     }

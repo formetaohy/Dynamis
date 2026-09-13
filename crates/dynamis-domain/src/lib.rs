@@ -1,8 +1,7 @@
-mod ledger;
-mod work;
+mod facts;
+mod registry;
 
-pub use ledger::Ledger;
-pub use work::{HostWork, StepFacts};
+pub use facts::{Run, StepFacts};
 
 use dynamis_abi::Counters;
 use dynamis_gpu::GpuContext;
@@ -14,30 +13,26 @@ pub trait Domain {
 
     type Demand: Copy;
     type Inputs: Copy;
+    type Work: Copy;
     type Streams;
-    type Planner;
+    type Planner: Default;
     type Passes;
     type Runtime;
     type Frame: Copy;
+    type Capacity: Copy;
 
     fn minimum() -> Self::Demand;
 
-    fn plan(
-        planner: &mut Self::Planner,
-        measured: &Counters,
-        inputs: &Self::Inputs,
-        ledger: &mut Ledger,
-        current: &Self::Streams,
-    ) -> Self::Demand;
-
-    fn active(measured: &Counters, work: &HostWork) -> bool;
+    fn active(measured: &Counters, work: &Self::Work) -> bool;
 
     fn claim(order: &mut PassOrder) -> Self::Passes;
 
     fn build(context: &GpuContext, streams: &impl Resources, passes: Self::Passes)
     -> Self::Runtime;
 
-    fn frame(facts: &StepFacts, inputs: &Self::Inputs) -> Self::Frame;
+    fn frame(facts: &StepFacts, inputs: &Self::Inputs, run: Run) -> Self::Frame;
+
+    fn capacity(streams: &Self::Streams) -> Self::Capacity;
 
     fn record(
         runtime: &Self::Runtime,

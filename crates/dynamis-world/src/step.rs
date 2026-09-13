@@ -2,6 +2,7 @@ use super::World;
 use crate::backend::StepFrames;
 use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands};
 use dynamis_abi::QueryResultRecord;
+use dynamis_abi::StepParamsRecord;
 use dynamis_rigid::RigidShape;
 use std::mem::size_of;
 
@@ -43,20 +44,17 @@ impl World {
         self.flush_rows();
         self.apply_pending_commands();
         let work = self.host_work();
-        let query_count = work.queries;
-        self.backend.working = work.body_commands > 0
-            || work.constraint_commands > 0
-            || work.queries > 0
-            || work.shape_uploads
-            || work.soft_uploads;
-        let frames = self.frames(&live, &work, dt);
+        let query_count = work.state.queries;
+        self.backend.working = work.pending();
+        let params = self.step_params(dt);
+        let frames = self.frames(&live, &work, params);
         self.shapes.uploaded = false;
         self.soft.uploaded = false;
-        self.write_step_records(&frames);
+        self.write_step_records(params);
         self.declare_step(step);
         let batch = self.submit_queries(step, query_count);
         self.encode_step(&frames, batch, step);
-        self.bodies.device_count = frames.params.body_count;
+        self.bodies.device_count = params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
     }
@@ -83,11 +81,12 @@ impl World {
         RigidShape::of(&self.frame_counts())
     }
 
-    fn write_step_records(&self, frames: &StepFrames) {
-        self.backend.streams.state.params.write(
-            self.backend.gpu.queue(),
-            bytemuck::cast_slice(&[frames.params]),
-        );
+    fn write_step_records(&self, params: StepParamsRecord) {
+        self.backend
+            .streams
+            .state
+            .params
+            .write(self.backend.gpu.queue(), bytemuck::cast_slice(&[params]));
     }
 
     fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {
@@ -157,15 +156,15 @@ impl World {
         let timings = self.backend.passes.capture_timings(&mut encoder);
         let pack_bytes = self.pack_step(&mut encoder);
         self.write_states(&mut encoder, step);
-        let pack = self.backend.streams.readback.step.enqueue(
+        let pack = self.backend.readback.step.enqueue(
             &mut encoder,
-            self.backend.streams.readback.pack.buffer(),
+            self.backend.readback.pack.buffer(),
             0,
             pack_bytes,
             step,
         );
         let queries = match batch {
-            Some(batch) => self.backend.streams.readback.queries.enqueue(
+            Some(batch) => self.backend.readback.queries.enqueue(
                 &mut encoder,
                 self.backend.streams.state.query_results.buffer(),
                 0,

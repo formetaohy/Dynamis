@@ -1,24 +1,25 @@
 pub(crate) mod archive;
-mod capacity;
-pub(crate) mod domains;
 mod readback;
+pub(crate) mod registry;
 
-pub use capacity::StreamCapacity;
+pub use registry::StreamCapacity;
 
-use domains::{Live, Planning, Rest, StepPasses, Streams};
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
+use readback::ReadbackBuffers;
+use registry::{Live, Plan, Planning, Rest, StepPasses, Streams};
 use std::collections::VecDeque;
 use wgpu::SubmissionIndex;
 
-pub(crate) use domains::StepFrames;
+pub(crate) use registry::StepFrames;
 
 use crate::World;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
     pub(crate) streams: Streams,
+    pub(crate) readback: ReadbackBuffers,
     pub(crate) passes: StepPasses,
     pub(crate) planning: Planning,
     pub(crate) measured: dynamis_abi::Counters,
@@ -34,12 +35,14 @@ pub(crate) struct Backend {
 
 impl Backend {
     pub(crate) fn new(gpu: GpuContext) -> Self {
-        let plan = Planning::minimum();
+        let plan = Plan::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
+        let readback = ReadbackBuffers::new(gpu.device(), &plan);
         let passes = StepPasses::new(&gpu, &streams);
         Self {
             gpu,
             streams,
+            readback,
             passes,
             planning: Planning::new(),
             measured: [0; dynamis_abi::COUNTER_COUNT],
@@ -70,17 +73,19 @@ impl World {
             .backend
             .planning
             .plan(&self.backend.measured, live, &self.backend.streams);
-        if self.backend.streams.matches(&plan) {
+        if self.backend.streams.matches(&plan) && self.backend.readback.matches(&plan) {
             return;
         }
-        if !self.backend.streams.readback_matches(&plan) {
+        if !self.backend.readback.matches(&plan) {
             self.sync_events();
             self.drain_readbacks();
         }
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");
+        let streams = self.backend.streams.reserve(&device, &mut encoder, &plan);
+        let readback = self.backend.readback.reserve(&device, &plan);
         assert!(
-            self.backend.streams.reserve(&device, &mut encoder, &plan),
+            streams | readback,
             "a buffer plan that changes capacity must reallocate"
         );
         self.submit(encoder);
