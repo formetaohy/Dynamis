@@ -21,7 +21,7 @@ fn a_stepped_world_reports_one_duration_per_pass() {
         !timings.is_empty(),
         "a drained step must leave per-pass timings behind"
     );
-    for label in ["integrate", "broadphase", "narrowphase", "commit"] {
+    for label in ["prepare", "broadphase", "narrowphase", "substeps", "commit"] {
         assert!(
             timings.iter().any(|timing| timing.label == label),
             "pass {label} must be attributed"
@@ -108,7 +108,7 @@ fn a_profiled_world_keeps_reporting_after_a_snapshot() {
     settle(&mut world, 12);
     let timings = world.gpu_pass_timings();
     assert!(
-        timings.iter().any(|timing| timing.label == "integrate"),
+        timings.iter().any(|timing| timing.label == "substeps"),
         "a restored world must keep profiling the passes it steps"
     );
 }

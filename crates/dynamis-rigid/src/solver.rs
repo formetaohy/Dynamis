@@ -292,7 +292,7 @@ impl Solver {
         self.total.record_workgroups(recorder, streams, 1);
     }
 
-    pub fn record(
+    pub fn record_topology(
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
@@ -326,13 +326,29 @@ impl Solver {
             0,
         );
         self.boundaries.record_stream(recorder, streams);
+    }
+
+    pub fn record_warm(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
         self.block_solve.record_warm(recorder, streams);
         self.block_apply
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+    }
+
+    pub fn record_iterations(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        let dynamic = Count::Dynamic.rows(&frame.params);
         for _ in 0..frame.params.solve_iterations {
             self.block_solve.record_stream(recorder, streams);
-            self.block_apply
-                .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+            self.block_apply.record_rows(recorder, streams, dynamic);
         }
     }
 

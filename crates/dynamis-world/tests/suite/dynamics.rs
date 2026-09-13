@@ -1,6 +1,6 @@
 use super::common::{
     DT, asleep, distance, gravity_config, new_world, settle, settle_until, static_config,
-    static_sphere_ground,
+    static_sphere_ground, symplectic_fall,
 };
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
 use dynamis_world::World;
@@ -17,12 +17,13 @@ fn free_fall_matches_closed_form() {
             .restitution(0.0),
     );
     const STEPS: u32 = 30;
+    let substeps = world.config().substeps;
     for _ in 0..STEPS {
         world.step(DT);
     }
     world.wait();
     let state = world.read_state(ball);
-    let expected_y = 10.0 - 0.5 * GRAVITY * DT * DT * (STEPS as f32 * (STEPS as f32 + 1.0));
+    let expected_y = 10.0 + symplectic_fall(GRAVITY, STEPS, 0.0, substeps);
     assert!((state.position[1] - expected_y).abs() < 1e-3);
     let expected_v = -GRAVITY * DT * STEPS as f32;
     assert!((state.velocity[1] - expected_v).abs() < 1e-3);
@@ -38,6 +39,7 @@ fn gravity_change_mid_flight_resumes_closed_form() {
     });
     let ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 10.0, 0.0]));
     const FIRST: u32 = 10;
+    let substeps = world.config().substeps;
     for _ in 0..FIRST {
         world.step(DT);
     }
@@ -48,10 +50,9 @@ fn gravity_change_mid_flight_resumes_closed_form() {
     }
     world.wait();
     let state = world.read_state(ball);
-    let y_first = 10.0 - 0.5 * 4.0 * DT * DT * (FIRST as f32 * (FIRST as f32 + 1.0));
+    let y_first = 10.0 + symplectic_fall(4.0, FIRST, 0.0, substeps);
     let v_first = -4.0 * DT * FIRST as f32;
-    let expected = y_first + v_first * DT * SECOND as f32
-        - 0.5 * GRAVITY * DT * DT * (SECOND as f32 * (SECOND as f32 + 1.0));
+    let expected = y_first + symplectic_fall(GRAVITY, SECOND, v_first, substeps);
     assert!(
         (state.position[1] - expected).abs() < 1e-3,
         "updated gravity must govern the remaining fall"

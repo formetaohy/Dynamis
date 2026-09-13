@@ -20,9 +20,11 @@ impl StepParamsRecord {
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,
+            substep_dt: dt / config.substeps as f32,
             damping: config.damping,
             angular_damping: config.angular_damping,
             body_count: bodies,
+            substeps: config.substeps,
             solve_iterations: config.solve_iterations,
             position_iterations: config.position_iterations,
             soft_iterations: config.soft_iterations,
@@ -48,9 +50,7 @@ impl StepParamsRecord {
             particle_count: particles,
             element_count: elements,
             soft_substep_dt: dt / config.soft_substeps as f32,
-            _pad5: 0,
-            _pad6: 0,
-            _pad7: 0,
+            _tail: 0,
         }
     }
 }

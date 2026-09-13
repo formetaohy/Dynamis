@@ -11,6 +11,7 @@ pub struct PhysicsConfig {
     pub gravity: [f32; 3],
     pub damping: f32,
     pub angular_damping: f32,
+    pub substeps: u32,
     pub solve_iterations: u32,
     pub position_iterations: u32,
     pub soft_substeps: u32,
@@ -33,6 +34,14 @@ impl PhysicsConfig {
         assert!(
             self.contact_margin >= 0.0,
             "contact margin must be non-negative"
+        );
+        assert!(
+            self.substeps > 0,
+            "rigid substeps must be strictly positive"
+        );
+        assert!(
+            self.substeps > 0,
+            "rigid substeps must be strictly positive"
         );
         assert!(
             self.position_iterations > 0,
@@ -59,8 +68,9 @@ impl Default for PhysicsConfig {
             gravity: [0.0, -9.81, 0.0],
             damping: 0.05,
             angular_damping: 0.05,
-            solve_iterations: 12,
-            position_iterations: 16,
+            substeps: 2,
+            solve_iterations: 8,
+            position_iterations: 10,
             soft_substeps: 4,
             soft_iterations: 1,
             relaxation: 0.8,

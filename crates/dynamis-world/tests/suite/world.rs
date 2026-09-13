@@ -283,16 +283,25 @@ fn velocity_and_position_patches_apply() {
         (state.velocity[1] - (3.0 - 9.81 * DT)).abs() < 1e-4,
         "patch overrides then gravity resumes"
     );
-    assert!((state.position[1] - (3.0 + 3.0 * DT - 2.0 * 9.81 * DT * DT)).abs() < 1e-3);
+    let substeps = world.config().substeps;
+    let fall_to_patch = 3.0 + super::common::symplectic_fall(9.81, 1, 0.0, substeps);
+    let expected_y = fall_to_patch + super::common::symplectic_fall(9.81, 1, 3.0, substeps);
+    assert!(
+        (state.position[1] - expected_y).abs() < 1e-3,
+        "patched velocity must fall from the patched height, got {} expected {expected_y}",
+        state.position[1]
+    );
     world.set_position(ball, [7.0, 1.0, 2.0]);
     world.step(DT);
     world.wait();
     let state = world.read_state(ball);
     assert!((state.position[0] - 7.0).abs() < 1e-4);
-    let carried_velocity = 3.0 - 2.0 * 9.81 * DT;
+    let carried_velocity = 3.0 - 9.81 * DT;
+    let teleported = 1.0 + super::common::symplectic_fall(9.81, 1, carried_velocity, substeps);
     assert!(
-        (state.position[1] - (1.0 + carried_velocity * DT)).abs() < 1e-4,
-        "teleport must keep the carried velocity"
+        (state.position[1] - teleported).abs() < 1e-4,
+        "teleport must keep the carried velocity, got {} expected {teleported}",
+        state.position[1]
     );
     assert!((state.position[2] - 2.0).abs() < 1e-4);
 }

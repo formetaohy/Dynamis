@@ -227,6 +227,7 @@ fn step_params_record_maps_config() {
         gravity: [0.0, -9.81, 3.0],
         damping: 0.5,
         angular_damping: 0.25,
+        substeps: 4,
         solve_iterations: 7,
         position_iterations: 5,
         soft_substeps: 3,
@@ -263,6 +264,8 @@ fn step_params_record_maps_config() {
     );
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
+    assert_eq!(record.substeps, 4);
+    assert_eq!(record.substep_dt, (1.0 / 60.0) / 4.0);
     assert_eq!(record.damping, 0.5);
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);

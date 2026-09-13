@@ -71,20 +71,18 @@ domain_passes!(
     RigidPasses,
     "rigid",
     commands: Phase::Commands => "commands",
-    integrate: Phase::Prepare => "integrate",
+    prepare: Phase::Prepare => "prepare",
     entries: Phase::Entries => "entries",
     narrowphase: Phase::Contacts => "narrowphase",
     islands: Phase::Contacts => "islands",
     wake: Phase::Contacts => "wake",
     solver_prepare: Phase::Contacts => "solver_prepare",
-    solver: Phase::Contacts => "solver",
-    advance: Phase::Contacts => "advance",
+    substeps: Phase::Contacts => "substeps",
 );
 
 domain_passes!(
     RigidResolutionPasses,
     "rigid resolution",
-    solver_position: Phase::Project => "solver_position",
     sleep: Phase::Project => "sleep",
     commit: Phase::Project => "commit",
     resting_gather: Phase::Project => "resting_gather",
@@ -143,10 +141,10 @@ impl Rigid {
                 drop(commands);
             }
             Phase::Prepare if simulating => {
-                let mut integrate = schedule.open(encoder, self.passes.integrate);
+                let mut prepare = schedule.open(encoder, self.passes.prepare);
                 self.integrate
-                    .record(&mut integrate, streams, frame, &self.sort);
-                drop(integrate);
+                    .record(&mut prepare, streams, frame, &self.sort);
+                drop(prepare);
             }
             Phase::Entries if simulating => {
                 let mut entries = schedule.open(encoder, self.passes.entries);
@@ -171,21 +169,24 @@ impl Rigid {
                 self.solver.record_prepare(&mut prepare, streams, frame);
                 drop(prepare);
 
-                let mut solver = schedule.open(encoder, self.passes.solver);
-                self.solver.record(&mut solver, streams, frame, &self.sort);
-                drop(solver);
-
-                let mut advance = schedule.open(encoder, self.passes.advance);
-                self.integrate.record_advance(&mut advance, streams, frame);
-                drop(advance);
+                let mut substeps = schedule.open(encoder, self.passes.substeps);
+                self.solver
+                    .record_topology(&mut substeps, streams, frame, &self.sort);
+                for substep in 0..frame.params.substeps {
+                    self.integrate.record_substep(&mut substeps, streams, frame);
+                    if substep == 0 {
+                        self.solver.record_warm(&mut substeps, streams, frame);
+                    }
+                    self.solver.record_iterations(&mut substeps, streams, frame);
+                    self.integrate
+                        .record_substep_advance(&mut substeps, streams, frame);
+                    self.solver
+                        .record_position_iterations(&mut substeps, streams, frame);
+                }
+                drop(substeps);
             }
             Phase::Project => {
                 if simulating {
-                    let mut position = schedule.open(encoder, self.resolution.solver_position);
-                    self.solver
-                        .record_position_iterations(&mut position, streams, frame);
-                    drop(position);
-
                     let mut sleep = schedule.open(encoder, self.resolution.sleep);
                     self.sleep.record(&mut sleep, streams, frame);
                     drop(sleep);

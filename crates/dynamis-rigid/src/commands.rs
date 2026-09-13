@@ -12,6 +12,7 @@ use dynamis_state::StateStream;
 
 pub struct Commands {
     reset_counters: Stage,
+    clear_inputs: Stage,
     body_move_gather: Stage,
     body_move_scatter: Stage,
     body_edits: Stage,
@@ -36,6 +37,22 @@ impl Commands {
                 ),
                 streams,
                 &[("counters", StateStream::Counters.whole())],
+                &[],
+            ),
+            clear_inputs: Stage::build(
+                context,
+                "clear_inputs",
+                rows(
+                    context,
+                    include_str!("../shaders/clear_inputs.wgsl"),
+                    CORE,
+                    Count::Bodies.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                ],
                 &[],
             ),
             body_move_gather: Stage::build(
@@ -236,6 +253,8 @@ impl Commands {
         frame: &RigidFrame,
     ) {
         self.reset(recorder, streams);
+        self.clear_inputs
+            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
         self.record_moves(recorder, streams, frame);
         self.record_edits(recorder, streams, frame);
         self.constraint_rows

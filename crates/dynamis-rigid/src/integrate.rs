@@ -11,20 +11,38 @@ use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
 pub struct Integrate {
-    integrate: Stage,
-    advance: Stage,
+    begin_step: Stage,
+    substep_integrate: Stage,
+    substep_advance: Stage,
     broadphase_aabb: Stage,
 }
 
 impl Integrate {
     pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
-            integrate: Stage::build(
+            begin_step: Stage::build(
                 context,
-                "integrate",
+                "begin_step",
                 rows(
                     context,
-                    include_str!("../shaders/integrate.wgsl"),
+                    include_str!("../shaders/begin_step.wgsl"),
+                    CORE,
+                    Count::Dynamic.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("ccd_factor", RigidStream::CcdFactor.whole()),
+                ],
+                &[],
+            ),
+            substep_integrate: Stage::build(
+                context,
+                "substep_integrate",
+                rows(
+                    context,
+                    include_str!("../shaders/substep_integrate.wgsl"),
                     CORE,
                     Count::Dynamic.field(),
                 ),
@@ -36,12 +54,12 @@ impl Integrate {
                 ],
                 &[],
             ),
-            advance: Stage::build(
+            substep_advance: Stage::build(
                 context,
-                "advance",
+                "substep_advance",
                 rows(
                     context,
-                    include_str!("../shaders/advance.wgsl"),
+                    include_str!("../shaders/substep_advance.wgsl"),
                     CORE,
                     Count::Dynamic.field(),
                 ),
@@ -49,7 +67,6 @@ impl Integrate {
                 &[
                     ("params", StateStream::Params.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
-                    ("ccd_factor", RigidStream::CcdFactor.whole()),
                 ],
                 &[],
             ),
@@ -77,13 +94,34 @@ impl Integrate {
         }
     }
 
-    pub fn record_advance(
+    pub fn record_begin(
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.advance
+        self.begin_step
+            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+    }
+
+    pub fn record_substep(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        let dynamic = Count::Dynamic.rows(&frame.params);
+        self.substep_integrate
+            .record_rows(recorder, streams, dynamic);
+    }
+
+    pub fn record_substep_advance(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.substep_advance
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
     }
 
@@ -114,8 +152,7 @@ impl Integrate {
             );
             sort.sort(recorder, &channels, words, words);
         }
-        self.integrate
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.record_begin(recorder, streams, frame);
         self.broadphase_aabb
             .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
     }

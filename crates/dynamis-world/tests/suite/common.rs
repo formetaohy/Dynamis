@@ -50,6 +50,12 @@ pub fn gravity_config() -> PhysicsConfig {
     }
 }
 
+pub fn symplectic_fall(gravity: f32, frames: u32, initial_speed: f32, substeps: u32) -> f32 {
+    let step = DT / substeps as f32;
+    let count = (frames * substeps) as f32;
+    initial_speed * step * count - 0.5 * gravity * step * step * count * (count + 1.0)
+}
+
 pub fn settle(world: &mut World, frames: usize) {
     for _ in 0..frames {
         world.step(DT);

@@ -28,21 +28,29 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
     }
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         let point = contact.points[point_index];
-        let position = point.position;
+        let anchor_first = manifold_arm(contact, pair.first, point, true);
+        let anchor_second = manifold_arm(contact, pair.second, point, false);
         var accumulated_normal = point.accumulated_normal;
         var accumulated_tangent_1 = point.accumulated_tangent_1;
         var accumulated_tangent_2 = point.accumulated_tangent_2;
-        let normal_speed = dot(relative_velocity(pair.first, pair.second, position, position), normal);
-        let normal_mass = point_momentum_mass(pair.split_first, pair.split_second, position, position, normal);
+        let normal_speed =
+            dot(relative_velocity(pair.first, pair.second, anchor_first, anchor_second), normal);
+        let normal_mass =
+            point_momentum_mass(pair.split_first, pair.split_second, anchor_first, anchor_second, normal);
         let delta = (target_speeds[contact_index * CONTACT_MAX_POINTS + point_index] - normal_speed) / normal_mass;
         let next_normal = max(0.0, accumulated_normal + delta);
         impulses[point_index] = impulses[point_index] + vec4f(normal * (next_normal - accumulated_normal), 0.0);
         accumulated_normal = next_normal;
         let friction_limit = contact.friction * accumulated_normal;
-        let tangent_1_mass =
-            point_momentum_mass(pair.split_first, pair.split_second, position, position, tangents.first);
+        let tangent_1_mass = point_momentum_mass(
+            pair.split_first,
+            pair.split_second,
+            anchor_first,
+            anchor_second,
+            tangents.first,
+        );
         let tangent_1_speed = dot(
-            relative_velocity(pair.first, pair.second, position, position),
+            relative_velocity(pair.first, pair.second, anchor_first, anchor_second),
             tangents.first,
         );
         let next_tangent_1 =
@@ -50,10 +58,15 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         impulses[point_index] =
             impulses[point_index] + vec4f(tangents.first * (next_tangent_1 - accumulated_tangent_1), 0.0);
         accumulated_tangent_1 = next_tangent_1;
-        let tangent_2_mass =
-            point_momentum_mass(pair.split_first, pair.split_second, position, position, tangents.second);
+        let tangent_2_mass = point_momentum_mass(
+            pair.split_first,
+            pair.split_second,
+            anchor_first,
+            anchor_second,
+            tangents.second,
+        );
         let tangent_2_speed = dot(
-            relative_velocity(pair.first, pair.second, position, position),
+            relative_velocity(pair.first, pair.second, anchor_first, anchor_second),
             tangents.second,
         );
         let remaining = sqrt(
@@ -69,8 +82,10 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         updated.points[point_index].accumulated_tangent_2 = accumulated_tangent_2;
     }
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
-        let position = contact.points[point_index].position;
-        apply_pair_impulse(&first, &second, position, position, impulses[point_index].xyz);
+        let point = contact.points[point_index];
+        let anchor_first = manifold_arm(contact, pair.first, point, true);
+        let anchor_second = manifold_arm(contact, pair.second, point, false);
+        apply_pair_impulse(&first, &second, anchor_first, anchor_second, impulses[point_index].xyz);
     }
     {
         let rel_spin = second.state.angular_velocity - first.state.angular_velocity;
@@ -136,10 +151,12 @@ fn warm_contact_block(contact_index: u32, slot: u32) {
     let tangents = make_tangents(contact.normal);
     for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
         let point = contact.points[point_index];
+        let anchor_first = manifold_arm(contact, first, point, true);
+        let anchor_second = manifold_arm(contact, second, point, false);
         let impulse = contact.normal * point.accumulated_normal
             + tangents.first * point.accumulated_tangent_1
             + tangents.second * point.accumulated_tangent_2;
-        apply_pair_impulse(&first, &second, point.position, point.position, impulse);
+        apply_pair_impulse(&first, &second, anchor_first, anchor_second, impulse);
     }
     commit_block(
         slot,

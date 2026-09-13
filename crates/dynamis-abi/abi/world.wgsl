@@ -1,9 +1,11 @@
 struct StepParams {
     gravity: vec4f,
     dt: f32,
+    substep_dt: f32,
     damping: f32,
     angular_damping: f32,
     body_count: u32,
+    substeps: u32,
     solve_iterations: u32,
     constraint_count: u32,
     relaxation: f32,
@@ -29,9 +31,7 @@ struct StepParams {
     particle_count: u32,
     element_count: u32,
     soft_substep_dt: f32,
-    _pad5: u32,
-    _pad6: u32,
-    _pad7: u32,
+    _tail: u32,
 }
 
 struct SoftParticle {
@@ -199,6 +199,8 @@ struct GridEntry {
 struct ManifoldPoint {
     position: vec3f,
     depth: f32,
+    local_a: vec3f,
+    local_b: vec3f,
     accumulated_normal: f32,
     accumulated_tangent_1: f32,
     accumulated_tangent_2: f32,

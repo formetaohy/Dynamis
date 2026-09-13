@@ -454,12 +454,9 @@ margin: f32,
     for (var i = 0u; i < polygon_count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
         let point_depth = dot(ref_center - polygon_a[i], ref_normal);
         if (point_depth >= -margin) {
-            candidates[candidate_count] = ManifoldPoint(
+            candidates[candidate_count] = manifold_candidate(
                 polygon_a[i] - ref_normal * (point_depth * 0.5),
                 point_depth,
-                0.0,
-                0.0,
-                0.0,
                 select(
                     feature_face(ref_field, polygon_ids_a[i]),
                     feature_face(polygon_ids_a[i], ref_field),
@@ -473,12 +470,9 @@ margin: f32,
         for (var i = 0u; i < 4u && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
             let point_depth = dot(ref_center - incident_corners[i], ref_normal);
             if (point_depth >= -margin) {
-                candidates[candidate_count] = ManifoldPoint(
+                candidates[candidate_count] = manifold_candidate(
                     incident_corners[i] - ref_normal * (point_depth * 0.5),
                     point_depth,
-                    0.0,
-                    0.0,
-                    0.0,
                     select(
                         feature_face(ref_field, incident_ids[i]),
                         feature_face(incident_ids[i], ref_field),
@@ -542,12 +536,9 @@ margin: f32,
             if (found) {
                 continue;
             }
-            candidates[candidate_count] = ManifoldPoint(
+            candidates[candidate_count] = manifold_candidate(
                 contact_point,
                 depth,
-                0.0,
-                0.0,
-                0.0,
                 feature_vertex(feature_field_face(face.index), i),
             );
             candidate_normals[candidate_count] = normal;
@@ -764,6 +755,7 @@ fn work(index: u32) {
     contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
     contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
     if (contact.point_count > 0u) {
+        manifold_anchor(&contact, first, second);
         contacts_raw[index] = contact;
         contact_valid[index] = 1u;
     }

@@ -627,12 +627,31 @@ fn contact_mirror_features(contact: ptr<function, Contact>) {
     }
 }
 
+fn manifold_candidate(position: vec3f, depth: f32, feature: u32) -> ManifoldPoint {
+    return ManifoldPoint(position, depth, vec3f(0.0), vec3f(0.0), 0.0, 0.0, 0.0, feature);
+}
+
 fn manifold_push(contact: ptr<function, Contact>, point: vec3f, depth: f32, feature: u32) {
     let count = (*contact).point_count;
     if (count >= CONTACT_MAX_POINTS) {
         return;
     }
-    (*contact).points[count] = ManifoldPoint(point, depth, 0.0, 0.0, 0.0, feature);
+    (*contact).points[count] = manifold_candidate(point, depth, feature);
     (*contact).point_count = count + 1u;
+}
+
+fn manifold_anchor(contact: ptr<function, Contact>, first: Body, second: Body) {
+    for (var index = 0u; index < (*contact).point_count; index = index + 1u) {
+        let point = (*contact).points[index].position;
+        (*contact).points[index].local_a = quat_rotate(quat_conjugate(first.state.orientation), point - first.state.position);
+        (*contact).points[index].local_b = quat_rotate(quat_conjugate(second.state.orientation), point - second.state.position);
+    }
+}
+
+fn manifold_arm(contact: Contact, body: Body, point: ManifoldPoint, first: bool) -> vec3f {
+    if (first) {
+        return quat_rotate(body.state.orientation, point.local_a) + body.state.position;
+    }
+    return quat_rotate(body.state.orientation, point.local_b) + body.state.position;
 }
 

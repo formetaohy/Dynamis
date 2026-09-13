@@ -990,12 +990,9 @@ fn convex_pair_manifold(
                 }
             }
             if (kept) {
-                candidates[candidate_count] = ManifoldPoint(
+                candidates[candidate_count] = manifold_candidate(
                     point - ref_dir * (depth * 0.5),
                     depth,
-                    0.0,
-                    0.0,
-                    0.0,
                     select(
                         feature_vertex(incident_ids[i], reference_face),
                         feature_vertex(reference_face, incident_ids[i]),
