@@ -82,7 +82,7 @@ impl World {
     fn record_states(&mut self, encoder: &mut SubmissionEncoder, step: u64, bytes: u64) {
         let displaced = self.backend.streams.readback.states.enqueue(
             encoder,
-            self.backend.streams.scene.body_states.buffer(),
+            self.backend.streams.state.body_states.buffer(),
             0,
             bytes,
             step,

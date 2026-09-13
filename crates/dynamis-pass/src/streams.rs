@@ -1,3 +1,13 @@
+use wgpu::BufferUsages;
+
+pub const EVENT_SLOTS: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
+
+pub const STREAM: BufferUsages = BufferUsages::STORAGE
+    .union(BufferUsages::COPY_DST)
+    .union(BufferUsages::COPY_SRC);
+pub const UNIFORM: BufferUsages = BufferUsages::UNIFORM.union(BufferUsages::COPY_DST);
+pub const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
+
 #[macro_export]
 macro_rules! stream_usage {
     () => {

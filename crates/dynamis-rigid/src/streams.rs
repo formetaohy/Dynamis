@@ -2,9 +2,9 @@ use dynamis_abi::{
     AabbRecord, BodyStateRecord, CONTACT_MAX_POINTS, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
 };
-use dynamis_engine::EVENT_SLOTS;
-use dynamis_engine::streams;
 use dynamis_gpu::Contents;
+use dynamis_pass::EVENT_SLOTS;
+use dynamis_pass::streams;
 use std::mem::size_of;
 
 pub const DOMAIN: u32 = 2;
@@ -92,18 +92,18 @@ impl RigidDemand {
     }
 }
 
-pub fn event_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn event_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
 }
 
-pub fn resting_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn resting_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::RestingContacts.into())
 }
 
-pub fn block_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn block_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::SolverAPayload.into())
 }
 
-pub fn sort_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn sort_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::SortScratchMajor.into())
 }

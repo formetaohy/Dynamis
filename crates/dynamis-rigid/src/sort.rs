@@ -1,5 +1,5 @@
-use dynamis_engine::{Resources, SlotRef};
 use dynamis_gpu::GpuSlot;
+use dynamis_pass::{Resources, SlotRef};
 use dynamis_sort::SortChannels;
 
 use crate::RigidStream;
@@ -12,7 +12,7 @@ fn scratch<R: Resources>(resources: &R) -> [GpuSlot<'_>; 3] {
     ]
 }
 
-pub fn lanes<'a, R: Resources>(
+pub(crate) fn lanes<'a, R: Resources>(
     resources: &'a R,
     count: SlotRef,
     major: SlotRef,
@@ -31,7 +31,7 @@ pub fn lanes<'a, R: Resources>(
     }
 }
 
-pub fn keyed<'a, R: Resources>(
+pub(crate) fn keyed<'a, R: Resources>(
     resources: &'a R,
     count: SlotRef,
     major: SlotRef,
@@ -51,7 +51,7 @@ pub fn keyed<'a, R: Resources>(
     }
 }
 
-pub fn lanes_dual<'a, R: Resources>(
+pub(crate) fn lanes_dual<'a, R: Resources>(
     resources: &'a R,
     count: SlotRef,
     major: SlotRef,

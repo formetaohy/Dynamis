@@ -1,12 +1,12 @@
 use super::streams::RigidStream;
 use dynamis_abi::{COUNTER_ACTIVE, COUNTER_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE};
-use dynamis_engine::Resources;
-use dynamis_engine::{Stage, workgroups_of};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows, workgroups};
-use dynamis_scene::Count;
-use dynamis_scene::Frame;
-use dynamis_scene::SceneStream;
+use dynamis_pass::Resources;
+use dynamis_pass::{Stage, workgroups_of};
+use dynamis_state::Count;
+use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Commands {
     reset_counters: Stage,
@@ -33,7 +33,7 @@ impl Commands {
                     CORE,
                 ),
                 streams,
-                &[("counters", SceneStream::Counters.whole())],
+                &[("counters", StateStream::Counters.whole())],
                 &[],
             ),
             body_move_gather: Stage::build(
@@ -47,11 +47,11 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
                     ("state_scratch", RigidStream::BodyStateScratch.whole()),
-                    ("row_moves", SceneStream::BodyRowMoves.whole()),
-                    ("fresh_rows", SceneStream::BodyFreshRows.whole()),
-                    ("params", SceneStream::Params.whole()),
+                    ("row_moves", StateStream::BodyRowMoves.whole()),
+                    ("fresh_rows", StateStream::BodyFreshRows.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -66,10 +66,10 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
                     ("state_scratch", RigidStream::BodyStateScratch.whole()),
-                    ("row_moves", SceneStream::BodyRowMoves.whole()),
-                    ("params", SceneStream::Params.whole()),
+                    ("row_moves", StateStream::BodyRowMoves.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -84,14 +84,14 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("edits", SceneStream::BodyEdits.whole()),
-                    ("edit_runs", SceneStream::BodyEditRuns.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
-                    ("params", SceneStream::Params.whole()),
-                    ("slept_count", dynamis_scene::counter(COUNTER_SLEPT)),
-                    ("woke_count", dynamis_scene::counter(COUNTER_WOKE)),
+                    ("edits", StateStream::BodyEdits.whole()),
+                    ("edit_runs", StateStream::BodyEditRuns.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
+                    ("woke_count", dynamis_state::counter(COUNTER_WOKE)),
                 ],
                 &[],
             ),
@@ -106,10 +106,10 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("row_moves", SceneStream::BodyRowMoves.whole()),
-                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
-                    ("params", SceneStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("row_moves", StateStream::BodyRowMoves.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -124,12 +124,12 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                     (
                         "constraint_descs",
-                        SceneStream::ConstraintDescriptors.whole(),
+                        StateStream::ConstraintDescriptors.whole(),
                     ),
-                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ],
                 &[],
@@ -145,11 +145,11 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
-                    ("row_moves", SceneStream::ConstraintRowMoves.whole()),
-                    ("fresh_rows", SceneStream::ConstraintFreshRows.whole()),
-                    ("params", SceneStream::Params.whole()),
+                    ("row_moves", StateStream::ConstraintRowMoves.whole()),
+                    ("fresh_rows", StateStream::ConstraintFreshRows.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -164,10 +164,10 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
-                    ("row_moves", SceneStream::ConstraintRowMoves.whole()),
-                    ("params", SceneStream::Params.whole()),
+                    ("row_moves", StateStream::ConstraintRowMoves.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -182,11 +182,11 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("body_activity", RigidStream::BodyActivity.whole()),
-                    ("active_count", dynamis_scene::counter(COUNTER_ACTIVE)),
+                    ("active_count", dynamis_state::counter(COUNTER_ACTIVE)),
                 ],
                 &[],
             ),
@@ -201,15 +201,15 @@ impl Commands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                     (
                         "constraint_descs",
-                        SceneStream::ConstraintDescriptors.whole(),
+                        StateStream::ConstraintDescriptors.whole(),
                     ),
-                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("joint_major", RigidStream::JointFilterMajor.whole()),
                     ("joint_minor", RigidStream::JointFilterMinor.whole()),
-                    ("joint_count", dynamis_scene::counter(COUNTER_JOINTS)),
+                    ("joint_count", dynamis_state::counter(COUNTER_JOINTS)),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ],
                 &[],
@@ -225,7 +225,12 @@ impl Commands {
         );
     }
 
-    pub fn record(&self, recorder: &mut ComputeRecorder, streams: &impl Resources, frame: &Frame) {
+    pub fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &StepFrame,
+    ) {
         self.reset(recorder, streams);
         self.record_moves(recorder, streams, frame);
         self.record_edits(recorder, streams, frame);
@@ -241,7 +246,7 @@ impl Commands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.body_move_gather
             .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
@@ -265,7 +270,7 @@ impl Commands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.body_edits
             .record_rows(recorder, streams, Count::EditRuns.rows(&frame.params));

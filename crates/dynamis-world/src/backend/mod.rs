@@ -1,15 +1,24 @@
-use super::World;
-use crate::device::Pipeline;
-use crate::device::streams::{Planning, Streams};
+mod capacity;
+mod passes;
+mod readback;
+pub(crate) mod streams;
+
+pub use capacity::StreamCapacity;
+
+pub(crate) use passes::StepPasses;
+
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
+use streams::{Planning, Streams};
 use wgpu::SubmissionIndex;
+
+use crate::World;
 
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
     pub(crate) streams: Streams,
-    pub(crate) pipeline: Pipeline,
+    pub(crate) passes: StepPasses,
     pub(crate) planning: Planning,
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
@@ -24,11 +33,11 @@ impl Backend {
     pub(crate) fn new(gpu: GpuContext) -> Self {
         let plan = Planning::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
-        let pipeline = Pipeline::new(&gpu, &streams);
+        let passes = StepPasses::new(&gpu, &streams);
         Self {
             gpu,
             streams,
-            pipeline,
+            passes,
             planning: Planning::new(),
             measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,

@@ -1,12 +1,12 @@
 use super::streams::RigidStream;
 use dynamis_abi::{COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
-use dynamis_engine::Resources;
-use dynamis_engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows};
-use dynamis_scene::Count;
-use dynamis_scene::Frame;
-use dynamis_scene::SceneStream;
+use dynamis_pass::Resources;
+use dynamis_pass::Stage;
+use dynamis_state::Count;
+use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Sleep {
     island_aggregate: Stage,
@@ -27,12 +27,12 @@ impl Sleep {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("island_state", RigidStream::IslandState.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -47,17 +47,17 @@ impl Sleep {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("island_state", RigidStream::IslandState.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
-                    ("slept_count", dynamis_scene::counter(COUNTER_SLEPT)),
-                    ("woke_count", dynamis_scene::counter(COUNTER_WOKE)),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
+                    ("woke_count", dynamis_state::counter(COUNTER_WOKE)),
                     (
                         "deferred_woke_count",
-                        dynamis_scene::counter(COUNTER_WOKE_DEFERRED),
+                        dynamis_state::counter(COUNTER_WOKE_DEFERRED),
                     ),
                 ],
                 &[],
@@ -65,7 +65,12 @@ impl Sleep {
         }
     }
 
-    pub fn record(&self, recorder: &mut ComputeRecorder, streams: &impl Resources, frame: &Frame) {
+    pub fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &StepFrame,
+    ) {
         self.island_aggregate
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
         self.island_broadcast

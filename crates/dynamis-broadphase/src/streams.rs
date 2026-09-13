@@ -1,6 +1,6 @@
 use dynamis_abi::GridEntryRecord;
-use dynamis_engine::streams;
 use dynamis_gpu::Contents;
+use dynamis_pass::streams;
 use std::mem::size_of;
 
 pub const DOMAIN: u32 = 1;
@@ -25,14 +25,14 @@ streams! {
     }
 }
 
-pub fn entry_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn entry_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::EntryKeys.into())
 }
 
-pub fn pair_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn pair_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::PairMajor.into())
 }
 
-pub fn sort_capacity<R: dynamis_engine::Resources>(resources: &R) -> u32 {
+pub fn sort_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::SortScratchMajor.into())
 }

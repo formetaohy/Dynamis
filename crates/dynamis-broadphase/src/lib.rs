@@ -8,11 +8,11 @@ pub use streams::{
 };
 
 use dynamis_abi::COUNTER_ENTRIES;
-use dynamis_engine::{Engine, Resources, Stage, domain_passes};
 use dynamis_gpu::GpuContext;
 use dynamis_kernels::{GRID_INDEX, stream};
-use dynamis_scene::SceneStream;
+use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
 use dynamis_sort::{RadixSort, SortChannels};
+use dynamis_state::StateStream;
 
 domain_passes!(
     BroadphasePasses,
@@ -49,7 +49,7 @@ impl Broadphase {
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
-                    ("counters", SceneStream::Counters.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -70,7 +70,7 @@ impl Broadphase {
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
-                    ("counters", SceneStream::Counters.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -82,7 +82,7 @@ impl Broadphase {
         recorder: &mut dynamis_gpu::ComputeRecorder,
         streams: &impl Resources,
     ) {
-        let count = dynamis_scene::counter(COUNTER_ENTRIES).resolve(streams);
+        let count = dynamis_state::counter(COUNTER_ENTRIES).resolve(streams);
         let channels = SortChannels {
             generation: streams.generation(),
             count,
@@ -101,11 +101,11 @@ impl Broadphase {
 
     pub fn encode(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
     ) {
-        let mut index = engine.open(encoder, self.passes.index);
+        let mut index = schedule.open(encoder, self.passes.index);
         self.sort_entries(&mut index, streams);
         self.cell_pairs.record_stream(&mut index, streams);
         self.level_links.record_stream(&mut index, streams);

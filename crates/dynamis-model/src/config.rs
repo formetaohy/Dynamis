@@ -28,6 +28,31 @@ pub struct PhysicsConfig {
     pub restitution_combine: MaterialCombine,
 }
 
+impl PhysicsConfig {
+    pub fn assert_valid(&self) {
+        assert!(
+            self.contact_margin >= 0.0,
+            "contact margin must be non-negative"
+        );
+        assert!(
+            self.position_iterations > 0,
+            "position iterations must be strictly positive"
+        );
+        assert!(
+            self.soft_iterations > 0,
+            "soft iterations must be strictly positive"
+        );
+        assert!(
+            self.soft_substeps > 0,
+            "soft substeps must be strictly positive"
+        );
+        assert!(
+            (0.0..=1.0).contains(&self.relaxation),
+            "position relaxation must be within (0, 1]"
+        );
+    }
+}
+
 impl Default for PhysicsConfig {
     fn default() -> Self {
         Self {

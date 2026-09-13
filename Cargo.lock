@@ -408,11 +408,11 @@ name = "dynamis-broadphase"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
- "dynamis-engine",
  "dynamis-gpu",
  "dynamis-kernels",
- "dynamis-scene",
+ "dynamis-pass",
  "dynamis-sort",
+ "dynamis-state",
  "wgpu",
 ]
 
@@ -425,14 +425,6 @@ dependencies = [
  "dynamis-model",
  "dynamis-world",
  "pollster",
-]
-
-[[package]]
-name = "dynamis-engine"
-version = "0.6.0"
-dependencies = [
- "dynamis-gpu",
- "wgpu",
 ]
 
 [[package]]
@@ -467,8 +459,8 @@ name = "dynamis-kernels"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
- "dynamis-engine",
  "dynamis-gpu",
+ "dynamis-pass",
 ]
 
 [[package]]
@@ -487,27 +479,24 @@ name = "dynamis-model"
 version = "0.6.0"
 
 [[package]]
+name = "dynamis-pass"
+version = "0.6.0"
+dependencies = [
+ "dynamis-gpu",
+ "wgpu",
+]
+
+[[package]]
 name = "dynamis-rigid"
 version = "0.6.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
- "dynamis-engine",
  "dynamis-gpu",
  "dynamis-kernels",
- "dynamis-scene",
+ "dynamis-pass",
  "dynamis-sort",
- "wgpu",
-]
-
-[[package]]
-name = "dynamis-scene"
-version = "0.6.0"
-dependencies = [
- "dynamis-abi",
- "dynamis-engine",
- "dynamis-gpu",
- "dynamis-sort",
+ "dynamis-state",
  "wgpu",
 ]
 
@@ -517,10 +506,10 @@ version = "0.6.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-broadphase",
- "dynamis-engine",
  "dynamis-gpu",
  "dynamis-kernels",
- "dynamis-scene",
+ "dynamis-pass",
+ "dynamis-state",
  "wgpu",
 ]
 
@@ -535,20 +524,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynamis-state"
+version = "0.6.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-gpu",
+ "dynamis-pass",
+ "dynamis-sort",
+ "wgpu",
+]
+
+[[package]]
 name = "dynamis-world"
 version = "0.6.0"
 dependencies = [
  "bytemuck",
  "dynamis-abi",
  "dynamis-broadphase",
- "dynamis-engine",
  "dynamis-gpu",
  "dynamis-math",
  "dynamis-mesh",
  "dynamis-model",
+ "dynamis-pass",
  "dynamis-rigid",
- "dynamis-scene",
  "dynamis-soft",
+ "dynamis-state",
  "pollster",
  "wgpu",
 ]

@@ -3,8 +3,8 @@ use super::ids::IdSpace;
 use bytemuck::Zeroable;
 use dynamis_abi::{BvhNodeRecord, TriangleRecord};
 use dynamis_model::ShapeSourceHandle;
-use dynamis_scene::ShapeCapacity;
-use dynamis_scene::{TRIANGLE_BYTES, VERTEX_BYTES};
+use dynamis_state::ShapeCapacity;
+use dynamis_state::{TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
 
 struct Geometry<T> {

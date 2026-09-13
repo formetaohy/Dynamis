@@ -1,41 +1,31 @@
+use crate::PassOrder;
 #[cfg(feature = "profile")]
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use wgpu::BufferUsages;
 use wgpu::CommandEncoder;
 
-use crate::Schedule;
-
-pub const EVENT_SLOTS: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
-
-pub const STREAM: BufferUsages = BufferUsages::STORAGE
-    .union(BufferUsages::COPY_DST)
-    .union(BufferUsages::COPY_SRC);
-pub const UNIFORM: BufferUsages = BufferUsages::UNIFORM.union(BufferUsages::COPY_DST);
-pub const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
-
-pub struct Engine {
+pub struct Schedule {
+    order: PassOrder,
     per_row: u32,
-    schedule: Schedule,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
 }
 
-impl Engine {
+impl Schedule {
     pub fn new(
         context: &GpuContext,
-        schedule: Schedule,
+        order: PassOrder,
         #[cfg(feature = "profile")] label: &str,
     ) -> Self {
         assert!(
-            !schedule.labels().is_empty(),
+            !order.labels().is_empty(),
             "a step schedule needs at least one pass label"
         );
         #[cfg(feature = "profile")]
-        let labels = schedule.labels().to_vec();
+        let labels = order.labels().to_vec();
         Self {
             per_row: context.workgroups_per_row(),
-            schedule,
+            order,
             #[cfg(feature = "profile")]
             timer: context.supports_pass_timing().then(|| {
                 dynamis_gpu::GpuTimer::new(
@@ -54,7 +44,7 @@ impl Engine {
 
     pub fn open<'a>(&'a self, encoder: &'a mut CommandEncoder, pass: usize) -> ComputeRecorder<'a> {
         let label = self
-            .schedule
+            .order
             .labels()
             .get(pass)
             .copied()

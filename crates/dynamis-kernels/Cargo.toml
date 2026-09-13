@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 dynamis-abi = { workspace = true }
-dynamis-engine = { workspace = true }
+dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
 
 [lints]

@@ -4,13 +4,13 @@ use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING_INDEX,
     COUNTER_SPILLOVER_EVENTS,
 };
-use dynamis_engine::Resources;
-use dynamis_engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows, stream};
-use dynamis_scene::Count;
-use dynamis_scene::Frame;
-use dynamis_scene::SceneStream;
+use dynamis_pass::Resources;
+use dynamis_pass::Stage;
+use dynamis_state::Count;
+use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Islands {
     contact_relay: Stage,
@@ -37,20 +37,20 @@ impl Islands {
                 streams,
                 &[
                     ("archive", RigidStream::ContactArchive.whole()),
-                    ("archive_count", dynamis_scene::counter(COUNTER_ARCHIVED)),
+                    ("archive_count", dynamis_state::counter(COUNTER_ARCHIVED)),
                     ("contacts", RigidStream::Contacts.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("contact_matched", RigidStream::ContactMatched.whole()),
                     ("events", RigidStream::Events.whole()),
-                    ("event_count", dynamis_scene::counter(COUNTER_EVENTS)),
+                    ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
                     (
                         "spillover",
-                        dynamis_scene::counter(COUNTER_SPILLOVER_EVENTS),
+                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
                     ),
-                    ("params", SceneStream::Params.whole()),
-                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                 ],
                 &[],
             ),
@@ -67,15 +67,15 @@ impl Islands {
                 streams,
                 &[
                     ("contacts", RigidStream::Contacts.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("contact_matched", RigidStream::ContactMatched.whole()),
                     ("events", RigidStream::Events.whole()),
-                    ("event_count", dynamis_scene::counter(COUNTER_EVENTS)),
+                    ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
                     (
                         "spillover",
-                        dynamis_scene::counter(COUNTER_SPILLOVER_EVENTS),
+                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
                     ),
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                     ("resting", RigidStream::RestingContacts.whole()),
                     ("resting_live", RigidStream::RestingLive.whole()),
                     ("resting_major", RigidStream::RestingIndexMajor.whole()),
@@ -83,7 +83,7 @@ impl Islands {
                     ("resting_slots", RigidStream::RestingIndexSlots.whole()),
                     (
                         "resting_index",
-                        dynamis_scene::counter(COUNTER_RESTING_INDEX),
+                        dynamis_state::counter(COUNTER_RESTING_INDEX),
                     ),
                 ],
                 &[],
@@ -99,7 +99,7 @@ impl Islands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("island_state", RigidStream::IslandState.whole()),
                 ],
@@ -117,14 +117,14 @@ impl Islands {
                 ),
                 streams,
                 &[
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("contacts", RigidStream::Contacts.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("island_parents", RigidStream::IslandParents.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
-                    ("params", SceneStream::Params.whole()),
-                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("collider_owners", StateStream::ColliderOwners.whole()),
                 ],
                 &[],
             ),
@@ -139,12 +139,12 @@ impl Islands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
-                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ],
                 &[],
@@ -160,7 +160,7 @@ impl Islands {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                 ],
                 &[],
@@ -172,7 +172,7 @@ impl Islands {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
         rounds: u32,
     ) {
         self.contact_relay.record_stream(recorder, streams);

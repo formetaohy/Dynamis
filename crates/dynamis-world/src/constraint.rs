@@ -2,12 +2,12 @@ use super::World;
 use super::commands::ConstraintCommand;
 use super::ids::IdSpace;
 use dynamis_abi::{BrokenConstraintRecord, COUNTER_BREAKS, ConstraintDescriptorRecord};
-use dynamis_engine::EVENT_SLOTS;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
+use dynamis_pass::EVENT_SLOTS;
 use std::collections::VecDeque;
 use std::mem::size_of;
 
@@ -399,7 +399,7 @@ impl World {
                 "constraint break reports for step {step} were overwritten before step {} could copy them",
                 self.clock.step
             );
-            let segment = self.backend.streams.scene.constraint_breaks.size() / EVENT_SLOTS as u64;
+            let segment = self.backend.streams.state.constraint_breaks.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = count as u64 * size_of::<BrokenConstraintRecord>() as u64;
             assert!(
@@ -408,7 +408,7 @@ impl World {
             );
             let displaced = self.backend.streams.readback.breaks.enqueue(
                 encoder,
-                self.backend.streams.scene.constraint_breaks.buffer(),
+                self.backend.streams.state.constraint_breaks.buffer(),
                 offset,
                 bytes,
                 step,

@@ -1,7 +1,7 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{COUNTER_EVENTS, COUNTER_SPILLOVER_EVENTS, Counters};
-use dynamis_engine::{MIN_SLOTS, StreamWatch, settled};
-use dynamis_scene::Live;
+use dynamis_pass::{MIN_SLOTS, StreamWatch, settled};
+use dynamis_state::Live;
 
 const STREAM_DENSITY_EVENTS: u32 = 8;
 
@@ -33,26 +33,26 @@ impl Capacity {
         self.events.observe(
             measured[COUNTER_EVENTS],
             measured[COUNTER_SPILLOVER_EVENTS] > 0,
-            current.events.slots() / dynamis_engine::EVENT_SLOTS,
+            current.events.slots() / dynamis_pass::EVENT_SLOTS,
         );
         if self.events.pressured() {
             self.events.settle(false);
         } else if idle {
             self.events.settle(true);
         }
-        let event_budget = dynamis_engine::product(live.colliders, STREAM_DENSITY_EVENTS, "event");
+        let event_budget = dynamis_pass::product(live.colliders, STREAM_DENSITY_EVENTS, "event");
         let events = if idle {
             self.events.released(
-                current.events.slots() / dynamis_engine::EVENT_SLOTS,
+                current.events.slots() / dynamis_pass::EVENT_SLOTS,
                 event_budget,
             )
         } else {
             self.events.widened(
-                current.events.slots() / dynamis_engine::EVENT_SLOTS,
+                current.events.slots() / dynamis_pass::EVENT_SLOTS,
                 event_budget,
             )
         };
-        let bodies = dynamis_engine::grown(current.body_activity.slots(), live.bodies, MIN_SLOTS);
+        let bodies = dynamis_pass::grown(current.body_activity.slots(), live.bodies, MIN_SLOTS);
         let colliders = current
             .collider_aabbs
             .slots()
@@ -81,7 +81,7 @@ impl Capacity {
             colliders: MIN_SLOTS,
             constraints: MIN_SLOTS,
             pairs,
-            events: dynamis_engine::STREAM_FLOOR,
+            events: dynamis_pass::STREAM_FLOOR,
             sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
         }
     }

@@ -1,6 +1,6 @@
 use dynamis_abi::{SoftElementRecord, SoftParticleRecord};
-use dynamis_engine::streams;
 use dynamis_gpu::Contents;
+use dynamis_pass::streams;
 use std::mem::size_of;
 
 pub const DOMAIN: u32 = 3;

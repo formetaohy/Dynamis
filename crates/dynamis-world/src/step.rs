@@ -1,6 +1,6 @@
 use super::World;
-use crate::world::commands::{CompiledBodyCommands, CompiledConstraintCommands};
-use dynamis_scene::Frame;
+use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands};
+use dynamis_state::StepFrame;
 
 use dynamis_abi::{COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord};
 use std::mem::size_of;
@@ -78,8 +78,8 @@ impl World {
         self.constraints.commands.clear();
     }
 
-    pub(crate) fn frame(&self, dt: f32, query_count: u32) -> Frame {
-        Frame {
+    pub(crate) fn frame(&self, dt: f32, query_count: u32) -> StepFrame {
+        StepFrame {
             params: StepParamsRecord::new(
                 &self.config,
                 dt,
@@ -102,9 +102,9 @@ impl World {
         }
     }
 
-    fn write_step_records(&self, frame: &Frame) {
+    fn write_step_records(&self, frame: &StepFrame) {
         self.write_declared_counters();
-        self.backend.streams.scene.params.write(
+        self.backend.streams.state.params.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&[frame.params]),
         );
@@ -114,22 +114,22 @@ impl World {
         let queue = self.backend.gpu.queue();
         self.backend
             .streams
-            .scene
+            .state
             .body_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
             .streams
-            .scene
+            .state
             .body_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.backend
             .streams
-            .scene
+            .state
             .body_edits
             .write(queue, bytemuck::cast_slice(&compiled.edits));
         self.backend
             .streams
-            .scene
+            .state
             .body_edit_runs
             .write(queue, bytemuck::cast_slice(&compiled.runs));
         self.bodies.last_moves = compiled.moves.len() as u32;
@@ -139,12 +139,12 @@ impl World {
         let queue = self.backend.gpu.queue();
         self.backend
             .streams
-            .scene
+            .state
             .constraint_row_moves
             .write(queue, bytemuck::cast_slice(&compiled.moves));
         self.backend
             .streams
-            .scene
+            .state
             .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.constraints.last_moves = compiled.moves.len() as u32;
@@ -154,7 +154,7 @@ impl World {
         if query_count == 0 {
             return None;
         }
-        self.backend.streams.scene.query_records.write(
+        self.backend.streams.state.query_records.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&self.queries.pending),
         );
@@ -166,7 +166,7 @@ impl World {
 
     fn encode_step(
         &mut self,
-        frame: &Frame,
+        frame: &StepFrame,
         batch: Option<u64>,
         step: u64,
         idle: bool,
@@ -177,7 +177,7 @@ impl World {
 
         self.copy_events(&mut encoder);
         self.copy_breaks(&mut encoder);
-        self.backend.pipeline.encode(
+        self.backend.passes.encode(
             &mut encoder,
             &self.backend.streams,
             frame,
@@ -186,7 +186,7 @@ impl World {
             soft_active,
         );
         #[cfg(feature = "profile")]
-        let timings = self.backend.pipeline.capture_timings(&mut encoder, step);
+        let timings = self.backend.passes.capture_timings(&mut encoder, step);
         let pack_bytes = self.pack_step(&mut encoder);
         self.write_states(&mut encoder, step);
         let pack = self.backend.streams.readback.step.enqueue(
@@ -199,7 +199,7 @@ impl World {
         let queries = match batch {
             Some(batch) => self.backend.streams.readback.queries.enqueue(
                 &mut encoder,
-                self.backend.streams.scene.query_results.buffer(),
+                self.backend.streams.state.query_results.buffer(),
                 0,
                 self.queries.pending.len() as u64 * size_of::<QueryResultRecord>() as u64,
                 batch,

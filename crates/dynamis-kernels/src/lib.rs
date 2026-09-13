@@ -1,8 +1,8 @@
 use dynamis_abi::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
-use dynamis_engine::{
+use dynamis_gpu::GpuContext;
+use dynamis_pass::{
     Dispatch, EVENT_SLOTS, Program, ResourceId, WORKGROUP_SIZE, entry_rows, entry_stream,
 };
-use dynamis_gpu::GpuContext;
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
 const GRID_INDEX_FRAGMENT: &str = include_str!("../shaders/grid_index.wgsl");

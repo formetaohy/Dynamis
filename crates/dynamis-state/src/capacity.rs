@@ -1,5 +1,5 @@
-use super::streams::{SceneDemand, SceneStreams};
-use dynamis_engine::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled};
+use super::streams::{StateDemand, StateStreams};
+use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled};
 
 const COMMANDS_PER_BODY: u32 = 4;
 const CONSTRAINT_COMMANDS_PER_CONSTRAINT: u32 = 4;
@@ -28,8 +28,8 @@ pub struct Live {
     pub adjacency: u32,
 }
 
-pub fn floor() -> SceneDemand {
-    SceneDemand {
+pub fn floor() -> StateDemand {
+    StateDemand {
         bodies: MIN_SLOTS,
         body_ids: MIN_SLOTS,
         colliders: MIN_SLOTS,
@@ -46,7 +46,7 @@ pub fn floor() -> SceneDemand {
     }
 }
 
-pub fn demand(live: &Live, idle: bool, current: &SceneStreams) -> SceneDemand {
+pub fn plan(live: &Live, idle: bool, current: &StateStreams) -> StateDemand {
     let bodies = grown(current.body_states.slots(), live.bodies, MIN_SLOTS);
     let body_ids = current
         .body_row_of_id
@@ -87,7 +87,7 @@ pub fn demand(live: &Live, idle: bool, current: &SceneStreams) -> SceneDemand {
         live.queries.max(product(bodies, QUERIES_PER_BODY, "query")),
         STREAM_FLOOR,
     );
-    SceneDemand {
+    StateDemand {
         bodies,
         body_ids,
         colliders,

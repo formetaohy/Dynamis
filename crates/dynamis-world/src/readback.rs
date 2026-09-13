@@ -38,7 +38,7 @@ fn measured_counters(bytes: &[u8]) -> Counters {
 impl World {
     pub(crate) fn pack_step(&self, encoder: &mut wgpu::CommandEncoder) -> u64 {
         encoder.copy_buffer_to_buffer(
-            self.backend.streams.scene.counters.buffer(),
+            self.backend.streams.state.counters.buffer(),
             0,
             self.backend.streams.readback.pack.buffer(),
             0,
@@ -146,7 +146,7 @@ impl World {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.backend.pipeline.collect_timings() {
+        for (_step, timings) in self.backend.passes.collect_timings() {
             self.backend.pass_timings = timings;
         }
     }
@@ -168,7 +168,7 @@ impl World {
             self.consume_states(step, &bytes);
         }
         #[cfg(feature = "profile")]
-        for (_step, timings) in self.backend.pipeline.collect_timings() {
+        for (_step, timings) in self.backend.passes.collect_timings() {
             self.backend.pass_timings = timings;
         }
     }

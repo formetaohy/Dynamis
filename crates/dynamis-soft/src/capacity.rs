@@ -1,6 +1,6 @@
 use super::streams::{REACTION_WORDS, SoftDemand, SoftStream, SoftStreams};
-use dynamis_engine::{MIN_SLOTS, Resources, STREAM_FLOOR, settled};
-use dynamis_scene::Live;
+use dynamis_pass::{MIN_SLOTS, Resources, STREAM_FLOOR, settled};
+use dynamis_state::Live;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftCapacity {

@@ -3,7 +3,7 @@ use dynamis_abi::{
     BodyStateRecord, BrokenConstraintRecord, COUNTER_COUNT, COUNTER_STRIDE, ContactEventRecord,
 };
 use dynamis_gpu::{GpuBuffer, Readback};
-use dynamis_scene::QUERY_RESULT_BYTES;
+use dynamis_state::QUERY_RESULT_BYTES;
 use std::mem::size_of;
 use wgpu::Device;
 
@@ -24,9 +24,9 @@ fn readback_sizes(plan: &Plan) -> (u64, u64, u64, u64, u64) {
     (
         COUNTER_BYTES,
         u64::from(plan.rigid.events) * size_of::<ContactEventRecord>() as u64,
-        u64::from(plan.scene.constraints) * size_of::<BrokenConstraintRecord>() as u64,
-        u64::from(plan.scene.queries) * QUERY_RESULT_BYTES,
-        u64::from(plan.scene.bodies) * size_of::<BodyStateRecord>() as u64,
+        u64::from(plan.state.constraints) * size_of::<BrokenConstraintRecord>() as u64,
+        u64::from(plan.state.queries) * QUERY_RESULT_BYTES,
+        u64::from(plan.state.bodies) * size_of::<BodyStateRecord>() as u64,
     )
 }
 
@@ -38,7 +38,7 @@ impl ReadbackBuffers {
                 device,
                 "world readback pack",
                 pack_bytes,
-                dynamis_engine::PACK,
+                dynamis_pass::PACK,
             ),
             step: Readback::new(device, "world readback", pack_bytes, Readback::DEPTH),
             events: Readback::new(
@@ -91,7 +91,7 @@ impl ReadbackBuffers {
                 device,
                 "world readback pack",
                 pack_bytes,
-                dynamis_engine::PACK,
+                dynamis_pass::PACK,
             );
             self.step = Readback::new(device, "world readback", pack_bytes, Readback::DEPTH);
         }

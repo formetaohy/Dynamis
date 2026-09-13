@@ -29,10 +29,10 @@ dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
 dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
 dynamis-abi = { version = "0.6.0", path = "crates/dynamis-abi" }
 dynamis-broadphase = { version = "0.6.0", path = "crates/dynamis-broadphase" }
-dynamis-engine = { version = "0.6.0", path = "crates/dynamis-engine" }
+dynamis-pass = { version = "0.6.0", path = "crates/dynamis-pass" }
 dynamis-kernels = { version = "0.6.0", path = "crates/dynamis-kernels" }
 dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
-dynamis-scene = { version = "0.6.0", path = "crates/dynamis-scene" }
+dynamis-state = { version = "0.6.0", path = "crates/dynamis-state" }
 dynamis-rigid = { version = "0.6.0", path = "crates/dynamis-rigid" }
 dynamis-soft = { version = "0.6.0", path = "crates/dynamis-soft" }
 dynamis-mesh = { version = "0.6.0", path = "crates/dynamis-mesh" }

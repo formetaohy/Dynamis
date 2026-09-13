@@ -11,8 +11,8 @@ mod solver;
 mod sort;
 mod streams;
 
-use dynamis_engine::Resources;
-use dynamis_scene::Frame;
+use dynamis_pass::Resources;
+use dynamis_state::StepFrame;
 const IDENTITY: &[&str] = &[include_str!("../shaders/identity.wgsl")];
 const CONTACT: &[&str] = &[
     include_str!("../shaders/identity.wgsl"),
@@ -21,8 +21,8 @@ const CONTACT: &[&str] = &[
 
 use commands::Commands;
 use commit::Commit;
-use dynamis_engine::{Engine, domain_passes};
 use dynamis_gpu::GpuContext;
+use dynamis_pass::{Schedule, domain_passes};
 use dynamis_sort::RadixSort;
 use entries::Entries;
 use integrate::Integrate;
@@ -33,7 +33,6 @@ use solver::Solver;
 
 pub use capacity::Capacity;
 pub use ccd::{Ccd, CcdPasses};
-pub use sort::{keyed, lanes, lanes_dual};
 pub use streams::{
     DOMAIN, RigidDemand, RigidStream, RigidStreams, block_capacity, event_capacity,
     resting_capacity, sort_capacity,
@@ -63,7 +62,7 @@ domain_passes!(
 );
 
 fn island_rounds(streams: &impl Resources) -> u32 {
-    dynamis_scene::body_row_count(streams).max(2).ilog2() + 1
+    dynamis_state::body_row_count(streams).max(2).ilog2() + 1
 }
 
 pub struct Rigid {
@@ -104,24 +103,24 @@ impl Rigid {
 
     pub fn encode_commands(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
-        let mut commands = engine.open(encoder, self.passes.commands);
+        let mut commands = schedule.open(encoder, self.passes.commands);
         self.commands.record(&mut commands, streams, frame);
         drop(commands);
     }
 
     pub fn encode_prepare(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
-        let mut integrate = engine.open(encoder, self.passes.integrate);
+        let mut integrate = schedule.open(encoder, self.passes.integrate);
         self.integrate
             .record(&mut integrate, streams, frame, &self.sort);
         drop(integrate);
@@ -129,72 +128,72 @@ impl Rigid {
 
     pub fn encode_entries(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
-        let mut entries = engine.open(encoder, self.passes.entries);
+        let mut entries = schedule.open(encoder, self.passes.entries);
         self.entries.record(&mut entries, streams, frame);
         drop(entries);
     }
 
     pub fn encode_contacts(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
-        let mut narrowphase = engine.open(encoder, self.passes.narrowphase);
+        let mut narrowphase = schedule.open(encoder, self.passes.narrowphase);
         self.narrowphase
             .record(&mut narrowphase, streams, &self.sort);
         drop(narrowphase);
 
-        let mut islands = engine.open(encoder, self.passes.islands);
+        let mut islands = schedule.open(encoder, self.passes.islands);
         self.islands
             .record(&mut islands, streams, frame, island_rounds(streams));
         drop(islands);
 
-        let mut prepare = engine.open(encoder, self.passes.solver_prepare);
+        let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
         self.solver.record_prepare(&mut prepare, streams, frame);
         drop(prepare);
 
-        let mut solver = engine.open(encoder, self.passes.solver);
+        let mut solver = schedule.open(encoder, self.passes.solver);
         self.solver.record(&mut solver, streams, frame, &self.sort);
         drop(solver);
 
-        let mut advance = engine.open(encoder, self.passes.advance);
+        let mut advance = schedule.open(encoder, self.passes.advance);
         self.integrate.record_advance(&mut advance, streams, frame);
         drop(advance);
     }
 
     pub fn encode_resolution(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
         idle: bool,
     ) {
         if !idle {
-            let mut position = engine.open(encoder, self.resolution.solver_position);
+            let mut position = schedule.open(encoder, self.resolution.solver_position);
             self.solver
                 .record_position_iterations(&mut position, streams, frame);
             drop(position);
 
-            let mut sleep = engine.open(encoder, self.resolution.sleep);
+            let mut sleep = schedule.open(encoder, self.resolution.sleep);
             self.sleep.record(&mut sleep, streams, frame);
             drop(sleep);
         }
-        let mut commit = engine.open(encoder, self.resolution.commit);
+        let mut commit = schedule.open(encoder, self.resolution.commit);
         self.commit.record(&mut commit, streams, frame);
         drop(commit);
         if !idle {
-            let mut gather = engine.open(encoder, self.resolution.resting_gather);
+            let mut gather = schedule.open(encoder, self.resolution.resting_gather);
             self.commit.record_gather(&mut gather, streams);
             drop(gather);
-            let mut index = engine.open(encoder, self.resolution.resting_index);
+            let mut index = schedule.open(encoder, self.resolution.resting_index);
             self.commit.record_index(&mut index, streams, &self.sort);
             drop(index);
         }
@@ -204,7 +203,7 @@ impl Rigid {
         &self,
         recorder: &mut dynamis_gpu::ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.commands.record_moves(recorder, streams, frame);
         self.commands.record_edits(recorder, streams, frame);
@@ -217,7 +216,7 @@ impl Rigid {
         &self,
         recorder: &mut dynamis_gpu::ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.commit.record_query(recorder, streams, frame);
     }

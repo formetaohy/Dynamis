@@ -1,19 +1,19 @@
 mod capacity;
 mod streams;
 
-pub use capacity::{Live, ShapeCapacity, demand, floor};
+pub use capacity::{Live, ShapeCapacity, floor, plan};
 pub use streams::{
-    DOMAIN, QUERY_RESULT_BYTES, SceneDemand, SceneStream, SceneStreams, TRIANGLE_BYTES,
+    DOMAIN, QUERY_RESULT_BYTES, StateDemand, StateStream, StateStreams, TRIANGLE_BYTES,
     VERTEX_BYTES,
 };
 
 use dynamis_abi::{COUNTER_COUNT, COUNTER_STRIDE, StepParamsRecord};
-use dynamis_engine::{Resources, SlotRef};
+use dynamis_pass::{Resources, SlotRef};
 
 pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 
 #[derive(Clone, Copy, Debug)]
-pub struct Frame {
+pub struct StepFrame {
     pub params: StepParamsRecord,
     pub query_count: u32,
 }
@@ -61,7 +61,7 @@ pub fn counter(slot: usize) -> SlotRef {
         "counter slot {slot} is outside the counter stream"
     );
     SlotRef::range(
-        SceneStream::Counters.into(),
+        StateStream::Counters.into(),
         slot as u64 * COUNTER_STRIDE,
         4,
     )
@@ -69,23 +69,23 @@ pub fn counter(slot: usize) -> SlotRef {
 
 pub fn shape_resources() -> [(&'static str, SlotRef); 4] {
     [
-        ("shape_sources", SceneStream::ShapeSources.whole()),
-        ("shape_vertices", SceneStream::ShapeVertices.whole()),
-        ("shape_triangles", SceneStream::ShapeTriangles.whole()),
-        ("shape_nodes", SceneStream::ShapeNodes.whole()),
+        ("shape_sources", StateStream::ShapeSources.whole()),
+        ("shape_vertices", StateStream::ShapeVertices.whole()),
+        ("shape_triangles", StateStream::ShapeTriangles.whole()),
+        ("shape_nodes", StateStream::ShapeNodes.whole()),
     ]
 }
 
 pub fn body_row_count<R: Resources>(resources: &R) -> u32 {
-    resources.slots(SceneStream::BodyStates.into())
+    resources.slots(StateStream::BodyStates.into())
 }
 
 pub fn collider_capacity<R: Resources>(resources: &R) -> u32 {
-    resources.slots(SceneStream::ColliderOwners.into())
+    resources.slots(StateStream::ColliderOwners.into())
 }
 
 pub fn constraint_capacity<R: Resources>(resources: &R) -> u32 {
-    resources.slots(SceneStream::ConstraintRuntime.into())
+    resources.slots(StateStream::ConstraintRuntime.into())
 }
 
 pub fn body_words<R: Resources>(resources: &R) -> u32 {

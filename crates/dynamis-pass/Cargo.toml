@@ -1,16 +1,16 @@
 [package]
-name = "dynamis-scene"
+name = "dynamis-pass"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+profile = ["dynamis-gpu/profile"]
+
 [dependencies]
-dynamis-abi = { workspace = true }
-dynamis-engine = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-sort = { workspace = true }
 wgpu = { workspace = true }
 
 [lints]

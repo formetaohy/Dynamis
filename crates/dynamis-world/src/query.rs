@@ -1,5 +1,5 @@
 use super::World;
-use crate::world::query_pool::{QueryHandle, QueryHit, QueryPool};
+use crate::query_pool::{QueryHandle, QueryHit, QueryPool};
 use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
 use std::mem::size_of;
@@ -141,14 +141,14 @@ impl World {
         let device = self.backend.gpu.device().clone();
         self.backend
             .streams
-            .scene
+            .state
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
         let frame = self.frame(self.clock.sub_dt, count as u32);
         self.backend
             .streams
-            .scene
+            .state
             .params
             .write(&queue, bytemuck::cast_slice(&[frame.params]));
         let batch = self.queries.next_batch;
@@ -156,12 +156,12 @@ impl World {
         self.queries.next_batch += 1;
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query resolve");
         self.backend
-            .pipeline
+            .passes
             .encode_queries(&mut encoder, &self.backend.streams, &frame);
         let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
         let arrived = self.backend.streams.readback.queries.enqueue(
             &mut encoder,
-            self.backend.streams.scene.query_results.buffer(),
+            self.backend.streams.state.query_results.buffer(),
             0,
             bytes,
             batch,

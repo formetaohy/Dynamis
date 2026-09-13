@@ -13,7 +13,7 @@ fn a_stepped_world_reports_one_duration_per_pass() {
     }
     assert!(
         world.gpu_timing_supported(),
-        "the engine requests timestamp queries, so a profile build must report them"
+        "the pass schedule requests timestamp queries, so a profile build must report them"
     );
     settle(&mut world, 30);
     let timings = world.gpu_pass_timings();

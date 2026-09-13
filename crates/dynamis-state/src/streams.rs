@@ -5,9 +5,9 @@ use dynamis_abi::{
     QueryRecord, QueryResultHeaderRecord, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
     TriangleRecord,
 };
-use dynamis_engine::EVENT_SLOTS;
-use dynamis_engine::{UNIFORM, streams};
 use dynamis_gpu::Contents;
+use dynamis_pass::EVENT_SLOTS;
+use dynamis_pass::{UNIFORM, streams};
 use std::mem::size_of;
 
 pub const DOMAIN: u32 = 0;
@@ -20,7 +20,7 @@ pub const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultHeaderRecord>() as u64
     + MAX_HITS_PER_QUERY as u64 * size_of::<QueryHitRecord>() as u64;
 
 streams! {
-    SceneStreams, SceneStream, SceneDemand, DOMAIN, demand,
+    StateStreams, StateStream, StateDemand, DOMAIN, demand,
     demand {
         bodies: u32,
         body_ids: u32,
@@ -58,7 +58,7 @@ streams! {
     }
 }
 
-impl SceneDemand {
+impl StateDemand {
     pub fn body_moves(&self) -> u32 {
         self.body_commands
             .saturating_mul(crate::MOVE_ENTRIES_PER_COMMAND)

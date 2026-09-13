@@ -1,14 +1,14 @@
 use super::streams::RigidStream;
 use crate::sort;
 use dynamis_abi::COUNTER_JOINTS;
-use dynamis_engine::Resources;
-use dynamis_engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows};
-use dynamis_scene::Count;
-use dynamis_scene::Frame;
-use dynamis_scene::SceneStream;
+use dynamis_pass::Resources;
+use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
+use dynamis_state::Count;
+use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Integrate {
     integrate: Stage,
@@ -30,9 +30,9 @@ impl Integrate {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                 ],
                 &[],
             ),
@@ -47,8 +47,8 @@ impl Integrate {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
                     ("ccd_factor", RigidStream::CcdFactor.whole()),
                 ],
                 &[],
@@ -64,15 +64,15 @@ impl Integrate {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
-                    ("colliders", SceneStream::Colliders.whole()),
-                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("colliders", StateStream::Colliders.whole()),
+                    ("collider_owners", StateStream::ColliderOwners.whole()),
                     ("aabbs", RigidStream::ColliderAabbs.whole()),
-                    ("counters", SceneStream::Counters.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
-                &dynamis_scene::shape_resources(),
+                &dynamis_state::shape_resources(),
             ),
         }
     }
@@ -81,7 +81,7 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.advance
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
@@ -91,7 +91,7 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.broadphase_aabb
             .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
@@ -101,14 +101,14 @@ impl Integrate {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
         sort: &RadixSort,
     ) {
         if frame.params.constraint_count > 0 {
-            let words = dynamis_scene::body_words(streams);
+            let words = dynamis_state::body_words(streams);
             let channels = sort::lanes_dual(
                 streams,
-                dynamis_scene::counter(COUNTER_JOINTS),
+                dynamis_state::counter(COUNTER_JOINTS),
                 RigidStream::JointFilterMajor.whole(),
                 RigidStream::JointFilterMinor.whole(),
             );
@@ -117,7 +117,7 @@ impl Integrate {
                 &channels,
                 words,
                 words,
-                dynamis_scene::constraint_capacity(streams),
+                dynamis_state::constraint_capacity(streams),
             );
         }
         self.integrate

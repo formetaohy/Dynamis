@@ -8,14 +8,14 @@ use dynamis_abi::{
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_engine::Resources;
-use dynamis_engine::Stage;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows, stream, workgroups};
-use dynamis_scene::Count;
-use dynamis_scene::Frame;
-use dynamis_scene::SceneStream;
+use dynamis_pass::Resources;
+use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
+use dynamis_state::Count;
+use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Commit {
     thaw_contacts: Stage,
@@ -48,19 +48,19 @@ impl Commit {
                     ("resting_live", RigidStream::RestingLive.whole()),
                     ("resting_next", RigidStream::RestingNext.whole()),
                     ("resting_free", RigidStream::RestingFree.whole()),
-                    ("resting_count", dynamis_scene::counter(COUNTER_RESTING)),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("row_of_body", SceneStream::BodyRowOfId.whole()),
+                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("body_activity", RigidStream::BodyActivity.whole()),
                     ("contacts", RigidStream::Contacts.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("events", RigidStream::Events.whole()),
-                    ("event_count", dynamis_scene::counter(COUNTER_EVENTS)),
+                    ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
                     (
                         "spillover",
-                        dynamis_scene::counter(COUNTER_SPILLOVER_EVENTS),
+                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
                     ),
-                    ("params", SceneStream::Params.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -77,12 +77,12 @@ impl Commit {
                 streams,
                 &[
                     ("resting", RigidStream::RestingContacts.whole()),
-                    ("resting_count", dynamis_scene::counter(COUNTER_RESTING)),
+                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
                     ("resting_live", RigidStream::RestingLive.whole()),
                     ("index_major", RigidStream::RestingIndexMajor.whole()),
                     ("index_minor", RigidStream::RestingIndexMinor.whole()),
                     ("index_slots", RigidStream::RestingIndexSlots.whole()),
-                    ("gathered", dynamis_scene::counter(COUNTER_RESTING_GATHER)),
+                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
                 ],
                 &[],
             ),
@@ -96,14 +96,14 @@ impl Commit {
                 ),
                 streams,
                 &[
-                    ("slept", dynamis_scene::counter(COUNTER_SLEPT)),
-                    ("gathered", dynamis_scene::counter(COUNTER_RESTING_GATHER)),
-                    ("index_count", dynamis_scene::counter(COUNTER_RESTING_INDEX)),
+                    ("slept", dynamis_state::counter(COUNTER_SLEPT)),
+                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
+                    ("index_count", dynamis_state::counter(COUNTER_RESTING_INDEX)),
                     (
                         "deferred_woke",
-                        dynamis_scene::counter(COUNTER_WOKE_DEFERRED),
+                        dynamis_state::counter(COUNTER_WOKE_DEFERRED),
                     ),
-                    ("pending", dynamis_scene::counter(COUNTER_RESTING_PENDING)),
+                    ("pending", dynamis_state::counter(COUNTER_RESTING_PENDING)),
                 ],
                 &[],
             ),
@@ -120,19 +120,19 @@ impl Commit {
                 streams,
                 &[
                     ("contacts", RigidStream::Contacts.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
-                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
+                    ("body_states", StateStream::BodyStates.whole()),
                     ("resting", RigidStream::RestingContacts.whole()),
                     ("resting_live", RigidStream::RestingLive.whole()),
-                    ("resting_count", dynamis_scene::counter(COUNTER_RESTING)),
+                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
                     (
                         "spillover",
-                        dynamis_scene::counter(COUNTER_SPILLOVER_RESTING),
+                        dynamis_state::counter(COUNTER_SPILLOVER_RESTING),
                     ),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("resting_next", RigidStream::RestingNext.whole()),
                     ("resting_free", RigidStream::RestingFree.whole()),
-                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("collider_owners", StateStream::ColliderOwners.whole()),
                 ],
                 &[],
             ),
@@ -150,7 +150,7 @@ impl Commit {
                 &[
                     ("contacts", RigidStream::Contacts.whole()),
                     ("archive", RigidStream::ContactArchive.whole()),
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                 ],
                 &[],
             ),
@@ -165,10 +165,10 @@ impl Commit {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("constraint_runtime", SceneStream::ConstraintRuntime.whole()),
-                    ("constraint_breaks", SceneStream::ConstraintBreaks.whole()),
-                    ("break_count", dynamis_scene::counter(COUNTER_BREAKS)),
+                    ("params", StateStream::Params.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
+                    ("constraint_breaks", StateStream::ConstraintBreaks.whole()),
+                    ("break_count", dynamis_state::counter(COUNTER_BREAKS)),
                 ],
                 &[],
             ),
@@ -182,8 +182,8 @@ impl Commit {
                 ),
                 streams,
                 &[
-                    ("contact_count", dynamis_scene::counter(COUNTER_CONTACTS)),
-                    ("archive_count", dynamis_scene::counter(COUNTER_ARCHIVED)),
+                    ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
+                    ("archive_count", dynamis_state::counter(COUNTER_ARCHIVED)),
                     ("contacts", RigidStream::Contacts.whole()),
                 ],
                 &[],
@@ -199,8 +199,8 @@ impl Commit {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("wake_flags", SceneStream::WakeFlags.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -214,20 +214,20 @@ impl Commit {
                 ),
                 streams,
                 &[
-                    ("queries", SceneStream::QueryRecords.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
-                    ("colliders", SceneStream::Colliders.whole()),
+                    ("queries", StateStream::QueryRecords.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("colliders", StateStream::Colliders.whole()),
                     ("aabbs", RigidStream::ColliderAabbs.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
-                    ("counters", SceneStream::Counters.whole()),
-                    ("query_results", SceneStream::QueryResults.whole()),
-                    ("params", SceneStream::Params.whole()),
-                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                    ("query_results", StateStream::QueryResults.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("collider_owners", StateStream::ColliderOwners.whole()),
                 ],
-                &dynamis_scene::shape_resources(),
+                &dynamis_state::shape_resources(),
             ),
         }
     }
@@ -236,13 +236,18 @@ impl Commit {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
         self.query
             .record_workgroups(recorder, streams, frame.query_count);
     }
 
-    pub fn record(&self, recorder: &mut ComputeRecorder, streams: &impl Resources, frame: &Frame) {
+    pub fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &StepFrame,
+    ) {
         self.thaw_contacts.record_stream(recorder, streams);
         self.contact_archive.record_stream(recorder, streams);
         self.archive_count_sync
@@ -269,10 +274,10 @@ impl Commit {
         sort: &RadixSort,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);
-        let words = dynamis_scene::collider_words(streams);
+        let words = dynamis_state::collider_words(streams);
         let channels = sort::keyed(
             streams,
-            dynamis_scene::counter(COUNTER_RESTING_GATHER),
+            dynamis_state::counter(COUNTER_RESTING_GATHER),
             RigidStream::RestingIndexMajor.whole(),
             RigidStream::RestingIndexMinor.whole(),
             RigidStream::RestingIndexSlots.whole(),

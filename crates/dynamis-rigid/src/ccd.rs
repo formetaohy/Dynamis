@@ -1,8 +1,8 @@
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_engine::Resources;
-use dynamis_engine::{Engine, Stage, domain_passes};
-use dynamis_scene::{Count, Frame, SceneStream};
+use dynamis_pass::Resources;
+use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_state::{Count, StateStream, StepFrame};
 
 use dynamis_abi::COUNTER_PAIRS;
 use dynamis_gpu::GpuContext;
@@ -37,18 +37,18 @@ impl Ccd {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
-                    ("body_descs", SceneStream::BodyDescriptors.whole()),
-                    ("colliders", SceneStream::Colliders.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("colliders", StateStream::Colliders.whole()),
                     ("pair_major", BroadphaseStream::PairMajor.whole()),
                     ("pair_minor", BroadphaseStream::PairMinor.whole()),
-                    ("pair_count", dynamis_scene::counter(COUNTER_PAIRS)),
-                    ("collider_owners", SceneStream::ColliderOwners.whole()),
+                    ("pair_count", dynamis_state::counter(COUNTER_PAIRS)),
+                    ("collider_owners", StateStream::ColliderOwners.whole()),
                     ("ccd_factor", RigidStream::CcdFactor.whole()),
                     ("ccd_impact", RigidStream::CcdImpact.whole()),
                 ],
-                &dynamis_scene::shape_resources(),
+                &dynamis_state::shape_resources(),
             ),
             apply: Stage::build(
                 context,
@@ -61,8 +61,8 @@ impl Ccd {
                 ),
                 streams,
                 &[
-                    ("params", SceneStream::Params.whole()),
-                    ("body_states", SceneStream::BodyStates.whole()),
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
                     ("ccd_factor", RigidStream::CcdFactor.whole()),
                     ("ccd_impact", RigidStream::CcdImpact.whole()),
                 ],
@@ -73,16 +73,16 @@ impl Ccd {
 
     pub fn encode(
         &self,
-        engine: &Engine,
+        schedule: &Schedule,
         encoder: &mut wgpu::CommandEncoder,
         streams: &impl Resources,
-        frame: &Frame,
+        frame: &StepFrame,
     ) {
-        let mut sweep = engine.open(encoder, self.passes.sweep);
+        let mut sweep = schedule.open(encoder, self.passes.sweep);
         self.sweep.record_stream(&mut sweep, streams);
         drop(sweep);
 
-        let mut apply = engine.open(encoder, self.passes.apply);
+        let mut apply = schedule.open(encoder, self.passes.apply);
         self.apply
             .record_rows(&mut apply, streams, Count::Dynamic.rows(&frame.params));
         drop(apply);

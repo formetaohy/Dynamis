@@ -82,7 +82,7 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     assert_eq!(
         world.measured()[COUNTER_SPILLOVER_PAIRS],
         0,
-        "the released stream must still serve a small scene"
+        "the released stream must still serve a small world"
     );
     assert!(
         world.measured()[COUNTER_CONTACTS] > 0,
@@ -224,7 +224,7 @@ fn a_plan_transition_lands_the_edits_of_its_own_frame() {
     );
     assert!(
         state.position[0] > before,
-        "the scene must keep integrating across the transition"
+        "the world must keep integrating across the transition"
     );
 }
 
