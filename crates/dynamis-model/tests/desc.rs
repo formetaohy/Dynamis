@@ -1,5 +1,6 @@
 use dynamis_model::{
-    BodyDesc, ColliderDesc, ConstraintDesc, MaterialCombine, PhysicsConfig, Shape,
+    BodyDesc, ColliderDesc, ConstraintDesc, FluidMaterial, MaterialCombine, PhysicsConfig, Shape,
+    SoftBodyDesc,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -118,4 +119,23 @@ fn combine_modes_and_constraint_apis() {
         ConstraintDesc::pulley([0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3], 0.0)
     }));
     assert!(invalid.is_err(), "pulley length must be positive");
+}
+
+#[test]
+fn a_fluid_material_bounds_its_spacing_and_support() {
+    let material = FluidMaterial::new(0.3, 0.4);
+    assert_eq!(material.spacing(), 0.3);
+    assert_eq!(material.support(), 0.4);
+    assert!(catch_unwind(|| FluidMaterial::new(0.0, 0.4)).is_err());
+    assert!(catch_unwind(|| FluidMaterial::new(0.3, 0.3)).is_err());
+    let fluid = SoftBodyDesc::fluid(vec![[0.0; 3], [0.3, 0.0, 0.0]], 0.1, material);
+    assert!(fluid.elements.is_empty());
+    assert_eq!(fluid.radius, 0.1);
+    assert_eq!(fluid.fluid.unwrap().support(), 0.4);
+    let crowded =
+        catch_unwind(|| SoftBodyDesc::fluid(vec![[0.0; 3]], 0.2, FluidMaterial::new(0.3, 0.4)));
+    assert!(
+        crowded.is_err(),
+        "a fluid particle must fit its rest spacing"
+    );
 }

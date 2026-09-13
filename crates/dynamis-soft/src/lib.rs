@@ -6,16 +6,29 @@ pub use streams::{DOMAIN, SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
-use dynamis_kernels::{CORE, GEOMETRY_INDEX, rows};
+use dynamis_kernels::{CORE, rows};
 use dynamis_pass::Resources;
 use dynamis_pass::{Phase, Schedule, Stage, domain_passes};
 use dynamis_state::{Count, StateStream, StepFrame};
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
+const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
 
 fn particle_index() -> Vec<&'static str> {
     let mut fragments = dynamis_kernels::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_SHAPE);
+    fragments
+}
+
+fn particle_reach_index() -> Vec<&'static str> {
+    let mut fragments = dynamis_kernels::GRID_INDEX.to_vec();
+    fragments.extend_from_slice(PARTICLE_REACH);
+    fragments
+}
+
+fn particle_collide_index() -> Vec<&'static str> {
+    let mut fragments = dynamis_kernels::GEOMETRY_INDEX.to_vec();
+    fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }
 
@@ -25,8 +38,6 @@ domain_passes!(
     bounds: Phase::Prepare => "soft_bounds",
     entries: Phase::Entries => "soft_entries",
     substeps: Phase::Deform => "soft_substeps",
-    detect: Phase::Deform => "soft_collide_detect",
-    resolve: Phase::Deform => "soft_collide_resolve",
     apply: Phase::Deform => "soft_apply",
 );
 
@@ -38,6 +49,8 @@ pub struct Soft {
     reset: Stage,
     elements: Stage,
     gather: Stage,
+    density: Stage,
+    pressure: Stage,
     detect: Stage,
     resolve: Stage,
     apply: Stage,
@@ -47,6 +60,8 @@ impl Soft {
     pub fn new(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> Self {
         let particles = SoftStream::Particles;
         let index = particle_index();
+        let reach = particle_reach_index();
+        let collide = particle_collide_index();
         Self {
             passes,
             bounds: Stage::build(
@@ -154,13 +169,55 @@ impl Soft {
                 ],
                 &[],
             ),
+            density: Stage::build(
+                context,
+                "soft_density",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_density.wgsl"),
+                    &reach,
+                    Count::Particles.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("pressure", SoftStream::Pressure.whole()),
+                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
+                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
+                    ("entries", BroadphaseStream::Entries.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+            pressure: Stage::build(
+                context,
+                "soft_pressure",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_pressure.wgsl"),
+                    &reach,
+                    Count::Particles.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("pressure", SoftStream::Pressure.whole()),
+                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
+                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
+                    ("entries", BroadphaseStream::Entries.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
             detect: Stage::build(
                 context,
                 "soft_collide_detect",
                 rows(
                     context,
                     include_str!("../shaders/soft_collide_detect.wgsl"),
-                    GEOMETRY_INDEX,
+                    &collide,
                     Count::Particles.field(),
                 ),
                 streams,
@@ -262,17 +319,13 @@ impl Soft {
                     for _ in 0..frame.params.soft_iterations {
                         self.elements.record_rows(&mut substeps, streams, elements);
                         self.gather.record_rows(&mut substeps, streams, particles);
+                        self.density.record_rows(&mut substeps, streams, particles);
+                        self.pressure.record_rows(&mut substeps, streams, particles);
                     }
+                    self.detect.record_rows(&mut substeps, streams, particles);
+                    self.resolve.record_rows(&mut substeps, streams, particles);
                 }
                 drop(substeps);
-
-                let mut detect = schedule.open(encoder, self.passes.detect);
-                self.detect.record_rows(&mut detect, streams, particles);
-                drop(detect);
-
-                let mut resolve = schedule.open(encoder, self.passes.resolve);
-                self.resolve.record_rows(&mut resolve, streams, particles);
-                drop(resolve);
 
                 let mut apply = schedule.open(encoder, self.passes.apply);
                 self.apply

@@ -149,6 +149,8 @@ impl SoftBodies {
                     radius: desc.radius,
                     inverse_mass: desc.inverse_masses[slot],
                     friction: desc.friction,
+                    support: desc.fluid.map_or(0.0, |fluid| fluid.support()),
+                    rest_spacing: desc.fluid.map_or(0.0, |fluid| fluid.spacing()),
                     neighbour_offset: offset,
                     neighbour_count: count,
                     owner: id,

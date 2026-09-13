@@ -156,11 +156,40 @@ impl SoftMaterial {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FluidMaterial {
+    spacing: f32,
+    support: f32,
+}
+
+impl FluidMaterial {
+    pub fn new(spacing: f32, support: f32) -> Self {
+        assert!(
+            spacing > 0.0,
+            "a fluid rest spacing must be strictly positive"
+        );
+        assert!(
+            support > spacing,
+            "a fluid support radius must exceed its rest spacing"
+        );
+        Self { spacing, support }
+    }
+
+    pub const fn spacing(&self) -> f32 {
+        self.spacing
+    }
+
+    pub const fn support(&self) -> f32 {
+        self.support
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoftBodyDesc {
     pub particles: Vec<[f32; 3]>,
     pub inverse_masses: Vec<f32>,
     pub elements: Vec<SoftElement>,
+    pub fluid: Option<FluidMaterial>,
     pub radius: f32,
     pub friction: f32,
     pub position: [f32; 3],
@@ -193,12 +222,28 @@ impl SoftBodyDesc {
             particles,
             inverse_masses,
             elements,
+            fluid: None,
             radius: 0.0,
             friction: 0.5,
             position: [0.0; 3],
             orientation: [0.0, 0.0, 0.0, 1.0],
             velocity: [0.0; 3],
         }
+    }
+
+    pub fn fluid(particles: Vec<[f32; 3]>, radius: f32, material: FluidMaterial) -> Self {
+        assert!(
+            radius > 0.0,
+            "a fluid particle radius must be strictly positive"
+        );
+        assert!(
+            2.0 * radius <= material.spacing(),
+            "a fluid particle must be narrower than its rest spacing"
+        );
+        let mut body = Self::new(particles, Vec::new());
+        body.fluid = Some(material);
+        body.radius = radius;
+        body
     }
 
     pub fn net(particles: Vec<[f32; 3]>, links: Vec<[u32; 2]>) -> Self {

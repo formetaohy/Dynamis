@@ -38,6 +38,8 @@ struct SoftParticle {
     position: vec4f,
     prev_position: vec4f,
     velocity: vec4f,
+    support: f32,
+    rest_spacing: f32,
     neighbour_offset: u32,
     neighbour_count: u32,
     owner: u32,

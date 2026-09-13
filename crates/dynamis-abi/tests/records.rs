@@ -607,6 +607,8 @@ fn soft_particle_packs_its_scalar_lanes() {
         radius: 0.25,
         inverse_mass: 2.0,
         friction: 0.5,
+        support: 0.75,
+        rest_spacing: 0.5,
         neighbour_offset: 5,
         neighbour_count: 3,
         owner: 11,
@@ -621,6 +623,9 @@ fn soft_particle_packs_its_scalar_lanes() {
     assert_eq!(particle.generation, 4);
     assert_eq!(particle.radius(), 0.25);
     assert_eq!(particle.inverse_mass(), 2.0);
+    assert_eq!(particle.support(), 0.75);
+    assert_eq!(particle.rest_spacing(), 0.5);
+    assert!(particle.carries_continuum());
 
     let cleared = SoftParticleRecord::cleared();
     assert_eq!(cleared.owner, NO_BODY);

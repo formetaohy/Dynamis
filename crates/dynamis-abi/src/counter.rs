@@ -33,7 +33,8 @@ declare_constants! {
     pub const COUNTER_GRID_EXTENT: usize = 29;
     pub const COUNTER_BREAKS: usize = 30;
     pub const COUNTER_PARTICLE_REACH: usize = 31;
-    pub const COUNTER_COUNT: usize = 32;
+    pub const COUNTER_SPILLOVER_NEIGHBOURS: usize = 32;
+    pub const COUNTER_COUNT: usize = 33;
 }
 
 pub const COUNTER_STRIDE: u64 = 256;

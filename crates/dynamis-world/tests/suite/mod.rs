@@ -12,6 +12,7 @@ pub mod decompose;
 pub mod determinism;
 pub mod dynamics;
 pub mod event;
+pub mod fluid;
 pub mod joint_precision;
 pub mod mass;
 pub mod material;

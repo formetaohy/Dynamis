@@ -12,6 +12,8 @@ pub struct SoftParticleInit {
     pub radius: f32,
     pub inverse_mass: f32,
     pub friction: f32,
+    pub support: f32,
+    pub rest_spacing: f32,
     pub neighbour_offset: u32,
     pub neighbour_count: u32,
     pub owner: u32,
@@ -39,10 +41,13 @@ impl SoftParticleRecord {
                 init.velocity[2],
                 init.friction,
             ],
+            support: init.support,
+            rest_spacing: init.rest_spacing,
             neighbour_offset: init.neighbour_offset,
             neighbour_count: init.neighbour_count,
             owner: init.owner,
             generation: init.generation,
+            _wgsl_pad0: [0; 8],
         }
     }
 
@@ -51,10 +56,13 @@ impl SoftParticleRecord {
             position: [0.0; 4],
             prev_position: [0.0; 4],
             velocity: [0.0; 4],
+            support: 0.0,
+            rest_spacing: 0.0,
             neighbour_offset: NO_SLOT,
             neighbour_count: 0,
             owner: NO_BODY,
             generation: 0,
+            _wgsl_pad0: [0; 8],
         }
     }
 
@@ -68,6 +76,18 @@ impl SoftParticleRecord {
 
     pub const fn friction(&self) -> f32 {
         self.velocity[3]
+    }
+
+    pub const fn support(&self) -> f32 {
+        self.support
+    }
+
+    pub const fn rest_spacing(&self) -> f32 {
+        self.rest_spacing
+    }
+
+    pub const fn carries_continuum(&self) -> bool {
+        self.support > 0.0
     }
 }
 

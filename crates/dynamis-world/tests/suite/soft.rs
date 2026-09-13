@@ -459,7 +459,7 @@ fn a_volume_compliance_softens_the_lattice_under_load() {
         let mut world = new_world(gravity_config());
         let handle = world.add_soft_body(
             SoftBodyDesc::lattice([3, 3, 3], 0.4, SoftMaterial::new(0.002, 0.002, 0.0, volume))
-                .radius(0.1)
+                .radius(0.0)
                 .position([0.0, 2.0, 0.0])
                 .pinned(&[0, 1, 2, 3, 4, 5, 6, 7, 8]),
         );

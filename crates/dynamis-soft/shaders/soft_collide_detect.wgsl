@@ -7,8 +7,6 @@
 @group(0) @binding(10) var<storage, read> adjacency: array<u32>;
 @group(0) @binding(11) var<storage, read_write> contacts: array<SoftContact>;
 
-const CELL_SCAN_BUDGET: u32 = 4096u;
-
 struct ParticleContact {
     separation: f32,
     normal: vec3f,
@@ -92,6 +90,7 @@ fn directly_linked(first: u32, second: u32) -> bool {
 fn visit_entry(
     node: u32,
     box: Aabb,
+    cell_size: f32,
     center: vec3f,
     radius: f32,
     self_index: u32,
@@ -99,6 +98,9 @@ fn visit_entry(
     held: ptr<function, ParticleContact>,
 ) {
     if (!aabb_overlaps(entry_box(node), box)) {
+        return;
+    }
+    if (!reach_holds(node, box, cell_size)) {
         return;
     }
     let info = entries[node].info;
@@ -149,6 +151,7 @@ fn visit_entry(
 
 fn scan_cell(
     level: u32,
+    cell_size: f32,
     coord: vec3i,
     box: Aabb,
     center: vec3f,
@@ -159,7 +162,16 @@ fn scan_cell(
 ) {
     let range = entry_bounds_of(level, coord);
     for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-        visit_entry(entry_node(entry), box, center, radius, self_index, self_owner, held);
+        visit_entry(
+            entry_node(entry),
+            box,
+            cell_size,
+            center,
+            radius,
+            self_index,
+            self_owner,
+            held,
+        );
     }
 }
 
@@ -175,13 +187,23 @@ fn scan_level(
     let live = entry_live();
     let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
     let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
+    let cell_size = level_cell_size(level, grid_base_cell());
     var scanned = 0u;
     for (var entry = first; entry < end; entry = entry + 1u) {
-        if (scanned >= CELL_SCAN_BUDGET) {
+        if (scanned >= REACH_CELL_BUDGET) {
             break;
         }
         scanned = scanned + 1u;
-        visit_entry(entry_node(entry), box, center, radius, self_index, self_owner, held);
+        visit_entry(
+            entry_node(entry),
+            box,
+            cell_size,
+            center,
+            radius,
+            self_index,
+            self_owner,
+            held,
+        );
     }
 }
 
@@ -208,26 +230,20 @@ fn work(index: u32) {
     var held = no_contact();
     if (radius > 0.0) {
         let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
-        let half = radius + reach;
-        var box: Aabb;
-        box.min = center - vec3f(half);
-        box.max = center + vec3f(half);
-        let base_cell = grid_base_cell();
+        let box = reach_box(center, radius + reach);
         var occupied = counter_load(COUNTER_GRID_LEVELS);
         while (occupied != 0u) {
             let level = countTrailingZeros(occupied);
             occupied = occupied & (occupied - 1u);
-            let cell_size = level_cell_size(level, base_cell);
-            let min_cell = vec3i(floor(box.min / cell_size));
-            let max_cell = vec3i(floor(box.max / cell_size));
-            let span = max_cell - min_cell + vec3i(1);
-            let cells = u32(span.x) * u32(span.y) * u32(span.z);
-            if (cells <= CELL_SCAN_BUDGET) {
-                for (var x = min_cell.x; x <= max_cell.x; x = x + 1) {
-                    for (var y = min_cell.y; y <= max_cell.y; y = y + 1) {
-                        for (var z = min_cell.z; z <= max_cell.z; z = z + 1) {
+            let cell_size = level_cell_size(level, grid_base_cell());
+            let cells = reach_cells(box, cell_size);
+            if (reach_span(cells) <= REACH_CELL_BUDGET) {
+                for (var x = cells.min.x; x <= cells.max.x; x = x + 1) {
+                    for (var y = cells.min.y; y <= cells.max.y; y = y + 1) {
+                        for (var z = cells.min.z; z <= cells.max.z; z = z + 1) {
                             scan_cell(
                                 level,
+                                cell_size,
                                 vec3i(x, y, z),
                                 box,
                                 center,
