@@ -2,6 +2,8 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read_write> reactions: array<atomic<u32>>;
 @group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> woke_count: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> deferred_woke_count: array<atomic<u32>>;
 
 const REACTION_SCALE: f32 = 65536.0;
 const REACTION_WORDS: u32 = 8u;
@@ -24,6 +26,10 @@ fn work(index: u32) {
     let shift = vec3f(word_value(shift_x), word_value(shift_y), word_value(shift_z));
     let spin = vec3f(word_value(spin_x), word_value(spin_y), word_value(spin_z));
     var state = body_states[index];
+    if (state.sleeping != 0u) {
+        atomicAdd(&woke_count[0], 1u);
+        atomicAdd(&deferred_woke_count[0], 1u);
+    }
     state.position = state.position + shift;
     state.prev_position = state.prev_position + shift;
     state.velocity = state.velocity + shift / params.dt;

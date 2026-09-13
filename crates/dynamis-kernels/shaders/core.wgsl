@@ -201,6 +201,30 @@ fn body_is_active(state: BodyState, desc: BodyDescriptor) -> bool {
     return body_is_movable(desc) && state.sleeping == 0u;
 }
 
+fn body_sleep_velocity(desc: BodyDescriptor, params: StepParams) -> f32 {
+    return select(params.sleep_velocity, desc.sleep_velocity, (desc.flags & OVERRIDE_SLEEP_LINEAR) != 0u);
+}
+
+fn body_sleep_angular_velocity(desc: BodyDescriptor, params: StepParams) -> f32 {
+    return select(params.sleep_angular_velocity, desc.sleep_angular_velocity, (desc.flags & OVERRIDE_SLEEP_ANGULAR) != 0u);
+}
+
+fn body_is_driven_in_motion(state: BodyState, desc: BodyDescriptor) -> bool {
+    return (desc.flags & BODY_KINEMATIC) != 0u
+        && (any(state.velocity != vec3f(0.0)) || any(state.angular_velocity != vec3f(0.0)));
+}
+
+fn body_is_moving(state: BodyState, desc: BodyDescriptor, params: StepParams) -> bool {
+    if (body_is_driven_in_motion(state, desc)) {
+        return true;
+    }
+    if (desc.inverse_mass == 0.0 || state.sleeping != 0u) {
+        return false;
+    }
+    return length(state.velocity) > body_sleep_velocity(desc, params)
+        || length(state.angular_velocity) > body_sleep_angular_velocity(desc, params);
+}
+
 fn body_is_dynamic(body: Body) -> bool {
     return body.desc.inverse_mass > 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
 }

@@ -2,13 +2,25 @@
 @group(0) @binding(5) var<storage, read> aabbs: array<Aabb>;
 @group(0) @binding(6) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(7) var<storage, read> body_activity: array<u32>;
+@group(0) @binding(8) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read> body_descs: array<BodyDescriptor>;
 
-fn emit_entry(collider: u32, owner: u32, awake: bool, level: u32, coord: vec3i, offset: u32) {
+fn emit_entry(
+    collider: u32,
+    owner: u32,
+    awake: bool,
+    level: u32,
+    coord: vec3i,
+    offset: u32,
+) {
     let slot = counter_add(COUNTER_ENTRIES, 1u);
     if (slot < arrayLength(&entries)) {
         var info = collider | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_COLLIDER << ENTRY_KIND_SHIFT);
         if (awake) {
             info = info | ENTRY_AWAKE;
+        }
+        if (body_is_movable(body_descs[owner])) {
+            info = info | ENTRY_MOBILE;
         }
         if (offset == 0u) {
             info = info | ENTRY_PRIMARY;
@@ -34,7 +46,7 @@ fn work(index: u32) {
     let aabb = aabbs[index];
     let cell = grid_base_cell();
     let level = shape_levels(aabb, cell);
-    let awake = body_activity[owner] != 0u;
+    let awake = body_activity[owner] != 0u || atomicLoad(&wake_flags[owner]) != 0u;
     counter_or(COUNTER_GRID_LEVELS, 1u << level);
     if (level > 0u && awake) {
         counter_add(COUNTER_COARSE_ACTIVE, 1u);

@@ -36,7 +36,6 @@ declare_constants! {
     pub const COLLIDER_EVENT_PERSIST: u32 = 4;
     pub const CONTACT_ANNOUNCED: u32 = 0x8000_0000;
     pub const ISLAND_WAKE: u32 = 1;
-    pub const ISLAND_ACTIVE: u32 = 2;
     pub const CONTACT_MAX_POINTS: u32 = 4;
     pub const ELEMENT_PARTICLES: u32 = 2;
     pub const FEATURE_POINT: u32 = 0;
@@ -60,7 +59,8 @@ declare_constants! {
     pub const ENTRY_CELL_SHIFT: u32 = ENTRY_INDEX_BITS;
     pub const ENTRY_CELL_MASK: u32 = 7 << ENTRY_CELL_SHIFT;
     pub const ENTRY_KIND_SHIFT: u32 = ENTRY_CELL_SHIFT + 3;
-    pub const ENTRY_KIND_MASK: u32 = 7 << ENTRY_KIND_SHIFT;
+    pub const ENTRY_KIND_MASK: u32 = 3 << ENTRY_KIND_SHIFT;
+    pub const ENTRY_MOBILE: u32 = 1 << 29;
     pub const ENTRY_AWAKE: u32 = 1 << 30;
     pub const ENTRY_PRIMARY: u32 = 1 << 31;
     pub const ENTRY_KIND_COLLIDER: u32 = 0;
@@ -132,12 +132,17 @@ const _: () = assert!(
     "a grid entry must pack its cell offset into three bits"
 );
 const _: () = assert!(
-    ENTRY_KIND_MASK != 0 && ENTRY_KIND_MASK & ENTRY_AWAKE == 0 && ENTRY_AWAKE & ENTRY_PRIMARY == 0,
-    "a grid entry kind, awake bit and primary bit must be disjoint"
+    ENTRY_KIND_MASK != 0
+        && ENTRY_KIND_MASK & ENTRY_MOBILE == 0
+        && ENTRY_MOBILE & ENTRY_AWAKE == 0
+        && ENTRY_AWAKE & ENTRY_PRIMARY == 0,
+    "a grid entry kind, mobile bit, awake bit and primary bit must be disjoint"
 );
 const _: () = assert!(
-    ENTRY_INDEX_MASK < 1 << ENTRY_CELL_SHIFT && ENTRY_KIND_SHIFT + 3 <= 31,
-    "a grid entry must pack its index below every tag"
+    ENTRY_INDEX_MASK < 1 << ENTRY_CELL_SHIFT
+        && ENTRY_CELL_MASK & ENTRY_KIND_MASK == 0
+        && ENTRY_KIND_SHIFT + 2 <= 29,
+    "a grid entry must pack its index and cell below the kind"
 );
 
 pub const DOF_COUNT: u32 = 6;

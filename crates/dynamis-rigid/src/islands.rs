@@ -1,8 +1,8 @@
 use super::streams::RigidStream;
 use super::{CONTACT, IDENTITY};
 use dynamis_abi::{
-    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING_INDEX,
-    COUNTER_SPILLOVER_EVENTS,
+    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
+    COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows, stream};
@@ -18,7 +18,14 @@ pub struct Islands {
     island_init: Stage,
     island_link_contacts: Stage,
     island_link_constraints: Stage,
+    island_link_resting: Stage,
     island_jump: Stage,
+    island_aggregate: Stage,
+    island_wake: Stage,
+}
+
+pub struct Sleep {
+    island_sleep: Stage,
 }
 
 impl Islands {
@@ -117,8 +124,6 @@ impl Islands {
                 ),
                 streams,
                 &[
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("contacts", RigidStream::Contacts.whole()),
                     ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("island_parents", RigidStream::IslandParents.whole()),
@@ -140,12 +145,33 @@ impl Islands {
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
+                ],
+                &[],
+            ),
+            island_link_resting: Stage::build(
+                context,
+                "island_link_resting",
+                stream(
+                    context,
+                    include_str!("../shaders/island_link_resting.wgsl"),
+                    IDENTITY,
+                    "work",
+                    RigidStream::RestingContacts,
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("resting", RigidStream::RestingContacts.whole()),
+                    ("resting_live", RigidStream::RestingLive.whole()),
+                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
             ),
@@ -165,6 +191,49 @@ impl Islands {
                 ],
                 &[],
             ),
+            island_aggregate: Stage::build(
+                context,
+                "island_aggregate",
+                rows(
+                    context,
+                    include_str!("../shaders/island_aggregate.wgsl"),
+                    CORE,
+                    Count::Dynamic.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_motion", RigidStream::BodyMotion.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("island_state", RigidStream::IslandState.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                ],
+                &[],
+            ),
+            island_wake: Stage::build(
+                context,
+                "island_wake",
+                rows(
+                    context,
+                    include_str!("../shaders/island_wake.wgsl"),
+                    CORE,
+                    Count::Dynamic.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("island_state", RigidStream::IslandState.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("woke_count", dynamis_state::counter(COUNTER_WOKE)),
+                    (
+                        "deferred_woke_count",
+                        dynamis_state::counter(COUNTER_WOKE_DEFERRED),
+                    ),
+                ],
+                &[],
+            ),
         }
     }
 
@@ -173,21 +242,72 @@ impl Islands {
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &StepFrame,
-        rounds: u32,
     ) {
+        let dynamic = Count::Dynamic.rows(&frame.params);
+        let constraints = Count::Constraints.rows(&frame.params);
         self.contact_relay.record_stream(recorder, streams);
         self.contact_begin.record_stream(recorder, streams);
-        self.island_init
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.island_init.record_rows(recorder, streams, dynamic);
         self.island_link_contacts.record_stream(recorder, streams);
-        self.island_link_constraints.record_rows(
-            recorder,
-            streams,
-            Count::Constraints.rows(&frame.params),
-        );
-        for _ in 0..rounds {
-            self.island_jump
-                .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.island_link_constraints
+            .record_rows(recorder, streams, constraints);
+        self.island_link_resting.record_stream(recorder, streams);
+        for _ in 0..island_rounds(streams) {
+            self.island_jump.record_rows(recorder, streams, dynamic);
+        }
+        self.island_aggregate
+            .record_rows(recorder, streams, dynamic);
+    }
+
+    pub fn record_wake(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &StepFrame,
+    ) {
+        self.island_wake
+            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+    }
+}
+
+impl Sleep {
+    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            island_sleep: Stage::build(
+                context,
+                "island_sleep",
+                rows(
+                    context,
+                    include_str!("../shaders/island_sleep.wgsl"),
+                    CORE,
+                    Count::Dynamic.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("island_state", RigidStream::IslandState.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
+                ],
+                &[],
+            ),
         }
     }
+
+    pub fn record(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        frame: &StepFrame,
+    ) {
+        self.island_sleep
+            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+    }
+}
+
+fn island_rounds(streams: &impl Resources) -> u32 {
+    dynamis_state::body_row_count(streams).max(2).ilog2() + 1
 }

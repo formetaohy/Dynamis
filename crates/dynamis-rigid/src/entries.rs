@@ -30,6 +30,8 @@ impl Entries {
                     ("aabbs", RigidStream::ColliderAabbs.whole()),
                     ("collider_owners", StateStream::ColliderOwners.whole()),
                     ("body_activity", RigidStream::BodyActivity.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),

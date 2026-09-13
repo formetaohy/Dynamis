@@ -30,6 +30,7 @@ streams! {
     streams {
         collider_aabbs, ColliderAabbs: "broadphase aabbs", size_of::<AabbRecord>() as u64, Contents::Reset, demand.colliders;
         body_activity, BodyActivity: "body activity", 4, Contents::Reset, demand.bodies;
+        body_motion, BodyMotion: "body motion", 4, Contents::Reset, demand.bodies;
         body_state_scratch, BodyStateScratch: "body state scratch", size_of::<BodyStateRecord>() as u64, Contents::Reset, demand.bodies;
         constraint_rows, ConstraintRows: "constraint rows", size_of::<ConstraintRowsRecord>() as u64, Contents::Reset, demand.constraints;
         constraint_scratch, ConstraintScratch: "constraint state scratch", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Reset, demand.constraints;

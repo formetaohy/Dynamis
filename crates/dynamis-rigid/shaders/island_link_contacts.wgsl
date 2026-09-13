@@ -1,19 +1,25 @@
-@group(0) @binding(0) var<storage, read> body_states: array<BodyState>;
-@group(0) @binding(1) var<storage, read> body_descs: array<BodyDescriptor>;
-@group(0) @binding(2) var<storage, read> contacts: array<Contact>;
-@group(0) @binding(3) var<storage, read_write> contact_count: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read_write> island_parents: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(6) var<uniform> params: StepParams;
-@group(0) @binding(7) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(0) var<storage, read> contacts: array<Contact>;
+@group(0) @binding(1) var<storage, read_write> contact_count: array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read_write> island_parents: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(4) var<uniform> params: StepParams;
+@group(0) @binding(5) var<storage, read> collider_owners: array<u32>;
 
-fn load_body(slot: u32) -> Body {
-    return Body(body_states[slot], body_descs[slot]);
+fn island_link(first: u32, second: u32) {
+    if (first >= params.dynamic_count || second >= params.dynamic_count || first == second) {
+        return;
+    }
+    atomicMin(&island_parents[first], second);
+    atomicMin(&island_parents[second], first);
 }
 
-fn island_link(a: u32, b: u32) {
-    atomicMin(&island_parents[a], b);
-    atomicMin(&island_parents[b], a);
+fn carry_static_wake(movable: u32, partner: u32) {
+    if (partner < params.dynamic_count) {
+        return;
+    }
+    if (atomicLoad(&wake_flags[partner]) != 0u) {
+        atomicOr(&wake_flags[movable], 1u);
+    }
 }
 
 fn extent() -> u32 {
@@ -27,20 +33,7 @@ fn work(index: u32) {
     }
     let first_slot = collider_owners[contact.a];
     let second_slot = collider_owners[contact.b];
-    let first = load_body(first_slot);
-    let second = load_body(second_slot);
-    let first_static = body_is_static(first);
-    let second_static = body_is_static(second);
-    if (first_static && atomicLoad(&wake_flags[first_slot]) != 0u) {
-        atomicOr(&wake_flags[second_slot], 1u);
-    }
-    if (second_static && atomicLoad(&wake_flags[second_slot]) != 0u) {
-        atomicOr(&wake_flags[first_slot], 1u);
-    }
-    if (!first_static && !second_static &&
-        body_is_dynamic(first) && first.state.sleeping == 0u &&
-        body_is_dynamic(second) && second.state.sleeping == 0u) {
-        island_link(first_slot, second_slot);
-    }
+    carry_static_wake(first_slot, second_slot);
+    carry_static_wake(second_slot, first_slot);
+    island_link(first_slot, second_slot);
 }
-

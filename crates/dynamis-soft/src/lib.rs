@@ -201,6 +201,14 @@ impl Soft {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("reactions", SoftStream::Reactions.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
+                    (
+                        "woke_count",
+                        dynamis_state::counter(dynamis_abi::COUNTER_WOKE),
+                    ),
+                    (
+                        "deferred_woke_count",
+                        dynamis_state::counter(dynamis_abi::COUNTER_WOKE_DEFERRED),
+                    ),
                 ],
                 &[],
             ),

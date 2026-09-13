@@ -10,18 +10,6 @@ struct RowOutcome {
     forces: FrameForces,
 }
 
-fn constraint_breach(anchor_a: vec3f, anchor_b: vec3f, constraint: ConstraintDescriptor) -> bool {
-    if (constraint.kind == CONSTRAINT_GEAR) {
-        return false;
-    }
-    if (constraint.kind == CONSTRAINT_PULLEY) {
-        let length = length(anchor_a - constraint.pulley_fixed_a) + length(anchor_b - constraint.pulley_fixed_b);
-        return abs(length - constraint.distance) > 0.05;
-    }
-    let separation = length(anchor_b - anchor_a);
-    return abs(separation - constraint.distance) > 0.05;
-}
-
 struct RowImpulse {
     applied: f32,
     accumulated: f32,
@@ -236,8 +224,6 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     var second = pair.second;
     let mass_first = pair.split_first;
     let mass_second = pair.split_second;
-    let first_sleeping = pair.first.state.sleeping != 0u;
-    let second_sleeping = pair.second.state.sleeping != 0u;
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     var accumulated = runtime.accumulated;
@@ -618,13 +604,6 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     }
     runtime.accumulated = accumulated;
     constraint_runtime[constraint_index] = runtime;
-    let breach_now = constraint_breach(anchor_a, anchor_b, constraint);
-    if (first_sleeping && !second_sleeping && breach_now) {
-        atomicOr(&wake_flags[rows.first_row], 1u);
-    }
-    if (second_sleeping && !first_sleeping && breach_now) {
-        atomicOr(&wake_flags[rows.second_row], 1u);
-    }
     commit_block(
         slot,
         rows.first_row,

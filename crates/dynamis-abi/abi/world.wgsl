@@ -15,7 +15,6 @@ struct StepParams {
     sleep_velocity: f32,
     sleep_angular_velocity: f32,
     sleep_time: f32,
-    wake_velocity: f32,
     friction_combine: u32,
     restitution_combine: u32,
     edit_run_count: u32,
@@ -32,6 +31,7 @@ struct StepParams {
     soft_substep_dt: f32,
     _pad5: u32,
     _pad6: u32,
+    _pad7: u32,
 }
 
 struct SoftParticle {

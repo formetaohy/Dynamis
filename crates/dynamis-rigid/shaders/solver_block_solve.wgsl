@@ -4,15 +4,14 @@
 @group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(4) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
 @group(0) @binding(5) var<storage, read_write> constraint_runtime: array<ConstraintRuntime>;
-@group(0) @binding(6) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(7) var<storage, read> segments: array<u32>;
-@group(0) @binding(8) var<storage, read> a_payload: array<u32>;
-@group(0) @binding(9) var<storage, read_write> block_deltas: array<vec4f>;
-@group(0) @binding(10) var<storage, read> block_counts: array<u32>;
-@group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
-@group(0) @binding(12) var<storage, read> block_count: array<u32>;
-@group(0) @binding(13) var<storage, read> target_speeds: array<f32>;
-@group(0) @binding(14) var<storage, read> constraint_rows: array<ConstraintRows>;
+@group(0) @binding(6) var<storage, read> segments: array<u32>;
+@group(0) @binding(7) var<storage, read> a_payload: array<u32>;
+@group(0) @binding(8) var<storage, read_write> block_deltas: array<vec4f>;
+@group(0) @binding(9) var<storage, read> block_counts: array<u32>;
+@group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(11) var<storage, read> block_count: array<u32>;
+@group(0) @binding(12) var<storage, read> target_speeds: array<f32>;
+@group(0) @binding(13) var<storage, read> constraint_rows: array<ConstraintRows>;
 
 struct BlockPair {
     first: Body,

@@ -356,7 +356,7 @@ fn idle_body_sleeps_and_impact_wakes() {
 }
 
 #[test]
-fn sleeping_body_blocks_until_impact_wakes_it() {
+fn sleeping_body_wakes_and_shares_the_impact() {
     let mut world = new_world(static_config());
     let target = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     settle(&mut world, 40);
@@ -367,13 +367,19 @@ fn sleeping_body_blocks_until_impact_wakes_it() {
             .velocity([7.0, 0.0, 0.0]),
     );
     settle(&mut world, 40);
+    let ahead = world.read_state(target);
+    let behind = world.read_state(striker);
+    assert!(!ahead.sleeping, "contact must wake the sleeper");
     assert!(
-        world.read_state(striker).position[0] < -0.9,
-        "striker must not pass through the sleeping body"
+        behind.position[0] < ahead.position[0] - 0.98,
+        "the striker must never pass through the sleeping body, gap={}",
+        ahead.position[0] - behind.position[0]
     );
     assert!(
-        !world.read_state(target).sleeping,
-        "contact must wake the sleeper"
+        (behind.velocity[0] - 3.5).abs() < 0.2 && (ahead.velocity[0] - 3.5).abs() < 0.2,
+        "an inelastic impact must split the momentum between equal masses, striker={} target={}",
+        behind.velocity[0],
+        ahead.velocity[0]
     );
 }
 

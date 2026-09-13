@@ -171,7 +171,6 @@ impl Solver {
                     StateStream::ConstraintDescriptors.whole(),
                 ),
                 ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
-                ("wake_flags", StateStream::WakeFlags.whole()),
                 ("segments", segments),
                 ("a_payload", RigidStream::SolverAPayload.whole()),
                 ("block_deltas", RigidStream::SolverBlockDeltas.whole()),

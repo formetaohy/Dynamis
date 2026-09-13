@@ -10,6 +10,9 @@ fn emit_pair(first: u32, second: u32) {
     if (first == second || entries[first].group == entries[second].group) {
         return;
     }
+    if (!entry_mobile(first_info) && !entry_mobile(second_info)) {
+        return;
+    }
     let slot = counter_add(COUNTER_PAIRS, 1u);
     if (slot < arrayLength(&pair_minor)) {
         let a = entry_index(first_info);

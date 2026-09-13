@@ -1,14 +1,4 @@
 
-fn wake_on_impact(slot: u32, sleeping: Body, moving: Body) {
-    if (sleeping.state.sleeping == 0u || moving.state.sleeping != 0u) {
-        return;
-    }
-    let velocity = moving.state.velocity - sleeping.state.velocity;
-    let spin = moving.state.angular_velocity - sleeping.state.angular_velocity;
-    if (length(velocity) > params.wake_velocity || length(spin) > params.wake_velocity) {
-        atomicOr(&wake_flags[slot], 1u);
-    }
-}
 
 fn solve_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
@@ -113,8 +103,6 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
             }
         }
         contacts[contact_index] = updated;
-        wake_on_impact(first_slot, pair.first, pair.second);
-        wake_on_impact(second_slot, pair.second, pair.first);
     }
     commit_block(
         slot,

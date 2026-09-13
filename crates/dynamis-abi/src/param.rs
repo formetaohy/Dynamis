@@ -39,7 +39,6 @@ impl StepParamsRecord {
             sleep_velocity: config.sleep_velocity,
             sleep_angular_velocity: config.sleep_angular_velocity,
             sleep_time: config.sleep_time,
-            wake_velocity: config.wake_velocity,
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
             edit_run_count: streams.edit_runs,
@@ -51,6 +50,7 @@ impl StepParamsRecord {
             soft_substep_dt: dt / config.soft_substeps as f32,
             _pad5: 0,
             _pad6: 0,
+            _pad7: 0,
         }
     }
 }

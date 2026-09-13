@@ -22,6 +22,7 @@ pub mod shape;
 pub mod soft;
 #[cfg(feature = "profile")]
 pub mod timing;
+pub mod waking;
 pub mod warmup;
 pub mod world;
 pub mod world_geometry;

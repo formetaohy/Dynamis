@@ -7,10 +7,12 @@
 @group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
 
-fn mark_awake(body: ptr<function, BodyState>, row: u32) {
+fn mark_disturbed(body: ptr<function, BodyState>, desc: BodyDescriptor, row: u32, disturbed: bool) {
     if ((*body).sleeping != 0u) {
-        atomicOr(&wake_flags[row], 1u);
         atomicAdd(&woke_count[0], 1u);
+        atomicOr(&wake_flags[row], 1u);
+    } else if (disturbed) {
+        atomicOr(&wake_flags[row], 1u);
     }
     (*body).sleeping = 0u;
     (*body).sleep_timer = 0.0;
@@ -54,28 +56,29 @@ fn work(index: u32) {
             if ((edit.mask & PATCH_ANGULAR_VELOCITY) != 0u) {
                 state.angular_velocity = edit.state.angular_velocity;
             }
-            mark_awake(&state, run.row);
+            let teleport = (edit.mask & (PATCH_POSITION | PATCH_ORIENTATION)) != 0u;
+            mark_disturbed(&state, desc, run.row, teleport || !body_is_dynamic(Body(state, desc)));
         } else if (edit.kind == EDIT_FORCE) {
             state.force = state.force + edit.state.force;
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_FORCE_AT_POINT) {
             state.force = state.force + edit.state.force;
             state.torque = state.torque
                 + cross(edit.state.position - body_com_of(state, desc), edit.state.force);
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_TORQUE) {
             state.torque = state.torque + edit.state.torque;
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_IMPULSE) {
             state.velocity = state.velocity + edit.state.velocity * desc.inverse_mass;
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_IMPULSE_AT_POINT) {
             apply_impulse_at(&state, desc, edit.state.velocity, edit.state.position);
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_ANGULAR_IMPULSE) {
             state.angular_velocity = state.angular_velocity
                 + apply_inverse_inertia_of(desc, state.orientation, edit.state.angular_velocity);
-            mark_awake(&state, run.row);
+            mark_disturbed(&state, desc, run.row, false);
         } else if (edit.kind == EDIT_SLEEP) {
             if (state.sleeping == 0u) {
                 atomicAdd(&slept_count[0], 1u);

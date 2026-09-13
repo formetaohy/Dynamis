@@ -43,6 +43,10 @@ fn entry_awake(info: u32) -> bool {
     return (info & ENTRY_AWAKE) != 0u;
 }
 
+fn entry_mobile(info: u32) -> bool {
+    return (info & ENTRY_MOBILE) != 0u;
+}
+
 fn entry_primary(info: u32) -> bool {
     return (info & ENTRY_PRIMARY) != 0u;
 }

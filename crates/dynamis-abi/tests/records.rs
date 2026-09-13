@@ -239,7 +239,6 @@ fn step_params_record_maps_config() {
         sleep_velocity: 0.3,
         sleep_angular_velocity: 0.4,
         sleep_time: 0.8,
-        wake_velocity: 0.6,
         friction_combine: dynamis_model::MaterialCombine::Min,
         restitution_combine: dynamis_model::MaterialCombine::Average,
     };
@@ -289,7 +288,6 @@ fn step_params_record_maps_config() {
     assert_eq!(record.sleep_velocity, 0.3);
     assert_eq!(record.sleep_angular_velocity, 0.4);
     assert_eq!(record.sleep_time, 0.8);
-    assert_eq!(record.wake_velocity, 0.6);
 }
 
 #[test]

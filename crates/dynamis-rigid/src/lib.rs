@@ -6,7 +6,6 @@ mod entries;
 mod integrate;
 mod islands;
 mod narrowphase;
-mod sleep;
 mod solver;
 mod sort;
 mod streams;
@@ -27,8 +26,8 @@ use dynamis_sort::RadixSort;
 use entries::Entries;
 use integrate::Integrate;
 use islands::Islands;
+use islands::Sleep;
 use narrowphase::Narrowphase;
-use sleep::Sleep;
 use solver::Solver;
 
 pub use capacity::Capacity;
@@ -46,6 +45,7 @@ domain_passes!(
     entries: Phase::Entries => "entries",
     narrowphase: Phase::Contacts => "narrowphase",
     islands: Phase::Contacts => "islands",
+    wake: Phase::Contacts => "wake",
     solver_prepare: Phase::Contacts => "solver_prepare",
     solver: Phase::Contacts => "solver",
     advance: Phase::Contacts => "advance",
@@ -60,10 +60,6 @@ domain_passes!(
     resting_gather: Phase::Project => "resting_gather",
     resting_index: Phase::Project => "resting_index",
 );
-
-fn island_rounds(streams: &impl Resources) -> u32 {
-    dynamis_state::body_row_count(streams).max(2).ilog2() + 1
-}
 
 pub struct Rigid {
     passes: RigidPasses,
@@ -134,9 +130,12 @@ impl Rigid {
                 drop(narrowphase);
 
                 let mut islands = schedule.open(encoder, self.passes.islands);
-                self.islands
-                    .record(&mut islands, streams, frame, island_rounds(streams));
+                self.islands.record(&mut islands, streams, frame);
                 drop(islands);
+
+                let mut wake = schedule.open(encoder, self.passes.wake);
+                self.islands.record_wake(&mut wake, streams, frame);
+                drop(wake);
 
                 let mut prepare = schedule.open(encoder, self.passes.solver_prepare);
                 self.solver.record_prepare(&mut prepare, streams, frame);
