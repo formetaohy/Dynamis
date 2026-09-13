@@ -23,6 +23,42 @@ fn sphere_pile(world: &mut World) -> Vec<BodyHandle> {
 }
 
 #[test]
+fn the_step_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
+    let mut world = new_world(static_config());
+    let floor = world.stream_capacity();
+    let quiet = world.step_shape();
+
+    let pile = sphere_pile(&mut world);
+    settle(&mut world, 4);
+    let crowded = world.step_shape();
+    assert!(
+        world.stream_capacity().pairs > floor.pairs,
+        "the pile must widen the pair stream"
+    );
+    assert!(
+        crowded.island_rounds > quiet.island_rounds,
+        "a wider island must propagate over more rounds, {quiet:?} vs {crowded:?}"
+    );
+    assert!(
+        crowded.body_words > quiet.body_words,
+        "more live rows must widen the key digits, {quiet:?} vs {crowded:?}"
+    );
+
+    for body in pile {
+        world.remove(body);
+    }
+    assert!(
+        world.stream_capacity().pairs > floor.pairs,
+        "removing the pile must leave the widened streams allocated"
+    );
+    assert_eq!(
+        world.step_shape(),
+        quiet,
+        "an allocated peak may not keep shaping a step whose scene is gone"
+    );
+}
+
+#[test]
 fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     let mut world = new_world(static_config());
     let floor = world.stream_capacity();

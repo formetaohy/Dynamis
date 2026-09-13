@@ -7,14 +7,36 @@ pub use streams::{
     VERTEX_BYTES,
 };
 
-use dynamis_abi::{COUNTER_COUNT, COUNTER_STRIDE, StepParamsRecord};
-use dynamis_pass::{Resources, SlotRef};
+use dynamis_abi::{COUNTER_COUNT, COUNTER_STRIDE, FrameCounts, StepParamsRecord};
+use dynamis_pass::SlotRef;
 
 pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StepShape {
+    pub island_rounds: u32,
+    pub body_words: u32,
+    pub collider_words: u32,
+}
+
+impl StepShape {
+    pub fn of(counts: &FrameCounts) -> Self {
+        Self {
+            island_rounds: propagation_rounds(counts.dynamic_bodies),
+            body_words: dynamis_sort::key_words(counts.bodies.max(1)),
+            collider_words: dynamis_sort::key_words(counts.colliders.max(1)),
+        }
+    }
+}
+
+fn propagation_rounds(bodies: u32) -> u32 {
+    bodies.max(2).ilog2() + 1
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct StepFrame {
     pub params: StepParamsRecord,
+    pub shape: StepShape,
     pub query_count: u32,
     pub awake_bodies: Option<u32>,
     pub ccd_bodies: bool,
@@ -92,24 +114,4 @@ pub fn shape_resources() -> [(&'static str, SlotRef); 4] {
         ("shape_triangles", StateStream::ShapeTriangles.whole()),
         ("shape_nodes", StateStream::ShapeNodes.whole()),
     ]
-}
-
-pub fn body_row_count<R: Resources>(resources: &R) -> u32 {
-    resources.slots(StateStream::BodyStates.into())
-}
-
-pub fn collider_capacity<R: Resources>(resources: &R) -> u32 {
-    resources.slots(StateStream::ColliderOwners.into())
-}
-
-pub fn constraint_capacity<R: Resources>(resources: &R) -> u32 {
-    resources.slots(StateStream::ConstraintRuntime.into())
-}
-
-pub fn body_words<R: Resources>(resources: &R) -> u32 {
-    dynamis_sort::key_words(body_row_count(resources).max(1))
-}
-
-pub fn collider_words<R: Resources>(resources: &R) -> u32 {
-    dynamis_sort::key_words(collider_capacity(resources).max(1))
 }

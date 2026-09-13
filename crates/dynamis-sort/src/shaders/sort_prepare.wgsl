@@ -22,13 +22,6 @@ fn main(
 ) {
     let lane = lid.x;
     let unit = wgid.y * ROW + wgid.x;
-    for (var region = 0u; region < REGIONS; region = region + 1u) {
-        atomicStore(&rows[(region * SLOTS + unit) * BINS + lane], REDUCTION);
-    }
-    for (var digit = 0u; digit < 8u; digit = digit + 1u) {
-        atomicStore(&bins[digit * BINS + lane], 0u);
-    }
-    workgroupBarrier();
     let length = min(count_holder[0], arrayLength(&keys_lo));
     let spans = (length + 255u) / 256u;
     var span = (spans + groups.x * groups.y - 1u) / (groups.x * groups.y);
@@ -37,6 +30,21 @@ fn main(
     }
     let first = min(unit * span, spans);
     let last = min(first + span, spans);
+    if (unit == 0u) {
+        for (var bin = lane; bin < BINS_ALL; bin = bin + 256u) {
+            atomicStore(&histogram_free[bin], 0u);
+        }
+    }
+    if (first >= last) {
+        return;
+    }
+    for (var region = 0u; region < REGIONS; region = region + 1u) {
+        atomicStore(&rows[(region * SLOTS + unit) * BINS + lane], REDUCTION);
+    }
+    for (var digit = 0u; digit < 8u; digit = digit + 1u) {
+        atomicStore(&bins[digit * BINS + lane], 0u);
+    }
+    workgroupBarrier();
     for (var tile = first; tile < last; tile = tile + 1u) {
         let index = tile * 256u + lane;
         if (index < length) {
@@ -56,10 +64,5 @@ fn main(
             &histogram[digit * BINS + lane],
             atomicLoad(&bins[digit * BINS + lane]),
         );
-    }
-    if (unit == 0u) {
-        for (var bin = lane; bin < BINS_ALL; bin = bin + 256u) {
-            atomicStore(&histogram_free[bin], 0u);
-        }
     }
 }

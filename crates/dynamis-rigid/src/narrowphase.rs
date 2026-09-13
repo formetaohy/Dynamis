@@ -9,6 +9,7 @@ use dynamis_pass::Resources;
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
+use dynamis_state::StepFrame;
 
 pub struct Narrowphase {
     narrowphase: Stage,
@@ -107,9 +108,10 @@ impl Narrowphase {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
+        frame: &StepFrame,
         sort: &RadixSort,
     ) {
-        let words = dynamis_state::collider_words(streams);
+        let words = frame.shape.collider_words;
         let pairs = pair_capacity(streams);
         let channels = sort::lanes_dual(
             streams,
@@ -117,7 +119,7 @@ impl Narrowphase {
             BroadphaseStream::PairMajor.whole(),
             BroadphaseStream::PairMinor.whole(),
         );
-        sort.sort(recorder, &channels, words, words, pairs);
+        sort.sort(recorder, &channels, words, words);
         self.narrowphase.record_stream(recorder, streams);
         self.compact_scan.record_workgroups(
             recorder,

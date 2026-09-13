@@ -97,13 +97,7 @@ fn run_sort(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
         let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
-        sort.sort(
-            &mut recorder,
-            &channels.lanes(0),
-            major_words,
-            minor_words,
-            major.len() as u32,
-        );
+        sort.sort(&mut recorder, &channels.lanes(0), major_words, minor_words);
     }
     context.queue().submit([encoder.finish()]);
     (
@@ -251,13 +245,7 @@ fn storage_generation_changes_rebuild_the_sort_bindings() {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
-            sort.sort(
-                &mut recorder,
-                &channels.lanes(generation),
-                1,
-                0,
-                keys.len() as u32,
-            );
+            sort.sort(&mut recorder, &channels.lanes(generation), 1, 0);
         }
         context.queue().submit([encoder.finish()]);
         let sorted = read_u32s(context, &channels.major, keys.len());

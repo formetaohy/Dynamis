@@ -97,14 +97,6 @@ pub fn event_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
 }
 
-pub fn resting_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
-    resources.slots(RigidStream::RestingContacts.into())
-}
-
-pub fn block_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
-    resources.slots(RigidStream::SolverAPayload.into())
-}
-
 pub fn sort_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::SortScratchMajor.into())
 }

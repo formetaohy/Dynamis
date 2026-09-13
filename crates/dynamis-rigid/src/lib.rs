@@ -32,10 +32,7 @@ use solver::Solver;
 
 pub use capacity::Capacity;
 pub use ccd::{Ccd, CcdPasses};
-pub use streams::{
-    DOMAIN, RigidDemand, RigidStream, RigidStreams, block_capacity, event_capacity,
-    resting_capacity, sort_capacity,
-};
+pub use streams::{DOMAIN, RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
 
 domain_passes!(
     RigidPasses,
@@ -126,7 +123,7 @@ impl Rigid {
             Phase::Contacts if simulating => {
                 let mut narrowphase = schedule.open(encoder, self.passes.narrowphase);
                 self.narrowphase
-                    .record(&mut narrowphase, streams, &self.sort);
+                    .record(&mut narrowphase, streams, frame, &self.sort);
                 drop(narrowphase);
 
                 let mut islands = schedule.open(encoder, self.passes.islands);
@@ -168,7 +165,8 @@ impl Rigid {
                     self.commit.record_gather(&mut gather, streams);
                     drop(gather);
                     let mut index = schedule.open(encoder, self.resolution.resting_index);
-                    self.commit.record_index(&mut index, streams, &self.sort);
+                    self.commit
+                        .record_index(&mut index, streams, frame, &self.sort);
                     drop(index);
                 }
             }

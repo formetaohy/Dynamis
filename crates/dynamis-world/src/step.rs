@@ -1,6 +1,7 @@
 use super::World;
 use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands};
 use dynamis_state::StepFrame;
+use dynamis_state::StepShape;
 
 use dynamis_abi::{COUNTER_ACTIVE, FrameCounts, QueryResultRecord, RowStreams, StepParamsRecord};
 use std::mem::size_of;
@@ -69,24 +70,33 @@ impl World {
         self.constraints.commands.clear();
     }
 
+    pub(crate) fn frame_counts(&self) -> FrameCounts {
+        FrameCounts {
+            dynamic_bodies: self.bodies.dynamic_count as u32,
+            bodies: self.bodies.alive.len() as u32,
+            colliders: self.colliders.used(),
+            constraints: self.constraints.alive.len() as u32,
+            particles: self.soft.used().0,
+            elements: self.soft.used().1,
+        }
+    }
+
+    pub fn step_shape(&self) -> StepShape {
+        StepShape::of(&self.frame_counts())
+    }
+
     pub(crate) fn frame(&self, dt: f32, query_count: u32) -> StepFrame {
         let synced = self.backend.measured_step.filter(|measured| {
             self.backend
                 .commanded_step
                 .is_none_or(|commanded| commanded <= *measured)
         });
+        let counts = self.frame_counts();
         StepFrame {
             params: StepParamsRecord::new(
                 &self.config,
                 dt,
-                FrameCounts {
-                    dynamic_bodies: self.bodies.dynamic_count as u32,
-                    bodies: self.bodies.alive.len() as u32,
-                    colliders: self.colliders.used(),
-                    constraints: self.constraints.alive.len() as u32,
-                    particles: self.soft.used().0,
-                    elements: self.soft.used().1,
-                },
+                counts,
                 RowStreams {
                     edit_runs: self.bodies.last_edits,
                     body_moves: self.bodies.last_moves,
@@ -94,6 +104,7 @@ impl World {
                 },
                 self.event_slot_of(self.clock.step),
             ),
+            shape: StepShape::of(&counts),
             query_count,
             awake_bodies: synced.map(|_| self.backend.measured[COUNTER_ACTIVE]),
             ccd_bodies: self.ccd_active(),

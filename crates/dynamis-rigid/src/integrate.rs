@@ -105,20 +105,14 @@ impl Integrate {
         sort: &RadixSort,
     ) {
         if frame.params.constraint_count > 0 {
-            let words = dynamis_state::body_words(streams);
+            let words = frame.shape.body_words;
             let channels = sort::lanes_dual(
                 streams,
                 dynamis_state::counter(COUNTER_JOINTS),
                 RigidStream::JointFilterMajor.whole(),
                 RigidStream::JointFilterMinor.whole(),
             );
-            sort.sort(
-                recorder,
-                &channels,
-                words,
-                words,
-                dynamis_state::constraint_capacity(streams),
-            );
+            sort.sort(recorder, &channels, words, words);
         }
         self.integrate
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));

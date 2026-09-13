@@ -4,7 +4,6 @@ use dynamis_gpu::{
 };
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
-const THREADS: u32 = 256;
 const BINS: u32 = 256;
 const BINS_ALL: usize = BINS as usize * 8;
 const REGIONS: u32 = 8;
@@ -306,7 +305,6 @@ impl RadixSort {
         channels: &SortChannels<'_>,
         major_words: u32,
         minor_words: u32,
-        elements: u32,
     ) {
         let passes = (0..minor_words)
             .chain(4..4 + major_words)
@@ -316,7 +314,7 @@ impl RadixSort {
             !passes.is_empty(),
             "a sort needs at least one key digit to permute the payload"
         );
-        let units = (elements.div_ceil(THREADS) as usize).clamp(1, SLOTS);
+        let units = SLOTS as u32;
         let mut state = self.state.lock().unwrap();
         if state.storage != Some(channels.generation) {
             state.groups.clear();
@@ -339,21 +337,17 @@ impl RadixSort {
             }
         };
         let groups = &state.groups[index];
-        recorder.record(
-            self.prepare.pipeline(),
-            &[&groups.prepare[parity]],
-            units as u32,
-        );
+        recorder.record(self.prepare.pipeline(), &[&groups.prepare[parity]], units);
         for (order, pass) in passes.iter().enumerate() {
             if order > 0 {
                 let group = &groups.aggregate[order % 2];
-                recorder.record(self.aggregates[*pass].pipeline(), &[group], units as u32);
+                recorder.record(self.aggregates[*pass].pipeline(), &[group], units);
             }
             let group = &groups.binning[order % 2][parity];
-            recorder.record(self.binnings[*pass].pipeline(), &[group], units as u32);
+            recorder.record(self.binnings[*pass].pipeline(), &[group], units);
         }
         if passes.len() % 2 == 1 {
-            recorder.record(self.copy.pipeline(), &[&groups.copy], units as u32);
+            recorder.record(self.copy.pipeline(), &[&groups.copy], units);
         }
         state.parity = state.parity.wrapping_add(1);
     }

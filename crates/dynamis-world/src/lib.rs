@@ -35,7 +35,7 @@ use view::View;
 
 pub use backend::StreamCapacity;
 pub use dynamis_soft::SoftCapacity;
-pub use dynamis_state::ShapeCapacity;
+pub use dynamis_state::{ShapeCapacity, StepShape};
 pub use query_pool::{QueryHandle, QueryHit};
 pub use readback::{ContactManifold, ContactPoint};
 

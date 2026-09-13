@@ -1,7 +1,6 @@
 use super::streams::RigidStream;
 use super::{CONTACT, IDENTITY};
 use crate::sort;
-use crate::streams::resting_capacity;
 use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_BREAKS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING,
     COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT,
@@ -271,10 +270,11 @@ impl Commit {
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
+        frame: &StepFrame,
         sort: &RadixSort,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);
-        let words = dynamis_state::collider_words(streams);
+        let words = frame.shape.collider_words.max(frame.shape.body_words);
         let channels = sort::keyed(
             streams,
             dynamis_state::counter(COUNTER_RESTING_GATHER),
@@ -282,6 +282,6 @@ impl Commit {
             RigidStream::RestingIndexMinor.whole(),
             RigidStream::RestingIndexSlots.whole(),
         );
-        sort.sort(recorder, &channels, words, words, resting_capacity(streams));
+        sort.sort(recorder, &channels, words, words);
     }
 }

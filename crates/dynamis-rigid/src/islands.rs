@@ -252,7 +252,7 @@ impl Islands {
         self.island_link_constraints
             .record_rows(recorder, streams, constraints);
         self.island_link_resting.record_stream(recorder, streams);
-        for _ in 0..island_rounds(streams) {
+        for _ in 0..frame.shape.island_rounds {
             self.island_jump.record_rows(recorder, streams, dynamic);
         }
         self.island_aggregate
@@ -306,8 +306,4 @@ impl Sleep {
         self.island_sleep
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
     }
-}
-
-fn island_rounds(streams: &impl Resources) -> u32 {
-    dynamis_state::body_row_count(streams).max(2).ilog2() + 1
 }

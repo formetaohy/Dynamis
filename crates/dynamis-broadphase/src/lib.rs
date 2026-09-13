@@ -95,8 +95,7 @@ impl Broadphase {
                 .whole()
                 .resolve(streams),
         };
-        self.sort
-            .sort(recorder, &channels, 4, 0, entry_capacity(streams));
+        self.sort.sort(recorder, &channels, 4, 0);
     }
 
     pub fn record(

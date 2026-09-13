@@ -1,6 +1,5 @@
 use super::streams::RigidStream;
 use crate::sort;
-use crate::streams::block_capacity;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernels::{CORE, rows, stream, stream_warm, workgroups};
@@ -300,8 +299,7 @@ impl Solver {
         frame: &StepFrame,
         sort: &RadixSort,
     ) {
-        let blocks = block_capacity(streams);
-        let words = dynamis_state::body_words(streams);
+        let words = frame.shape.body_words;
         let block_count = dynamis_state::counter(COUNTER_BLOCKS);
         self.blocks.record_stream(recorder, streams);
         sort.sort(
@@ -314,7 +312,6 @@ impl Solver {
             ),
             words,
             0,
-            blocks,
         );
         self.pair_order.record_stream(recorder, streams);
         sort.sort(
@@ -327,7 +324,6 @@ impl Solver {
             ),
             words,
             0,
-            blocks,
         );
         self.boundaries.record_stream(recorder, streams);
         self.block_solve.record_warm(recorder, streams);
