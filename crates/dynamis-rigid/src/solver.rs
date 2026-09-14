@@ -305,7 +305,7 @@ impl Solver {
         frame: &RigidFrame,
         sort: &RadixSort,
     ) {
-        let words = frame.shape.body_words;
+        let words = frame.shape.body_row_words;
         let block_count = dynamis_state::counter(COUNTER_BLOCKS);
         self.blocks.record_stream(recorder, streams);
         sort.sort(

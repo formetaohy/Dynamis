@@ -18,6 +18,27 @@ pub(crate) struct Arena {
     used: u32,
 }
 
+pub(crate) fn merged(mut runs: Vec<Run>, live: u32) -> Vec<Run> {
+    runs.retain_mut(|run| {
+        if run.offset >= live {
+            return false;
+        }
+        run.len = run.len.min(live - run.offset);
+        true
+    });
+    runs.sort_unstable_by_key(|run| run.offset);
+    let mut coalesced: Vec<Run> = Vec::with_capacity(runs.len());
+    for run in runs {
+        match coalesced.last_mut() {
+            Some(previous) if previous.offset + previous.len >= run.offset => {
+                previous.len = previous.offset.max(run.offset + run.len) - previous.offset;
+            }
+            _ => coalesced.push(run),
+        }
+    }
+    coalesced
+}
+
 impl Arena {
     pub(crate) const fn new() -> Self {
         Self {

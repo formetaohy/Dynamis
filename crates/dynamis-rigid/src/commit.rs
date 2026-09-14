@@ -304,7 +304,7 @@ impl Commit {
         sort: &RadixSort,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);
-        let words = frame.shape.collider_words.max(frame.shape.body_words);
+        let words = frame.shape.body_id_words;
         let channels = sort::keyed(
             streams,
             dynamis_state::counter(COUNTER_RESTING_GATHER),

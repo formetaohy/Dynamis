@@ -282,6 +282,66 @@ fn reviving_a_resting_pair_reports_no_second_begin() {
 }
 
 #[test]
+fn reviving_a_resting_pair_reports_no_second_begin_once_the_id_space_outgrows_the_live_colliders() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let churn = (0..256)
+        .map(|_| world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0])))
+        .collect::<Vec<_>>();
+    let resting = churn
+        .iter()
+        .copied()
+        .filter(|body| body.id >= 255)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        resting.iter().map(|body| body.id).collect::<Vec<_>>(),
+        [255, 256],
+        "the id space must straddle a key byte while the live rows stay inside one"
+    );
+    for body in churn.iter().copied().filter(|body| body.id < 255) {
+        world.remove(body);
+    }
+    for body in &resting {
+        world.add_collider(*body, ColliderDesc::new(Shape::sphere(0.5)));
+        world.remove_collider(*body, 1);
+    }
+    world.set_position(resting[1], [2.0, 0.5, 0.0]);
+    let shape = world.rigid_shape();
+    assert_eq!(
+        (shape.body_row_words, shape.collider_slot_words),
+        (1, 1),
+        "the live rows and the collider slots must stay inside one key byte"
+    );
+    assert_eq!(
+        shape.body_id_words, 2,
+        "the id space must span two key bytes"
+    );
+
+    settle_until(&mut world, 300, |world| asleep(world));
+    assert!(
+        world.read_state(resting[0]).sleeping && world.read_state(resting[1]).sleeping,
+        "both resting balls must fall asleep"
+    );
+    world.drain_events();
+
+    world.wake(resting[0]);
+    let mut tally = ContactTally::default();
+    tally.drain(&mut world, 4);
+    assert_eq!(
+        tally.begins, 0,
+        "waking a resting pair must not report a begin once the id space outgrows the live colliders"
+    );
+    assert_eq!(
+        tally.ends, 0,
+        "waking a resting pair must not report an end once the id space outgrows the live colliders"
+    );
+}
+
+#[test]
 fn reviving_a_resting_pair_resumes_its_persist_stream() {
     let persist = |shape| ColliderDesc::new(shape).events(ContactEventMode::Persist);
     let mut world = new_world(gravity_config());

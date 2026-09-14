@@ -250,6 +250,7 @@ impl World {
         FrameCounts {
             dynamic_bodies: self.bodies.dynamic_count as u32,
             bodies: self.bodies.alive.len() as u32,
+            body_ids: self.bodies.ids.len() as u32,
             colliders: self.colliders.used(),
             constraints: self.constraints.alive.len() as u32,
             particles: self.soft.used().0,

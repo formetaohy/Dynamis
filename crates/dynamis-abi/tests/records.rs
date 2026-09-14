@@ -251,6 +251,7 @@ fn step_params_record_maps_config() {
         dynamis_abi::FrameCounts {
             dynamic_bodies: 9,
             bodies: 11,
+            body_ids: 12,
             colliders: 13,
             constraints: 2,
             particles: 17,

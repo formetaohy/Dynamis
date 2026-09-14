@@ -111,7 +111,7 @@ impl Narrowphase {
         frame: &RigidFrame,
         sort: &RadixSort,
     ) {
-        let words = frame.shape.collider_words;
+        let words = frame.shape.collider_slot_words;
         let pairs = pair_capacity(streams);
         let channels = sort::lanes_dual(
             streams,

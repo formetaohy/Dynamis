@@ -1,4 +1,4 @@
-use super::arena::{Arena, Run};
+use super::arena::{Arena, Run, merged};
 use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK};
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ impl ColliderPool {
     }
 
     pub(crate) fn take_cleared(&mut self) -> Vec<Run> {
-        std::mem::take(&mut self.cleared)
+        merged(std::mem::take(&mut self.cleared), self.arena.used())
     }
 
     pub(crate) fn run_of(&self, id: u32) -> Option<Run> {

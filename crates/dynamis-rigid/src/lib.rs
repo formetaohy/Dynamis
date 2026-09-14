@@ -24,16 +24,18 @@ const CONTACT: &[&str] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RigidShape {
     pub island_rounds: u32,
-    pub body_words: u32,
-    pub collider_words: u32,
+    pub body_row_words: u32,
+    pub body_id_words: u32,
+    pub collider_slot_words: u32,
 }
 
 impl RigidShape {
     pub fn of(counts: &FrameCounts) -> Self {
         Self {
             island_rounds: propagation_rounds(counts.dynamic_bodies),
-            body_words: dynamis_sort::key_words(counts.bodies.max(1)),
-            collider_words: dynamis_sort::key_words(counts.colliders.max(1)),
+            body_row_words: dynamis_sort::key_words(counts.bodies.max(1)),
+            body_id_words: dynamis_sort::key_words(counts.body_ids.max(1)),
+            collider_slot_words: dynamis_sort::key_words(counts.colliders.max(1)),
         }
     }
 }

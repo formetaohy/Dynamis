@@ -137,7 +137,7 @@ impl Integrate {
         sort: &RadixSort,
     ) {
         if frame.params.constraint_count > 0 {
-            let words = frame.shape.body_words;
+            let words = frame.shape.body_row_words;
             let channels = sort::lanes_dual(
                 streams,
                 dynamis_state::counter(COUNTER_JOINTS),

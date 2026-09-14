@@ -5,6 +5,7 @@ fn counts(bodies: u32, colliders: u32) -> FrameCounts {
     FrameCounts {
         dynamic_bodies: bodies,
         bodies,
+        body_ids: bodies,
         colliders,
         ..FrameCounts::default()
     }
@@ -40,10 +41,10 @@ fn island_rounds_cover_the_widest_component_a_live_row_can_form() {
 }
 
 #[test]
-fn key_words_cover_the_row_index_space() {
+fn key_words_cover_the_row_and_slot_spaces_a_step_sorts() {
     for rows in [1u32, 255, 256, 257, 65_535, 65_536, 16_777_215] {
         let shape = RigidShape::of(&counts(rows, rows));
-        for words in [shape.body_words, shape.collider_words] {
+        for words in [shape.body_row_words, shape.collider_slot_words] {
             let reach = 1u64 << (8 * words);
             assert!(
                 reach >= u64::from(rows),
@@ -51,6 +52,38 @@ fn key_words_cover_the_row_index_space() {
             );
         }
     }
+}
+
+#[test]
+fn key_words_cover_the_body_id_space_a_resting_index_sorts() {
+    for ids in [1u32, 255, 256, 257, 65_535, 65_536, 16_777_215] {
+        let shape = RigidShape::of(&FrameCounts {
+            body_ids: ids,
+            ..counts(1, 1)
+        });
+        let reach = 1u64 << (8 * shape.body_id_words);
+        assert!(
+            reach >= u64::from(ids),
+            "a resting index keyed by body ids must span every id of a {ids} id space"
+        );
+    }
+}
+
+#[test]
+fn the_id_key_space_outgrows_the_row_key_space_it_no_longer_holds() {
+    let shape = RigidShape::of(&FrameCounts {
+        body_ids: 257,
+        ..counts(2, 2)
+    });
+    assert_eq!(
+        (shape.body_row_words, shape.collider_slot_words),
+        (1, 1),
+        "two live rows and two live collider slots fit one key byte"
+    );
+    assert_eq!(
+        shape.body_id_words, 2,
+        "the id space reaches past one key byte"
+    );
 }
 
 #[test]
@@ -80,8 +113,8 @@ fn the_shape_ignores_every_count_it_does_not_schedule() {
 fn the_shape_grows_with_the_live_rows_alone() {
     let small = RigidShape::of(&counts(200, 200));
     let large = RigidShape::of(&counts(20_000, 20_000));
-    assert!(small.body_words < large.body_words);
-    assert!(small.collider_words < large.collider_words);
+    assert!(small.body_row_words < large.body_row_words);
+    assert!(small.collider_slot_words < large.collider_slot_words);
     assert_eq!(small.island_rounds, 8);
     assert_eq!(large.island_rounds, 15);
 }

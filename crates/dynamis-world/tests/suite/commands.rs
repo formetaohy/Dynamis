@@ -303,3 +303,30 @@ fn a_quiet_step_declares_no_row_moves() {
         "a step without structural commands must not declare row moves"
     );
 }
+
+#[test]
+fn a_scene_reset_before_a_step_keeps_collider_writes_inside_the_stream() {
+    let mut world = new_world(static_config());
+    let bodies = (0..256)
+        .map(|index| world.spawn(BodyDesc::sphere(0.2).position([index as f32, 0.0, 0.0])))
+        .collect::<Vec<_>>();
+    for body in &bodies {
+        world.remove(*body);
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.count(),
+        0,
+        "a batch wider than the stream floor must free every row it allocated"
+    );
+
+    let refreshed = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.read_state(refreshed).position,
+        [0.0, 1.0, 0.0],
+        "a collider slot recycled from a scene reset must carry the fresh collider"
+    );
+}

@@ -1,4 +1,4 @@
-use super::arena::{Arena, Run};
+use super::arena::{Arena, Run, merged};
 use super::ids::IdSpace;
 use bytemuck::Zeroable;
 use dynamis_abi::{BvhNodeRecord, TriangleRecord};
@@ -56,26 +56,7 @@ impl<T: Copy> Geometry<T> {
     }
 
     fn take_dirty(&mut self) -> Vec<Run> {
-        let live = self.arena.used();
-        let mut runs = std::mem::take(&mut self.dirty);
-        runs.retain_mut(|run| {
-            if run.offset >= live {
-                return false;
-            }
-            run.len = run.len.min(live - run.offset);
-            true
-        });
-        runs.sort_unstable_by_key(|run| run.offset);
-        let mut merged: Vec<Run> = Vec::with_capacity(runs.len());
-        for run in runs {
-            match merged.last_mut() {
-                Some(previous) if previous.offset + previous.len >= run.offset => {
-                    previous.len = previous.offset.max(run.offset + run.len) - previous.offset;
-                }
-                _ => merged.push(run),
-            }
-        }
-        merged
+        merged(std::mem::take(&mut self.dirty), self.arena.used())
     }
 }
 

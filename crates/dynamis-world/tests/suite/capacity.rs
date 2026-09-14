@@ -40,7 +40,7 @@ fn the_rigid_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
         "a wider island must propagate over more rounds, {quiet:?} vs {crowded:?}"
     );
     assert!(
-        crowded.body_words > quiet.body_words,
+        crowded.body_row_words > quiet.body_row_words,
         "more live rows must widen the key digits, {quiet:?} vs {crowded:?}"
     );
 
@@ -51,10 +51,23 @@ fn the_rigid_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
         world.stream_capacity().broadphase.pairs > floor.broadphase.pairs,
         "removing the pile must leave the widened streams allocated"
     );
+    let shaped = world.rigid_shape();
     assert_eq!(
-        world.rigid_shape(),
-        quiet,
-        "an allocated peak may not keep shaping a step whose scene is gone"
+        (
+            shaped.island_rounds,
+            shaped.body_row_words,
+            shaped.collider_slot_words,
+        ),
+        (
+            quiet.island_rounds,
+            quiet.body_row_words,
+            quiet.collider_slot_words,
+        ),
+        "an allocated peak may not keep shaping a step whose live rows are gone"
+    );
+    assert_eq!(
+        shaped.body_id_words, crowded.body_id_words,
+        "the body id space outlives every row it once held"
     );
 }
 

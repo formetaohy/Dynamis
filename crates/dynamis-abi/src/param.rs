@@ -13,6 +13,7 @@ impl StepParamsRecord {
         let FrameCounts {
             dynamic_bodies,
             bodies,
+            body_ids: _,
             colliders,
             constraints,
             particles,
@@ -64,6 +65,7 @@ impl StepParamsRecord {
 pub struct FrameCounts {
     pub dynamic_bodies: u32,
     pub bodies: u32,
+    pub body_ids: u32,
     pub colliders: u32,
     pub constraints: u32,
     pub particles: u32,
