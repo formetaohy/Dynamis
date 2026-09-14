@@ -143,6 +143,8 @@ impl Slot {
 
 pub const EVENT_SLOTS: u32 = Readback::DEPTH as u32 + 2;
 
+pub const FACT_LAG: usize = EVENT_SLOTS as usize;
+
 pub struct Readback {
     device: Device,
     label: String,

@@ -1,5 +1,6 @@
 use super::common::{DT, gravity_config, new_world, settle, static_config};
 use dynamis_model::{BodyDesc, BodyHandle, BodyState, QueryFilter};
+use dynamis_world::QueryState;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn falling_sphere(world: &mut dynamis_world::World) -> BodyHandle {
@@ -226,6 +227,65 @@ fn a_query_rides_the_step_submission() {
 }
 
 #[test]
+fn an_observation_outlives_the_batch_that_follows_it() {
+    let mut world = new_world(static_config());
+    let target = world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 2.0]));
+    let first = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.resolve_queries();
+    let second = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.resolve_queries();
+    world.wait_query(first);
+    assert_eq!(
+        world.query_state(first),
+        QueryState::Retired,
+        "an observation must stay readable after a later batch retires"
+    );
+    assert_eq!(
+        world.query_hit(first).map(|hit| hit.body),
+        Some(target),
+        "a retained observation must keep its hits"
+    );
+    world.wait_query(second);
+    assert_eq!(world.query_state(second), QueryState::Retired);
+}
+
+#[test]
+fn an_observation_beyond_the_retention_window_lapses() {
+    let mut world = new_world(static_config());
+    world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 2.0]));
+    let mut handles = Vec::new();
+    for _ in 0..dynamis_gpu::FACT_LAG + 2 {
+        let handle = world.ray_query(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            20.0,
+            &QueryFilter::default(),
+        );
+        world.resolve_queries();
+        world.wait_query(handle);
+        handles.push(handle);
+    }
+    let oldest = handles[0];
+    assert_eq!(
+        world.query_state(oldest),
+        QueryState::Lapsed,
+        "an observation past the retention window must report a lapse"
+    );
+    let newest = *handles.last().expect("a batch was issued");
+    assert_eq!(world.query_state(newest), QueryState::Retired);
+}
+
+#[test]
 fn resolving_queries_opens_a_single_submission() {
     let mut world = new_world(static_config());
     world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 0.0]));
@@ -236,9 +296,10 @@ fn resolving_queries_opens_a_single_submission() {
         20.0,
         &QueryFilter::default(),
     );
-    assert!(
-        !world.query_ready(query),
-        "a query reports ready only after its results arrive"
+    assert_eq!(
+        world.query_state(query),
+        QueryState::Pending,
+        "a query is pending until its results retire"
     );
     world.resolve_queries();
     assert_eq!(
@@ -246,10 +307,11 @@ fn resolving_queries_opens_a_single_submission() {
         1,
         "pending queries resolve in one submission"
     );
-    world.wait_query(query);
-    assert!(
-        world.query_ready(query),
-        "a resolved query must become ready"
+    world.wait();
+    assert_eq!(
+        world.query_state(query),
+        QueryState::Retired,
+        "a resolved query must retire"
     );
     assert!(
         world.query_hit(query).is_some(),

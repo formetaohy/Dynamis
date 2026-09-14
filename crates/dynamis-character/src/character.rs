@@ -1,6 +1,6 @@
 use dynamis_model::math::{add, dot, length, mul, negate, normalize, sub};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
-use dynamis_world::{QueryHandle, QueryHit, World};
+use dynamis_world::{QueryHandle, QueryHit, QueryState, World};
 
 const SKIN: f32 = 0.05;
 
@@ -194,7 +194,7 @@ impl Character {
             .handles()
             .into_iter()
             .flatten()
-            .any(|handle| !world.query_ready(handle))
+            .any(|handle| world.query_state(handle) != QueryState::Retired)
         {
             world.resolve_queries();
             for handle in cast.handles().into_iter().flatten() {

@@ -17,7 +17,7 @@ dynamis_domain::domains! {
     [rigid <-> soft]
 }
 
-pub(crate) const ACTIVITY_LAG: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
+pub(crate) const ACTIVITY_LAG: u32 = dynamis_gpu::FACT_LAG as u32;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Rest {

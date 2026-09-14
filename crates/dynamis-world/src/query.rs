@@ -1,6 +1,6 @@
 use super::World;
 use crate::commands::Consumption;
-use crate::query_pool::{QueryHandle, QueryHit, QueryPool};
+use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
 use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
 use std::mem::size_of;
@@ -124,8 +124,14 @@ impl World {
         self.queries.pool.overflow(handle)
     }
 
-    pub fn query_ready(&self, handle: QueryHandle) -> bool {
-        self.queries.pool.is_ready(handle)
+    pub fn query_state(&self, handle: QueryHandle) -> QueryState {
+        if self.queries.pool.is_ready(handle) {
+            QueryState::Retired
+        } else if self.queries.pool.is_current(handle) || handle.batch == self.queries.next_batch {
+            QueryState::Pending
+        } else {
+            QueryState::Lapsed
+        }
     }
 
     pub fn resolve_queries(&mut self) {
@@ -181,9 +187,8 @@ impl World {
     pub fn wait_query(&mut self, handle: QueryHandle) {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        if !self.queries.pool.is_ready(handle) {
-            let pending = self.backend.readback.queries.drain();
-            for (batch, bytes) in pending {
+        if self.query_state(handle) != QueryState::Retired {
+            for (batch, bytes) in self.backend.readback.queries.drain() {
                 self.collect_query_batch(batch, &bytes);
             }
         }
@@ -199,13 +204,14 @@ impl World {
     }
 
     fn validate_query(&self, handle: QueryHandle) {
-        assert!(
-            self.queries.pool.is_current(handle),
-            "query handle {handle:?} belongs to a batch that has been retired"
-        );
-        assert!(
-            self.queries.pool.is_ready(handle),
-            "query handle {handle:?} has no results yet; call resolve_queries(), step() or wait_query()"
-        );
+        match self.query_state(handle) {
+            QueryState::Retired => {}
+            QueryState::Pending => {
+                panic!("query handle {handle:?} has not retired; observe it or call wait_query()")
+            }
+            QueryState::Lapsed => panic!(
+                "query handle {handle:?} lapsed; its results retired before the host consumed them"
+            ),
+        }
     }
 }

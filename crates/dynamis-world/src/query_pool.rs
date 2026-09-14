@@ -8,6 +8,13 @@ pub struct QueryHandle {
     pub index: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueryState {
+    Pending,
+    Retired,
+    Lapsed,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QueryHit {
     pub body: BodyHandle,
@@ -131,11 +138,7 @@ impl QueryPool {
             overflow[index] = spilled != 0;
         }
         batch.outcome = Some(QueryOutcome { hits, overflow });
-        while self
-            .batches
-            .front()
-            .is_some_and(|oldest| oldest.outcome.is_some() && oldest.step < step)
-        {
+        while self.batches.len() > dynamis_gpu::FACT_LAG {
             self.batches.pop_front();
         }
     }

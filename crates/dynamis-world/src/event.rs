@@ -22,6 +22,12 @@ impl Events {
 }
 
 impl World {
+    pub fn collect_events(&mut self) -> Vec<ContactEvent> {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        std::mem::take(&mut self.events.contact)
+    }
+
     pub fn drain_events(&mut self) -> Vec<ContactEvent> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();

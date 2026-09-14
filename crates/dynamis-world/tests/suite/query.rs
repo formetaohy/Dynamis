@@ -2,7 +2,7 @@ use super::common::{
     DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
 };
 use dynamis_model::{BodyDesc, QueryFilter, Shape};
-use dynamis_world::World;
+use dynamis_world::{QueryState, World};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn query_static(world: &mut World, radius: f32, position: [f32; 3]) -> dynamis_model::BodyHandle {
@@ -361,8 +361,9 @@ fn results_persist_until_slot_reused() {
 }
 
 #[test]
-fn retired_batch_invalidates_handle() {
+fn an_observation_lapses_only_past_the_retention_window() {
     let mut world = new_world(static_config());
+    let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let first = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
@@ -371,8 +372,12 @@ fn retired_batch_invalidates_handle() {
     );
     world.step(DT);
     world.wait();
-    let _ = world.query_hit(first);
-    for _ in 0..4 {
+    assert_eq!(
+        world.query_hit(first).map(|hit| hit.body),
+        Some(target),
+        "first must resolve"
+    );
+    for _ in 0..dynamis_gpu::FACT_LAG - 1 {
         world.ray_query(
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
@@ -382,9 +387,33 @@ fn retired_batch_invalidates_handle() {
         world.step(DT);
         world.wait();
     }
+    assert_eq!(
+        world.query_state(first),
+        QueryState::Retired,
+        "an observation inside the retention window must stay resolvable"
+    );
+    assert!(
+        world.query_hit(first).is_some(),
+        "a retained observation must keep its hits"
+    );
+    for _ in 0..2 {
+        world.ray_query(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            10.0,
+            &QueryFilter::default(),
+        );
+        world.step(DT);
+        world.wait();
+    }
+    assert_eq!(
+        world.query_state(first),
+        QueryState::Lapsed,
+        "an observation past the retention window must lapse"
+    );
     assert!(
         catch_unwind(AssertUnwindSafe(|| world.query_hit(first))).is_err(),
-        "a handle whose batch has been retired must stop resolving"
+        "a lapsed observation must stop resolving"
     );
 }
 
@@ -856,7 +885,9 @@ fn a_query_batch_that_fills_the_stream_keeps_every_result() {
     world.step(DT);
     world.wait();
     assert!(
-        handles.iter().all(|handle| world.query_ready(*handle)),
+        handles
+            .iter()
+            .all(|handle| world.query_state(*handle) == QueryState::Retired),
         "a batch as wide as the query stream must resolve completely"
     );
     assert!(

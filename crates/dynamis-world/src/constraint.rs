@@ -439,6 +439,12 @@ impl World {
         }
     }
 
+    pub fn collect_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        std::mem::take(&mut self.constraints.broken)
+    }
+
     pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();

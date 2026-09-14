@@ -40,7 +40,7 @@ pub struct ConstraintForce {
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
-const DECLARED_DEPTH: usize = 8;
+const DECLARED_DEPTH: usize = dynamis_gpu::FACT_LAG + 2;
 
 fn measured_counters(bytes: &[u8], counters: &mut Counters) {
     let stride = COUNTER_STRIDE as usize;

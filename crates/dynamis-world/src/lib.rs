@@ -38,7 +38,7 @@ pub use backend::StreamCapacity;
 pub use dynamis_rigid::RigidShape;
 pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::{ShapeCapacity, StateCapacity};
-pub use query_pool::{QueryHandle, QueryHit};
+pub use query_pool::{QueryHandle, QueryHit, QueryState};
 pub use readback::{ConstraintForce, ContactManifold, ContactPoint};
 pub use snapshot::Snapshot;
 
