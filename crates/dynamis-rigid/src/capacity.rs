@@ -1,5 +1,5 @@
 use super::streams::{RigidDemand, RigidStreams};
-use dynamis_abi::{COUNTER_EVENTS, COUNTER_SPILLOVER_EVENTS, Counters};
+use dynamis_abi::{COUNTER_EVENTS, COUNTER_REFUSED_EVENTS, Counters};
 use dynamis_domain::{MIN_SLOTS, StreamWatch, settled};
 
 const STREAM_DENSITY_EVENTS: u32 = 8;
@@ -53,7 +53,7 @@ impl Capacity {
     ) -> RigidDemand {
         self.events.observe(
             measured[COUNTER_EVENTS],
-            measured[COUNTER_SPILLOVER_EVENTS] > 0,
+            measured[COUNTER_REFUSED_EVENTS] > 0,
             current.events.slots() / dynamis_gpu::EVENT_SLOTS,
         );
         if self.events.pressured() {

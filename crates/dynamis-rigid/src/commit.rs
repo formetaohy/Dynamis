@@ -4,9 +4,9 @@ use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::Count;
 use dynamis_abi::{
-    COUNTER_ARCHIVED, COUNTER_BREAKS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING,
-    COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT,
-    COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
+    COUNTER_ARCHIVED, COUNTER_BREAKS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_EVENTS,
+    COUNTER_REFUSED_RESTING, COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX,
+    COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
@@ -57,10 +57,7 @@ impl Commit {
                     ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("events", RigidStream::Events.whole()),
                     ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
-                    (
-                        "spillover",
-                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
-                    ),
+                    ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
                 ],
                 &[],
@@ -126,10 +123,7 @@ impl Commit {
                     ("resting", RigidStream::RestingContacts.whole()),
                     ("resting_live", RigidStream::RestingLive.whole()),
                     ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
-                    (
-                        "spillover",
-                        dynamis_state::counter(COUNTER_SPILLOVER_RESTING),
-                    ),
+                    ("spillover", dynamis_state::counter(COUNTER_REFUSED_RESTING)),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("resting_next", RigidStream::RestingNext.whole()),
                     ("resting_free", RigidStream::RestingFree.whole()),

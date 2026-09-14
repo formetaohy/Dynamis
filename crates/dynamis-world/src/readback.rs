@@ -333,9 +333,23 @@ impl World {
     }
 
     pub(crate) fn accept_measured(&mut self, step: u64) {
+        self.assert_no_device_faults();
         self.backend.measured_step = Some(step);
         self.note_events_due(step);
         self.note_breaks_due(step);
+    }
+
+    fn assert_no_device_faults(&self) {
+        assert_eq!(
+            self.backend.measured[dynamis_abi::COUNTER_ENTRY_FAULTS],
+            0,
+            "a collider or particle spans more grid cells than one entry budget holds"
+        );
+        assert_eq!(
+            self.backend.measured[dynamis_abi::COUNTER_LIVE_FAULTS],
+            0,
+            "the live body set outgrew the planned body stream"
+        );
     }
 
     pub fn measured(&self) -> &Counters {

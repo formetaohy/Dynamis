@@ -116,8 +116,8 @@ impl Broadphase {
         }
         let mut index = schedule.open(encoder, pass);
         self.sort_entries(&mut index, streams);
-        self.cell_pairs.record_stream(&mut index, streams);
         self.level_links.record_stream(&mut index, streams);
+        self.cell_pairs.record_stream(&mut index, streams);
         drop(index);
     }
 }

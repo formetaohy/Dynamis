@@ -20,7 +20,7 @@ fn emit_pair(first: u32, second: u32) {
         pair_minor[slot] = max(a, b);
         pair_major[slot] = min(a, b);
     } else {
-        counter_add(COUNTER_SPILLOVER_PAIRS, 1u);
+        counter_add(COUNTER_REFUSED_PAIRS, 1u);
     }
 }
 
@@ -82,8 +82,8 @@ fn work(index: u32) {
     let level = shape_levels(entry_box(node), grid);
     var coarser = counter_load(COUNTER_GRID_LEVELS) & ~((1u << min(level + 1u, 31u)) - 1u);
     while (coarser != 0u) {
-        let link = countTrailingZeros(coarser);
-        coarser = coarser & (coarser - 1u);
+        let link = 31u - countLeadingZeros(coarser);
+        coarser = coarser & ~(1u << link);
         link_level(node, link, awake, live, grid);
     }
 }

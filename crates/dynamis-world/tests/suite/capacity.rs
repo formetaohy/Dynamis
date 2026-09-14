@@ -2,7 +2,7 @@ use super::common::{
     DT, flat_mesh_floor, gravity_config, new_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
-use dynamis_abi::{COUNTER_CONTACTS, COUNTER_SPILLOVER_PAIRS};
+use dynamis_abi::{COUNTER_CONTACTS, COUNTER_REFUSED_PAIRS};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape, SoftBodyDesc};
 use dynamis_world::World;
 
@@ -145,7 +145,7 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     world.step(DT);
     world.wait();
     assert!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS] > 0,
+        world.measured()[COUNTER_REFUSED_PAIRS] > 0,
         "the pile must outgrow the pair stream"
     );
     let planned = world.stream_capacity();
@@ -161,7 +161,7 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
         "the spilled step must widen the plan further"
     );
     assert_eq!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        world.measured()[COUNTER_REFUSED_PAIRS],
         0,
         "the widened stream must serve the pile"
     );
@@ -194,7 +194,7 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle(&mut world, 3);
     assert_eq!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        world.measured()[COUNTER_REFUSED_PAIRS],
         0,
         "the released stream must still serve a small world"
     );
@@ -256,7 +256,7 @@ fn widening_one_stream_leaves_the_other_streams_allocated() {
     let states = world.state_buffer().token();
     let pairs = world.stream_capacity().broadphase.pairs;
     assert_eq!(
-        world.measured()[COUNTER_SPILLOVER_PAIRS],
+        world.measured()[COUNTER_REFUSED_PAIRS],
         0,
         "a spread pile must fit the pair stream"
     );

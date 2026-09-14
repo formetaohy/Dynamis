@@ -9,11 +9,11 @@ pub mod device {
         pub const COUNTER_ARCHIVED: usize = 4;
         pub const COUNTER_JOINTS: usize = 5;
         pub const COUNTER_EVENTS: usize = 6;
-        pub const COUNTER_SPILLOVER_PAIRS: usize = 7;
-        pub const COUNTER_SPILLOVER_EVENTS: usize = 8;
-        pub const COUNTER_SPILLOVER_ENTRIES: usize = 9;
+        pub const COUNTER_REFUSED_PAIRS: usize = 7;
+        pub const COUNTER_REFUSED_EVENTS: usize = 8;
+        pub const COUNTER_ENTRY_FAULTS: usize = 9;
         pub const COUNTER_RESTING: usize = 10;
-        pub const COUNTER_SPILLOVER_RESTING: usize = 11;
+        pub const COUNTER_REFUSED_RESTING: usize = 11;
         pub const COUNTER_SLEPT: usize = 12;
         pub const COUNTER_WOKE: usize = 13;
         pub const COUNTER_ACTIVE: usize = 14;
@@ -27,9 +27,9 @@ pub mod device {
         pub const COUNTER_GRID_EXTENT: usize = 22;
         pub const COUNTER_BREAKS: usize = 23;
         pub const COUNTER_PARTICLE_REACH: usize = 24;
-        pub const COUNTER_SPILLOVER_NEIGHBOURS: usize = 25;
+        pub const COUNTER_COARSE_NEIGHBOURS: usize = 25;
         pub const COUNTER_LIVE: usize = 26;
-        pub const COUNTER_SPILLOVER_LIVE: usize = 27;
+        pub const COUNTER_LIVE_FAULTS: usize = 27;
         pub const COUNTER_SOFT_ACTIVE: usize = 28;
         pub const COUNTER_SOFT_SLEPT: usize = 29;
         pub const COUNTER_SOFT_WOKE: usize = 30;

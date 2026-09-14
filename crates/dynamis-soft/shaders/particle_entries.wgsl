@@ -3,22 +3,18 @@
 
 fn emit_entry(particle: u32, owner: u32, box: Aabb, level: u32, coord: vec3i, offset: u32) {
     let slot = counter_add(COUNTER_ENTRIES, 1u);
-    if (slot < arrayLength(&entries)) {
-        var info = particle | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_PARTICLE << ENTRY_KIND_SHIFT) | ENTRY_AWAKE;
-        if (offset == 0u) {
-            info = info | ENTRY_PRIMARY;
-        }
-        var entry: GridEntry;
-        entry.min = box.min;
-        entry.max = box.max;
-        entry.group = owner;
-        entry.info = info;
-        entry_keys[slot] = cell_key(level, coord);
-        entry_order[slot] = slot;
-        entries[slot] = entry;
-    } else {
-        counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
+    var info = particle | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_PARTICLE << ENTRY_KIND_SHIFT) | ENTRY_AWAKE;
+    if (offset == 0u) {
+        info = info | ENTRY_PRIMARY;
     }
+    var entry: GridEntry;
+    entry.min = box.min;
+    entry.max = box.max;
+    entry.group = owner;
+    entry.info = info;
+    entry_keys[slot] = cell_key(level, coord);
+    entry_order[slot] = slot;
+    entries[slot] = entry;
 }
 
 fn work(index: u32) {
@@ -41,7 +37,7 @@ fn work(index: u32) {
         for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
             for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
                 if (cells >= MAX_CELLS_PER_COLLIDER) {
-                    counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
+                    counter_add(COUNTER_ENTRY_FAULTS, 1u);
                     continue;
                 }
                 let offset = u32(dx - min_cell.x)

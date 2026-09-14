@@ -1,5 +1,5 @@
 use super::common::{distance, gravity_config, new_world, settle, settle_until, static_config};
-use dynamis_abi::COUNTER_SPILLOVER_NEIGHBOURS;
+use dynamis_abi::COUNTER_COARSE_NEIGHBOURS;
 use dynamis_model::{
     BodyDesc, ColliderDesc, FluidMaterial, PhysicsConfig, Shape, SoftBodyDesc, SoftBodyHandle,
 };
@@ -93,7 +93,7 @@ fn a_compressed_fluid_reaches_its_rest_spacing() {
         grew, held,
         "a relaxed fluid must not drift once it reaches its rest spacing"
     );
-    assert_eq!(world.measured()[COUNTER_SPILLOVER_NEIGHBOURS], 0);
+    assert_eq!(world.measured()[COUNTER_COARSE_NEIGHBOURS], 0);
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn a_fluid_holds_its_spacing_where_a_plain_particle_cloud_packs_solid() {
             positions.iter().all(|position| position[1] > 0.0),
             "a settled fluid must rest on the floor"
         );
-        assert_eq!(world.measured()[COUNTER_SPILLOVER_NEIGHBOURS], 0);
+        assert_eq!(world.measured()[COUNTER_COARSE_NEIGHBOURS], 0);
     }
     assert!(
         spans[1] > 0.85 * SPACING,
@@ -140,7 +140,7 @@ fn a_fluid_impact_never_sinks_through_the_floor() {
         lowest > 0.0,
         "a fluid impact must stay on top of the floor, lowest particle at {lowest}"
     );
-    assert_eq!(world.measured()[COUNTER_SPILLOVER_NEIGHBOURS], 0);
+    assert_eq!(world.measured()[COUNTER_COARSE_NEIGHBOURS], 0);
 }
 
 #[test]

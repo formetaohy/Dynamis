@@ -62,7 +62,6 @@ declare_constants! {
     pub const FEATURE_TRIANGLE_MASK: u32 = FEATURE_TRIANGLE_SIDE - 1;
     pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
-    pub const ENTRY_CELLS_PER_PARTICLE: u32 = 2;
     pub const ENTRY_INDEX_BITS: u32 = 24;
     pub const ENTRY_INDEX_MASK: u32 = (1 << ENTRY_INDEX_BITS) - 1;
     pub const ENTRY_CELL_SHIFT: u32 = ENTRY_INDEX_BITS;
@@ -117,7 +116,7 @@ declare_constants! {
 
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER == MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS,
-    "a collider budget must be the cube of its per axis span"
+    "a grid entry budget must be the cube of its per axis span"
 );
 const _: () = assert!(
     FEATURE_FIELD_BITS * 2 + 4 == 32,

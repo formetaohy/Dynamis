@@ -20,7 +20,7 @@ fn emit_pair(first: u32, second: u32) {
         pair_minor[slot] = max(a, b);
         pair_major[slot] = min(a, b);
     } else {
-        counter_add(COUNTER_SPILLOVER_PAIRS, 1u);
+        counter_add(COUNTER_REFUSED_PAIRS, 1u);
     }
 }
 

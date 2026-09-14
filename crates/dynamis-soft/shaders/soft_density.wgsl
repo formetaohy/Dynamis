@@ -97,7 +97,7 @@ fn visit_level(
     let live = entry_live();
     let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
     let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
-    counter_add(COUNTER_SPILLOVER_NEIGHBOURS, 1u);
+    counter_add(COUNTER_COARSE_NEIGHBOURS, 1u);
     var scanned = 0u;
     for (var entry = first; entry < end; entry = entry + 1u) {
         if (scanned >= REACH_CELL_BUDGET) {

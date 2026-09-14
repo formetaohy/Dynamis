@@ -14,28 +14,24 @@ fn emit_entry(
     offset: u32,
 ) {
     let slot = counter_add(COUNTER_ENTRIES, 1u);
-    if (slot < arrayLength(&entries)) {
-        var info = collider | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_COLLIDER << ENTRY_KIND_SHIFT);
-        if (awake) {
-            info = info | ENTRY_AWAKE;
-        }
-        if (body_is_movable(body_descs[owner])) {
-            info = info | ENTRY_MOBILE;
-        }
-        if (offset == 0u) {
-            info = info | ENTRY_PRIMARY;
-        }
-        var entry: GridEntry;
-        entry.min = aabbs[collider].min;
-        entry.max = aabbs[collider].max;
-        entry.group = owner;
-        entry.info = info;
-        entry_keys[slot] = cell_key(level, coord);
-        entry_order[slot] = slot;
-        entries[slot] = entry;
-    } else {
-        counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
+    var info = collider | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_COLLIDER << ENTRY_KIND_SHIFT);
+    if (awake) {
+        info = info | ENTRY_AWAKE;
     }
+    if (body_is_movable(body_descs[owner])) {
+        info = info | ENTRY_MOBILE;
+    }
+    if (offset == 0u) {
+        info = info | ENTRY_PRIMARY;
+    }
+    var entry: GridEntry;
+    entry.min = aabbs[collider].min;
+    entry.max = aabbs[collider].max;
+    entry.group = owner;
+    entry.info = info;
+    entry_keys[slot] = cell_key(level, coord);
+    entry_order[slot] = slot;
+    entries[slot] = entry;
 }
 
 fn work(index: u32) {
@@ -59,7 +55,7 @@ fn work(index: u32) {
         for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
             for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
                 if (cells >= MAX_CELLS_PER_COLLIDER) {
-                    counter_add(COUNTER_SPILLOVER_ENTRIES, 1u);
+                    counter_add(COUNTER_ENTRY_FAULTS, 1u);
                     continue;
                 }
                 let offset = u32(dx - min_cell.x)

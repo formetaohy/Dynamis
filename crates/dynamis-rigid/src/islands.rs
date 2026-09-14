@@ -3,8 +3,8 @@ use super::{CONTACT, IDENTITY};
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{
-    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
-    COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
+    COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_EVENTS, COUNTER_RESTING,
+    COUNTER_RESTING_INDEX, COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -50,10 +50,7 @@ impl Islands {
                     ("contact_matched", RigidStream::ContactMatched.whole()),
                     ("events", RigidStream::Events.whole()),
                     ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
-                    (
-                        "spillover",
-                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
-                    ),
+                    ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
@@ -78,10 +75,7 @@ impl Islands {
                     ("contact_matched", RigidStream::ContactMatched.whole()),
                     ("events", RigidStream::Events.whole()),
                     ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
-                    (
-                        "spillover",
-                        dynamis_state::counter(COUNTER_SPILLOVER_EVENTS),
-                    ),
+                    ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
                     ("resting", RigidStream::RestingContacts.whole()),
                     ("resting_live", RigidStream::RestingLive.whole()),

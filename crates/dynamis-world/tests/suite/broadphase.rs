@@ -1,6 +1,6 @@
 use super::common::{DT, gravity_config, new_world, settle, settle_until, static_config};
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_RESTING, COUNTER_SPILLOVER_PAIRS,
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -302,7 +302,7 @@ fn a_collider_pair_enters_the_candidate_stream_exactly_once() {
             "two overlapping spheres at {offset} span several cells but stay one candidate pair, got {}",
             world.measured()[COUNTER_PAIRS]
         );
-        assert_eq!(world.measured()[COUNTER_SPILLOVER_PAIRS], 0);
+        assert_eq!(world.measured()[COUNTER_REFUSED_PAIRS], 0);
     }
 }
 
@@ -362,7 +362,7 @@ fn a_dense_pile_fits_the_planned_pair_stream_from_its_first_collapse() {
     for _ in 0..120 {
         world.step(DT);
         assert_eq!(
-            world.measured()[COUNTER_SPILLOVER_PAIRS],
+            world.measured()[COUNTER_REFUSED_PAIRS],
             0,
             "a collapsing pile must never truncate its candidate pairs, capacity {}",
             world.stream_capacity().broadphase.pairs
@@ -422,7 +422,7 @@ fn a_dense_grain_cluster_never_spills_its_pair_stream() {
         world.step(DT);
         world.wait();
         assert_eq!(
-            world.measured()[COUNTER_SPILLOVER_PAIRS],
+            world.measured()[COUNTER_REFUSED_PAIRS],
             0,
             "a grain lattice must hold every candidate pair on frame {frame}"
         );
@@ -474,4 +474,105 @@ fn a_plane_carries_grains_far_below_its_grid_resolution() {
         "a grain must rest on the plane, got {}",
         world.read_state(far).position[1]
     );
+}
+
+fn clumped_spheres(
+    world: &mut dynamis_world::World,
+    side: usize,
+    spacing: f32,
+    height: f32,
+) -> Vec<dynamis_model::BodyHandle> {
+    let mut bodies = Vec::with_capacity(side * side * side);
+    for index in 0..side * side * side {
+        let x = (index % side) as f32 * spacing - 0.5;
+        let y = (index / side % side) as f32 * spacing + height;
+        let z = (index / (side * side)) as f32 * spacing - 0.5;
+        bodies.push(world.spawn(BodyDesc::sphere(0.06).position([x, y, z])));
+    }
+    bodies
+}
+
+#[test]
+fn a_saturated_pair_stream_never_stores_more_candidates_than_it_holds() {
+    let mut world = new_world(gravity_config());
+    clumped_spheres(&mut world, 10, 0.02, 0.1);
+    let mut refused = 0;
+    for frame in 0..8 {
+        world.step(DT);
+        world.wait();
+        let measured = *world.measured();
+        let capacity = world.stream_capacity().broadphase.pairs;
+        let stored = measured[COUNTER_PAIRS] - measured[COUNTER_REFUSED_PAIRS];
+        assert!(
+            stored <= capacity,
+            "frame {frame} stored {stored} candidates in a stream of {capacity}"
+        );
+        refused = refused.max(measured[COUNTER_REFUSED_PAIRS]);
+    }
+    assert!(
+        refused > 0,
+        "a clump of overlapping spheres must exceed the pair stream"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_REFUSED_PAIRS],
+        0,
+        "the widened stream of {} must serve every candidate pair",
+        world.stream_capacity().broadphase.pairs
+    );
+}
+
+#[test]
+fn a_fluid_never_drops_grid_entries() {
+    let mut world = new_world(gravity_config());
+    wide_static_floor(&mut world);
+    let fluid = fluid_lattice(&mut world);
+    for step in 0..40 {
+        world.step(DT);
+        world.wait();
+        let entries = world.measured()[COUNTER_ENTRIES];
+        let capacity = world.stream_capacity().broadphase.entries;
+        assert!(
+            entries <= capacity,
+            "step {step} emitted {entries} grid entries into a stream of {capacity}"
+        );
+        assert_eq!(
+            world.measured()[dynamis_abi::COUNTER_ENTRY_FAULTS],
+            0,
+            "a fluid must place every grid entry"
+        );
+    }
+    let lowest = world
+        .soft_body_positions(fluid)
+        .into_iter()
+        .fold(f32::MAX, |low, position| low.min(position[1]));
+    assert!(
+        lowest > -0.1,
+        "a fluid must rest on the floor instead of falling through it, lowest {lowest}"
+    );
+}
+
+const FLUID_SIDE: usize = 8;
+const FLUID_SPACING: f32 = 0.3;
+
+fn fluid_lattice(world: &mut dynamis_world::World) -> dynamis_model::SoftBodyHandle {
+    let mut particles = Vec::with_capacity(FLUID_SIDE * FLUID_SIDE * FLUID_SIDE);
+    for x in 0..FLUID_SIDE {
+        for y in 0..FLUID_SIDE {
+            for z in 0..FLUID_SIDE {
+                particles.push([
+                    x as f32 * FLUID_SPACING,
+                    0.3 + y as f32 * FLUID_SPACING,
+                    z as f32 * FLUID_SPACING,
+                ]);
+            }
+        }
+    }
+    world.add_soft_body(
+        dynamis_model::SoftBodyDesc::fluid(
+            particles,
+            0.1,
+            dynamis_model::FluidMaterial::new(FLUID_SPACING, 1.2 * FLUID_SPACING),
+        )
+        .position([-1.0, 0.0, -1.0]),
+    )
 }

@@ -9,10 +9,10 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_CONTACTS ||
         slot == COUNTER_JOINTS ||
         slot == COUNTER_EVENTS ||
-        slot == COUNTER_SPILLOVER_PAIRS ||
-        slot == COUNTER_SPILLOVER_EVENTS ||
-        slot == COUNTER_SPILLOVER_ENTRIES ||
-        slot == COUNTER_SPILLOVER_RESTING ||
+        slot == COUNTER_REFUSED_PAIRS ||
+        slot == COUNTER_REFUSED_EVENTS ||
+        slot == COUNTER_ENTRY_FAULTS ||
+        slot == COUNTER_REFUSED_RESTING ||
         slot == COUNTER_ACTIVE ||
         slot == COUNTER_SLEPT ||
         slot == COUNTER_WOKE ||
@@ -22,9 +22,9 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_GRID_SCALE ||
         slot == COUNTER_GRID_EXTENT ||
         slot == COUNTER_PARTICLE_REACH ||
-        slot == COUNTER_SPILLOVER_NEIGHBOURS ||
+        slot == COUNTER_COARSE_NEIGHBOURS ||
         slot == COUNTER_LIVE ||
-        slot == COUNTER_SPILLOVER_LIVE ||
+        slot == COUNTER_LIVE_FAULTS ||
         slot == COUNTER_SOFT_ACTIVE ||
         slot == COUNTER_SOFT_SLEPT ||
         slot == COUNTER_SOFT_WOKE ||
