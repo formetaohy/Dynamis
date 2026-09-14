@@ -2,7 +2,7 @@ use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
     ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT,
 };
-use crate::{SoftBodyRecord, SoftElementRecord, SoftParticleRecord};
+use crate::{SoftAttachmentRecord, SoftBodyRecord, SoftElementRecord, SoftParticleRecord};
 use dynamis_model::{SoftElement, SoftElementKind, SoftElementState};
 
 pub struct SoftParticleInit {
@@ -105,6 +105,35 @@ impl SoftBodyRecord {
         Self {
             sleeping: 1,
             ..Self::awake()
+        }
+    }
+}
+
+pub struct SoftAttachmentInit {
+    pub particle: u32,
+    pub body_id: u32,
+    pub generation: u32,
+    pub local: [f32; 3],
+}
+
+impl SoftAttachmentRecord {
+    pub fn build(init: SoftAttachmentInit) -> Self {
+        Self {
+            local: init.local,
+            particle: init.particle,
+            body_id: init.body_id,
+            generation: init.generation,
+            _wgsl_pad0: [0; 8],
+        }
+    }
+
+    pub const fn cleared() -> Self {
+        Self {
+            local: [0.0; 3],
+            particle: NO_SLOT,
+            body_id: NO_BODY,
+            generation: 0,
+            _wgsl_pad0: [0; 8],
         }
     }
 }

@@ -19,6 +19,7 @@ impl StepParamsRecord {
             particles,
             elements,
             soft_bodies,
+            attachments,
         } = counts;
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
@@ -55,6 +56,7 @@ impl StepParamsRecord {
             element_count: elements,
             soft_substep_dt: dt / config.soft_substeps as f32,
             soft_body_count: soft_bodies,
+            attachment_count: attachments,
             settle_velocity: config.settle_velocity,
             ..Self::zeroed()
         }
@@ -70,6 +72,7 @@ pub struct FrameCounts {
     pub constraints: u32,
     pub particles: u32,
     pub elements: u32,
+    pub attachments: u32,
     pub soft_bodies: u32,
 }
 
@@ -89,6 +92,7 @@ pub enum Count {
     Constraints,
     Particles,
     Elements,
+    Attachments,
     SoftBodies,
     EditRuns,
     BodyMoves,
@@ -105,6 +109,7 @@ impl Count {
             Self::Constraints => "constraint_count",
             Self::Particles => "particle_count",
             Self::Elements => "element_count",
+            Self::Attachments => "attachment_count",
             Self::SoftBodies => "soft_body_count",
             Self::EditRuns => "edit_run_count",
             Self::BodyMoves => "body_move_count",
@@ -121,6 +126,7 @@ impl Count {
             Self::Constraints => params.constraint_count,
             Self::Particles => params.particle_count,
             Self::Elements => params.element_count,
+            Self::Attachments => params.attachment_count,
             Self::SoftBodies => params.soft_body_count,
             Self::EditRuns => params.edit_run_count,
             Self::BodyMoves => params.body_move_count,

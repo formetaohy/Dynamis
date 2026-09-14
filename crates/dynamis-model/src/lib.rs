@@ -23,6 +23,6 @@ pub use mass::{
 pub use query::QueryFilter;
 pub use shape::{Shape, ShapeSourceHandle, SolidGeometry};
 pub use soft::{
-    FluidMaterial, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState,
-    SoftMaterial,
+    FluidMaterial, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,
+    SoftElementState, SoftMaterial,
 };

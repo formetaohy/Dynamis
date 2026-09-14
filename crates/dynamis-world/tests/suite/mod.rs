@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod attachment;
 pub mod broadphase;
 pub mod capabilities;
 pub mod capacity;

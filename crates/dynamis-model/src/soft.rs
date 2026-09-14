@@ -1,3 +1,4 @@
+use crate::BodyHandle;
 use std::collections::{BTreeMap, BTreeSet};
 
 const ELASTIC_STRAIN: f32 = f32::INFINITY;
@@ -229,6 +230,39 @@ fn apply_strength(material: &SoftMaterial, element: SoftElement) -> SoftElement 
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftAttachment {
+    particle: u32,
+    body: BodyHandle,
+    local: [f32; 3],
+}
+
+impl SoftAttachment {
+    pub fn new(particle: u32, body: BodyHandle, local: [f32; 3]) -> Self {
+        assert!(
+            local.iter().all(|value| value.is_finite()),
+            "a soft attachment anchor must be finite"
+        );
+        Self {
+            particle,
+            body,
+            local,
+        }
+    }
+
+    pub const fn particle(&self) -> u32 {
+        self.particle
+    }
+
+    pub const fn body(&self) -> BodyHandle {
+        self.body
+    }
+
+    pub const fn local(&self) -> [f32; 3] {
+        self.local
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SoftElementState {
     kind: SoftElementKind,
     particles: [u32; SoftElement::PARTICLES],
@@ -301,6 +335,7 @@ pub struct SoftBodyDesc {
     pub particles: Vec<[f32; 3]>,
     pub inverse_masses: Vec<f32>,
     pub elements: Vec<SoftElement>,
+    pub attachments: Vec<SoftAttachment>,
     pub fluid: Option<FluidMaterial>,
     pub radius: f32,
     pub friction: f32,
@@ -334,12 +369,34 @@ impl SoftBodyDesc {
             particles,
             inverse_masses,
             elements,
+            attachments: Vec::new(),
             fluid: None,
             radius: 0.0,
             friction: 0.5,
             position: [0.0; 3],
             orientation: [0.0, 0.0, 0.0, 1.0],
             velocity: [0.0; 3],
+        }
+    }
+
+    pub fn attach(mut self, attachment: SoftAttachment) -> Self {
+        self.attachments.push(attachment);
+        self.assert_attachments();
+        self
+    }
+
+    pub fn assert_attachments(&self) {
+        for (slot, attachment) in self.attachments.iter().enumerate() {
+            assert!(
+                (attachment.particle() as usize) < self.particles.len(),
+                "a soft attachment must reference a live particle"
+            );
+            assert!(
+                self.attachments[..slot]
+                    .iter()
+                    .all(|other| other.particle() != attachment.particle()),
+                "a soft particle carries at most one attachment"
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::SoftDomain;
 use dynamis_abi::{
-    ELEMENT_PARTICLES, SoftBodyRecord, SoftContactRecord, SoftElementRecord, SoftParticleRecord,
+    ELEMENT_PARTICLES, SoftAttachmentRecord, SoftBodyRecord, SoftContactRecord, SoftElementRecord,
+    SoftParticleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
@@ -14,6 +15,7 @@ streams! {
     demand {
         particles: u32,
         elements: u32,
+        attachments: u32,
         adjacency: u32,
         soft_bodies: u32,
         rigid_bodies: u32,
@@ -21,6 +23,7 @@ streams! {
     streams {
         particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Durable, demand.particles;
         elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Durable, demand.elements;
+        attachments, Attachments: "soft attachments", size_of::<SoftAttachmentRecord>() as u64, Contents::Durable, demand.attachments;
         adjacency, Adjacency: "soft adjacency", 4, Contents::Durable, demand.adjacency;
         bodies, BodyStates: "soft body states", size_of::<SoftBodyRecord>() as u64, Contents::Durable, demand.soft_bodies;
         contributions, Contributions: "soft element contributions", size_of::<[f32; 4]>() as u64, Contents::Scratch, demand.element_contributions();

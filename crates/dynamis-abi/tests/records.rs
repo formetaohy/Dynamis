@@ -256,6 +256,7 @@ fn step_params_record_maps_config() {
             constraints: 2,
             particles: 17,
             elements: 19,
+            attachments: 21,
             soft_bodies: 23,
         },
         RowStreams {
@@ -283,6 +284,7 @@ fn step_params_record_maps_config() {
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.particle_count, 17);
     assert_eq!(record.element_count, 19);
+    assert_eq!(record.attachment_count, 21);
     assert_eq!(record.soft_body_count, 23);
     assert_eq!(record.settle_velocity, 0.001);
     assert_eq!(record.solve_iterations, 7);

@@ -33,6 +33,7 @@ struct StepParams {
     element_count: u32,
     soft_substep_dt: f32,
     soft_body_count: u32,
+    attachment_count: u32,
     settle_velocity: f32,
 }
 
@@ -53,6 +54,13 @@ struct SoftBody {
     sleeping: u32,
     moving: atomic<u32>,
     wake: atomic<u32>,
+}
+
+struct SoftAttachment {
+    local: vec3f,
+    particle: u32,
+    body_id: u32,
+    generation: u32,
 }
 
 struct SoftElement {

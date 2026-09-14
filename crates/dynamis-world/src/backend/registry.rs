@@ -142,7 +142,7 @@ impl StepPasses {
 
 impl World {
     pub(crate) fn live(&self) -> Live {
-        let (particles, elements, adjacency) = self.soft.used();
+        let (particles, elements, attachments, adjacency) = self.soft.used();
         let bodies = self.bodies.alive.len() as u32;
         let colliders = self.colliders.live();
         let collider_pool = self.colliders.used();
@@ -179,6 +179,7 @@ impl World {
             soft: dynamis_soft::SoftInputs {
                 particles,
                 elements,
+                attachments,
                 adjacency,
                 bodies: self.soft.ids_len() as u32,
                 material: self.soft.carries_strength(),
@@ -212,6 +213,7 @@ impl World {
             constraints: self.constraints.alive.len() as u32,
             particles: self.soft.used().0,
             elements: self.soft.used().1,
+            attachments: self.soft.used().2,
             soft_bodies: self.soft.ids_len() as u32,
         }
     }

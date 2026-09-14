@@ -123,6 +123,10 @@ impl World {
     pub fn remove(&mut self, handle: BodyHandle) {
         self.validate(handle);
         self.assert_no_constraints(handle);
+        assert!(
+            self.soft.attachment_refs(handle.id) == 0,
+            "body handle {handle:?} still anchors a soft attachment"
+        );
         let id = handle.id as usize;
         let slot = self.bodies.index_of[id];
         if (slot as usize) < self.bodies.dynamic_count {

@@ -5,6 +5,7 @@ use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, settled};
 pub struct SoftCapacity {
     pub particles: u32,
     pub elements: u32,
+    pub attachments: u32,
     pub adjacency: u32,
     pub bodies: u32,
 }
@@ -13,6 +14,7 @@ pub struct SoftCapacity {
 pub struct SoftInputs {
     pub particles: u32,
     pub elements: u32,
+    pub attachments: u32,
     pub adjacency: u32,
     pub bodies: u32,
     pub material: bool,
@@ -22,6 +24,7 @@ pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
     SoftCapacity {
         particles: streams.particles.slots(),
         elements: streams.elements.slots(),
+        attachments: streams.attachments.slots(),
         adjacency: streams.adjacency.slots(),
         bodies: streams.bodies.slots(),
     }
@@ -36,6 +39,12 @@ pub fn plan(
     SoftDemand {
         particles: settled(idle, current.particles.slots(), inputs.particles, MIN_SLOTS),
         elements: settled(idle, current.elements.slots(), inputs.elements, MIN_SLOTS),
+        attachments: settled(
+            idle,
+            current.attachments.slots(),
+            inputs.attachments,
+            MIN_SLOTS,
+        ),
         adjacency: settled(
             idle,
             current.adjacency.slots(),
@@ -56,6 +65,7 @@ pub const fn floor() -> SoftDemand {
     SoftDemand {
         particles: MIN_SLOTS,
         elements: MIN_SLOTS,
+        attachments: MIN_SLOTS,
         adjacency: STREAM_FLOOR,
         soft_bodies: MIN_SLOTS,
         rigid_bodies: MIN_SLOTS,

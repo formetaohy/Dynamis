@@ -17,6 +17,12 @@ use dynamis_state::StateStream;
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
 const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
 const ELEMENT_SAMPLE: &[&str] = &[include_str!("../shaders/element_sample.wgsl")];
+const SOFT_REACTION: &[&str] = &[include_str!("../shaders/soft_reaction.wgsl")];
+const SOFT_ANCHOR: &[&str] = &[include_str!("../shaders/soft_anchor.wgsl")];
+const SOFT_ATTACH: &[&str] = &[
+    include_str!("../shaders/soft_reaction.wgsl"),
+    include_str!("../shaders/soft_anchor.wgsl"),
+];
 
 fn particle_index() -> Vec<&'static str> {
     let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
@@ -64,11 +70,13 @@ pub struct Soft {
     entries: Stage,
     activity: Stage,
     wake: Stage,
+    attach_wake: Stage,
     rest: Stage,
     integrate: Stage,
     reset: Stage,
     elements: Stage,
     gather: Stage,
+    attachment: Stage,
     density: Stage,
     pressure: Stage,
     detect: Stage,
@@ -165,6 +173,27 @@ impl Soft {
                 ],
                 &[],
             ),
+            attach_wake: Stage::build(
+                context,
+                "soft_attach_wake",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_attach_wake.wgsl"),
+                    SOFT_ANCHOR,
+                    Count::Attachments.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("attachments", SoftStream::Attachments.whole()),
+                    ("particles", particles.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("bodies", bodies.whole()),
+                ],
+                &[],
+            ),
             rest: Stage::build(
                 context,
                 "soft_rest",
@@ -254,6 +283,28 @@ impl Soft {
                 ],
                 &[],
             ),
+            attachment: Stage::build(
+                context,
+                "soft_attach",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_attach.wgsl"),
+                    SOFT_ATTACH,
+                    Count::Attachments.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("attachments", SoftStream::Attachments.whole()),
+                    ("particles", particles.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("reactions", SoftStream::Reactions.whole()),
+                    ("bodies", bodies.whole()),
+                ],
+                &[],
+            ),
             density: Stage::build(
                 context,
                 "soft_density",
@@ -331,7 +382,7 @@ impl Soft {
                 rows(
                     context,
                     include_str!("../shaders/soft_collide_resolve.wgsl"),
-                    CORE,
+                    SOFT_REACTION,
                     Count::Particles.field(),
                 ),
                 streams,
@@ -407,6 +458,7 @@ impl Soft {
         let particles = Count::Particles.rows(&frame.params);
         let elements = Count::Elements.rows(&frame.params);
         let bodies = Count::SoftBodies.rows(&frame.params);
+        let attachments = Count::Attachments.rows(&frame.params);
         if pass == self.passes.soft_bounds {
             let mut bounds = schedule.open(encoder, pass);
             self.bounds.record_rows(&mut bounds, streams, particles);
@@ -419,6 +471,8 @@ impl Soft {
             let mut settle = schedule.open(encoder, pass);
             self.activity.record_rows(&mut settle, streams, particles);
             self.wake.record_rows(&mut settle, streams, particles);
+            self.attach_wake
+                .record_rows(&mut settle, streams, attachments);
             self.rest.record_rows(&mut settle, streams, bodies);
             drop(settle);
         } else if pass == self.passes.soft_substeps {
@@ -433,6 +487,8 @@ impl Soft {
                     self.density.record_rows(&mut substeps, streams, particles);
                     self.pressure.record_rows(&mut substeps, streams, particles);
                 }
+                self.attachment
+                    .record_rows(&mut substeps, streams, attachments);
                 self.detect.record_rows(&mut substeps, streams, particles);
                 self.resolve.record_rows(&mut substeps, streams, particles);
                 if frame.material {

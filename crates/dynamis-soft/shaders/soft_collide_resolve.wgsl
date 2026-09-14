@@ -6,25 +6,8 @@
 @group(0) @binding(5) var<storage, read_write> reactions: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read> bodies: array<SoftBody>;
 
-const REACTION_SCALE: f32 = 65536.0;
-const REACTION_WORDS: u32 = 8u;
-
 fn load_body(row: u32) -> Body {
     return Body(body_states[row], body_descs[row]);
-}
-
-fn fixed_word(value: f32) -> u32 {
-    return u32(i32(clamp(value * REACTION_SCALE, -2.0e9, 2.0e9)));
-}
-
-fn accumulate_reaction(row: u32, shift: vec3f, spin: vec3f) {
-    let base = row * REACTION_WORDS;
-    atomicAdd(&reactions[base], fixed_word(shift.x));
-    atomicAdd(&reactions[base + 1u], fixed_word(shift.y));
-    atomicAdd(&reactions[base + 2u], fixed_word(shift.z));
-    atomicAdd(&reactions[base + 4u], fixed_word(spin.x));
-    atomicAdd(&reactions[base + 5u], fixed_word(spin.y));
-    atomicAdd(&reactions[base + 6u], fixed_word(spin.z));
 }
 
 fn apply_friction(

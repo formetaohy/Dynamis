@@ -1,6 +1,7 @@
 use dynamis_model::{
-    BodyDesc, ColliderDesc, ConstraintDesc, FluidMaterial, MaterialCombine, PhysicsConfig, Shape,
-    SoftBodyDesc, SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
+    BodyDesc, BodyHandle, ColliderDesc, ConstraintDesc, FluidMaterial, MaterialCombine,
+    PhysicsConfig, Shape, SoftAttachment, SoftBodyDesc, SoftElement, SoftElementKind,
+    SoftElementState, SoftMaterial,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -193,5 +194,32 @@ fn a_soft_material_spreads_its_strength_over_its_elements() {
         .participants()
         .collect::<Vec<_>>(),
         vec![3, 4]
+    );
+}
+
+#[test]
+fn a_soft_attachment_binds_one_particle_to_a_body() {
+    let body = BodyHandle {
+        id: 7,
+        generation: 2,
+    };
+    let anchor = SoftAttachment::new(1, body, [0.5, 0.0, 0.0]);
+    assert_eq!(anchor.particle(), 1);
+    assert_eq!(anchor.body(), body);
+    assert_eq!(anchor.local(), [0.5, 0.0, 0.0]);
+    let net = SoftBodyDesc::net(vec![[0.0; 3], [0.0, 1.0, 0.0]], vec![[0, 1]]);
+    let attached = net.clone().attach(anchor);
+    assert_eq!(attached.attachments, vec![anchor]);
+    assert!(attached.attachments[0].body() == body);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| attached.clone().attach(anchor))).is_err(),
+        "a soft particle carries at most one attachment"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            net.clone().attach(SoftAttachment::new(2, body, [0.0; 3]))
+        }))
+        .is_err(),
+        "a soft attachment must reference a live particle"
     );
 }

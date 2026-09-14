@@ -24,7 +24,8 @@ pub use dynamis_model::{
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
     ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, FluidMaterial,
     MassProperties, MaterialCombine, PhysicsConfig, QueryFilter, Shape, ShapeSourceHandle,
-    SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
+    SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState,
+    SoftMaterial,
 };
 pub use dynamis_world::{
     ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, RigidShape,

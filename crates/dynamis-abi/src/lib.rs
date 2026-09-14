@@ -60,5 +60,5 @@ pub use counter::{COUNTER_COUNT, COUNTER_STRIDE, Counters, DeclaredCounters};
 pub use decode::decode;
 pub use param::{Count, FrameCounts, RowStreams};
 pub use records::*;
-pub use soft::{SoftElementInit, SoftParticleInit};
+pub use soft::{SoftAttachmentInit, SoftElementInit, SoftParticleInit};
 pub use wgsl::constants_wgsl;
