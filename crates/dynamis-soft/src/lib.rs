@@ -16,6 +16,7 @@ use dynamis_state::StateStream;
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
 const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")];
+const PARTICLE_KERNEL: &[&str] = &[include_str!("../shaders/particle_kernel.wgsl")];
 const ELEMENT_SAMPLE: &[&str] = &[include_str!("../shaders/element_sample.wgsl")];
 const SOFT_REACTION: &[&str] = &[include_str!("../shaders/soft_reaction.wgsl")];
 const SOFT_ANCHOR: &[&str] = &[include_str!("../shaders/soft_anchor.wgsl")];
@@ -30,9 +31,10 @@ fn particle_index() -> Vec<&'static str> {
     fragments
 }
 
-fn particle_reach_index() -> Vec<&'static str> {
+fn particle_fluid_index() -> Vec<&'static str> {
     let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
+    fragments.extend_from_slice(PARTICLE_KERNEL);
     fragments
 }
 
@@ -89,7 +91,7 @@ impl Soft {
         let particles = SoftStream::Particles;
         let bodies = SoftStream::BodyStates;
         let index = particle_index();
-        let reach = particle_reach_index();
+        let reach = particle_fluid_index();
         let collide = particle_collide_index();
         let wake_fragments = particle_wake_index();
         Self {

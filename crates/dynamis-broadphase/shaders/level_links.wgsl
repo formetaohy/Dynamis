@@ -27,35 +27,30 @@ fn emit_pair(first: u32, second: u32) {
 fn link_level(node: u32, level: u32, awake: bool, live: u32, grid: f32) {
     let box = entry_box(node);
     let cell_size = level_cell_size(level, grid);
-    let min_cell = vec3i(floor(box.min / cell_size));
-    let max_cell = vec3i(floor(box.max / cell_size));
-    for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
-        for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
-            for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
-                let cell = vec3i(dx, dy, dz);
-                let range = entry_bounds(live, cell_key(level, cell));
-                for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-                    let other = entry_node(entry);
-                    if (other == node) {
-                        continue;
-                    }
-                    if (!awake && !entry_awake(entries[other].info)) {
-                        continue;
-                    }
-                    let other_box = entry_box(other);
-                    if (!aabb_overlaps(box, other_box)) {
-                        continue;
-                    }
-                    if (any(entry_cell(other, cell_size) != cell)) {
-                        continue;
-                    }
-                    let overlap_min = max(box.min, other_box.min);
-                    if (any(vec3i(floor(overlap_min / cell_size)) != cell)) {
-                        continue;
-                    }
-                    emit_pair(node, other);
-                }
+    let cells = grid_cells(box, cell_size);
+    let count = grid_cell_count(cells);
+    for (var ordinal = 0u; ordinal < count; ordinal = ordinal + 1u) {
+        let cell = grid_cell_at(cells, ordinal);
+        let range = entry_cell_bounds(live, level, cell);
+        for (var entry = range.x; entry < range.y; entry = entry + 1u) {
+            let other = entry_node(entry);
+            if (other == node) {
+                continue;
             }
+            if (!awake && !entry_awake(entries[other].info)) {
+                continue;
+            }
+            let other_box = entry_box(other);
+            if (!aabb_overlaps(box, other_box)) {
+                continue;
+            }
+            if (any(entry_cell(other, cell_size) != cell)) {
+                continue;
+            }
+            if (any(grid_overlap_cell(box, other_box, cell_size) != cell)) {
+                continue;
+            }
+            emit_pair(node, other);
         }
     }
 }
@@ -80,7 +75,7 @@ fn work(index: u32) {
     }
     let grid = grid_base_cell();
     let level = shape_levels(entry_box(node), grid);
-    var coarser = counter_load(COUNTER_GRID_LEVELS) & ~((1u << min(level + 1u, 31u)) - 1u);
+    var coarser = grid_coarser_levels(grid_occupied(), level);
     while (coarser != 0u) {
         let link = 31u - countLeadingZeros(coarser);
         coarser = coarser & ~(1u << link);

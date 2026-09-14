@@ -158,61 +158,29 @@ fn visit_entry(
     }
 }
 
-fn scan_cell(
-    level: u32,
-    cell_size: f32,
-    coord: vec3i,
-    box: Aabb,
+fn scan_neighbours(
     center: vec3f,
+    box: Aabb,
     radius: f32,
     self_index: u32,
     self_owner: u32,
     held: ptr<function, ParticleContact>,
 ) {
-    let range = entry_bounds_of(level, coord);
-    for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-        visit_entry(
-            entry_node(entry),
-            box,
-            cell_size,
-            center,
-            radius,
-            self_index,
-            self_owner,
-            held,
-        );
-    }
-}
-
-fn scan_level(
-    level: u32,
-    box: Aabb,
-    center: vec3f,
-    radius: f32,
-    self_index: u32,
-    self_owner: u32,
-    held: ptr<function, ParticleContact>,
-) {
-    let live = entry_live();
-    let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
-    let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
-    let cell_size = level_cell_size(level, grid_base_cell());
-    var scanned = 0u;
-    for (var entry = first; entry < end; entry = entry + 1u) {
-        if (scanned >= REACH_CELL_BUDGET) {
-            break;
+    let slices = grid_slices(box);
+    for (var index = 0u; index < slices; index = index + 1u) {
+        let slice = grid_slice(box, index);
+        for (var entry = slice.first; entry < grid_scan_end(slice); entry = entry + 1u) {
+            visit_entry(
+                entry_node(entry),
+                box,
+                slice.cell_size,
+                center,
+                radius,
+                self_index,
+                self_owner,
+                held,
+            );
         }
-        scanned = scanned + 1u;
-        visit_entry(
-            entry_node(entry),
-            box,
-            cell_size,
-            center,
-            radius,
-            self_index,
-            self_owner,
-            held,
-        );
     }
 }
 
@@ -240,43 +208,14 @@ fn work(index: u32) {
     var held = no_contact();
     if (radius > 0.0) {
         let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
-        let box = reach_box(center, radius + reach);
-        var occupied = counter_load(COUNTER_GRID_LEVELS);
-        while (occupied != 0u) {
-            let level = countTrailingZeros(occupied);
-            occupied = occupied & (occupied - 1u);
-            let cell_size = level_cell_size(level, grid_base_cell());
-            let cells = reach_cells(box, cell_size);
-            if (reach_span(cells) <= REACH_CELL_BUDGET) {
-                for (var x = cells.min.x; x <= cells.max.x; x = x + 1) {
-                    for (var y = cells.min.y; y <= cells.max.y; y = y + 1) {
-                        for (var z = cells.min.z; z <= cells.max.z; z = z + 1) {
-                            scan_cell(
-                                level,
-                                cell_size,
-                                vec3i(x, y, z),
-                                box,
-                                center,
-                                radius,
-                                index,
-                                particle.owner,
-                                &held,
-                            );
-                        }
-                    }
-                }
-            } else {
-                scan_level(
-                    level,
-                    box,
-                    center,
-                    radius,
-                    index,
-                    particle.owner,
-                    &held,
-                );
-            }
-        }
+        scan_neighbours(
+            center,
+            reach_box(center, radius + reach),
+            radius,
+            index,
+            particle.owner,
+            &held,
+        );
     }
     var record = no_contact_record();
     if (held.partner != NO_SLOT && held.separation < 0.0) {

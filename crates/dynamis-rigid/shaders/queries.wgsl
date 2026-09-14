@@ -8,7 +8,6 @@
 @group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
 
 const CANDIDATES_PER_QUERY: u32 = 4096u;
-const CELLS_PER_QUERY: u32 = 4096u;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -76,74 +75,46 @@ fn query_collider(sorted: u32) -> u32 {
     return entry_index(info);
 }
 
-fn collect_cell(range: vec2u) {
-    for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-        let collider = query_collider(entry);
-        if (collider == NO_SLOT) {
-            continue;
-        }
-        let slot = atomicAdd(&candidate_count, 1u);
-        if (slot >= CANDIDATES_PER_QUERY) {
-            atomicStore(&overflow_flag, 1u);
-            continue;
-        }
-        candidates[slot] = collider;
+fn collect_entry(entry: u32, query_box: Aabb, whole: bool) {
+    let collider = query_collider(entry);
+    if (collider == NO_SLOT) {
+        return;
     }
+    if (whole && !aabb_overlaps(aabbs[collider], query_box)) {
+        return;
+    }
+    let slot = atomicAdd(&candidate_count, 1u);
+    if (slot >= CANDIDATES_PER_QUERY) {
+        atomicStore(&overflow_flag, 1u);
+        return;
+    }
+    candidates[slot] = collider;
 }
 
-fn collect_level_entries(level: u32, query_box: Aabb, invocation: u32) {
-    let live = entry_live();
-    let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
-    let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
-    var entry = first + invocation;
-    while (entry < end && atomicLoad(&candidate_count) <= CANDIDATES_PER_QUERY) {
-        let collider = query_collider(entry);
-        if (collider != NO_SLOT && aabb_overlaps(aabbs[collider], query_box)) {
-            let slot = atomicAdd(&candidate_count, 1u);
-            if (slot >= CANDIDATES_PER_QUERY) {
-                atomicStore(&overflow_flag, 1u);
-            } else {
-                candidates[slot] = collider;
-            }
-        }
+fn collect_whole_slice(slice: GridSlice, query_box: Aabb, invocation: u32) {
+    var entry = slice.first + invocation;
+    while (entry < slice.end && atomicLoad(&candidate_count) <= CANDIDATES_PER_QUERY) {
+        collect_entry(entry, query_box, true);
         entry = entry + WORKGROUP_SIZE;
     }
 }
 
-fn collect_level_cells(min_cell: vec3i, span: vec3i, level: u32, invocation: u32) {
-    let rows = u32(span.x) * u32(span.y);
-    let cells = rows * u32(span.z);
-    var cell_index = invocation;
-    while (cell_index < cells) {
-        let dx = min_cell.x + i32(cell_index % u32(span.x));
-        let dy = min_cell.y + i32((cell_index / u32(span.x)) % u32(span.y));
-        let dz = min_cell.z + i32(cell_index / rows);
-        collect_cell(entry_bounds_of(level, vec3i(dx, dy, dz)));
-        cell_index = cell_index + WORKGROUP_SIZE;
+fn collect_cell_slice(slice: GridSlice, query_box: Aabb) {
+    for (var entry = slice.first; entry < slice.end; entry = entry + 1u) {
+        collect_entry(entry, query_box, false);
     }
 }
 
-fn fits_cell_budget(span: vec3i) -> bool {
-    if (span.x <= 0 || span.y <= 0 || span.z <= 0) {
-        return false;
+fn collect_candidates(query_box: Aabb, invocation: u32) {
+    let whole = grid_whole_slices(query_box);
+    for (var index = 0u; index < whole; index = index + 1u) {
+        collect_whole_slice(grid_whole_slice(query_box, index), query_box, invocation);
     }
-    let axis_limit = i32(CELLS_PER_QUERY);
-    if (span.x > axis_limit || span.y > axis_limit || span.z > axis_limit) {
-        return false;
-    }
-    let rows = u32(span.x) * u32(span.y);
-    return rows <= CELLS_PER_QUERY && rows * u32(span.z) <= CELLS_PER_QUERY;
-}
-
-fn collect_level(level: u32, query_box: Aabb, invocation: u32) {
-    let cell_size = level_cell_size(level, grid_base_cell());
-    let min_cell = vec3i(floor(query_box.min / cell_size));
-    let max_cell = vec3i(floor(query_box.max / cell_size));
-    let span = max_cell - min_cell + vec3i(1);
-    if (fits_cell_budget(span)) {
-        collect_level_cells(min_cell, span, level, invocation);
-    } else {
-        collect_level_entries(level, query_box, invocation);
+    let cells = grid_cell_slices(query_box);
+    var index = invocation;
+    while (index < cells) {
+        collect_cell_slice(grid_cell_slice(query_box, index), query_box);
+        index = index + WORKGROUP_SIZE;
     }
 }
 
@@ -439,12 +410,7 @@ fn main(
     atomicStore(&overflow_flag, 0u);
     workgroupBarrier();
     let query_box = query_world_aabb(query);
-    var occupied = counter_load(COUNTER_GRID_LEVELS);
-    while (occupied != 0u) {
-        let level = countTrailingZeros(occupied);
-        occupied = occupied & (occupied - 1u);
-        collect_level(level, query_box, invocation_id.x);
-    }
+    collect_candidates(query_box, invocation_id.x);
     workgroupBarrier();
     if (invocation_id.x == 0u && atomicLoad(&overflow_flag) != 0u) {
         atomicStore(&query_results[batch].header.overflow, 1u);

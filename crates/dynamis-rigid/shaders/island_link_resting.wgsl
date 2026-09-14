@@ -7,34 +7,6 @@
 @group(0) @binding(6) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
-fn resolve_row(body_id: u32, generation: u32) -> u32 {
-    if (body_id >= arrayLength(&row_of_body)) {
-        return NO_BODY;
-    }
-    let row = row_of_body[body_id];
-    if (row >= arrayLength(&body_states) || !contact_row_matches(body_states[row], body_id, generation)) {
-        return NO_BODY;
-    }
-    return row;
-}
-
-fn island_link(first: u32, second: u32) {
-    if (first >= params.dynamic_count || second >= params.dynamic_count || first == second) {
-        return;
-    }
-    atomicMin(&island_parents[first], second);
-    atomicMin(&island_parents[second], first);
-}
-
-fn carry_static_wake(movable: u32, partner: u32) {
-    if (partner < params.dynamic_count) {
-        return;
-    }
-    if (atomicLoad(&wake_flags[partner]) != 0u) {
-        atomicOr(&wake_flags[movable], 1u);
-    }
-}
-
 fn extent() -> u32 {
     return min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
 }

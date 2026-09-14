@@ -10,10 +10,11 @@ fn emit_entry(
     owner: u32,
     awake: bool,
     level: u32,
+    cells: GridCells,
     coord: vec3i,
-    offset: u32,
 ) {
     let slot = counter_add(COUNTER_ENTRIES, 1u);
+    let offset = grid_cell_offset(cells, coord);
     var info = collider | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_COLLIDER << ENTRY_KIND_SHIFT);
     if (awake) {
         info = info | ENTRY_AWAKE;
@@ -40,30 +41,19 @@ fn work(index: u32) {
         return;
     }
     let aabb = aabbs[index];
-    let cell = grid_base_cell();
-    let level = shape_levels(aabb, cell);
+    let base = grid_base_cell();
+    let level = grid_entry_level(aabb, base);
     let awake = body_activity[owner] != 0u || atomicLoad(&wake_flags[owner]) != 0u;
-    counter_or(COUNTER_GRID_LEVELS, 1u << level);
     if (level > 0u && awake) {
         counter_add(COUNTER_COARSE_ACTIVE, 1u);
     }
-    let cell_size = level_cell_size(level, cell);
-    let min_cell = vec3i(floor(aabb.min / cell_size));
-    let max_cell = vec3i(floor(aabb.max / cell_size));
-    var cells = 0u;
-    for (var dx = min_cell.x; dx <= max_cell.x; dx = dx + 1) {
-        for (var dy = min_cell.y; dy <= max_cell.y; dy = dy + 1) {
-            for (var dz = min_cell.z; dz <= max_cell.z; dz = dz + 1) {
-                if (cells >= MAX_CELLS_PER_COLLIDER) {
-                    counter_add(COUNTER_ENTRY_FAULTS, 1u);
-                    continue;
-                }
-                let offset = u32(dx - min_cell.x)
-                    | (u32(dy - min_cell.y) << 1u)
-                    | (u32(dz - min_cell.z) << 2u);
-                cells = cells + 1u;
-                emit_entry(index, owner, awake, level, vec3i(dx, dy, dz), offset);
-            }
-        }
+    let cells = grid_cells(aabb, level_cell_size(level, base));
+    let count = grid_cell_count(cells);
+    let emitted = min(count, MAX_CELLS_PER_COLLIDER);
+    if (count > emitted) {
+        counter_add(COUNTER_ENTRY_FAULTS, count - emitted);
+    }
+    for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {
+        emit_entry(index, owner, awake, level, cells, grid_cell_at(cells, ordinal));
     }
 }

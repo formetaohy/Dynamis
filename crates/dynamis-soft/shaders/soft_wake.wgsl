@@ -43,25 +43,13 @@ fn visit_entry(node: u32, box: Aabb, cell_size: f32, held: ptr<function, bool>) 
     *held = partner_pushes(node);
 }
 
-fn scan_cell(level: u32, cell_size: f32, coord: vec3i, box: Aabb, held: ptr<function, bool>) {
-    let range = entry_bounds_of(level, coord);
-    for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-        visit_entry(entry_node(entry), box, cell_size, held);
-    }
-}
-
-fn scan_level(level: u32, box: Aabb, held: ptr<function, bool>) {
-    let live = entry_live();
-    let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
-    let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
-    let cell_size = level_cell_size(level, grid_base_cell());
-    var scanned = 0u;
-    for (var entry = first; entry < end; entry = entry + 1u) {
-        if (scanned >= REACH_CELL_BUDGET) {
-            break;
+fn scan_neighbours(box: Aabb, held: ptr<function, bool>) {
+    let slices = grid_slices(box);
+    for (var index = 0u; index < slices && !(*held); index = index + 1u) {
+        let slice = grid_slice(box, index);
+        for (var entry = slice.first; entry < grid_scan_end(slice) && !(*held); entry = entry + 1u) {
+            visit_entry(entry_node(entry), box, slice.cell_size, held);
         }
-        scanned = scanned + 1u;
-        visit_entry(entry_node(entry), box, cell_size, held);
     }
 }
 
@@ -75,26 +63,8 @@ fn work(index: u32) {
         return;
     }
     let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
-    let box = reach_box(particle.position.xyz, radius + reach);
     var held = false;
-    var occupied = counter_load(COUNTER_GRID_LEVELS);
-    while (occupied != 0u && !held) {
-        let level = countTrailingZeros(occupied);
-        occupied = occupied & (occupied - 1u);
-        let cell_size = level_cell_size(level, grid_base_cell());
-        let cells = reach_cells(box, cell_size);
-        if (reach_span(cells) <= REACH_CELL_BUDGET) {
-            for (var x = cells.min.x; x <= cells.max.x; x = x + 1) {
-                for (var y = cells.min.y; y <= cells.max.y; y = y + 1) {
-                    for (var z = cells.min.z; z <= cells.max.z; z = z + 1) {
-                        scan_cell(level, cell_size, vec3i(x, y, z), box, &held);
-                    }
-                }
-            }
-        } else {
-            scan_level(level, box, &held);
-        }
-    }
+    scan_neighbours(reach_box(particle.position.xyz, radius + reach), &held);
     if (held) {
         atomicStore(&bodies[particle.owner].wake, 1u);
     }

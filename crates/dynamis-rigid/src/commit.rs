@@ -1,5 +1,5 @@
 use super::streams::RigidStream;
-use super::{CONTACT, IDENTITY};
+use super::{CONTACT_ROW, IDENTITY};
 use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::Count;
@@ -37,7 +37,7 @@ impl Commit {
                 stream(
                     context,
                     include_str!("../shaders/thaw_contacts.wgsl"),
-                    CONTACT,
+                    CONTACT_ROW,
                     "work",
                     RigidStream::RestingContacts,
                 ),

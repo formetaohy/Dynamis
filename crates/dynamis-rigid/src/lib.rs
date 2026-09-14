@@ -16,11 +16,17 @@ mod streams;
 use dynamis_abi::{FrameCounts, StepParamsRecord};
 use dynamis_gpu::Resources;
 
-const IDENTITY: &[&str] = &[include_str!("../shaders/identity.wgsl")];
-const CONTACT: &[&str] = &[
-    include_str!("../shaders/identity.wgsl"),
-    include_str!("../shaders/events.wgsl"),
-];
+const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
+const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
+const ISLAND_LINK_FRAGMENT: &str = include_str!("../shaders/island_link.wgsl");
+const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
+
+const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
+const CONTACT: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
+const CONTACT_ROW: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT, BODY_ROW_FRAGMENT];
+const IDENTITY_LINK: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
+const IDENTITY_LINK_ROW: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT, BODY_ROW_FRAGMENT];
+const CONSTRAINT_LINK: &[&str] = &[ISLAND_LINK_FRAGMENT];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RigidShape {

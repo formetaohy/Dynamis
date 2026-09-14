@@ -32,8 +32,7 @@ fn emit_cell_mate(first: u32, second: u32, cell_size: f32) {
     if (any(entry_cell(second, cell_size) != cell)) {
         return;
     }
-    let overlap_min = max(entries[first].min, entries[second].min);
-    if (any(vec3i(floor(overlap_min / cell_size)) != cell)) {
+    if (any(grid_overlap_cell(entry_box(first), entry_box(second), cell_size) != cell)) {
         return;
     }
     emit_pair(first, second);

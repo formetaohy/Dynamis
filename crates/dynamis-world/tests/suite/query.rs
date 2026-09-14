@@ -989,3 +989,22 @@ fn a_patch_survives_both_a_query_run_and_a_step() {
     assert_eq!(hit.body, body);
     assert!((hit.distance - 1.5).abs() < 1e-3, "got {}", hit.distance);
 }
+
+#[test]
+fn a_query_wider_than_the_walk_budget_still_finds_a_distant_body() {
+    let mut world = new_world(static_config());
+    let near = query_static(&mut world, 0.02, [0.0, 0.0, 0.0]);
+    let far = query_static(&mut world, 0.02, [0.0, 0.0, 40.0]);
+    let query = world.sphere_query([0.0, 0.0, 0.0], 100.0, &QueryFilter::default());
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.query_overflow(query),
+        "a single cell per body must fit the candidate budget"
+    );
+    let hits = world.query_hits(query);
+    assert!(
+        hits.iter().any(|hit| hit.body == near) && hits.iter().any(|hit| hit.body == far),
+        "a box spanning far more cells than the walk visits must fall back to its level and still find every body"
+    );
+}

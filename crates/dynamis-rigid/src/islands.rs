@@ -1,5 +1,5 @@
 use super::streams::RigidStream;
-use super::{CONTACT, IDENTITY};
+use super::{CONSTRAINT_LINK, CONTACT, CONTACT_ROW, IDENTITY_LINK, IDENTITY_LINK_ROW};
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{
@@ -37,7 +37,7 @@ impl Islands {
                 stream(
                     context,
                     include_str!("../shaders/contact_relay.wgsl"),
-                    CONTACT,
+                    CONTACT_ROW,
                     "work",
                     RigidStream::ContactArchive,
                 ),
@@ -112,7 +112,7 @@ impl Islands {
                 stream(
                     context,
                     include_str!("../shaders/island_link_contacts.wgsl"),
-                    IDENTITY,
+                    IDENTITY_LINK,
                     "work",
                     RigidStream::Contacts,
                 ),
@@ -133,7 +133,7 @@ impl Islands {
                 rows(
                     context,
                     include_str!("../shaders/island_link_constraints.wgsl"),
-                    CORE,
+                    CONSTRAINT_LINK,
                     Count::Constraints.field(),
                 ),
                 streams,
@@ -152,7 +152,7 @@ impl Islands {
                 stream(
                     context,
                     include_str!("../shaders/island_link_resting.wgsl"),
-                    IDENTITY,
+                    IDENTITY_LINK_ROW,
                     "work",
                     RigidStream::RestingContacts,
                 ),
