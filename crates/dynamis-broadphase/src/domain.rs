@@ -1,7 +1,7 @@
-use crate::{Broadphase, BroadphaseDemand, BroadphaseFrame, BroadphaseInputs, BroadphasePasses};
+use crate::{Broadphase, BroadphaseDemand, BroadphaseInputs, BroadphasePasses};
 use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
 use dynamis_abi::Counters;
-use dynamis_domain::{Domain, Run, StepFacts};
+use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
 use dynamis_pass::{PassGroup, Pipeline, Schedule};
@@ -23,7 +23,7 @@ impl Domain for BroadphaseDomain {
     type Planner = Capacity;
     type Passes = BroadphasePasses;
     type Runtime = Broadphase;
-    type Frame = BroadphaseFrame;
+    type Frame = ();
     type Capacity = BroadphaseCapacity;
 
     fn minimum() -> BroadphaseDemand {
@@ -58,11 +58,11 @@ impl Domain for BroadphaseDomain {
         Broadphase::new(context, streams, passes)
     }
 
-    fn frame(_: &StepFacts, _: &BroadphaseInputs, run: Run) -> BroadphaseFrame {
-        BroadphaseFrame {
-            indexing: run.indexing,
-        }
+    fn gates(_: &()) -> u8 {
+        0
     }
+
+    fn frame(_: &StepFacts, _: &BroadphaseInputs) {}
 
     fn capacity(streams: &BroadphaseStreams) -> BroadphaseCapacity {
         crate::capacity(streams)
@@ -74,8 +74,8 @@ impl Domain for BroadphaseDomain {
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
         streams: &impl Resources,
-        frame: &BroadphaseFrame,
+        _: &(),
     ) {
-        runtime.record(pass, schedule, encoder, streams, *frame);
+        runtime.record(pass, schedule, encoder, streams);
     }
 }

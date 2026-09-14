@@ -1,5 +1,5 @@
 use dynamis_pass::{
-    PassEdges, PassGroup, PassGroupEdges, PassSpec, PipelineBuilder, assert_declared,
+    Execution, PassEdges, PassGroup, PassGroupEdges, PassSpec, PipelineBuilder, assert_declared,
 };
 
 const FIRST: u32 = 0;
@@ -14,6 +14,7 @@ fn independent_passes_follow_their_declared_order() {
             passes: &[PassSpec {
                 label: "beta",
                 after: &[],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -23,6 +24,7 @@ fn independent_passes_follow_their_declared_order() {
             passes: &[PassSpec {
                 label: "alpha",
                 after: &[],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -49,10 +51,12 @@ fn a_pass_follows_the_passes_it_declares() {
                 PassSpec {
                     label: "earlier",
                     after: &[],
+                    execution: Execution::ALWAYS,
                 },
                 PassSpec {
                     label: "later",
                     after: &["earlier"],
+                    execution: Execution::ALWAYS,
                 },
             ],
         },
@@ -77,6 +81,7 @@ fn a_declared_dependency_outweighs_the_declared_order() {
             passes: &[PassSpec {
                 label: "consumer",
                 after: &["producer"],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -86,6 +91,7 @@ fn a_declared_dependency_outweighs_the_declared_order() {
             passes: &[PassSpec {
                 label: "producer",
                 after: &[],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -110,10 +116,12 @@ fn a_repeated_dependency_resolves_once() {
                 PassSpec {
                     label: "first",
                     after: &[],
+                    execution: Execution::ALWAYS,
                 },
                 PassSpec {
                     label: "second",
                     after: &["first", "first"],
+                    execution: Execution::ALWAYS,
                 },
             ],
         },
@@ -140,10 +148,12 @@ fn a_repeated_label_is_refused() {
                 PassSpec {
                     label: "shared",
                     after: &[],
+                    execution: Execution::ALWAYS,
                 },
                 PassSpec {
                     label: "shared",
                     after: &[],
+                    execution: Execution::ALWAYS,
                 },
             ],
         },
@@ -161,6 +171,7 @@ fn an_undeclared_dependency_is_refused() {
             passes: &[PassSpec {
                 label: "consumer",
                 after: &["absent"],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -177,6 +188,7 @@ fn a_pass_that_follows_itself_is_refused() {
             passes: &[PassSpec {
                 label: "loop",
                 after: &["loop"],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -194,10 +206,12 @@ fn a_dependency_cycle_is_refused() {
                 PassSpec {
                     label: "first",
                     after: &["second"],
+                    execution: Execution::ALWAYS,
                 },
                 PassSpec {
                     label: "second",
                     after: &["first"],
+                    execution: Execution::ALWAYS,
                 },
             ],
         },
@@ -216,10 +230,12 @@ fn a_group_that_contradicts_its_own_declared_order_is_refused() {
                 PassSpec {
                     label: "consumer",
                     after: &["producer"],
+                    execution: Execution::ALWAYS,
                 },
                 PassSpec {
                     label: "producer",
                     after: &[],
+                    execution: Execution::ALWAYS,
                 },
             ],
         },
@@ -237,6 +253,7 @@ fn a_pass_beyond_the_pipeline_is_refused() {
             passes: &[PassSpec {
                 label: "only",
                 after: &[],
+                execution: Execution::ALWAYS,
             }],
         },
     );
@@ -268,4 +285,44 @@ fn a_label_declared_by_two_domains_is_refused() {
     const FIRST: PassEdges = &[&[("shared", &[])]];
     const SECOND: PassEdges = &[&[("shared", &[])]];
     assert_declared(&[FIRST, SECOND]);
+}
+
+#[test]
+fn a_pass_carries_its_declared_execution() {
+    let mut builder = PipelineBuilder::new();
+    builder.declare(
+        FIRST,
+        PassGroup {
+            passes: &[PassSpec {
+                label: "gated",
+                after: &[],
+                execution: Execution::AWAKE,
+            }],
+        },
+    );
+    let pipeline = builder.resolve();
+    assert_eq!(pipeline.pass(0).execution, Execution::AWAKE);
+}
+
+#[test]
+fn a_pass_runs_exactly_when_every_declared_fact_holds() {
+    let idle = Execution::facts(true, true, 0);
+    let stopped = Execution::facts(false, false, 0);
+    assert!(Execution::ALWAYS.held(stopped));
+    assert!(Execution::INDEXING.held(idle));
+    assert!(!Execution::INDEXING.held(stopped));
+    assert!(Execution::AWAKE.held(idle));
+    assert!(!Execution::AWAKE.held(Execution::facts(true, false, 0)));
+    assert!(!Execution::AWAKE.and(Execution::gate(0)).held(idle));
+    assert!(
+        Execution::AWAKE
+            .and(Execution::gate(0))
+            .held(Execution::facts(true, true, 1 << 2))
+    );
+}
+
+#[test]
+#[should_panic(expected = "gate")]
+fn a_gate_beyond_the_declared_field_is_refused() {
+    let _ = Execution::gate(std::hint::black_box(6));
 }

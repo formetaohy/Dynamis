@@ -7,6 +7,46 @@ use std::ops::Range;
 pub struct PassSpec {
     pub label: &'static str,
     pub after: &'static [&'static str],
+    pub execution: Execution,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Execution(u8);
+
+impl Execution {
+    pub const ALWAYS: Self = Self(0);
+
+    pub const INDEXING: Self = Self(1);
+
+    pub const AWAKE: Self = Self(1 << 1);
+
+    const GATE_BASE: u32 = 2;
+    const GATE_COUNT: u32 = 6;
+    const GATE_MASK: u8 = ((1 << Self::GATE_COUNT) - 1) << Self::GATE_BASE;
+
+    pub const fn gate(index: u32) -> Self {
+        assert!(
+            index < Self::GATE_COUNT,
+            "a pass gate must fit the declared gate field"
+        );
+        Self(1 << (index + Self::GATE_BASE))
+    }
+
+    pub const fn and(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn facts(indexing: bool, awake: bool, gates: u8) -> u8 {
+        (indexing as u8) | ((awake as u8) << 1) | (gates & Self::GATE_MASK)
+    }
+
+    pub const fn held(self, facts: u8) -> bool {
+        self.0 & !facts == 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +58,7 @@ pub struct PassGroup {
 pub struct Pass {
     pub label: &'static str,
     pub domain: u32,
+    pub execution: Execution,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +100,7 @@ struct Declared {
     domain: u32,
     label: &'static str,
     after: &'static [&'static str],
+    execution: Execution,
 }
 
 #[derive(Default)]
@@ -83,6 +125,7 @@ impl PipelineBuilder {
                 domain,
                 label: spec.label,
                 after: spec.after,
+                execution: spec.execution,
             });
         }
         self.groups.push(start..self.declared.len());
@@ -103,6 +146,7 @@ impl PipelineBuilder {
                 .map(|position| Pass {
                     label: self.declared[position].label,
                     domain: self.declared[position].domain,
+                    execution: self.declared[position].execution,
                 })
                 .collect(),
         }
@@ -216,7 +260,7 @@ impl PipelineBuilder {
 macro_rules! domain_passes {
     (
         $name:ident,
-        $( $field:ident => $after:expr ),+ $(,)?
+        $( $field:ident => $execution:expr => $after:expr ),+ $(,)?
     ) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct $name {
@@ -226,7 +270,11 @@ macro_rules! domain_passes {
         impl $name {
             pub const GROUP: $crate::PassGroup = $crate::PassGroup {
                 passes: &[
-                    $( $crate::PassSpec { label: stringify!($field), after: $after }, )+
+                    $( $crate::PassSpec {
+                        label: stringify!($field),
+                        after: $after,
+                        execution: $execution,
+                    }, )+
                 ],
             };
 

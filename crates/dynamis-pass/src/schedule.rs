@@ -58,6 +58,20 @@ impl Schedule {
         self.pipeline.pass(index)
     }
 
+    pub fn ran(&self, index: u32) -> bool {
+        self.opened.get(index as usize).copied().unwrap_or(false)
+    }
+
+    pub fn ran_labels(&self) -> Vec<&'static str> {
+        self.pipeline
+            .passes()
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.ran(*index as u32))
+            .map(|(_, pass)| pass.label)
+            .collect()
+    }
+
     pub fn begin_step(&mut self) {
         self.opened.fill(false);
         self.last = None;

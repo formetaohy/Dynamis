@@ -10,7 +10,7 @@ use dynamis_abi::{Count, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
 use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
@@ -50,17 +50,16 @@ fn particle_wake_index() -> Vec<&'static str> {
 
 domain_passes!(
     SoftPasses,
-    soft_bounds => &[],
-    soft_entries => &["soft_bounds", "prepare"],
-    soft_settle => &["ccd_apply"],
-    soft_substeps => &["soft_settle"],
-    soft_apply => &["soft_substeps"],
+    soft_bounds => Execution::AWAKE => &[],
+    soft_entries => Execution::AWAKE => &["soft_bounds", "prepare"],
+    soft_settle => Execution::AWAKE => &["ccd_apply"],
+    soft_substeps => Execution::AWAKE => &["soft_settle"],
+    soft_apply => Execution::AWAKE => &["soft_substeps"],
 );
 
 #[derive(Clone, Copy, Debug)]
 pub struct SoftFrame {
     pub params: StepParamsRecord,
-    pub simulating: bool,
     pub material: bool,
 }
 
@@ -452,9 +451,6 @@ impl Soft {
         streams: &impl Resources,
         frame: &SoftFrame,
     ) {
-        if !frame.simulating {
-            return;
-        }
         let particles = Count::Particles.rows(&frame.params);
         let elements = Count::Elements.rows(&frame.params);
         let bodies = Count::SoftBodies.rows(&frame.params);

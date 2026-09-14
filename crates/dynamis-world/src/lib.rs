@@ -144,6 +144,10 @@ impl World {
             .collect()
     }
 
+    pub fn ran_passes(&self) -> Vec<&'static str> {
+        self.backend.passes.ran()
+    }
+
     pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
         (step % EVENT_SLOTS as u64) as u32
     }

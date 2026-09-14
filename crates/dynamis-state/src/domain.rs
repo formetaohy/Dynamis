@@ -1,7 +1,7 @@
 use crate::capacity::floor;
 use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
-use dynamis_domain::{Domain, Run, StepFacts};
+use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
 use dynamis_pass::{PassGroup, Pipeline, Schedule};
@@ -56,7 +56,11 @@ impl Domain for StateDomain {
 
     fn build(_: &GpuContext, _: &impl Resources, _: ()) {}
 
-    fn frame(_: &StepFacts, _: &StateInputs, _: Run) {}
+    fn gates(_: &()) -> u8 {
+        0
+    }
+
+    fn frame(_: &StepFacts, _: &StateInputs) {}
 
     fn capacity(streams: &StateStreams) -> StateCapacity {
         crate::capacity(streams)

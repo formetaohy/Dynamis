@@ -4,7 +4,7 @@ mod registry;
 mod streams;
 
 pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled};
-pub use facts::{Run, StepFacts};
+pub use facts::StepFacts;
 pub use streams::DomainStreams;
 
 use dynamis_abi::Counters;
@@ -45,7 +45,9 @@ pub trait Domain {
     fn build(context: &GpuContext, streams: &impl Resources, passes: Self::Passes)
     -> Self::Runtime;
 
-    fn frame(facts: &StepFacts, inputs: &Self::Inputs, run: Run) -> Self::Frame;
+    fn gates(frame: &Self::Frame) -> u8;
+
+    fn frame(facts: &StepFacts, inputs: &Self::Inputs) -> Self::Frame;
 
     fn capacity(streams: &Self::Streams) -> Self::Capacity;
 

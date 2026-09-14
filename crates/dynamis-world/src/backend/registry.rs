@@ -126,6 +126,10 @@ impl StepPasses {
         self.schedule.pipeline().passes()
     }
 
+    pub(crate) fn ran(&self) -> Vec<&'static str> {
+        self.schedule.ran_labels()
+    }
+
     #[cfg(feature = "profile")]
     pub(crate) fn capture_timings(
         &mut self,

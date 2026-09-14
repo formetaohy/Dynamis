@@ -5,9 +5,3 @@ pub struct StepFacts {
     pub params: StepParamsRecord,
     pub counts: FrameCounts,
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Run {
-    pub awake: bool,
-    pub indexing: bool,
-}

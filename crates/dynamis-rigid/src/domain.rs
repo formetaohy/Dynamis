@@ -5,10 +5,10 @@ use crate::{
 };
 use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_abi::Counters;
-use dynamis_domain::{Domain, Run, StepFacts};
+use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline, Schedule};
+use dynamis_pass::{Execution, PassGroup, Pipeline, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct RigidDomain;
@@ -94,14 +94,20 @@ impl Domain for RigidDomain {
         }
     }
 
-    fn frame(facts: &StepFacts, inputs: &RigidInputs, run: Run) -> RigidFrame {
+    fn gates(frame: &RigidFrame) -> u8 {
+        if frame.ccd {
+            Execution::gate(crate::ccd::CCD_GATE).bits()
+        } else {
+            0
+        }
+    }
+
+    fn frame(facts: &StepFacts, inputs: &RigidInputs) -> RigidFrame {
         RigidFrame {
             params: facts.params,
             shape: RigidShape::of(&facts.counts),
             query_count: inputs.queries,
             observed_count: inputs.observed,
-            simulating: run.awake,
-            indexing: run.indexing,
             ccd: inputs.ccd,
         }
     }

@@ -5,7 +5,7 @@ mod stage;
 
 pub use bindings::Bindings;
 pub use order::{
-    Pass, PassEdges, PassGroup, PassGroupEdges, PassSpec, Pipeline, PipelineBuilder,
+    Execution, Pass, PassEdges, PassGroup, PassGroupEdges, PassSpec, Pipeline, PipelineBuilder,
     assert_declared,
 };
 pub use schedule::Schedule;

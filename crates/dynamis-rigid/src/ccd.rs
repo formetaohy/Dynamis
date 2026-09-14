@@ -2,17 +2,21 @@ use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
 use dynamis_shader::{CORE, GEOMETRY, rows, stream};
 use dynamis_state::StateStream;
 
+pub const CCD_GATE: u32 = 0;
+
+pub const CCD_EXECUTION: Execution = Execution::AWAKE.and(Execution::gate(CCD_GATE));
+
 domain_passes!(
     CcdPasses,
-    ccd_sweep => &["substeps"],
-    ccd_apply => &["ccd_sweep"],
+    ccd_sweep => CCD_EXECUTION => &["substeps"],
+    ccd_apply => CCD_EXECUTION => &["ccd_sweep"],
 );
 
 pub struct Ccd {
@@ -79,9 +83,6 @@ impl Ccd {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        if !frame.ccd || !frame.simulating {
-            return;
-        }
         if pass == self.passes.ccd_sweep {
             let mut sweep = schedule.open(encoder, pass);
             self.sweep.record_stream(&mut sweep, streams);

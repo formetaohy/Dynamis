@@ -139,19 +139,28 @@ macro_rules! domains {
         #[derive(Clone, Copy)]
         pub(crate) struct StepFrames {
             $( pub(crate) $field: <$domain as $crate::Domain>::Frame, )*
+            indexing: bool,
+            awake: Awake,
+        }
+
+        #[derive(Clone, Copy)]
+        struct Awake {
+            $( $field: bool, )*
+        }
+
+        impl Awake {
+            fn any(self) -> bool {
+                false $( || self.$field )*
+            }
         }
 
         impl StepFrames {
             pub(crate) fn of(facts: &$crate::StepFacts, live: &Live, liveness: Activity) -> Self {
-                let indexing = liveness.busy();
+                let awake = Awake { $( $field: liveness.$field, )* };
                 Self {
-                    $(
-                        $field: <$domain as $crate::Domain>::frame(
-                            facts,
-                            &live.$field,
-                            $crate::Run { awake: liveness.$field, indexing },
-                        ),
-                    )*
+                    $( $field: <$domain as $crate::Domain>::frame(facts, &live.$field), )*
+                    indexing: awake.any(),
+                    awake,
                 }
             }
         }
@@ -348,14 +357,29 @@ macro_rules! domains {
             ) {
                 $(
                     if pass.domain == <$domain as $crate::Domain>::ID {
-                        <$domain as $crate::Domain>::record(
-                            &self.$field,
-                            index,
-                            schedule,
-                            encoder,
-                            resources,
-                            &frames.$field,
+                        let frame = &frames.$field;
+                        let facts = dynamis_pass::Execution::facts(
+                            frames.indexing,
+                            frames.awake.$field,
+                            <$domain as $crate::Domain>::gates(frame),
                         );
+                        if pass.execution.held(facts) {
+                            <$domain as $crate::Domain>::record(
+                                &self.$field,
+                                index,
+                                schedule,
+                                encoder,
+                                resources,
+                                frame,
+                            );
+                            assert!(
+                                schedule.ran(index),
+                                "pass {:?} of the {} domain declares {:?} yet records nothing",
+                                pass.label,
+                                stringify!($field),
+                                pass.execution,
+                            );
+                        }
                         return;
                     }
                 )*
