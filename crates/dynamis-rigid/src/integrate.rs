@@ -4,10 +4,10 @@ use crate::sort;
 use dynamis_abi::COUNTER_JOINTS;
 use dynamis_abi::COUNTER_LIVE;
 use dynamis_abi::Count;
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows, stream};
-use dynamis_pass::Resources;
 use dynamis_pass::Stage;
+use dynamis_shader::{CORE, rows, stream};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 

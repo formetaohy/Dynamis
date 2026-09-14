@@ -2,7 +2,7 @@
 name = "dynamis-gpu"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "wgpu device, buffer, stream, pipeline, and readback runtime"
 license.workspace = true
 repository.workspace = true
 

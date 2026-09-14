@@ -2,7 +2,7 @@
 name = "dynamis-model"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Host facing physics descriptions, states, and derived mass properties"
 license.workspace = true
 repository.workspace = true
 

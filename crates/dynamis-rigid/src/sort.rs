@@ -1,5 +1,5 @@
 use dynamis_gpu::TypedSlot;
-use dynamis_pass::{Resources, SlotRef};
+use dynamis_gpu::{Resources, SlotRef};
 use dynamis_sort::SortChannels;
 
 use crate::RigidStream;

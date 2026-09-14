@@ -1,5 +1,5 @@
 use super::common::{DT, new_world, static_config};
-use dynamis_math::{dot, length, normalize, quat_conjugate, quat_rotate};
+use dynamis_model::math::{dot, length, normalize, quat_conjugate, quat_rotate};
 use dynamis_model::{BodyDesc, BodyHandle, BodyState, ColliderDesc, MassProperties, Shape};
 use dynamis_world::World;
 use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2};

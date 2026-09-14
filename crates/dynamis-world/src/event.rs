@@ -1,7 +1,7 @@
 use super::World;
 use dynamis_abi::{COUNTER_EVENTS, ContactEventRecord};
+use dynamis_gpu::EVENT_SLOTS;
 use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
-use dynamis_pass::EVENT_SLOTS;
 use std::collections::VecDeque;
 use std::mem::size_of;
 

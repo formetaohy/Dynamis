@@ -11,8 +11,9 @@ pub use streams::{
 
 use dynamis_abi::COUNTER_ENTRIES;
 use dynamis_gpu::GpuContext;
-use dynamis_kernel::{GRID_INDEX, stream};
-use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
+use dynamis_gpu::Resources;
+use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_shader::{GRID_INDEX, stream};
 use dynamis_sort::{RadixSort, SortChannels};
 use dynamis_state::StateStream;
 

@@ -1,4 +1,4 @@
-use dynamis_math::{add, dot, length, mul, negate, normalize, sub};
+use dynamis_model::math::{add, dot, length, mul, negate, normalize, sub};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape};
 use dynamis_world::{QueryHandle, QueryHit, World};
 

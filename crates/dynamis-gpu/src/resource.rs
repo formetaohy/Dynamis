@@ -1,4 +1,4 @@
-use dynamis_gpu::{GpuSlot, StreamElement, TypedSlot};
+use crate::{GpuSlot, StreamElement, TypedSlot};
 
 const DOMAIN_SHIFT: u32 = 24;
 const LOCAL_MASK: u32 = (1 << DOMAIN_SHIFT) - 1;

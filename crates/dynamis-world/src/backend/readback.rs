@@ -35,12 +35,7 @@ impl ReadbackBuffers {
         let (pack_bytes, event_bytes, break_bytes, query_bytes, observation_bytes) =
             readback_sizes(plan);
         Self {
-            pack: GpuBuffer::new(
-                device,
-                "world readback pack",
-                pack_bytes,
-                dynamis_pass::PACK,
-            ),
+            pack: GpuBuffer::new(device, "world readback pack", pack_bytes, dynamis_gpu::PACK),
             step: Readback::new(device, "world readback", pack_bytes, Readback::DEPTH),
             events: Readback::new(
                 device,
@@ -96,12 +91,8 @@ impl ReadbackBuffers {
             "readback buffers require drained rings before they reallocate"
         );
         if self.pack.size() != pack_bytes {
-            self.pack = GpuBuffer::new(
-                device,
-                "world readback pack",
-                pack_bytes,
-                dynamis_pass::PACK,
-            );
+            self.pack =
+                GpuBuffer::new(device, "world readback pack", pack_bytes, dynamis_gpu::PACK);
             self.step = Readback::new(device, "world readback", pack_bytes, Readback::DEPTH);
         }
         if self.events.size() != event_bytes {

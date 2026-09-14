@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*", "examples/*"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "GPU-driven physics engine"
 license = "MIT"
@@ -12,6 +12,7 @@ repository = "https://github.com/formetaohy/Dynamis"
 [workspace.dependencies]
 async-lock = "3.4"
 bytemuck = { version = "1", features = ["derive"] }
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = [
     "std",
@@ -24,21 +25,20 @@ wgpu = { version = "30", default-features = false, features = [
 winit = "0.30"
 glam = "0.32"
 font8x8 = "0.3"
-dynamis-math = { version = "0.6.0", path = "crates/dynamis-math" }
-dynamis-gpu = { version = "0.6.0", path = "crates/dynamis-gpu" }
-dynamis-domain = { version = "0.6.0", path = "crates/dynamis-domain" }
-dynamis-model = { version = "0.6.0", path = "crates/dynamis-model" }
-dynamis-abi = { version = "0.6.0", path = "crates/dynamis-abi" }
-dynamis-broadphase = { version = "0.6.0", path = "crates/dynamis-broadphase" }
-dynamis-pass = { version = "0.6.0", path = "crates/dynamis-pass" }
-dynamis-kernel = { version = "0.6.0", path = "crates/dynamis-kernel" }
-dynamis-sort = { version = "0.6.0", path = "crates/dynamis-sort" }
-dynamis-state = { version = "0.6.0", path = "crates/dynamis-state" }
-dynamis-rigid = { version = "0.6.0", path = "crates/dynamis-rigid" }
-dynamis-soft = { version = "0.6.0", path = "crates/dynamis-soft" }
-dynamis-mesh = { version = "0.6.0", path = "crates/dynamis-mesh" }
-dynamis-world = { version = "0.6.0", path = "crates/dynamis-world" }
-dynamis-character = { version = "0.6.0", path = "crates/dynamis-character" }
+dynamis-gpu = { version = "0.7.0", path = "crates/dynamis-gpu" }
+dynamis-domain = { version = "0.7.0", path = "crates/dynamis-domain" }
+dynamis-model = { version = "0.7.0", path = "crates/dynamis-model" }
+dynamis-hull = { version = "0.7.0", path = "crates/dynamis-hull" }
+dynamis-abi = { version = "0.7.0", path = "crates/dynamis-abi" }
+dynamis-broadphase = { version = "0.7.0", path = "crates/dynamis-broadphase" }
+dynamis-pass = { version = "0.7.0", path = "crates/dynamis-pass" }
+dynamis-shader = { version = "0.7.0", path = "crates/dynamis-shader" }
+dynamis-sort = { version = "0.7.0", path = "crates/dynamis-sort" }
+dynamis-state = { version = "0.7.0", path = "crates/dynamis-state" }
+dynamis-rigid = { version = "0.7.0", path = "crates/dynamis-rigid" }
+dynamis-soft = { version = "0.7.0", path = "crates/dynamis-soft" }
+dynamis-world = { version = "0.7.0", path = "crates/dynamis-world" }
+dynamis-character = { version = "0.7.0", path = "crates/dynamis-character" }
 dynamis = { path = "." }
 dynamis-example-profile = { path = "examples/profile" }
 dynamis-example-render = { path = "examples/render" }
@@ -62,7 +62,7 @@ repository.workspace = true
 dynamis-gpu = { workspace = true }
 dynamis-abi = { workspace = true }
 dynamis-model = { workspace = true }
-dynamis-mesh = { workspace = true }
+dynamis-hull = { workspace = true }
 dynamis-world = { workspace = true }
 dynamis-character = { workspace = true }
 

@@ -1,11 +1,16 @@
+mod capacity;
 mod facts;
 mod registry;
+mod streams;
 
-pub use dynamis_abi::Counters;
+pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled};
 pub use facts::{Run, StepFacts};
+pub use streams::DomainStreams;
 
+use dynamis_abi::Counters;
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
+use dynamis_gpu::Resources;
+use dynamis_pass::{PassGroup, Pipeline, Schedule};
 use wgpu::CommandEncoder;
 
 pub trait Domain {
@@ -13,10 +18,12 @@ pub trait Domain {
 
     const SIMULATES: bool;
 
+    const PASS_EDGES: dynamis_pass::PassEdges;
+
     type Demand: Copy;
     type Inputs: Copy;
     type Work: Copy;
-    type Streams;
+    type Streams: DomainStreams<Demand = Self::Demand>;
     type Planner: Default;
     type Passes;
     type Runtime;

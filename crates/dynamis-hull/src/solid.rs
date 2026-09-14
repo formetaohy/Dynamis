@@ -1,9 +1,4 @@
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HullSolid {
-    pub volume: f32,
-    pub centroid: [f32; 3],
-    pub unit_inertia: [f32; 6],
-}
+use dynamis_model::SolidGeometry;
 
 fn interior(vertices: &[[f32; 3]]) -> [f64; 3] {
     let mut sum = [0.0f64; 3];
@@ -64,7 +59,7 @@ fn per_volume(value: f64, volume: f64) -> f32 {
     (value / volume) as f32
 }
 
-pub fn hull_solid(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> HullSolid {
+pub fn solid(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> SolidGeometry {
     assert!(!vertices.is_empty(), "a hull must contain vertices");
     assert!(!triangles.is_empty(), "a hull must contain triangles");
     let apex = interior(vertices);
@@ -97,7 +92,7 @@ pub fn hull_solid(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> HullSolid {
         volume * (centroid[0] * centroid[0] + centroid[2] * centroid[2]),
         volume * (centroid[0] * centroid[0] + centroid[1] * centroid[1]),
     ];
-    HullSolid {
+    SolidGeometry {
         volume: volume as f32,
         centroid: [
             (apex[0] + centroid[0]) as f32,

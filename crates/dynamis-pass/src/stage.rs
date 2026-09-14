@@ -1,72 +1,12 @@
-use super::resource::{ResourceId, Resources, SlotRef};
+use crate::bindings::{Binding, Bindings};
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle,
-    ShaderBinding,
+    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, Resources, SlotRef,
 };
+use dynamis_shader::{Dispatch, Program, workgroups_of};
 use std::cell::{RefCell, RefMut};
-use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
-pub const WORKGROUP_SIZE: u32 = 64;
-
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
-
-pub fn workgroups_of(elements: u32) -> u32 {
-    elements.div_ceil(WORKGROUP_SIZE)
-}
-
-pub fn entry_rows(field: &str) -> String {
-    format!(
-        "
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3u) {{
-    let index = global_index(gid);
-    if (index >= params.{field}) {{
-        return;
-    }}
-    work(index);
-}}
-"
-    )
-}
-
-pub fn entry_stream(name: &str, kernel: &str) -> String {
-    assert!(
-        kernel != "main" && kernel != "warm",
-        "the streaming kernel {kernel:?} collides with the generated entry point"
-    );
-    format!(
-        "
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {{
-    let live = extent();
-    let stride = grid_stride(groups);
-    for (var index = global_index(gid); index < live; index = index + stride) {{
-        {kernel}(index);
-    }}
-}}
-"
-    )
-}
-
-#[derive(Clone, Copy)]
-pub enum Dispatch {
-    Rows,
-    Stream(ResourceId),
-    Workgroups,
-}
-
-pub struct Program {
-    pub source: Arc<str>,
-    pub dispatch: Dispatch,
-    pub warm: bool,
-}
-
-#[derive(Clone, Copy)]
-struct Binding {
-    index: u32,
-    slot: SlotRef,
-}
 
 struct Bound {
     generation: u64,
@@ -127,12 +67,16 @@ impl Stage {
             dispatch,
             warm,
         } = program;
-        let declarations = dynamis_gpu::parse_bindings(&source);
-        let storage = storage_bindings(label, &declarations, slots);
-        let shapes = shape_bindings(label, &declarations, shapes);
-        let mut groups = vec![specs_of(&declarations, 0)];
+        let bindings = Bindings::parse(&source);
+        let storage = bindings.table(label, 0, slots);
+        let shapes = if shapes.is_empty() {
+            Vec::new()
+        } else {
+            bindings.table(label, 1, shapes)
+        };
+        let mut groups = vec![bindings.specs(0)];
         if !shapes.is_empty() {
-            groups.push(specs_of(&declarations, 1));
+            groups.push(bindings.specs(1));
         }
         let layout = groups.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let pipeline = context.declare(ComputeProgram::new(label, source.clone(), "main", &layout));
@@ -234,109 +178,4 @@ impl Stage {
         }
         current
     }
-}
-
-fn storage_bindings(
-    label: &str,
-    declarations: &[ShaderBinding],
-    slots: &[(&'static str, SlotRef)],
-) -> Vec<Binding> {
-    let mut bindings = Vec::with_capacity(slots.len());
-    for (name, slot) in slots {
-        let declaration = declarations
-            .iter()
-            .find(|entry| entry.group == 0 && entry.name == *name)
-            .unwrap_or_else(|| panic!("stage {label:?} declares no binding {name:?}"));
-        dynamis_gpu::assert_binding_element(label, name, declaration, slot.element());
-        assert!(
-            !bindings
-                .iter()
-                .any(|binding: &Binding| binding.index == declaration.binding),
-            "stage {label:?} binds {name:?} twice"
-        );
-        bindings.push(Binding {
-            index: declaration.binding,
-            slot: *slot,
-        });
-    }
-    assert!(
-        bindings.len() == specs_of(declarations, 0).len(),
-        "stage {label:?} declares {} bindings but provides {}",
-        specs_of(declarations, 0).len(),
-        bindings.len()
-    );
-    bindings
-}
-
-fn shape_bindings(
-    label: &str,
-    declarations: &[ShaderBinding],
-    shapes: &[(&'static str, SlotRef)],
-) -> Vec<Binding> {
-    if shapes.is_empty() {
-        return Vec::new();
-    }
-    let declared = ordered(declarations, 1);
-    assert!(
-        declared.len() == shapes.len(),
-        "stage {label:?} declares {} shape bindings but provides {}",
-        declared.len(),
-        shapes.len()
-    );
-    declared
-        .iter()
-        .map(|declaration| {
-            let (_, slot) = shapes
-                .iter()
-                .find(|(name, _)| *name == declaration.name)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "stage {label:?} declares no shape binding {:?}",
-                        declaration.name
-                    )
-                });
-            dynamis_gpu::assert_binding_element(
-                label,
-                &declaration.name,
-                declaration,
-                slot.element(),
-            );
-            Binding {
-                index: declaration.binding,
-                slot: *slot,
-            }
-        })
-        .collect()
-}
-
-fn ordered(declarations: &[ShaderBinding], group: u32) -> Vec<&ShaderBinding> {
-    let mut declared = declarations
-        .iter()
-        .filter(|entry| entry.group == group)
-        .collect::<Vec<_>>();
-    declared.sort_by_key(|entry| entry.binding);
-    for (position, entry) in declared.iter().enumerate() {
-        assert!(
-            entry.binding == position as u32,
-            "the shader binds group {group} index {} where {position} is required",
-            entry.binding
-        );
-    }
-    declared
-}
-
-fn specs_of(declarations: &[ShaderBinding], group: u32) -> Vec<BindingSpec> {
-    ordered(declarations, group)
-        .into_iter()
-        .map(|entry| {
-            assert!(
-                group == 0 || entry.kind == BindingKind::ReadOnlyStorage,
-                "group 1 bindings must be read only"
-            );
-            BindingSpec {
-                binding: entry.binding,
-                kind: entry.kind,
-            }
-        })
-        .collect()
 }

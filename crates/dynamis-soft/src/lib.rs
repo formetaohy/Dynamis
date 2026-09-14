@@ -9,9 +9,9 @@ pub use streams::{SoftDemand, SoftStream, SoftStreams};
 use dynamis_abi::{Count, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::GpuContext;
-use dynamis_kernel::{CORE, rows};
-use dynamis_pass::Resources;
+use dynamis_gpu::Resources;
 use dynamis_pass::{Schedule, Stage, domain_passes};
+use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
 const PARTICLE_SHAPE: &[&str] = &[include_str!("../shaders/particle_shape.wgsl")];
@@ -25,25 +25,25 @@ const SOFT_ATTACH: &[&str] = &[
 ];
 
 fn particle_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
+    let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_SHAPE);
     fragments
 }
 
 fn particle_reach_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
+    let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }
 
 fn particle_collide_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::GEOMETRY_INDEX.to_vec();
+    let mut fragments = dynamis_shader::GEOMETRY_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }
 
 fn particle_wake_index() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::GRID_INDEX.to_vec();
+    let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments
 }

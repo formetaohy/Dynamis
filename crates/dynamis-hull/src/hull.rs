@@ -1,4 +1,4 @@
-use dynamis_math::{add, dot, length, mul, sub};
+use dynamis_model::math::{add, dot, length, mul, sub};
 use std::collections::{HashMap, HashSet};
 
 struct Face {
@@ -31,10 +31,7 @@ impl Face {
     }
 }
 
-pub fn convex_hull_mesh(
-    vertices: &[[f32; 3]],
-    triangles: &[[u32; 3]],
-) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+pub fn hull(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
     let used = triangles
         .iter()
         .flat_map(|triangle| triangle.iter())

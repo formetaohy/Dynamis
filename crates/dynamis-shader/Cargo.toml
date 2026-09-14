@@ -1,15 +1,14 @@
 [package]
-name = "dynamis-kernel"
+name = "dynamis-shader"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Shared WGSL fragments and compute program assembly"
 license.workspace = true
 repository.workspace = true
 
-[dependencies]
-dynamis-abi = { workspace = true }
-dynamis-pass = { workspace = true }
-dynamis-gpu = { workspace = true }
-
 [lints]
 workspace = true
+
+[dependencies]
+dynamis-abi = { workspace = true }
+dynamis-gpu = { workspace = true }

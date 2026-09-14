@@ -1,9 +1,10 @@
 use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::{COUNTER_LIVE, COUNTER_SPILLOVER_LIVE, Count};
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows};
-use dynamis_pass::{Resources, Stage};
+use dynamis_pass::Stage;
+use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
 pub struct Live {

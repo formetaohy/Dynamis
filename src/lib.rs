@@ -18,7 +18,7 @@ pub use dynamis_gpu::{
 };
 #[cfg(feature = "profile")]
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
-pub use dynamis_mesh::HullDecomposeSettings;
+pub use dynamis_hull::DecomposeSettings;
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,

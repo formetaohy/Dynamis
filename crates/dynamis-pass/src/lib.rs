@@ -1,16 +1,12 @@
-mod capacity;
+mod bindings;
 mod order;
-mod resource;
 mod schedule;
 mod stage;
-mod streams;
 
-pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled};
-pub use order::{Pass, PassGroup, PassSpec, Pipeline, PipelineBuilder};
-pub use resource::{ResourceId, Resources, SlotRef};
-pub use schedule::Schedule;
-pub use stage::{
-    Dispatch, MAX_DISPATCH_WORKGROUPS, Program, Stage, WORKGROUP_SIZE, entry_rows, entry_stream,
-    workgroups_of,
+pub use bindings::Bindings;
+pub use order::{
+    Pass, PassEdges, PassGroup, PassGroupEdges, PassSpec, Pipeline, PipelineBuilder,
+    assert_declared,
 };
-pub use streams::{EVENT_SLOTS, PACK, STREAM, UNIFORM};
+pub use schedule::Schedule;
+pub use stage::{MAX_DISPATCH_WORKGROUPS, Stage};

@@ -2,7 +2,7 @@
 name = "dynamis-pass"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Compute pass graph, scheduling, and shader binding"
 license.workspace = true
 repository.workspace = true
 
@@ -11,6 +11,7 @@ profile = ["dynamis-gpu/profile"]
 
 [dependencies]
 dynamis-gpu = { workspace = true }
+dynamis-shader = { workspace = true }
 wgpu = { workspace = true }
 
 [lints]

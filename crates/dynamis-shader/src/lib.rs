@@ -1,8 +1,6 @@
-use dynamis_abi::{ABI_WGSL, COUNTER_STRIDE, constants_wgsl};
-use dynamis_gpu::GpuContext;
-use dynamis_pass::{
-    Dispatch, EVENT_SLOTS, Program, ResourceId, WORKGROUP_SIZE, entry_rows, entry_stream,
-};
+use dynamis_abi::{COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
+use dynamis_gpu::{EVENT_SLOTS, GpuContext, ResourceId};
+use std::sync::Arc;
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
 const GRID_INDEX_FRAGMENT: &str = include_str!("../shaders/grid_index.wgsl");
@@ -17,9 +15,62 @@ pub const GRID_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT];
 pub const GEOMETRY_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT, CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub const JOINTS: &[&str] = &[JOINTS_FRAGMENT];
 
+pub const WORKGROUP_SIZE: u32 = 64;
+
+pub fn workgroups_of(elements: u32) -> u32 {
+    elements.div_ceil(WORKGROUP_SIZE)
+}
+
+pub fn entry_rows(field: &str) -> String {
+    format!(
+        "
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(@builtin(global_invocation_id) gid: vec3u) {{
+    let index = global_index(gid);
+    if (index >= params.{field}) {{
+        return;
+    }}
+    work(index);
+}}
+"
+    )
+}
+
+pub fn entry_stream(name: &str, kernel: &str) -> String {
+    assert!(
+        kernel != "main" && kernel != "warm",
+        "the streaming kernel {kernel:?} collides with the generated entry point"
+    );
+    format!(
+        "
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) groups: vec3u) {{
+    let live = extent();
+    let stride = grid_stride(groups);
+    for (var index = global_index(gid); index < live; index = index + stride) {{
+        {kernel}(index);
+    }}
+}}
+"
+    )
+}
+
+#[derive(Clone, Copy)]
+pub enum Dispatch {
+    Rows,
+    Stream(ResourceId),
+    Workgroups,
+}
+
+pub struct Program {
+    pub source: Arc<str>,
+    pub dispatch: Dispatch,
+    pub warm: bool,
+}
+
 pub fn assemble(context: &GpuContext, body: &str, fragments: &[&str]) -> String {
     let mut source = shader_constants(context.workgroups_per_row());
-    source.push_str(ABI_WGSL);
+    source.push_str(RECORDS_WGSL);
     source.push('\n');
     source.push_str(CORE_FRAGMENT);
     source.push('\n');

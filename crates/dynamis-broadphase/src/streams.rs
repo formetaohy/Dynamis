@@ -1,8 +1,8 @@
 use crate::BroadphaseDomain;
 use dynamis_abi::GridEntryRecord;
 use dynamis_domain::Domain;
+use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_pass::streams;
 
 streams! {
     BroadphaseStreams, BroadphaseStream, BroadphaseDemand, BroadphaseDomain::ID, demand,
@@ -24,14 +24,14 @@ streams! {
     }
 }
 
-pub fn entry_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
+pub fn entry_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::EntryKeys.into())
 }
 
-pub fn pair_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
+pub fn pair_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::PairMajor.into())
 }
 
-pub fn sort_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
+pub fn sort_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::SortScratchMajor.into())
 }

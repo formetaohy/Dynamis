@@ -1,9 +1,9 @@
 use dynamis_gpu::{
-    BindingSpec, ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
-    PipelineHandle, ShaderBinding, StreamElement, TypedSlot, assert_binding_element,
-    parse_bindings,
+    ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
+    PipelineHandle, StreamElement, TypedSlot,
 };
-use wgpu::{BindGroup, BindGroupEntry, Device};
+use dynamis_pass::Bindings;
+use wgpu::{BindGroup, Device};
 
 const BINS: u32 = 256;
 const BINS_ALL: usize = BINS as usize * 8;
@@ -11,70 +11,31 @@ const REGIONS: u32 = 8;
 const SLOTS: usize = 64;
 
 struct Declared {
+    label: String,
     handle: PipelineHandle,
-    bindings: Vec<ShaderBinding>,
+    bindings: Bindings,
 }
 
 impl Declared {
     fn declare(context: &GpuContext, label: String, source: String, entry: &str) -> Self {
-        let bindings = parse_bindings(&source);
-        let specs = binding_specs(&bindings);
+        let bindings = Bindings::parse(&source);
+        let specs = bindings.specs(0);
         let handle = context.declare(ComputeProgram::new(&label, source, entry, &[&specs]));
-        Self { handle, bindings }
+        Self {
+            label,
+            handle,
+            bindings,
+        }
     }
 
     fn pipeline(&self) -> &ComputePipeline {
         self.handle.pipeline()
     }
 
-    fn group(&self, device: &Device, resources: &[(&str, TypedSlot<'_>)]) -> BindGroup {
-        assert!(
-            self.bindings.len() == resources.len(),
-            "the shader declares {} bindings but the sort provides {}",
-            self.bindings.len(),
-            resources.len()
-        );
-        let entries = self
-            .bindings
-            .iter()
-            .map(|binding| {
-                let resource = resources
-                    .iter()
-                    .find(|(name, _)| *name == binding.name)
-                    .unwrap_or_else(|| {
-                        panic!("the shader never declares the binding {:?}", binding.name)
-                    });
-                assert_binding_element("sort", &binding.name, binding, resource.1.element());
-                BindGroupEntry {
-                    binding: binding.binding,
-                    resource: resource.1.slot().as_binding(),
-                }
-            })
-            .collect::<Vec<_>>();
-        self.handle.create_bind_group(device, 0, &entries)
+    fn group(&self, device: &Device, slots: &[(&'static str, TypedSlot<'_>)]) -> BindGroup {
+        self.bindings
+            .group(&self.label, &self.handle, device, 0, slots)
     }
-}
-
-fn binding_specs(bindings: &[ShaderBinding]) -> Vec<BindingSpec> {
-    let mut ordered = bindings
-        .iter()
-        .filter(|binding| binding.group == 0)
-        .collect::<Vec<_>>();
-    ordered.sort_by_key(|binding| binding.binding);
-    for (position, binding) in ordered.iter().enumerate() {
-        assert!(
-            binding.binding == position as u32,
-            "the shader binds index {} where {position} is required",
-            binding.binding
-        );
-    }
-    ordered
-        .into_iter()
-        .map(|binding| BindingSpec {
-            binding: binding.binding,
-            kind: binding.kind,
-        })
-        .collect()
 }
 
 pub fn key_words(elements: u32) -> u32 {

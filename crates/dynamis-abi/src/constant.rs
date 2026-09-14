@@ -1,5 +1,7 @@
 use crate::wgsl::declare_constants;
 
+include!(concat!(env!("OUT_DIR"), "/lengths.rs"));
+
 declare_constants! {
     pub const EDIT_PATCH: u32 = 0;
     pub const EDIT_FORCE: u32 = 1;
@@ -37,8 +39,6 @@ declare_constants! {
     pub const COLLIDER_EVENT_PERSIST: u32 = 4;
     pub const CONTACT_ANNOUNCED: u32 = 0x8000_0000;
     pub const ISLAND_WAKE: u32 = 1;
-    pub const CONTACT_MAX_POINTS: u32 = 4;
-    pub const ELEMENT_PARTICLES: u32 = 4;
     pub const ELEMENT_ROLE_BITS: u32 = 2;
     pub const ELEMENT_ROLE_MASK: u32 = (1 << ELEMENT_ROLE_BITS) - 1;
     pub const ELEMENT_DISTANCE: u32 = 0;
@@ -96,8 +96,6 @@ declare_constants! {
     pub const DOF_LIMITED: u32 = 1 << 14;
     pub const DOF_DRIVEN: u32 = 1 << 20;
     pub const DOF_LIMIT_ROW_BASE: u32 = 8;
-    pub const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16;
-    pub const JOINT_DOF: u32 = 6;
     pub const QUERY_RAY: u32 = 0;
     pub const QUERY_SPHERE: u32 = 1;
     pub const QUERY_CUBOID: u32 = 2;
@@ -115,7 +113,6 @@ declare_constants! {
     pub const NO_SLOT: u32 = 0xFFFF_FFFF;
     pub const NO_SURFACE: u32 = 0xFFFF_FFFF;
     pub const NO_TRIANGLE: u32 = 0xFFFF_FFFF;
-    pub const MAX_HITS_PER_QUERY: u32 = 16;
 }
 
 const _: () = assert!(
@@ -181,6 +178,10 @@ const _: () = assert!(
 const _: () = assert!(
     DOF_LIMIT_ROW_BASE + DOF_COUNT <= CONSTRAINT_ACCUMULATOR_SLOTS,
     "dof limit rows must fit the constraint accumulator budget"
+);
+const _: () = assert!(
+    DOF_COUNT == JOINT_DOF,
+    "the dof budget must be the joint state width"
 );
 
 fn dof_field(flags: u32, base: u32, index: u32) -> bool {

@@ -15,7 +15,7 @@ mod records {
 }
 mod wgsl;
 
-pub const ABI_WGSL: &str = include_str!("../abi/world.wgsl");
+pub const RECORDS_WGSL: &str = include_str!("../abi/records.wgsl");
 
 pub trait StreamRecord {
     const WGSL: &'static str;

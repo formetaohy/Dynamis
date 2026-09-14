@@ -1,5 +1,5 @@
 use super::streams::{REACTION_WORDS, SoftDemand, SoftStreams};
-use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, settled};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, settled};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftCapacity {

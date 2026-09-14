@@ -2,10 +2,10 @@ use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_broadphase::BroadphaseStream;
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{GRID_INDEX, rows};
-use dynamis_pass::Resources;
 use dynamis_pass::Stage;
+use dynamis_shader::{GRID_INDEX, rows};
 use dynamis_state::StateStream;
 
 pub struct Entries {

@@ -121,12 +121,7 @@ fn scale_volume(scale: [f32; 3]) -> f32 {
 }
 
 fn rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
-    let r = mat_from_quat(q);
-    [
-        r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
-        r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
-        r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
-    ]
+    crate::math::quat_rotate(q, v)
 }
 
 fn centroid_of(collider: &ColliderDesc, solid: &SolidGeometry) -> [f32; 3] {

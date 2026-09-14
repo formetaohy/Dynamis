@@ -840,7 +840,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
 fn a_query_batch_that_fills_the_stream_keeps_every_result() {
     let mut world = new_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
-    let count = dynamis_pass::STREAM_FLOOR;
+    let count = dynamis_domain::STREAM_FLOOR;
     let handles = (0..count)
         .map(|_| {
             world.ray_query(

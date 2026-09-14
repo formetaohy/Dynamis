@@ -2,7 +2,7 @@
 name = "dynamis-state"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Shared world state streams for bodies, colliders, constraints, and shapes"
 license.workspace = true
 repository.workspace = true
 

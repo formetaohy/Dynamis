@@ -6,9 +6,9 @@ use dynamis_abi::{
     RowMoveRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_domain::Domain;
+use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_pass::EVENT_SLOTS;
-use dynamis_pass::{UNIFORM, streams};
+use dynamis_gpu::EVENT_SLOTS;
 use std::mem::size_of;
 
 pub const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
@@ -29,7 +29,7 @@ streams! {
         observed: u32,
     }
     streams {
-        params, Params: "step params", StepParamsRecord, 1, Contents::Scratch, 1, UNIFORM;
+        params, Params: "step params", StepParamsRecord, 1, Contents::Scratch, 1, dynamis_gpu::UNIFORM;
         body_states, BodyStates: "body states", BodyStateRecord, 1, Contents::Durable, demand.bodies;
         body_row_of_id, BodyRowOfId: "body row of id", u32, 1, Contents::Durable, demand.body_ids;
         body_descriptors, BodyDescriptors: "body descriptors", BodyDescriptorRecord, 1, Contents::Durable, demand.bodies;

@@ -1,6 +1,12 @@
 use crate::{GpuBuffer, GpuSlot};
 use wgpu::{BufferAddress, BufferUsages, CommandEncoder, Device, Queue};
 
+pub const STREAM: BufferUsages = BufferUsages::STORAGE
+    .union(BufferUsages::COPY_DST)
+    .union(BufferUsages::COPY_SRC);
+pub const UNIFORM: BufferUsages = BufferUsages::UNIFORM.union(BufferUsages::COPY_DST);
+pub const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StreamElement {
     wgsl: &'static str,

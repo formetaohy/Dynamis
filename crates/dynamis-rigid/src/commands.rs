@@ -4,10 +4,11 @@ use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_DEVICE_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE,
 };
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows, workgroups};
-use dynamis_pass::Resources;
-use dynamis_pass::{Stage, workgroups_of};
+use dynamis_pass::Stage;
+use dynamis_shader::workgroups_of;
+use dynamis_shader::{CORE, rows, workgroups};
 use dynamis_state::StateStream;
 
 pub struct Commands {

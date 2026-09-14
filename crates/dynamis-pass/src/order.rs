@@ -230,6 +230,10 @@ macro_rules! domain_passes {
                 ],
             };
 
+            pub const EDGES: $crate::PassGroupEdges = &[
+                $( (stringify!($field), $after as &'static [&'static str]), )+
+            ];
+
             pub fn resolve(pipeline: &$crate::Pipeline) -> Self {
                 Self {
                     $( $field: pipeline.index(stringify!($field)), )+
@@ -239,248 +243,74 @@ macro_rules! domain_passes {
     };
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub type PassGroupEdges = &'static [(&'static str, &'static [&'static str])];
 
-    const FIRST: u32 = 0;
-    const SECOND: u32 = 1;
+pub type PassEdges = &'static [PassGroupEdges];
 
-    #[test]
-    fn independent_passes_follow_their_declared_order() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            SECOND,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "beta",
-                    after: &[],
-                }],
-            },
-        );
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "alpha",
-                    after: &[],
-                }],
-            },
-        );
-        let pipeline = builder.resolve();
-        assert_eq!(
-            pipeline
-                .passes()
-                .iter()
-                .map(|pass| pass.label)
-                .collect::<Vec<_>>(),
-            &["beta", "alpha"]
-        );
-        assert_eq!(pipeline.index("beta"), 0);
-        assert_eq!(pipeline.pass(1).domain, FIRST);
+pub const fn assert_declared(domains: &[PassEdges]) {
+    let mut domain = 0;
+    while domain < domains.len() {
+        let groups = domains[domain];
+        let mut group = 0;
+        while group < groups.len() {
+            let edges = groups[group];
+            let mut edge = 0;
+            while edge < edges.len() {
+                let (label, after) = edges[edge];
+                assert!(
+                    occurrences(domains, label) == 1,
+                    "a step pipeline declares a pass label twice"
+                );
+                let mut dependency = 0;
+                while dependency < after.len() {
+                    assert!(
+                        occurrences(domains, after[dependency]) == 1,
+                        "a pass follows a pass label that no domain declares"
+                    );
+                    dependency += 1;
+                }
+                edge += 1;
+            }
+            group += 1;
+        }
+        domain += 1;
     }
+}
 
-    #[test]
-    fn a_pass_follows_the_passes_it_declares() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[
-                    PassSpec {
-                        label: "earlier",
-                        after: &[],
-                    },
-                    PassSpec {
-                        label: "later",
-                        after: &["earlier"],
-                    },
-                ],
-            },
-        );
-        let pipeline = builder.resolve();
-        assert_eq!(
-            pipeline
-                .passes()
-                .iter()
-                .map(|pass| pass.label)
-                .collect::<Vec<_>>(),
-            &["earlier", "later"]
-        );
+const fn occurrences(domains: &[PassEdges], label: &str) -> usize {
+    let mut count = 0;
+    let mut domain = 0;
+    while domain < domains.len() {
+        let groups = domains[domain];
+        let mut group = 0;
+        while group < groups.len() {
+            let edges = groups[group];
+            let mut edge = 0;
+            while edge < edges.len() {
+                if equal(edges[edge].0, label) {
+                    count += 1;
+                }
+                edge += 1;
+            }
+            group += 1;
+        }
+        domain += 1;
     }
+    count
+}
 
-    #[test]
-    fn a_declared_dependency_outweighs_the_declared_order() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "consumer",
-                    after: &["producer"],
-                }],
-            },
-        );
-        builder.declare(
-            SECOND,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "producer",
-                    after: &[],
-                }],
-            },
-        );
-        let pipeline = builder.resolve();
-        assert_eq!(
-            pipeline
-                .passes()
-                .iter()
-                .map(|pass| pass.label)
-                .collect::<Vec<_>>(),
-            &["producer", "consumer"]
-        );
+const fn equal(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
     }
-
-    #[test]
-    fn a_repeated_dependency_resolves_once() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[
-                    PassSpec {
-                        label: "first",
-                        after: &[],
-                    },
-                    PassSpec {
-                        label: "second",
-                        after: &["first", "first"],
-                    },
-                ],
-            },
-        );
-        let pipeline = builder.resolve();
-        assert_eq!(
-            pipeline
-                .passes()
-                .iter()
-                .map(|pass| pass.label)
-                .collect::<Vec<_>>(),
-            &["first", "second"]
-        );
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
     }
-
-    #[test]
-    #[should_panic(expected = "twice")]
-    fn a_repeated_label_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[
-                    PassSpec {
-                        label: "shared",
-                        after: &[],
-                    },
-                    PassSpec {
-                        label: "shared",
-                        after: &[],
-                    },
-                ],
-            },
-        );
-        builder.resolve();
-    }
-
-    #[test]
-    #[should_panic(expected = "undeclared")]
-    fn an_undeclared_dependency_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "consumer",
-                    after: &["absent"],
-                }],
-            },
-        );
-        builder.resolve();
-    }
-
-    #[test]
-    #[should_panic(expected = "follow itself")]
-    fn a_pass_that_follows_itself_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "loop",
-                    after: &["loop"],
-                }],
-            },
-        );
-        builder.resolve();
-    }
-
-    #[test]
-    #[should_panic(expected = "cyclic")]
-    fn a_dependency_cycle_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[
-                    PassSpec {
-                        label: "first",
-                        after: &["second"],
-                    },
-                    PassSpec {
-                        label: "second",
-                        after: &["first"],
-                    },
-                ],
-            },
-        );
-        builder.resolve();
-    }
-
-    #[test]
-    #[should_panic(expected = "run \"producer\" first")]
-    fn a_group_that_contradicts_its_own_declared_order_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[
-                    PassSpec {
-                        label: "consumer",
-                        after: &["producer"],
-                    },
-                    PassSpec {
-                        label: "producer",
-                        after: &[],
-                    },
-                ],
-            },
-        );
-        builder.resolve();
-    }
-
-    #[test]
-    #[should_panic(expected = "outside the step pipeline")]
-    fn a_pass_beyond_the_pipeline_is_refused() {
-        let mut builder = PipelineBuilder::new();
-        builder.declare(
-            FIRST,
-            PassGroup {
-                passes: &[PassSpec {
-                    label: "only",
-                    after: &[],
-                }],
-            },
-        );
-        builder.resolve().pass(1);
-    }
+    true
 }

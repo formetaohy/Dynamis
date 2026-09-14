@@ -9,10 +9,10 @@ use dynamis_abi::{
     COUNTER_SPILLOVER_EVENTS, COUNTER_SPILLOVER_RESTING, COUNTER_WOKE_DEFERRED,
 };
 use dynamis_broadphase::BroadphaseStream;
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, GEOMETRY_INDEX, JOINTS, rows, stream, workgroups};
-use dynamis_pass::Resources;
 use dynamis_pass::Stage;
+use dynamis_shader::{CORE, GEOMETRY_INDEX, JOINTS, rows, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 

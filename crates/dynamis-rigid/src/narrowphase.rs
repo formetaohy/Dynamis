@@ -4,10 +4,10 @@ use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, GEOMETRY, stream, workgroups};
-use dynamis_pass::Resources;
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
+use dynamis_shader::{CORE, GEOMETRY, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 

@@ -2,12 +2,15 @@
 name = "dynamis-abi"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Host to device record layouts, counters, and step parameters shared with WGSL"
 license.workspace = true
 repository.workspace = true
 
 [lints]
 workspace = true
+
+[build-dependencies]
+naga = { workspace = true }
 
 [dependencies]
 bytemuck = { workspace = true }

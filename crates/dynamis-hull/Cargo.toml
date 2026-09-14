@@ -1,8 +1,8 @@
 [package]
-name = "dynamis-mesh"
+name = "dynamis-hull"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Convex hull construction, hull decomposition, and solid mass properties"
 license.workspace = true
 repository.workspace = true
 
@@ -10,4 +10,4 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-dynamis-math = { workspace = true }
+dynamis-model = { workspace = true }

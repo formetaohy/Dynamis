@@ -1,5 +1,5 @@
 use super::streams::{StateDemand, StateStreams};
-use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled};
 
 const COMMANDS_PER_BODY: u32 = 4;
 const CONSTRAINT_COMMANDS_PER_CONSTRAINT: u32 = 4;

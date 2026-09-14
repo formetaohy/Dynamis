@@ -12,6 +12,7 @@ macro_rules! domains {
                 assert!(seen & (1 << id) == 0, "two registered domains share one id");
                 seen |= 1 << id;
             )*
+            ::dynamis_pass::assert_declared(&[ $( <$domain as $crate::Domain>::PASS_EDGES, )* ]);
         };
 
         #[derive(Clone, Copy)]
@@ -68,7 +69,7 @@ macro_rules! domains {
                 occupied: Occupied { $( $field: true, )* },
             };
 
-            pub(crate) fn of(measured: &$crate::Counters, live: &Live, work: &HostWork) -> Self {
+            pub(crate) fn of(measured: &::dynamis_abi::Counters, live: &Live, work: &HostWork) -> Self {
                 let occupied = Occupied {
                     $( $field: <$domain as $crate::Domain>::occupied(&live.$field), )*
                 };
@@ -182,6 +183,7 @@ macro_rules! domains {
                 queue: &wgpu::Queue,
                 plan: &Plan,
             ) -> Self {
+                use $crate::DomainStreams as _;
                 Self {
                     $(
                         $field: <$domain as $crate::Domain>::Streams::new(
@@ -195,6 +197,7 @@ macro_rules! domains {
             }
 
             pub(crate) fn matches(&self, plan: &Plan) -> bool {
+                use $crate::DomainStreams as _;
                 true $( && self.$field.matches(&plan.$field) )*
             }
 
@@ -204,6 +207,7 @@ macro_rules! domains {
                 encoder: &mut wgpu::CommandEncoder,
                 plan: &Plan,
             ) -> bool {
+                use $crate::DomainStreams as _;
                 let mut changed = false;
                 $( changed |= self.$field.reserve(device, encoder, &plan.$field); )*
                 if changed {
@@ -216,6 +220,7 @@ macro_rules! domains {
             }
 
             pub(crate) fn durable(&self) -> Vec<(&'static str, &dynamis_gpu::Stream)> {
+                use $crate::DomainStreams as _;
                 let mut streams = Vec::new();
                 $( streams.extend(self.$field.durable()); )*
                 streams
@@ -227,6 +232,7 @@ macro_rules! domains {
                 encoder: &mut wgpu::CommandEncoder,
                 floors: F,
             ) -> bool {
+                use $crate::DomainStreams as _;
                 let mut changed = false;
                 $( changed |= self.$field.require(device, encoder, &floors); )*
                 changed
@@ -239,12 +245,12 @@ macro_rules! domains {
             }
         }
 
-        impl dynamis_pass::Resources for Streams {
+        impl dynamis_gpu::Resources for Streams {
             fn generation(&self) -> u64 {
                 self.generation
             }
 
-            fn slots(&self, resource: dynamis_pass::ResourceId) -> u32 {
+            fn slots(&self, resource: dynamis_gpu::ResourceId) -> u32 {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {
                         return self.$field.slots(resource.local());
@@ -258,7 +264,7 @@ macro_rules! domains {
 
             fn whole(
                 &self,
-                resource: dynamis_pass::ResourceId,
+                resource: dynamis_gpu::ResourceId,
             ) -> dynamis_gpu::GpuSlot<'_> {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {
@@ -273,7 +279,7 @@ macro_rules! domains {
 
             fn range(
                 &self,
-                resource: dynamis_pass::ResourceId,
+                resource: dynamis_gpu::ResourceId,
                 offset: u64,
                 size: u64,
             ) -> dynamis_gpu::GpuSlot<'_> {
@@ -316,7 +322,7 @@ macro_rules! domains {
         impl PassRuntimes {
             pub(crate) fn build(
                 context: &dynamis_gpu::GpuContext,
-                resources: &impl dynamis_pass::Resources,
+                resources: &impl dynamis_gpu::Resources,
                 ids: PassIds,
             ) -> Self {
                 let PassIds { $( $field, )* } = ids;
@@ -337,7 +343,7 @@ macro_rules! domains {
                 index: u32,
                 schedule: &mut dynamis_pass::Schedule,
                 encoder: &mut wgpu::CommandEncoder,
-                resources: &impl dynamis_pass::Resources,
+                resources: &impl dynamis_gpu::Resources,
                 frames: &StepFrames,
             ) {
                 $(

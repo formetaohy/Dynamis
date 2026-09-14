@@ -2,7 +2,7 @@
 name = "dynamis-domain"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Simulation domain contract, step facts, stream tables, and capacity policy"
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,7 @@
 name = "dynamis-rigid"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Rigid body integration, islands, CCD, and constraint solving"
 license.workspace = true
 repository.workspace = true
 
@@ -12,7 +12,7 @@ dynamis-domain = { workspace = true }
 dynamis-broadphase = { workspace = true }
 dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-kernel = { workspace = true }
+dynamis-shader = { workspace = true }
 dynamis-state = { workspace = true }
 dynamis-sort = { workspace = true }
 wgpu = { workspace = true }

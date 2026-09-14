@@ -397,14 +397,7 @@ fn palette_rows(surfaces: Option<SurfaceTable<'_>>) -> Vec<SurfaceRecord> {
 }
 
 fn solid_of(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Option<SolidGeometry> {
-    (kind == dynamis_abi::SHAPE_HULL).then(|| {
-        let solid = dynamis_mesh::hull_solid(vertices, triangles);
-        SolidGeometry {
-            volume: solid.volume,
-            centroid: solid.centroid,
-            unit_inertia: solid.unit_inertia,
-        }
-    })
+    (kind == dynamis_abi::SHAPE_HULL).then(|| dynamis_hull::solid(vertices, triangles))
 }
 
 fn bounds_of(vertices: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {

@@ -3,7 +3,7 @@ use dynamis_abi::{
     COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_SPILLOVER_ENTRIES, COUNTER_SPILLOVER_PAIRS, Counters,
     ENTRY_CELLS_PER_PARTICLE, MAX_CELLS_PER_COLLIDER,
 };
-use dynamis_pass::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, product};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, product};
 
 const STREAM_DENSITY_PAIRS: u32 = 16;
 const PLAN_COOLDOWN: u32 = 10;

@@ -4,6 +4,7 @@ mod config;
 mod constraint;
 mod event;
 mod mass;
+pub mod math;
 mod query;
 mod shape;
 mod soft;

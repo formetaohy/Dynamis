@@ -1,8 +1,8 @@
-use dynamis_math::{length, quat_conjugate, quat_mul, quat_rotate};
+use dynamis_model::math::{length, quat_conjugate, quat_mul, quat_rotate};
 
 fn rotation(axis: [f32; 3], angle: f32) -> [f32; 4] {
     let half = angle * 0.5;
-    let axis = dynamis_math::normalize(axis);
+    let axis = dynamis_model::math::normalize(axis);
     let sine = half.sin();
     [axis[0] * sine, axis[1] * sine, axis[2] * sine, half.cos()]
 }

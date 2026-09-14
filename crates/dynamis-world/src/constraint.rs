@@ -2,12 +2,12 @@ use super::World;
 use super::commands::ConstraintCommand;
 use super::ids::IdSpace;
 use dynamis_abi::{BrokenConstraintRecord, COUNTER_BREAKS, ConstraintDescriptorRecord};
+use dynamis_gpu::EVENT_SLOTS;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
-use dynamis_pass::EVENT_SLOTS;
 use std::collections::VecDeque;
 use std::mem::size_of;
 
@@ -535,7 +535,7 @@ fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32;
         -orientation_a[2],
         orientation_a[3],
     ];
-    dynamis_math::quat_mul(a, orientation_b)
+    dynamis_model::math::quat_mul(a, orientation_b)
 }
 
 fn dof_limit_pair(record: &mut ConstraintDescriptorRecord, index: usize) -> (&mut f32, &mut f32) {

@@ -4,8 +4,8 @@ use dynamis_abi::{
     SoftParticleRecord,
 };
 use dynamis_domain::Domain;
+use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_pass::streams;
 
 pub const REACTION_WORDS: u32 = 8;
 

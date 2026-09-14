@@ -3,7 +3,8 @@ use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
+use dynamis_gpu::Resources;
+use dynamis_pass::{PassGroup, Pipeline, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct StateDomain;
@@ -18,6 +19,8 @@ impl Domain for StateDomain {
     const ID: u32 = 0;
 
     const SIMULATES: bool = false;
+
+    const PASS_EDGES: dynamis_pass::PassEdges = &[];
 
     type Demand = StateDemand;
     type Inputs = StateInputs;

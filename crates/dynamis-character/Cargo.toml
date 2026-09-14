@@ -2,7 +2,7 @@
 name = "dynamis-character"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Query driven kinematic character controller"
 license.workspace = true
 repository.workspace = true
 
@@ -10,7 +10,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-dynamis-math = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-world = { workspace = true }
 

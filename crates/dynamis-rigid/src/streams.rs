@@ -4,9 +4,9 @@ use dynamis_abi::{
     ContactEventRecord, ContactRecord, JointStateRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
 };
 use dynamis_domain::Domain;
+use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_pass::EVENT_SLOTS;
-use dynamis_pass::streams;
+use dynamis_gpu::EVENT_SLOTS;
 
 pub const COMPACT_BLOCK: u32 = 256;
 
@@ -93,10 +93,10 @@ impl RigidDemand {
     }
 }
 
-pub fn event_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
+pub fn event_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
 }
 
-pub fn sort_capacity<R: dynamis_pass::Resources>(resources: &R) -> u32 {
+pub fn sort_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::SortScratchMajor.into())
 }

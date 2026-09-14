@@ -13,7 +13,7 @@ mod sort;
 mod streams;
 
 use dynamis_abi::{FrameCounts, StepParamsRecord};
-use dynamis_pass::Resources;
+use dynamis_gpu::Resources;
 
 const IDENTITY: &[&str] = &[include_str!("../shaders/identity.wgsl")];
 const CONTACT: &[&str] = &[

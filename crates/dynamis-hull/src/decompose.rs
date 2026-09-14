@@ -1,13 +1,13 @@
-use crate::hull::convex_hull_mesh;
-use dynamis_math::{add, cross, dot, length, mul, normalize, sub};
+use crate::hull::hull;
+use dynamis_model::math::{add, cross, dot, length, mul, normalize, sub};
 
-pub struct HullDecomposeSettings {
+pub struct DecomposeSettings {
     pub max_parts: u32,
     pub concavity: f32,
     pub depth: u32,
 }
 
-impl Default for HullDecomposeSettings {
+impl Default for DecomposeSettings {
     fn default() -> Self {
         Self {
             max_parts: 16,
@@ -17,16 +17,16 @@ impl Default for HullDecomposeSettings {
     }
 }
 
-pub struct HullMesh {
+pub struct Part {
     pub vertices: Vec<[f32; 3]>,
     pub triangles: Vec<[u32; 3]>,
 }
 
-pub fn decompose_mesh(
+pub fn decompose(
     vertices: &[[f32; 3]],
     triangles: &[[u32; 3]],
-    settings: &HullDecomposeSettings,
-) -> Vec<HullMesh> {
+    settings: &DecomposeSettings,
+) -> Vec<Part> {
     validate_mesh(vertices, triangles);
     assert!(
         !planar(triangles, vertices, 0..triangles.len()),
@@ -46,8 +46,8 @@ pub fn decompose_mesh(
             return parts
                 .into_iter()
                 .map(|part| {
-                    let (vertices, triangles) = convex_hull_mesh(vertices, &part);
-                    HullMesh {
+                    let (vertices, triangles) = hull(vertices, &part);
+                    Part {
                         vertices,
                         triangles,
                     }
@@ -89,7 +89,7 @@ fn split(
         return vec![part_triangles(triangles, &indices)];
     }
     let part = part_triangles(triangles, &indices);
-    let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, &part);
+    let (hull_vertices, hull_triangles) = hull(vertices, &part);
     let radius = hull_radius(&hull_vertices);
     let depth_value = hull_penetration(
         vertices,
@@ -158,7 +158,7 @@ fn split(
 fn child_score(vertices: &[[f32; 3]], triangles: &[[u32; 3]], left: &[u32], right: &[u32]) -> f32 {
     let score_of = |indices: &[u32]| {
         let part = part_triangles(triangles, indices);
-        let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, &part);
+        let (hull_vertices, hull_triangles) = hull(vertices, &part);
         let radius = hull_radius(&hull_vertices);
         hull_penetration(
             vertices,

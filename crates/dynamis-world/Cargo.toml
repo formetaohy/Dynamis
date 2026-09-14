@@ -2,7 +2,7 @@
 name = "dynamis-world"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Host scene registry, step orchestration, and readback"
 license.workspace = true
 repository.workspace = true
 
@@ -19,8 +19,7 @@ dynamis-domain = { workspace = true }
 dynamis-broadphase = { workspace = true }
 dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-math = { workspace = true }
-dynamis-mesh = { workspace = true }
+dynamis-hull = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-rigid = { workspace = true }
 dynamis-state = { workspace = true }

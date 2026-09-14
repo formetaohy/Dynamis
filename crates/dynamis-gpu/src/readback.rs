@@ -141,6 +141,8 @@ impl Slot {
     }
 }
 
+pub const EVENT_SLOTS: u32 = Readback::DEPTH as u32 + 2;
+
 pub struct Readback {
     device: Device,
     label: String,

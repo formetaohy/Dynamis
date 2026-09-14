@@ -2,12 +2,13 @@
 name = "dynamis-sort"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "GPU radix sort over keyed payload channels"
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 dynamis-gpu = { workspace = true }
+dynamis-pass = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]

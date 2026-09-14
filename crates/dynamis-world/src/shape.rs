@@ -1,7 +1,7 @@
 use super::World;
 use crate::shape_pool::{ShapePool, height_field_triangles};
 use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
-use dynamis_mesh::convex_hull_mesh;
+use dynamis_hull::hull;
 use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
 
 #[derive(Clone)]
@@ -39,9 +39,9 @@ impl World {
         &mut self,
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
-        settings: dynamis_mesh::HullDecomposeSettings,
+        settings: dynamis_hull::DecomposeSettings,
     ) -> Vec<ShapeSourceHandle> {
-        let parts = dynamis_mesh::decompose_mesh(vertices, triangles, &settings);
+        let parts = dynamis_hull::decompose(vertices, triangles, &settings);
         parts
             .iter()
             .map(|part| self.add_hull(&part.vertices, &part.triangles))
@@ -53,7 +53,7 @@ impl World {
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
     ) -> ShapeSourceHandle {
-        let (hull_vertices, hull_triangles) = convex_hull_mesh(vertices, triangles);
+        let (hull_vertices, hull_triangles) = hull(vertices, triangles);
         self.allocate_shape(SHAPE_HULL, &hull_vertices, hull_triangles, None)
     }
 

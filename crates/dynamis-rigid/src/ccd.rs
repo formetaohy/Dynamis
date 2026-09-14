@@ -1,11 +1,12 @@
 use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_pass::{Resources, Schedule, Stage, domain_passes};
+use dynamis_gpu::Resources;
+use dynamis_pass::{Schedule, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
-use dynamis_kernel::{CORE, GEOMETRY, rows, stream};
+use dynamis_shader::{CORE, GEOMETRY, rows, stream};
 use dynamis_state::StateStream;
 
 domain_passes!(

@@ -7,7 +7,8 @@ use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
+use dynamis_gpu::Resources;
+use dynamis_pass::{PassGroup, Pipeline, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct RigidDomain;
@@ -34,6 +35,12 @@ impl Domain for RigidDomain {
 
     const SIMULATES: bool = true;
 
+    const PASS_EDGES: dynamis_pass::PassEdges = &[
+        RigidPasses::EDGES,
+        CcdPasses::EDGES,
+        RigidResolutionPasses::EDGES,
+    ];
+
     type Demand = RigidDemand;
     type Inputs = RigidInputs;
     type Work = RigidWork;
@@ -45,7 +52,7 @@ impl Domain for RigidDomain {
     type Capacity = RigidCapacity;
 
     fn minimum() -> RigidDemand {
-        Capacity::floor(dynamis_pass::STREAM_FLOOR)
+        Capacity::floor(dynamis_domain::STREAM_FLOOR)
     }
 
     fn occupied(inputs: &RigidInputs) -> bool {

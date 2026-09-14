@@ -9,7 +9,7 @@ pub use streams::{
 };
 
 use dynamis_abi::{COUNTER_DEVICE_COUNT, COUNTER_STRIDE};
-use dynamis_pass::SlotRef;
+use dynamis_gpu::SlotRef;
 
 pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 

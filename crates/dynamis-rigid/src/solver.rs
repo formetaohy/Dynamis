@@ -2,10 +2,10 @@ use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows, stream, stream_warm, workgroups};
-use dynamis_pass::Resources;
 use dynamis_pass::Stage;
+use dynamis_shader::{CORE, rows, stream, stream_warm, workgroups};
 use dynamis_state::StateStream;
 
 const BLOCKS: &[&str] = &[
@@ -14,14 +14,14 @@ const BLOCKS: &[&str] = &[
 ];
 
 fn block_fragments() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::JOINTS.to_vec();
+    let mut fragments = dynamis_shader::JOINTS.to_vec();
     fragments.extend_from_slice(BLOCKS);
     fragments
 }
 const POSITION_CORRECTION: &[&str] = &[include_str!("../shaders/position_correction.wgsl")];
 
 fn position_fragments() -> Vec<&'static str> {
-    let mut fragments = dynamis_kernel::JOINTS.to_vec();
+    let mut fragments = dynamis_shader::JOINTS.to_vec();
     fragments.extend_from_slice(POSITION_CORRECTION);
     fragments
 }

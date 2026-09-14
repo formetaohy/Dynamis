@@ -2,7 +2,7 @@
 name = "dynamis-soft"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Soft body and fluid particle simulation"
 license.workspace = true
 repository.workspace = true
 
@@ -12,7 +12,7 @@ dynamis-domain = { workspace = true }
 dynamis-broadphase = { workspace = true }
 dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-kernel = { workspace = true }
+dynamis-shader = { workspace = true }
 dynamis-state = { workspace = true }
 wgpu = { workspace = true }
 

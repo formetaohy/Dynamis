@@ -4,7 +4,8 @@ use dynamis_abi::COUNTER_SOFT_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, Run, StepFacts};
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
+use dynamis_gpu::Resources;
+use dynamis_pass::{PassGroup, Pipeline, Schedule};
 use wgpu::CommandEncoder;
 
 pub struct SoftDomain;
@@ -18,6 +19,8 @@ impl Domain for SoftDomain {
     const ID: u32 = 3;
 
     const SIMULATES: bool = true;
+
+    const PASS_EDGES: dynamis_pass::PassEdges = &[SoftPasses::EDGES];
 
     type Demand = SoftDemand;
     type Inputs = SoftInputs;

@@ -6,10 +6,10 @@ use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_RESTING, COUNTER_RESTING_INDEX,
     COUNTER_SLEPT, COUNTER_SPILLOVER_EVENTS, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
+use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, rows, stream};
-use dynamis_pass::Resources;
 use dynamis_pass::Stage;
+use dynamis_shader::{CORE, rows, stream};
 use dynamis_state::StateStream;
 
 pub struct Islands {

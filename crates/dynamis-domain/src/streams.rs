@@ -1,17 +1,34 @@
-use wgpu::BufferUsages;
+use dynamis_gpu::Stream;
+use wgpu::{CommandEncoder, Device, Queue};
 
-pub const EVENT_SLOTS: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
+pub trait DomainStreams: Sized {
+    type Demand;
 
-pub const STREAM: BufferUsages = BufferUsages::STORAGE
-    .union(BufferUsages::COPY_DST)
-    .union(BufferUsages::COPY_SRC);
-pub const UNIFORM: BufferUsages = BufferUsages::UNIFORM.union(BufferUsages::COPY_DST);
-pub const PACK: BufferUsages = BufferUsages::COPY_DST.union(BufferUsages::COPY_SRC);
+    fn new(device: &Device, queue: &Queue, demand: &Self::Demand) -> Self;
+
+    fn matches(&self, demand: &Self::Demand) -> bool;
+
+    fn reserve(
+        &mut self,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        demand: &Self::Demand,
+    ) -> bool;
+
+    fn require<F: Fn(&'static str) -> Option<u32>>(
+        &mut self,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        floors: F,
+    ) -> bool;
+
+    fn durable(&self) -> Vec<(&'static str, &Stream)>;
+}
 
 #[macro_export]
 macro_rules! stream_usage {
     () => {
-        $crate::STREAM
+        ::dynamis_gpu::STREAM
     };
     ($usage:expr) => {
         $usage
@@ -70,8 +87,11 @@ macro_rules! streams {
                 self.contents().durable()
             }
 
-            pub const fn whole(self) -> $crate::SlotRef {
-                $crate::SlotRef::whole($crate::ResourceId::new($domain, self as u32), self.element())
+            pub const fn whole(self) -> ::dynamis_gpu::SlotRef {
+                ::dynamis_gpu::SlotRef::whole(
+                    ::dynamis_gpu::ResourceId::new($domain, self as u32),
+                    self.element(),
+                )
             }
 
             pub fn of(local: u32) -> Self {
@@ -90,9 +110,9 @@ macro_rules! streams {
             }
         }
 
-        impl From<$id> for $crate::ResourceId {
+        impl From<$id> for ::dynamis_gpu::ResourceId {
             fn from(id: $id) -> Self {
-                $crate::ResourceId::new($domain, id as u32)
+                ::dynamis_gpu::ResourceId::new($domain, id as u32)
             }
         }
 
@@ -101,12 +121,10 @@ macro_rules! streams {
             $( pub $field: $ty, )*
         }
 
-        impl $table {
-            pub fn new(
-                device: &::wgpu::Device,
-                queue: &::wgpu::Queue,
-                $locale: &$demand,
-            ) -> Self {
+        impl $crate::DomainStreams for $table {
+            type Demand = $demand;
+
+            fn new(device: &::wgpu::Device, queue: &::wgpu::Queue, $locale: &$demand) -> Self {
                 Self {
                     $(
                         $name: ::dynamis_gpu::Stream::new(
@@ -125,21 +143,11 @@ macro_rules! streams {
                 }
             }
 
-            pub fn matches(&self, $locale: &$demand) -> bool {
+            fn matches(&self, $locale: &$demand) -> bool {
                 true $( && self.$name.slots() == $slots )*
             }
 
-            pub fn durable(
-                &self,
-            ) -> impl Iterator<Item = (&'static str, &::dynamis_gpu::Stream)> {
-                $id::ALL
-                    .iter()
-                    .copied()
-                    .filter(|id| id.durable())
-                    .map(|id| (id.label(), id.stream(self)))
-            }
-
-            pub fn reserve(
+            fn reserve(
                 &mut self,
                 device: &::wgpu::Device,
                 encoder: &mut ::wgpu::CommandEncoder,
@@ -150,11 +158,11 @@ macro_rules! streams {
                 changed
             }
 
-            pub fn require(
+            fn require<F: Fn(&'static str) -> Option<u32>>(
                 &mut self,
                 device: &::wgpu::Device,
                 encoder: &mut ::wgpu::CommandEncoder,
-                floors: impl Fn(&'static str) -> Option<u32>,
+                floors: F,
             ) -> bool {
                 let mut changed = false;
                 $(
@@ -173,6 +181,17 @@ macro_rules! streams {
                 changed
             }
 
+            fn durable(&self) -> Vec<(&'static str, &::dynamis_gpu::Stream)> {
+                $id::ALL
+                    .iter()
+                    .copied()
+                    .filter(|id| id.durable())
+                    .map(|id| (id.label(), id.stream(self)))
+                    .collect()
+            }
+        }
+
+        impl $table {
             pub fn slots(&self, local: u32) -> u32 {
                 $id::of(local).stream(self).slots()
             }

@@ -5,7 +5,7 @@ use dynamis_abi::{
     ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftAttachmentInit, SoftAttachmentRecord,
     SoftBodyRecord, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
 };
-use dynamis_math::{add, quat_rotate};
+use dynamis_model::math::{add, quat_rotate};
 use dynamis_model::{BodyHandle, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState};
 use dynamis_soft::SoftStreams;
 

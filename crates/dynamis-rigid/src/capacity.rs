@@ -1,6 +1,6 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{COUNTER_EVENTS, COUNTER_SPILLOVER_EVENTS, Counters};
-use dynamis_pass::{MIN_SLOTS, StreamWatch, settled};
+use dynamis_domain::{MIN_SLOTS, StreamWatch, settled};
 
 const STREAM_DENSITY_EVENTS: u32 = 8;
 
@@ -22,7 +22,7 @@ pub struct RigidInputs {
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
     RigidCapacity {
-        events: streams.events.slots() / dynamis_pass::EVENT_SLOTS,
+        events: streams.events.slots() / dynamis_gpu::EVENT_SLOTS,
     }
 }
 
@@ -54,26 +54,27 @@ impl Capacity {
         self.events.observe(
             measured[COUNTER_EVENTS],
             measured[COUNTER_SPILLOVER_EVENTS] > 0,
-            current.events.slots() / dynamis_pass::EVENT_SLOTS,
+            current.events.slots() / dynamis_gpu::EVENT_SLOTS,
         );
         if self.events.pressured() {
             self.events.settle(false);
         } else if idle {
             self.events.settle(true);
         }
-        let event_budget = dynamis_pass::product(inputs.colliders, STREAM_DENSITY_EVENTS, "event");
+        let event_budget =
+            dynamis_domain::product(inputs.colliders, STREAM_DENSITY_EVENTS, "event");
         let events = if idle {
             self.events.released(
-                current.events.slots() / dynamis_pass::EVENT_SLOTS,
+                current.events.slots() / dynamis_gpu::EVENT_SLOTS,
                 event_budget,
             )
         } else {
             self.events.widened(
-                current.events.slots() / dynamis_pass::EVENT_SLOTS,
+                current.events.slots() / dynamis_gpu::EVENT_SLOTS,
                 event_budget,
             )
         };
-        let bodies = dynamis_pass::grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS);
+        let bodies = dynamis_domain::grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS);
         let colliders = current
             .collider_aabbs
             .slots()
@@ -102,7 +103,7 @@ impl Capacity {
             colliders: MIN_SLOTS,
             constraints: MIN_SLOTS,
             pairs,
-            events: dynamis_pass::STREAM_FLOOR,
+            events: dynamis_domain::STREAM_FLOOR,
             sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
         }
     }

@@ -1,3 +1,9 @@
+const CONTACT_MAX_POINTS: u32 = 4u;
+const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16u;
+const ELEMENT_PARTICLES: u32 = 4u;
+const JOINT_DOF: u32 = 6u;
+const MAX_HITS_PER_QUERY: u32 = 16u;
+
 struct StepParams {
     gravity: vec4f,
     dt: f32,
