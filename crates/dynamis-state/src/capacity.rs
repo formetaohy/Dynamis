@@ -1,9 +1,5 @@
 use super::streams::{StateDemand, StateStreams};
-use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled};
-
-const COMMANDS_PER_BODY: u32 = 4;
-const CONSTRAINT_COMMANDS_PER_CONSTRAINT: u32 = 4;
-const QUERIES_PER_BODY: u32 = 2;
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, settled};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShapeCapacity {
@@ -84,27 +80,19 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
     let body_commands = settled(
         idle,
         current.body_edits.slots(),
-        inputs
-            .body_commands
-            .max(product(bodies, COMMANDS_PER_BODY, "body command")),
+        inputs.body_commands,
         STREAM_FLOOR,
     );
     let constraint_commands = settled(
         idle,
         current.constraint_fresh_rows.slots(),
-        inputs.constraint_commands.max(product(
-            constraints,
-            CONSTRAINT_COMMANDS_PER_CONSTRAINT,
-            "constraint command",
-        )),
+        inputs.constraint_commands,
         STREAM_FLOOR,
     );
     let queries = settled(
         idle,
         current.query_records.slots(),
-        inputs
-            .queries
-            .max(product(bodies, QUERIES_PER_BODY, "query")),
+        inputs.queries,
         STREAM_FLOOR,
     );
     StateDemand {

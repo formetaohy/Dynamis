@@ -7,6 +7,7 @@ pub(crate) struct ColliderPool {
     records: Vec<ColliderRecord>,
     runs: Vec<Run>,
     cleared: Vec<Run>,
+    live: u32,
 }
 
 impl ColliderPool {
@@ -16,6 +17,7 @@ impl ColliderPool {
             records: Vec::new(),
             runs: Vec::new(),
             cleared: Vec::new(),
+            live: 0,
         }
     }
 
@@ -24,7 +26,7 @@ impl ColliderPool {
     }
 
     pub(crate) fn live(&self) -> u32 {
-        self.runs.iter().map(|run| run.len).sum()
+        self.live
     }
 
     pub(crate) fn records(&self) -> &[ColliderRecord] {
@@ -67,6 +69,7 @@ impl ColliderPool {
         );
         self.records
             .resize(self.arena.used() as usize, ColliderRecord::cleared());
+        self.live += len;
         run
     }
 
@@ -81,5 +84,6 @@ impl ColliderPool {
         self.arena.release(run);
         self.records.truncate(self.arena.used() as usize);
         self.cleared.push(run);
+        self.live -= run.len;
     }
 }

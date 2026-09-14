@@ -1,12 +1,12 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_EVENTS,
-    COUNTER_RESTING, Counters,
+    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS,
+    COUNTER_REFUSED_EVENTS, COUNTER_RESTING, Counters,
 };
-use dynamis_domain::{MIN_SLOTS, StreamWatch, settled};
+use dynamis_domain::{MIN_SLOTS, StreamWatch, product, settled, unreported};
 
-const STREAM_DENSITY_EVENTS: u32 = 8;
-const STREAM_DENSITY_CONTACTS: u32 = 4;
+const FRESH_EVENTS_PER_COLLIDER: u32 = 8;
+const FRESH_CONTACTS_PER_COLLIDER: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidCapacity {
@@ -73,8 +73,9 @@ impl Capacity {
         } else if idle {
             self.events.settle(true);
         }
-        let event_budget =
-            dynamis_domain::product(inputs.colliders, STREAM_DENSITY_EVENTS, "event");
+        let thawing = measured[COUNTER_RESTING];
+        let fresh = unreported(inputs.colliders, measured[COUNTER_COLLIDERS]);
+        let event_budget = product(fresh, FRESH_EVENTS_PER_COLLIDER, "event").max(thawing);
         let events = if idle {
             self.events.released(
                 current.events.slots() / dynamis_gpu::EVENT_SLOTS,
@@ -96,8 +97,7 @@ impl Capacity {
         } else if idle {
             self.contacts.settle(true);
         }
-        let contact_budget =
-            dynamis_domain::product(inputs.colliders, STREAM_DENSITY_CONTACTS, "contact");
+        let contact_budget = product(fresh, FRESH_CONTACTS_PER_COLLIDER, "contact").max(thawing);
         let contacts = if idle {
             self.contacts
                 .released(current.contacts.slots(), contact_budget)

@@ -9,6 +9,10 @@ pub fn product(left: u32, right: u32, name: &str) -> u32 {
         .unwrap_or_else(|| panic!("{name} capacity exceeds the device index space"))
 }
 
+pub fn unreported(live: u32, reported: u32) -> u32 {
+    live.saturating_sub(reported)
+}
+
 pub fn grown(capacity: u32, required: u32, floor: u32) -> u32 {
     if required <= capacity {
         capacity.max(floor)
@@ -21,11 +25,11 @@ pub fn grown(capacity: u32, required: u32, floor: u32) -> u32 {
 
 fn narrowed(capacity: u32, required: u32, floor: u32) -> u32 {
     let target = required.max(floor);
-    capacity.min(target.max(capacity / 2))
+    capacity.min(target.max(capacity / 2)).max(target)
 }
 
 pub fn settled(idle: bool, capacity: u32, required: u32, floor: u32) -> u32 {
-    if idle {
+    if idle && required <= capacity {
         narrowed(capacity, required, floor)
     } else {
         grown(capacity, required, floor)

@@ -1,13 +1,15 @@
 use super::streams::{BroadphaseDemand, BroadphaseStreams};
-use dynamis_abi::{COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, Counters, MAX_CELLS_PER_COLLIDER};
-use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, product, settled};
+use dynamis_abi::{
+    COUNTER_COLLIDERS, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, Counters, MAX_CELLS_PER_COLLIDER,
+};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, product, settled, unreported};
 
-const PARTNERS_PER_COLLIDER: u32 = 16;
+const FRESH_PARTNERS_PER_COLLIDER: u32 = 16;
 const PLAN_COOLDOWN: u32 = 10;
 
 const _: () = assert!(
-    PARTNERS_PER_COLLIDER >= MAX_CELLS_PER_COLLIDER,
-    "the candidate pair floor must cover every grid entry a collider can own"
+    FRESH_PARTNERS_PER_COLLIDER >= MAX_CELLS_PER_COLLIDER,
+    "the freshly spawned pair reservation must cover every grid entry a collider can own"
 );
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -68,13 +70,15 @@ impl Capacity {
             .colliders
             .checked_add(inputs.particles)
             .unwrap_or_else(|| panic!("grid entry sources exceed the device index space"));
+        let reported = measured[COUNTER_COLLIDERS];
         let entries = settled(
             idle,
             current.entry_keys.slots(),
             product(sources, MAX_CELLS_PER_COLLIDER, "grid entry"),
             STREAM_FLOOR,
         );
-        let pair_floor = product(inputs.colliders, PARTNERS_PER_COLLIDER, "pair");
+        let fresh = unreported(inputs.colliders, reported);
+        let pair_floor = product(fresh, FRESH_PARTNERS_PER_COLLIDER, "pair");
         let pairs = if idle {
             self.pairs.released(current.pair_major.slots(), pair_floor)
         } else {

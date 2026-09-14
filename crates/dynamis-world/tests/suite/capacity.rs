@@ -3,7 +3,8 @@ use super::common::{
     static_sphere_ground,
 };
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
+    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS,
+    COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
 };
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape, SoftBodyDesc};
 use dynamis_world::World;
@@ -203,6 +204,69 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     assert!(
         world.measured()[COUNTER_CONTACTS] > 0,
         "the world must still resolve contacts"
+    );
+}
+
+#[test]
+fn the_declared_collider_fact_counts_the_live_colliders_alone() {
+    let mut world = new_world(static_config());
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_COLLIDERS],
+        0,
+        "an empty world declares no collider"
+    );
+
+    let compound = world.spawn(
+        BodyDesc::sphere(0.2)
+            .position([0.0, 0.0, 0.0])
+            .collider(ColliderDesc::new(Shape::sphere(0.3)))
+            .collider(ColliderDesc::new(Shape::capsule(0.2, 0.1))),
+    );
+    world.spawn(BodyDesc::sphere(0.5).position([10.0, 0.0, 0.0]));
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_COLLIDERS],
+        4,
+        "a compound body declares every collider it holds"
+    );
+
+    world.remove(compound);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_COLLIDERS],
+        1,
+        "a removed body releases the colliders it held"
+    );
+}
+
+#[test]
+fn an_idle_scene_sheds_the_room_its_colliders_never_used() {
+    let mut world = new_world(static_config());
+    for index in 0..512 {
+        world.spawn(BodyDesc::static_sphere(0.2).position([index as f32 * 4.0, 0.0, 0.0]));
+    }
+    settle(&mut world, 140);
+    let measured = *world.measured();
+    let capacity = world.stream_capacity();
+    assert_eq!(
+        measured[COUNTER_CONTACTS], 0,
+        "spaced colliders must never touch"
+    );
+    assert_eq!(
+        measured[COUNTER_EVENTS], 0,
+        "spaced colliders must never announce"
+    );
+    assert!(
+        capacity.rigid.contacts < 512 * 4,
+        "an idle scene must shed the contact room its colliders never used, {capacity:?}"
+    );
+    assert!(
+        capacity.rigid.events < 512 * 8,
+        "an idle scene must shed the event room its colliders never used, {capacity:?}"
     );
 }
 

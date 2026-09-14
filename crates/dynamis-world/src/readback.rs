@@ -65,7 +65,7 @@ impl World {
     pub(crate) fn declare_step(&mut self, step: u64) {
         let declared = DeclaredCounters {
             bodies: self.bodies.alive.len() as u32,
-            colliders: self.colliders.used(),
+            colliders: self.colliders.live(),
             constraints: self.constraints.alive.len() as u32,
             body_edits: self.bodies.last_edits,
             body_moves: self.bodies.last_moves,

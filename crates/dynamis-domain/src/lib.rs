@@ -3,7 +3,7 @@ mod facts;
 mod registry;
 mod streams;
 
-pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled};
+pub use capacity::{MIN_SLOTS, STREAM_FLOOR, StreamWatch, grown, product, settled, unreported};
 pub use facts::StepFacts;
 pub use streams::DomainStreams;
 
