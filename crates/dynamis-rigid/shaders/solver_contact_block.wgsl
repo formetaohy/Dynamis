@@ -1,5 +1,9 @@
 
 
+fn tangential_mass(mass: f32, contact: Contact) -> f32 {
+    return mass * f32(max(contact.point_count, 1u));
+}
+
 fn solve_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
     let first_slot = collider_owners[contact.a];
@@ -42,12 +46,15 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         impulses[point_index] = impulses[point_index] + vec4f(normal * (next_normal - accumulated_normal), 0.0);
         accumulated_normal = next_normal;
         let friction_limit = contact.friction * accumulated_normal;
-        let tangent_1_mass = point_momentum_mass(
-            pair.split_first,
-            pair.split_second,
-            anchor_first,
-            anchor_second,
-            tangents.first,
+        let tangent_1_mass = tangential_mass(
+            point_momentum_mass(
+                pair.split_first,
+                pair.split_second,
+                anchor_first,
+                anchor_second,
+                tangents.first,
+            ),
+            contact,
         );
         let tangent_1_speed = dot(
             relative_velocity(pair.first, pair.second, anchor_first, anchor_second),
@@ -58,12 +65,15 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         impulses[point_index] =
             impulses[point_index] + vec4f(tangents.first * (next_tangent_1 - accumulated_tangent_1), 0.0);
         accumulated_tangent_1 = next_tangent_1;
-        let tangent_2_mass = point_momentum_mass(
-            pair.split_first,
-            pair.split_second,
-            anchor_first,
-            anchor_second,
-            tangents.second,
+        let tangent_2_mass = tangential_mass(
+            point_momentum_mass(
+                pair.split_first,
+                pair.split_second,
+                anchor_first,
+                anchor_second,
+                tangents.second,
+            ),
+            contact,
         );
         let tangent_2_speed = dot(
             relative_velocity(pair.first, pair.second, anchor_first, anchor_second),

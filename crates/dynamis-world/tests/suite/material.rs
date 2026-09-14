@@ -1,5 +1,8 @@
 use super::common::{DT, asleep, gravity_config, new_world, settle_until, static_config};
-use dynamis_model::{BodyDesc, ColliderDesc, MaterialCombine, PhysicsConfig, QueryFilter, Shape};
+use dynamis_model::{
+    BodyDesc, BodyHandle, ColliderDesc, MaterialCombine, PhysicsConfig, QueryFilter, Shape,
+};
+use dynamis_world::World;
 
 #[test]
 fn friction_combine_modes_scale_grip() {
@@ -238,4 +241,96 @@ fn plane_ccd_stops_fast_ball() {
         "ccd must stop the fast ball above the plane, got {:?}",
         state.position
     );
+}
+
+const COULOMB_MASS: f32 = 1.0;
+const COULOMB_FRICTION: f32 = 0.5;
+const GRAVITY: f32 = 9.81;
+
+fn coulomb_limit() -> f32 {
+    COULOMB_FRICTION * COULOMB_MASS * GRAVITY
+}
+
+fn sliding_pair(world: &mut World) -> BodyHandle {
+    world.spawn(
+        BodyDesc::new(
+            ColliderDesc::new(Shape::cuboid([50.0, 0.5, 50.0])).friction(COULOMB_FRICTION),
+        )
+        .mass(0.0)
+        .position([0.0, -0.5, 0.0]),
+    );
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::cuboid([0.5; 3])).friction(COULOMB_FRICTION))
+            .mass(COULOMB_MASS)
+            .position([0.0, 0.5, 0.0]),
+    )
+}
+
+fn dragged(world: &mut World, body: BodyHandle, force: f32) {
+    world.apply_force(body, [force, 0.0, 0.0]);
+    world.step(DT);
+}
+
+#[test]
+fn friction_holds_a_body_dragged_inside_the_coulomb_cone() {
+    let mut world = new_world(gravity_config());
+    let body = sliding_pair(&mut world);
+    for _ in 0..240 {
+        dragged(&mut world, body, 0.5 * coulomb_limit());
+    }
+    world.wait();
+    let state = world.read_state(body);
+    assert!(
+        state.position[0].abs() < 1e-3 && state.velocity[0].abs() < 1e-2,
+        "a body dragged below the coulomb limit must stay put, got {:?} {:?}",
+        state.position,
+        state.velocity
+    );
+}
+
+#[test]
+fn friction_lets_a_body_slide_beyond_the_coulomb_cone() {
+    let mut world = new_world(gravity_config());
+    let body = sliding_pair(&mut world);
+    for _ in 0..240 {
+        dragged(&mut world, body, 1.2 * coulomb_limit());
+    }
+    world.wait();
+    let state = world.read_state(body);
+    let expected = (1.2 * COULOMB_FRICTION - COULOMB_FRICTION) * GRAVITY * 4.0;
+    assert!(
+        state.position[0] > 1.0,
+        "a body dragged past the coulomb limit must slide, got {:?}",
+        state.position
+    );
+    assert!(
+        (state.velocity[0] - expected).abs() < 0.25 * expected,
+        "sliding must accelerate by the applied force minus the limit, got {} expected {expected}",
+        state.velocity[0]
+    );
+}
+
+#[test]
+fn sliding_friction_decelerates_at_the_coulomb_limit() {
+    let mut world = new_world(gravity_config());
+    let body = sliding_pair(&mut world);
+    world.set_velocity(body, [3.0, 0.0, 0.0]);
+    let per_step = COULOMB_FRICTION * GRAVITY * DT;
+    let mut previous = 3.0;
+    for frame in 0..8 {
+        world.step(DT);
+        world.wait();
+        let state = world.read_state(body);
+        let deceleration = previous - state.velocity[0];
+        previous = state.velocity[0];
+        assert!(
+            (deceleration - per_step).abs() < 0.05 * per_step,
+            "sliding must decelerate at the coulomb limit at frame {frame}, got {deceleration} expected {per_step}"
+        );
+        assert!(
+            state.position[1] < 0.5005,
+            "a sliding body must not lift off the floor, got {}",
+            state.position[1]
+        );
+    }
 }

@@ -626,3 +626,40 @@ fn clearing_the_ccd_flag_restores_tunneling() {
         world.read_state(bullet).position[0]
     );
 }
+
+#[test]
+fn a_leaning_tower_holds_through_friction() {
+    let mut world = new_world(PhysicsConfig::default());
+    world.spawn(
+        BodyDesc::cuboid([40.0, 0.5, 40.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let lean = 0.1;
+    let mut tower = Vec::new();
+    for level in 0..6 {
+        tower.push(
+            world.spawn(
+                BodyDesc::cuboid([0.5; 3])
+                    .position([level as f32 * lean, 0.5 + level as f32, 0.0])
+                    .friction(0.5)
+                    .restitution(0.0),
+            ),
+        );
+    }
+    settle(&mut world, 480);
+    for (level, handle) in tower.iter().enumerate() {
+        let state = world.read_state(*handle);
+        let expected = level as f32 * lean;
+        assert!(
+            (state.position[0] - expected).abs() < 0.15,
+            "tower level {level} must hold its lean: x={} expected={expected}",
+            state.position[0]
+        );
+        assert!(
+            (state.position[1] - (0.5 + level as f32)).abs() < 0.1,
+            "tower level {level} must hold its spacing: y={}",
+            state.position[1]
+        );
+    }
+}

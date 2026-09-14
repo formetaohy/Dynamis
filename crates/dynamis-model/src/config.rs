@@ -41,8 +41,8 @@ impl PhysicsConfig {
             "rigid substeps must be strictly positive"
         );
         assert!(
-            self.substeps > 0,
-            "rigid substeps must be strictly positive"
+            self.solve_iterations > 0,
+            "solve iterations must be strictly positive"
         );
         assert!(
             self.position_iterations > 0,
