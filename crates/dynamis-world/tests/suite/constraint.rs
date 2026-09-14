@@ -252,7 +252,7 @@ fn joined_bodies_collision_policy_controls_overlap() {
     settle(&mut merged, 30);
     let merged_y = merged.read_state(second).position[1];
     assert!(
-        merged.contact_manifolds().is_empty(),
+        merged.inspect_contacts().is_empty(),
         "disabled collisions must suppress contacts between joined bodies"
     );
 
@@ -268,7 +268,7 @@ fn joined_bodies_collision_policy_controls_overlap() {
     let separated_y = separated.read_state(second).position[1];
     assert!(
         separated
-            .contact_manifolds()
+            .inspect_contacts()
             .iter()
             .any(|manifold| manifold.first == first && manifold.second == second),
         "enabled collisions must report contacts between joined bodies"

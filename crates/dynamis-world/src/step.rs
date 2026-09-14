@@ -157,7 +157,7 @@ impl World {
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
         let pack_bytes = self.pack_step(&mut encoder);
-        self.copy_observations(&mut encoder, step);
+        self.declare_observations(&mut encoder, step);
         let pack = self.backend.readback.step.enqueue(
             &mut encoder,
             self.backend.readback.pack.buffer(),

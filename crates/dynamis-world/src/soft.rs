@@ -11,11 +11,11 @@ use dynamis_soft::SoftStreams;
 
 #[derive(Clone, Copy)]
 pub(crate) struct SoftRuns {
-    particles: Run,
-    elements: Run,
-    attachments: Run,
-    adjacency: Run,
-    strength: bool,
+    pub(crate) particles: Run,
+    pub(crate) elements: Run,
+    pub(crate) attachments: Run,
+    pub(crate) adjacency: Run,
+    pub(crate) strength: bool,
 }
 
 impl SoftRuns {
@@ -127,7 +127,13 @@ impl SoftBodies {
         self.runs[handle.id as usize]
     }
 
-    fn validate(&self, handle: SoftBodyHandle) {
+    pub(crate) fn is_alive(&self, handle: SoftBodyHandle) -> bool {
+        (handle.id as usize) < self.ids.len()
+            && self.ids.generation(handle.id) == handle.generation
+            && self.index_of[handle.id as usize] != u32::MAX
+    }
+
+    pub(crate) fn validate(&self, handle: SoftBodyHandle) {
         let id = handle.id as usize;
         if id >= self.ids.len() {
             panic!("soft body handle {handle:?} is out of range");
@@ -304,18 +310,6 @@ impl SoftBodies {
                 .write_at(queue, u64::from(offset) * 4, bytemuck::cast_slice(records));
         });
     }
-
-    pub(crate) fn observe(&mut self, run: Run, records: &[SoftParticleRecord]) {
-        for (slot, record) in records.iter().enumerate() {
-            self.particles.records_mut()[run.offset as usize + slot] = *record;
-        }
-    }
-
-    pub(crate) fn observe_elements(&mut self, run: Run, records: &[SoftElementRecord]) {
-        for (slot, record) in records.iter().enumerate() {
-            self.elements.records_mut()[run.offset as usize + slot] = *record;
-        }
-    }
 }
 
 fn global_particles(element: &SoftElement, base: u32) -> [u32; ELEMENT_PARTICLES as usize] {
@@ -380,7 +374,7 @@ impl World {
         self.soft.count()
     }
 
-    pub fn soft_body_positions(&mut self, handle: SoftBodyHandle) -> Vec<[f32; 3]> {
+    pub fn inspect_soft_particles(&mut self, handle: SoftBodyHandle) -> Vec<[f32; 3]> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
         let live = self.live();
@@ -401,15 +395,13 @@ impl World {
                 .all(|record| record.owner == handle.id && record.generation == handle.generation),
             "a soft body readback must return only its own particles"
         );
-        let positions = records
+        records
             .iter()
             .map(|record| [record.position[0], record.position[1], record.position[2]])
-            .collect();
-        self.soft.observe(run, &records);
-        positions
+            .collect()
     }
 
-    pub fn soft_body_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
+    pub fn inspect_soft_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
         let live = self.live();
@@ -438,7 +430,6 @@ impl World {
                 .all(|particle| runs.particles.span().contains(&(particle as usize))),
             "a soft body readback must return only its own elements"
         );
-        self.soft.observe_elements(runs.elements, &records);
         states
     }
 }

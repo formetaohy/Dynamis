@@ -115,7 +115,7 @@ fn resting_contacts_survive_sleep_and_recycle_their_slots() {
         "a sleeping pile must keep its contacts in the resting store"
     );
     assert_eq!(
-        world.contact_manifolds().len(),
+        world.inspect_contacts().len(),
         resting as usize,
         "the public contact list must report the resting contacts"
     );
@@ -357,7 +357,7 @@ fn reviving_a_resting_pair_resumes_its_persist_stream() {
         "the landing ball must fall asleep"
     );
     assert!(
-        !world.contact_manifolds().is_empty(),
+        !world.inspect_contacts().is_empty(),
         "the sleeping ball must keep its resting contact"
     );
     world.drain_events();
@@ -446,7 +446,7 @@ fn removing_a_body_ends_only_its_own_resting_contacts() {
         "the removed body must end exactly one resting contact"
     );
     assert!(
-        world.contact_manifolds().iter().any(|manifold| {
+        world.inspect_contacts().iter().any(|manifold| {
             (manifold.first.id == ball.id && manifold.second.id == 0)
                 || (manifold.second.id == ball.id && manifold.first.id == 0)
         }),

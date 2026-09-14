@@ -37,7 +37,7 @@ fn an_attachment_holds_a_soft_body_to_its_anchor() {
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
     settle(&mut world, 180);
-    let positions = world.soft_body_positions(soft);
+    let positions = world.inspect_soft_particles(soft);
     assert!(
         distance(positions[0], [0.0, 8.0, 0.0]) < 0.01,
         "the attached particle must hold its anchor, got {:?}",
@@ -74,7 +74,7 @@ fn an_attachment_carries_a_soft_body_with_a_moving_anchor() {
         world.step(DT);
     }
     world.wait();
-    let positions = world.soft_body_positions(soft);
+    let positions = world.inspect_soft_particles(soft);
     assert!(
         (positions[0][0] - 2.0).abs() < 0.1,
         "the attached particle must follow its anchor, got {:?}",
@@ -109,7 +109,7 @@ fn a_moving_anchor_wakes_a_sleeping_soft_body() {
         world.step(DT);
     }
     world.wait();
-    let positions = world.soft_body_positions(soft);
+    let positions = world.inspect_soft_particles(soft);
     assert!(
         positions[0][0] > 2.5,
         "a sleeping soft body must wake when its anchor moves, got {:?}",
@@ -127,7 +127,7 @@ fn a_restored_attachment_still_anchors_its_soft_body() {
     settle(&mut world, 30);
     world.restore(&snapshot);
     settle(&mut world, 60);
-    let positions = world.soft_body_positions(soft);
+    let positions = world.inspect_soft_particles(soft);
     assert!(
         distance(positions[0], [0.0, 8.0, 0.0]) < 0.01,
         "a restored attachment must still hold its anchor, got {:?}",
@@ -149,7 +149,7 @@ fn an_attachment_follows_its_anchor_through_a_row_move() {
     settle(&mut world, 30);
     world.remove(neighbour);
     settle(&mut world, 90);
-    let positions = world.soft_body_positions(soft);
+    let positions = world.inspect_soft_particles(soft);
     assert!(
         distance(positions[0], [0.0, 8.0, 0.0]) < 0.01,
         "an attachment must resolve its anchor row after a scene swap, got {:?}",

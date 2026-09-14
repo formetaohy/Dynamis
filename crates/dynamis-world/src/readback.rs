@@ -10,6 +10,7 @@ use dynamis_model::{BodyHandle, ConstraintHandle, JointState, SurfaceDesc};
 use std::collections::HashSet;
 use std::mem::size_of;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContactPoint {
     pub position: [f32; 3],
     pub depth: f32,
@@ -19,6 +20,7 @@ pub struct ContactPoint {
     pub triangle: Option<u32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ContactManifold {
     pub first: BodyHandle,
     pub second: BodyHandle,
@@ -30,6 +32,7 @@ pub struct ContactManifold {
     pub step: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintForce {
     pub constraint: ConstraintHandle,
     pub first: BodyHandle,
@@ -94,7 +97,7 @@ impl World {
         self.accept_measured(step);
     }
 
-    pub fn constraint_forces(&mut self) -> Vec<ConstraintForce> {
+    pub fn inspect_constraint_forces(&mut self) -> Vec<ConstraintForce> {
         let count = self.constraints.alive.len();
         if count == 0 {
             return Vec::new();
@@ -110,12 +113,18 @@ impl World {
             .map(|(row, runtime)| {
                 let constraint = self.constraints.alive[row];
                 let (first, second) = self.constraint_bodies(constraint);
-                self.constraint_force_of(constraint, first, second, runtime.reaction)
+                constraint_force_of(
+                    constraint,
+                    first,
+                    second,
+                    runtime.reaction,
+                    self.clock.sub_dt,
+                )
             })
             .collect()
     }
 
-    pub fn constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
+    pub fn inspect_constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
         self.validate_constraint(handle);
         let row = self.constraints.index_of[handle.id as usize];
         self.wait();
@@ -131,10 +140,10 @@ impl World {
             .copied()
             .expect("a constraint force read covers exactly one record");
         let (first, second) = self.constraint_bodies(handle);
-        self.constraint_force_of(handle, first, second, record.reaction)
+        constraint_force_of(handle, first, second, record.reaction, self.clock.sub_dt)
     }
 
-    pub fn joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
+    pub fn inspect_joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
         let count = self.constraints.alive.len();
         if count == 0 {
             return Vec::new();
@@ -147,11 +156,11 @@ impl World {
         dynamis_abi::decode::<JointStateRecord>(&read)
             .into_iter()
             .enumerate()
-            .map(|(row, state)| (self.constraints.alive[row], self.joint_state_of(row, state)))
+            .map(|(row, state)| (self.constraints.alive[row], self.joint_state_at(row, state)))
             .collect()
     }
 
-    pub fn joint_state(&mut self, handle: ConstraintHandle) -> JointState {
+    pub fn inspect_joint_state(&mut self, handle: ConstraintHandle) -> JointState {
         self.validate_constraint(handle);
         let row = self.constraints.index_of[handle.id as usize];
         self.wait();
@@ -166,45 +175,14 @@ impl World {
             .first()
             .copied()
             .expect("a joint state read covers exactly one record");
-        self.joint_state_of(row as usize, state)
+        self.joint_state_at(row as usize, state)
     }
 
-    fn joint_state_of(&self, row: usize, state: JointStateRecord) -> JointState {
-        let kind = self.constraints.records[row].constraint_kind();
-        assert_eq!(
-            state.dof_count as usize,
-            kind.dofs().len(),
-            "the device and the host must agree on the {kind:?} dof layout"
-        );
-        JointState::new(kind, state.coordinates, state.rates, state.impulses)
+    fn joint_state_at(&self, row: usize, state: JointStateRecord) -> JointState {
+        joint_state_of(self.constraints.records[row].constraint_kind(), state)
     }
 
-    fn constraint_force_of(
-        &self,
-        constraint: ConstraintHandle,
-        first: BodyHandle,
-        second: BodyHandle,
-        reaction: ConstraintReactionRecord,
-    ) -> ConstraintForce {
-        let step_dt = self.clock.sub_dt;
-        ConstraintForce {
-            constraint,
-            first,
-            second,
-            force_on_second: [
-                reaction.linear_second[0] / step_dt,
-                reaction.linear_second[1] / step_dt,
-                reaction.linear_second[2] / step_dt,
-            ],
-            torque_on_second: [
-                reaction.angular_second[0] / step_dt,
-                reaction.angular_second[1] / step_dt,
-                reaction.angular_second[2] / step_dt,
-            ],
-        }
-    }
-
-    pub fn contact_manifolds(&mut self) -> Vec<ContactManifold> {
+    pub fn inspect_contacts(&mut self) -> Vec<ContactManifold> {
         self.wait();
         let step = self.clock.step.saturating_sub(1);
         let active = self.backend.measured[COUNTER_CONTACTS] as usize;
@@ -283,6 +261,7 @@ impl World {
 
     pub(crate) fn collect_readbacks(&mut self) {
         self.backend.gpu.poll();
+        self.collect_observations();
         for (step, bytes) in self.backend.readback.step.collect() {
             self.consume_pack(step, &bytes);
         }
@@ -295,9 +274,6 @@ impl World {
         for (batch, bytes) in self.backend.readback.queries.collect() {
             self.collect_query_batch(batch, &bytes);
         }
-        for (sequence, bytes) in self.backend.readback.observations.collect() {
-            self.consume_observations(sequence, &bytes);
-        }
         for (sequence, bytes) in self.backend.readback.collect_states() {
             self.consume_states(sequence, &bytes);
         }
@@ -308,6 +284,7 @@ impl World {
     }
 
     pub(crate) fn drain_readbacks(&mut self) {
+        self.drain_observations();
         for (step, bytes) in self.backend.readback.step.drain() {
             self.consume_pack(step, &bytes);
         }
@@ -319,9 +296,6 @@ impl World {
         }
         for (batch, bytes) in self.backend.readback.queries.drain() {
             self.collect_query_batch(batch, &bytes);
-        }
-        for (sequence, bytes) in self.backend.readback.observations.drain() {
-            self.consume_observations(sequence, &bytes);
         }
         for (sequence, bytes) in self.backend.readback.drain_states() {
             self.consume_states(sequence, &bytes);
@@ -389,6 +363,42 @@ impl World {
         };
         self.constraints.broken.push(handle);
         self.remove_constraint(handle);
+    }
+}
+
+pub(crate) fn joint_state_of(
+    kind: dynamis_model::ConstraintKind,
+    state: JointStateRecord,
+) -> JointState {
+    assert_eq!(
+        state.dof_count as usize,
+        kind.dofs().len(),
+        "the device and the host must agree on the {kind:?} dof layout"
+    );
+    JointState::new(kind, state.coordinates, state.rates, state.impulses)
+}
+
+pub(crate) fn constraint_force_of(
+    constraint: ConstraintHandle,
+    first: BodyHandle,
+    second: BodyHandle,
+    reaction: ConstraintReactionRecord,
+    step_dt: f32,
+) -> ConstraintForce {
+    ConstraintForce {
+        constraint,
+        first,
+        second,
+        force_on_second: [
+            reaction.linear_second[0] / step_dt,
+            reaction.linear_second[1] / step_dt,
+            reaction.linear_second[2] / step_dt,
+        ],
+        torque_on_second: [
+            reaction.angular_second[0] / step_dt,
+            reaction.angular_second[1] / step_dt,
+            reaction.angular_second[2] / step_dt,
+        ],
     }
 }
 

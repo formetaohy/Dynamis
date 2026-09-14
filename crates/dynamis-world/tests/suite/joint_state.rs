@@ -30,7 +30,7 @@ fn revolute_reports_the_hinge_angle() {
     let (mut world, arm, joint) = hinge_world();
     world.set_orientation(arm, spin_about_z(FRAC_PI_6));
     settle(&mut world, 2);
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     assert_eq!(state.kind(), ConstraintKind::Revolute);
     assert_eq!(state.dofs(), &[JointDof::Hinge]);
     assert!(
@@ -47,7 +47,7 @@ fn revolute_reports_the_hinge_rate() {
     world.set_velocity(arm, [0.0, 1.5, 0.0]);
     world.step(DT);
     world.wait();
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     assert!(
         (state.rate(JointDof::Hinge) - 1.5).abs() < 1e-3,
         "the hinge rate must report the relative angular speed, got {}",
@@ -61,7 +61,7 @@ fn servo_tracks_the_reported_hinge_angle() {
     world.set_motor(joint, 0.0, 100.0);
     world.set_servo(joint, 0.5, 0.5, 0.9);
     settle(&mut world, 120);
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     let angle = state.coordinate(JointDof::Hinge);
     assert!(
         (angle - 0.5).abs() < 0.02,
@@ -87,7 +87,7 @@ fn revolute_limit_reports_the_bounded_coordinate() {
     world.set_angular_velocity(arm, [0.0, 0.0, 4.0]);
     world.set_velocity(arm, [0.0, 4.0, 0.0]);
     settle(&mut world, 60);
-    let angle = world.joint_state(joint).coordinate(JointDof::Hinge);
+    let angle = world.inspect_joint_state(joint).coordinate(JointDof::Hinge);
     assert!(
         (0.2..=0.3).contains(&angle),
         "the hinge must report a coordinate inside its limit, got {angle}"
@@ -110,7 +110,7 @@ fn prismatic_reports_the_slide() {
     );
     world.step(DT);
     world.wait();
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     assert!(
         (state.coordinate(JointDof::Slide) - (0.5 - 0.75 * DT)).abs() < 1e-3,
         "the slide coordinate must report the integrated extension, got {}",
@@ -136,7 +136,7 @@ fn prismatic_servo_reaches_the_reported_slide() {
     world.set_motor(joint, 0.0, 50.0);
     world.set_servo(joint, 0.25, 0.5, 0.9);
     settle(&mut world, 120);
-    let extension = world.joint_state(joint).coordinate(JointDof::Slide);
+    let extension = world.inspect_joint_state(joint).coordinate(JointDof::Slide);
     assert!(
         (extension - 0.25).abs() < 0.01,
         "the slide servo must reach its reported target, got {extension}"
@@ -154,7 +154,7 @@ fn distance_reports_the_separation() {
         ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
     );
     settle(&mut world, 2);
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     assert_eq!(state.dofs(), &[JointDof::Separation]);
     assert!(
         (state.coordinate(JointDof::Separation) - 1.0).abs() < 1e-3,
@@ -181,7 +181,7 @@ fn six_dof_reports_each_locked_dof() {
         ]),
     );
     settle(&mut world, 2);
-    let state = world.joint_state(joint);
+    let state = world.inspect_joint_state(joint);
     assert_eq!(state.dofs().len(), 6);
     assert!(
         (state.coordinate(JointDof::Linear(2)) - 0.3).abs() < 1e-3,
@@ -219,7 +219,9 @@ fn six_dof_drive_reaches_the_reported_dof() {
         ]),
     );
     settle(&mut world, 120);
-    let extension = world.joint_state(joint).coordinate(JointDof::Linear(2));
+    let extension = world
+        .inspect_joint_state(joint)
+        .coordinate(JointDof::Linear(2));
     assert!(
         (extension - 0.5).abs() < 0.02,
         "the six dof drive must reach its reported lane, got {extension}"
@@ -227,7 +229,7 @@ fn six_dof_drive_reaches_the_reported_dof() {
 }
 
 #[test]
-fn joint_states_report_every_live_constraint() {
+fn inspect_joint_states_report_every_live_constraint() {
     let (mut world, arm, hinge) = hinge_world();
     let second = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let rope = world.add_constraint(
@@ -236,7 +238,7 @@ fn joint_states_report_every_live_constraint() {
         ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
     );
     settle(&mut world, 2);
-    let states = world.joint_states();
+    let states = world.inspect_joint_states();
     assert_eq!(states.len(), 2);
     assert_eq!(states[0].0, hinge);
     assert_eq!(states[0].1.kind(), ConstraintKind::Revolute);
@@ -245,19 +247,20 @@ fn joint_states_report_every_live_constraint() {
     let _ = rope;
     assert!(
         world
-            .joint_state(hinge)
+            .inspect_joint_state(hinge)
             .impulse(JointDof::Hinge)
             .is_finite()
     );
 }
 
 #[test]
-fn a_removed_constraint_has_no_joint_state() {
+fn a_removed_constraint_has_no_inspect_joint_state() {
     let (mut world, _arm, joint) = hinge_world();
     settle(&mut world, 2);
     world.remove_constraint(joint);
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| world.joint_state(joint)));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        world.inspect_joint_state(joint)
+    }));
     assert!(result.is_err(), "a stale joint handle must be refused");
 }
 
@@ -276,7 +279,7 @@ fn pulley_reports_a_held_rope_rate() {
         world.step(DT);
     }
     world.wait();
-    let rate = world.joint_state(joint).rate(JointDof::Rope);
+    let rate = world.inspect_joint_state(joint).rate(JointDof::Rope);
     assert!(
         rate.abs() < 1e-4,
         "a held pulley must report a still rope, got rate {rate}"
@@ -319,7 +322,7 @@ fn every_joint_kind_reports_its_dof_layout() {
         );
     }
     settle(&mut world, 2);
-    let states = world.joint_states();
+    let states = world.inspect_joint_states();
     assert_eq!(states.len(), descs.len());
     for (index, kind) in expected.iter().enumerate() {
         let state = &states[index].1;

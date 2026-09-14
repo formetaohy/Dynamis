@@ -542,7 +542,7 @@ fn a_fluid_never_drops_grid_entries() {
         );
     }
     let lowest = world
-        .soft_body_positions(fluid)
+        .inspect_soft_particles(fluid)
         .into_iter()
         .fold(f32::MAX, |low, position| low.min(position[1]));
     assert!(

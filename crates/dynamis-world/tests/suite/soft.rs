@@ -27,10 +27,10 @@ fn link_lengths(positions: &[[f32; 3]]) -> [f32; 3] {
 fn a_free_soft_body_keeps_its_link_lengths_while_it_falls() {
     let mut world = new_world(gravity_config());
     let handle = world.add_soft_body(chain());
-    let before = world.soft_body_positions(handle);
+    let before = world.inspect_soft_particles(handle);
     assert_eq!(before.len(), 4, "every particle must be observed");
     settle(&mut world, 60);
-    let after = world.soft_body_positions(handle);
+    let after = world.inspect_soft_particles(handle);
     assert!(
         after[0][1] < before[0][1] - 1.0,
         "a free soft body must fall, got {:?}",
@@ -83,7 +83,7 @@ fn a_soft_body_rests_on_static_ground() {
         .position([0.0, 1.5, 0.0]),
     );
     settle(&mut world, 180);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     for (index, position) in positions.iter().enumerate() {
         assert!(
             position[1] >= -0.01,
@@ -111,7 +111,7 @@ fn a_soft_body_pushes_a_dynamic_body() {
             .velocity([4.0, 0.0, 0.0]),
     );
     settle(&mut world, 90);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     let after = world.read_state(box_body).position;
     assert!(
         after[0] > 0.05,
@@ -160,7 +160,7 @@ fn a_soft_body_rests_on_mesh_and_plane_geometry() {
                 .position([0.0, 1.5, 0.0]),
         );
         settle(&mut world, 180);
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         for (index, position) in positions.iter().enumerate() {
             assert!(
                 position[1] >= -0.02,
@@ -207,14 +207,14 @@ fn two_identical_soft_bodies_observe_identical_positions() {
     let second_body = second.add_soft_body(desc);
     super::common::static_sphere_ground(&mut first, 1.0);
     super::common::static_sphere_ground(&mut second, 1.0);
-    let first_start = first.soft_body_positions(first_body);
-    let second_start = second.soft_body_positions(second_body);
+    let first_start = first.inspect_soft_particles(first_body);
+    let second_start = second.inspect_soft_particles(second_body);
     assert_eq!(first_start, second_start);
     settle(&mut first, 90);
     settle(&mut second, 90);
     assert_eq!(
-        first.soft_body_positions(first_body),
-        second.soft_body_positions(second_body),
+        first.inspect_soft_particles(first_body),
+        second.inspect_soft_particles(second_body),
         "identical soft bodies must stay bit identical"
     );
 }
@@ -226,7 +226,7 @@ fn overlapping_particles_of_a_body_push_apart() {
         SoftBodyDesc::new(vec![[-0.3, 0.0, 0.0], [0.3, 0.0, 0.0]], Vec::new()).radius(0.5),
     );
     settle(&mut world, 60);
-    let after = world.soft_body_positions(handle);
+    let after = world.inspect_soft_particles(handle);
     let separation = distance(after[0], after[1]);
     assert!(
         separation > 0.9,
@@ -243,8 +243,8 @@ fn overlapping_soft_bodies_push_apart() {
         world.add_soft_body(SoftBodyDesc::new(vec![[0.3, 0.0, 0.0]], Vec::new()).radius(0.5));
     settle(&mut world, 60);
     let separation = distance(
-        world.soft_body_positions(first)[0],
-        world.soft_body_positions(second)[0],
+        world.inspect_soft_particles(first)[0],
+        world.inspect_soft_particles(second)[0],
     );
     assert!(
         separation > 0.9,
@@ -284,7 +284,7 @@ fn a_cloth_holds_its_area_while_a_distance_net_sags_flat() {
         desc = desc.pinned(&[0, 4, 20, 24]);
         let handle = world.add_soft_body(desc);
         settle(&mut world, 150);
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         let corners = [
             positions[0][1],
             positions[4][1],
@@ -319,7 +319,7 @@ fn a_compliant_distance_element_stretches_by_its_hookean_elongation() {
         .pinned(&[0]),
     );
     settle(&mut world, 400);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     let elongation = distance(positions[0], positions[1]) - 1.0;
     let expected = 9.81 * compliance;
     assert!(
@@ -345,7 +345,7 @@ fn the_compliant_equilibrium_is_independent_of_the_iteration_count() {
             .pinned(&[0]),
         );
         settle(&mut world, 400);
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         elongations.push(distance(positions[0], positions[1]) - 1.0);
     }
     assert!(
@@ -401,7 +401,7 @@ fn a_tetrahedral_lattice_keeps_its_shape_while_an_axis_only_net_shears_away() {
         let pinned = [0, 1, 2, 3, 4, 5, 6, 7, 8];
         let handle = world.add_soft_body(desc.pinned(&pinned));
         settle(&mut world, 200);
-        heights.push(height_of(&world.soft_body_positions(handle)));
+        heights.push(height_of(&world.inspect_soft_particles(handle)));
     }
     assert!(
         heights[1] > heights[0] * 1.05,
@@ -419,7 +419,7 @@ fn a_volume_element_holds_its_tetrahedron_against_gravity() {
     let mut world = new_world(gravity_config());
     let handle = world.add_soft_body(probe_tetrahedron(0.0));
     settle(&mut world, 400);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     assert!(
         (positions[3][1] - 1.0).abs() < 0.01,
         "a rigid volume element must hold its apex, got {:?}",
@@ -441,7 +441,7 @@ fn a_compliant_volume_element_reaches_its_hookean_volume_deficit() {
     let mut samples = 0.0;
     for _ in 0..300 {
         world.step(DT);
-        deficit += 1.0 / 6.0 - tetrahedron_volume(&world.soft_body_positions(handle));
+        deficit += 1.0 / 6.0 - tetrahedron_volume(&world.inspect_soft_particles(handle));
         samples += 1.0;
     }
     let deficit = deficit / samples;
@@ -464,7 +464,7 @@ fn a_volume_compliance_softens_the_lattice_under_load() {
                 .pinned(&[0, 1, 2, 3, 4, 5, 6, 7, 8]),
         );
         settle(&mut world, 240);
-        heights.push(height_of(&world.soft_body_positions(handle)));
+        heights.push(height_of(&world.inspect_soft_particles(handle)));
     }
     assert!(
         heights[0] < heights[1] * 0.95,
@@ -477,7 +477,7 @@ fn an_area_element_holds_its_triangle_against_gravity() {
     let mut world = new_world(gravity_config());
     let handle = world.add_soft_body(probe_triangle(0.0));
     settle(&mut world, 400);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     assert!(
         (positions[2][1] - 1.0).abs() < 0.01,
         "a rigid area element must hold its apex, got {:?}",
@@ -499,7 +499,7 @@ fn a_compliant_area_element_reaches_its_hookean_area_deficit() {
     let mut samples = 0.0;
     for _ in 0..300 {
         world.step(DT);
-        deficit += 0.5 - triangle_area(&world.soft_body_positions(handle));
+        deficit += 0.5 - triangle_area(&world.inspect_soft_particles(handle));
         samples += 1.0;
     }
     let deficit = deficit / samples;
@@ -521,7 +521,7 @@ fn a_bend_element_holds_its_dihedral_angle_against_gravity() {
         let mut samples = 0.0;
         for _ in 0..200 {
             world.step(DT);
-            apex += world.soft_body_positions(handle)[0][1];
+            apex += world.inspect_soft_particles(handle)[0][1];
             samples += 1.0;
         }
         folds.push(apex / samples);
@@ -554,7 +554,7 @@ fn a_fast_soft_body_never_sinks_into_a_solid_collider() {
     let mut lowest = f32::MAX;
     for _ in 0..300 {
         world.step(DT);
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         lowest = lowest.min(
             positions
                 .iter()
@@ -675,11 +675,11 @@ fn a_yielding_link_keeps_the_stretch_it_creeps_into() {
         SoftElement::distance(0, 1, 1.0).compliance(compliance),
     ));
     let link_length = |world: &mut dynamis_world::World, handle| {
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         distance(positions[0], positions[1])
     };
     settle(&mut world, 400);
-    let crept = world.soft_body_elements(plastic)[0].rest();
+    let crept = world.inspect_soft_elements(plastic)[0].rest();
     let stretched = link_length(&mut world, plastic);
     println!(
         "probe rest {crept:.4} length {stretched:.4} elastic {:.4}",
@@ -724,19 +724,19 @@ fn a_link_loaded_past_its_break_strain_tears() {
         SoftElement::distance(0, 1, 1.0).compliance(0.02),
     ));
     settle(&mut world, 200);
-    let elements = world.soft_body_elements(torn);
+    let elements = world.inspect_soft_elements(torn);
     assert_eq!(elements.len(), 1, "a link observes its own element");
     assert!(
         elements[0].broken(),
         "a link stretched past its break strain must fail"
     );
-    let fallen = world.soft_body_positions(torn)[1][1];
+    let fallen = world.inspect_soft_particles(torn)[1][1];
     assert!(
         fallen < -1.6,
         "a torn particle must fall away from its anchor, got {fallen}"
     );
-    assert!(!world.soft_body_elements(held)[0].broken());
-    let suspended = world.soft_body_positions(held)[1][1];
+    assert!(!world.inspect_soft_elements(held)[0].broken());
+    let suspended = world.inspect_soft_particles(held)[1][1];
     assert!(
         (suspended + 1.196).abs() < 0.02,
         "an unbreakable link must keep hanging at its Hookean elongation, got {suspended}"
@@ -756,12 +756,12 @@ fn a_lattice_fractures_where_its_material_fails() {
             .pinned(&[0]),
     );
     settle(&mut world, 120);
-    let elements = world.soft_body_elements(handle);
+    let elements = world.inspect_soft_elements(handle);
     assert!(
         elements.iter().any(|element| element.broken()),
         "a lattice pinned below its load must tear"
     );
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     assert!(
         positions[7][1] < 1.0,
         "a fractured lattice must fall away from its pin, got {:?}",
@@ -785,20 +785,20 @@ fn a_yielding_body_stays_bit_identical_across_worlds() {
     let rests = |state: &dynamis_model::SoftElementState| state.rest().to_bits();
     assert_eq!(
         first
-            .soft_body_elements(first_body)
+            .inspect_soft_elements(first_body)
             .iter()
             .map(rests)
             .collect::<Vec<_>>(),
         second
-            .soft_body_elements(second_body)
+            .inspect_soft_elements(second_body)
             .iter()
             .map(rests)
             .collect::<Vec<_>>(),
         "plastic flow must stay bit identical"
     );
     assert_eq!(
-        first.soft_body_positions(first_body),
-        second.soft_body_positions(second_body)
+        first.inspect_soft_particles(first_body),
+        second.inspect_soft_particles(second_body)
     );
 }
 
@@ -817,10 +817,10 @@ fn two_element_bodies_keep_their_own_particles() {
                 .position([3.0, 1.0, 0.0]),
         ),
     ];
-    let before = bodies.map(|handle| world.soft_body_positions(handle));
+    let before = bodies.map(|handle| world.inspect_soft_particles(handle));
     settle(&mut world, 60);
     for (body, original) in bodies.into_iter().zip(before) {
-        let after = world.soft_body_positions(body);
+        let after = world.inspect_soft_particles(body);
         let mut drift = 0.0f32;
         for first in 0..after.len() {
             for second in first + 1..after.len() {
@@ -850,17 +850,17 @@ fn a_snapshot_keeps_the_material_state_a_body_crept_into() {
     let snapshot = world.snapshot();
     settle(&mut world, 60);
     assert!(
-        world.soft_body_elements(handle)[0].broken(),
+        world.inspect_soft_elements(handle)[0].broken(),
         "a link loaded past its break strain must fail"
     );
     world.restore(&snapshot);
     assert!(
-        !world.soft_body_elements(handle)[0].broken(),
+        !world.inspect_soft_elements(handle)[0].broken(),
         "a restored world must keep the link its snapshot captured intact"
     );
     settle(&mut world, 60);
     assert!(
-        world.soft_body_elements(handle)[0].broken(),
+        world.inspect_soft_elements(handle)[0].broken(),
         "a restored world must fail the same link again"
     );
 }
@@ -905,7 +905,7 @@ fn a_fresh_soft_body_replaces_the_run_a_removed_one_retires() {
         1,
         "only the fresh body must remain"
     );
-    let positions = world.soft_body_positions(fresh);
+    let positions = world.inspect_soft_particles(fresh);
     assert_eq!(positions.len(), 4, "the fresh body must own every particle");
     assert!(
         positions[0][1] < 4.0,

@@ -18,7 +18,7 @@ fn hanging_load(world: &mut World, mass: f32, length: f32) -> (BodyHandle, BodyH
 }
 
 fn reaction_of(world: &mut World, constraint: dynamis_model::ConstraintHandle) -> [f32; 3] {
-    world.constraint_force(constraint).force_on_second
+    world.inspect_constraint_force(constraint).force_on_second
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn a_hanging_distance_joint_reports_the_weight_it_carries() {
     for _ in 0..180 {
         world.step(DT);
     }
-    let report = world.constraint_force(constraint);
+    let report = world.inspect_constraint_force(constraint);
     let weight = 2.0 * 9.81;
     let magnitude = (report.force_on_second[0].powi(2)
         + report.force_on_second[1].powi(2)

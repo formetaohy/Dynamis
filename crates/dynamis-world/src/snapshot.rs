@@ -9,7 +9,6 @@ use super::constraint::Constraints;
 use super::query_pool::QueryPool;
 use super::shape::Shapes;
 use super::soft::SoftBodies;
-use super::view::View;
 use dynamis_abi::COUNTER_COUNT;
 use dynamis_model::PhysicsConfig;
 
@@ -84,7 +83,7 @@ impl World {
     }
 
     fn abandon_observations(&mut self) {
-        self.view = View::new();
+        self.observed.reset();
         self.bodies.covered.fill(NEVER_REPORTED);
         self.events.contact.clear();
         self.events.due.clear();

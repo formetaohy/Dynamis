@@ -113,12 +113,12 @@ fn hull_rests_on_mesh_floor() {
 }
 
 #[test]
-fn contact_manifolds_surface_contact_points() {
+fn inspect_contacts_surface_contact_points() {
     let mut world = new_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle(&mut world, 30);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .iter()
         .find(|manifold| {

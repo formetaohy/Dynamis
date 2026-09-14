@@ -533,7 +533,7 @@ fn the_resting_pool_never_shrinks_below_its_watermark() {
         "the frozen slots outlive the contacts that produced them, {frozen} vs {idle:?}"
     );
     assert!(
-        world.contact_manifolds().len() >= 24,
+        world.inspect_contacts().len() >= 24,
         "the released contact store must still report the frozen contacts"
     );
     for body in pile {

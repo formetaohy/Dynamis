@@ -50,7 +50,7 @@ fn a_settled_soft_body_leaves_the_simulation_domain() {
 fn a_falling_soft_body_keeps_the_simulation_domain_awake() {
     let mut world = new_world(gravity_config());
     let handle = world.add_soft_body(cloth([0.0, 8.0, 0.0]));
-    let before = world.soft_body_positions(handle);
+    let before = world.inspect_soft_particles(handle);
     settle(&mut world, 30);
     assert!(
         world.measured()[COUNTER_SOFT_ACTIVE] > 0,
@@ -60,7 +60,7 @@ fn a_falling_soft_body_keeps_the_simulation_domain_awake() {
         !world.is_idle(),
         "a moving soft body must keep the world busy"
     );
-    let after = world.soft_body_positions(handle);
+    let after = world.inspect_soft_particles(handle);
     assert!(
         mean_height(&after) < mean_height(&before) - 1.0,
         "a free soft body must fall, got {:?} from {:?}",
@@ -76,9 +76,9 @@ fn a_sleeping_soft_body_holds_the_pose_it_slept_at() {
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world) && soft_asleep(world));
     world.wait();
-    let slept = world.soft_body_positions(handle);
+    let slept = world.inspect_soft_particles(handle);
     settle(&mut world, 90);
-    let after = world.soft_body_positions(handle);
+    let after = world.inspect_soft_particles(handle);
     assert_eq!(
         slept, after,
         "a sleeping soft body must not move until something wakes it"
@@ -132,7 +132,7 @@ fn a_global_parameter_change_wakes_the_sleeping_simulation() {
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world) && soft_asleep(world));
     assert!(world.read_state(ball).sleeping, "the ball must sleep");
-    let resting = mean_height(&world.soft_body_positions(handle));
+    let resting = mean_height(&world.inspect_soft_particles(handle));
     world.set_gravity([0.0, 9.81, 0.0]);
     settle(&mut world, 60);
     assert!(
@@ -144,7 +144,7 @@ fn a_global_parameter_change_wakes_the_sleeping_simulation() {
         "inverted gravity must lift the sleeping ball, got {:?}",
         world.read_state(ball).position
     );
-    let lifted = mean_height(&world.soft_body_positions(handle));
+    let lifted = mean_height(&world.inspect_soft_particles(handle));
     assert!(
         lifted > resting + 0.3,
         "inverted gravity must lift the sleeping soft body, {resting} -> {lifted}"
@@ -174,7 +174,7 @@ fn a_restored_world_keeps_the_soft_body_asleep() {
     ground(&mut world);
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     quiet(&mut world);
-    let slept = world.soft_body_positions(handle);
+    let slept = world.inspect_soft_particles(handle);
     let snapshot = world.snapshot();
 
     let mut restored = new_world(gravity_config());
@@ -188,7 +188,7 @@ fn a_restored_world_keeps_the_soft_body_asleep() {
         restored.is_idle(),
         "a restored settled world must leave the simulation domain"
     );
-    let after = restored.soft_body_positions(handle);
+    let after = restored.inspect_soft_particles(handle);
     assert!(
         distance(after[0], slept[0]) < 1e-6,
         "a restored sleeping soft body must hold its pose"

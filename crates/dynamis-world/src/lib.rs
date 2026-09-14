@@ -7,6 +7,7 @@ mod commands;
 mod constraint;
 mod event;
 mod ids;
+mod observation;
 mod query;
 mod query_pool;
 mod readback;
@@ -17,7 +18,6 @@ mod snapshot;
 mod soft;
 mod step;
 mod upload;
-mod view;
 
 use backend::Backend;
 use body::Bodies;
@@ -29,15 +29,16 @@ use dynamis_gpu::EVENT_SLOTS;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
+use observation::Observations;
 use query::Queries;
 use shape::Shapes;
 use soft::SoftBodies;
-use view::View;
 
 pub use backend::StreamCapacity;
 pub use dynamis_rigid::RigidShape;
 pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::{ShapeCapacity, StateCapacity};
+pub use observation::Observation;
 pub use query_pool::{QueryHandle, QueryHit, QueryState};
 pub use readback::{ConstraintForce, ContactManifold, ContactPoint};
 pub use snapshot::Snapshot;
@@ -53,7 +54,7 @@ pub struct World {
     shapes: Shapes,
     queries: Queries,
     events: Events,
-    view: View,
+    observed: Observations,
     soft: SoftBodies,
 }
 
@@ -72,7 +73,7 @@ impl World {
             shapes,
             queries: Queries::new(),
             events: Events::new(),
-            view: View::new(),
+            observed: Observations::new(),
             soft: SoftBodies::new(),
         }
     }

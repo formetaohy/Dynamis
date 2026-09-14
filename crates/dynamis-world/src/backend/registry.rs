@@ -152,7 +152,7 @@ impl World {
                 constraint_commands,
                 queries,
                 shapes: self.shapes.pool.used(),
-                observed: self.view.len(),
+                observed: self.observed.bodies.len(),
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 colliders,
@@ -165,7 +165,7 @@ impl World {
                 collider_pool,
                 constraints,
                 queries,
-                observed: self.view.len(),
+                observed: self.observed.bodies.len(),
                 ccd: self.ccd_active(),
             },
             soft: dynamis_soft::SoftInputs {
@@ -219,7 +219,7 @@ impl World {
                 edit_runs: self.bodies.last_edits,
                 body_moves: self.bodies.last_moves,
                 constraint_moves: self.constraints.last_moves,
-                observed: self.view.len(),
+                observed: self.observed.bodies.len(),
             },
             self.event_slot_of(self.clock.step),
         )

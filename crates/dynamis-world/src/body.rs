@@ -163,7 +163,7 @@ impl World {
         self.colliders.release(id as u32);
         self.bodies.states[id] = None;
         self.bodies.covered[id] = NEVER_REPORTED;
-        self.view.forget(handle.id);
+        self.observed.bodies.forget(handle.id);
         self.bodies.kinematic[id] = false;
         if self.bodies.descriptors[id].flags & BODY_CCD != 0 {
             self.bodies.ccd_count -= 1;

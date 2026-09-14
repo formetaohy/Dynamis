@@ -16,24 +16,21 @@ pub(crate) struct ReadbackBuffers {
     pub(crate) events: Readback,
     pub(crate) breaks: Readback,
     pub(crate) queries: Readback,
-    pub(crate) observations: Readback,
     pub(crate) states: Option<Readback>,
 }
 
-fn readback_sizes(plan: &Plan) -> (u64, u64, u64, u64, u64) {
+fn readback_sizes(plan: &Plan) -> (u64, u64, u64, u64) {
     (
         COUNTER_BYTES,
         u64::from(plan.rigid.events) * size_of::<ContactEventRecord>() as u64,
         u64::from(plan.state.constraints) * size_of::<BrokenConstraintRecord>() as u64,
         u64::from(plan.state.queries) * QUERY_RESULT_BYTES,
-        u64::from(plan.state.observed) * size_of::<BodyStateRecord>() as u64,
     )
 }
 
 impl ReadbackBuffers {
     pub(crate) fn new(device: &Device, plan: &Plan) -> Self {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes, observation_bytes) =
-            readback_sizes(plan);
+        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
         Self {
             pack: GpuBuffer::new(device, "world readback pack", pack_bytes, dynamis_gpu::PACK),
             step: Readback::new(device, "world readback", pack_bytes, Readback::DEPTH),
@@ -55,30 +52,21 @@ impl ReadbackBuffers {
                 query_bytes,
                 Readback::DEPTH,
             ),
-            observations: Readback::new(
-                device,
-                "body observation readback",
-                observation_bytes,
-                Readback::DEPTH,
-            ),
             states: None,
         }
     }
 
     pub(crate) fn matches(&self, plan: &Plan) -> bool {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes, observation_bytes) =
-            readback_sizes(plan);
+        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
         self.pack.size() == pack_bytes
             && self.step.size() == pack_bytes
             && self.events.size() == event_bytes
             && self.breaks.size() == break_bytes
             && self.queries.size() == query_bytes
-            && self.observations.size() == observation_bytes
     }
 
     pub(crate) fn reserve(&mut self, device: &Device, plan: &Plan) -> bool {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes, observation_bytes) =
-            readback_sizes(plan);
+        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
         if self.matches(plan) {
             return false;
         }
@@ -86,8 +74,7 @@ impl ReadbackBuffers {
             self.step.is_idle()
                 && self.events.is_idle()
                 && self.breaks.is_idle()
-                && self.queries.is_idle()
-                && self.observations.is_idle(),
+                && self.queries.is_idle(),
             "readback buffers require drained rings before they reallocate"
         );
         if self.pack.size() != pack_bytes {
@@ -116,14 +103,6 @@ impl ReadbackBuffers {
                 device,
                 "query results readback",
                 query_bytes,
-                Readback::DEPTH,
-            );
-        }
-        if self.observations.size() != observation_bytes {
-            self.observations = Readback::new(
-                device,
-                "body observation readback",
-                observation_bytes,
                 Readback::DEPTH,
             );
         }

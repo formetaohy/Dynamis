@@ -71,7 +71,7 @@ fn a_triangle_surface_supplies_the_contact_material() {
     flat_mesh(&mut world, 0.0, &[0]);
     drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("a resting ball must report its contact");
@@ -163,7 +163,7 @@ fn the_deepest_triangle_supplies_the_manifold_material() {
     );
     drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("a resting ball must report its contact");
@@ -190,7 +190,7 @@ fn an_unsurfaced_mesh_keeps_the_collider_material() {
     );
     drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("a resting ball must report its contact");
@@ -225,7 +225,7 @@ fn a_height_field_carries_one_surface_per_cell() {
     );
     drop_ball(&mut world, [2.0, 0.31, 2.0]);
     settle(&mut world, 8);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("a resting ball must report its contact");
@@ -269,7 +269,7 @@ fn surface_resolution_survives_a_snapshot() {
     settle(&mut world, 4);
     world.restore(&snapshot);
     settle(&mut world, 4);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("a restored ball must still touch its floor");
@@ -389,7 +389,7 @@ fn a_reshaped_mesh_replaces_its_surfaces() {
     );
     world.wake(ball);
     settle(&mut world, 8);
-    let manifolds = world.contact_manifolds();
+    let manifolds = world.inspect_contacts();
     let manifold = manifolds
         .first()
         .expect("the ball must still touch the reshaped floor");

@@ -477,7 +477,7 @@ fn resting_contact_carries_warm_start_impulse() {
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let _ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
     settle_until(&mut world, 60, |world| asleep(world));
-    let resting = world.contact_manifolds();
+    let resting = world.inspect_contacts();
     assert_eq!(
         resting.len(),
         1,
@@ -493,7 +493,7 @@ fn resting_contact_carries_warm_start_impulse() {
     }
     let pair = (resting[0].first, resting[0].second);
     world.step(DT);
-    let relayed = world.contact_manifolds();
+    let relayed = world.inspect_contacts();
     assert_eq!(
         relayed.len(),
         1,

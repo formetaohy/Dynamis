@@ -81,10 +81,10 @@ fn a_compressed_fluid_reaches_its_rest_spacing() {
         fluid_material(),
     ));
     settle(&mut world, 120);
-    let grew = extent(&world.soft_body_positions(handle));
+    let grew = extent(&world.inspect_soft_particles(handle));
     settle(&mut world, 120);
-    let held = extent(&world.soft_body_positions(handle));
-    let span = mean_neighbour_span(&world.soft_body_positions(handle));
+    let held = extent(&world.inspect_soft_particles(handle));
+    let span = mean_neighbour_span(&world.inspect_soft_particles(handle));
     assert!(
         (span - SPACING).abs() < 0.05 * SPACING,
         "an incompressible fluid must relax to its rest spacing {SPACING}, got {span}"
@@ -109,7 +109,7 @@ fn a_fluid_holds_its_spacing_where_a_plain_particle_cloud_packs_solid() {
             world.add_soft_body(SoftBodyDesc::new(particles, Vec::new()).radius(RADIUS))
         };
         settle(&mut world, 300);
-        let positions = world.soft_body_positions(handle);
+        let positions = world.inspect_soft_particles(handle);
         spans.push(mean_neighbour_span(&positions));
         assert!(
             positions.iter().all(|position| position[1] > 0.0),
@@ -134,7 +134,7 @@ fn a_fluid_impact_never_sinks_through_the_floor() {
     floor(&mut world, [2.0, 0.25, 2.0]);
     let handle = fluid_block(&mut world, SPACING, [-0.45, 3.0, -0.45]);
     settle(&mut world, 240);
-    let positions = world.soft_body_positions(handle);
+    let positions = world.inspect_soft_particles(handle);
     let lowest = positions.iter().fold(f32::MAX, |low, at| low.min(at[1]));
     assert!(
         lowest > 0.0,
@@ -166,7 +166,7 @@ fn identical_fluids_observe_identical_positions() {
     }
     let mut observed = Vec::new();
     for (world, handle) in worlds.iter_mut() {
-        observed.push(world.soft_body_positions(*handle));
+        observed.push(world.inspect_soft_particles(*handle));
     }
     let (first, second) = (&observed[0], &observed[1]);
     assert_eq!(

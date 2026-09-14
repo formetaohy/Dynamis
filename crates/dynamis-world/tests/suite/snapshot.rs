@@ -100,7 +100,7 @@ fn soft_bits(world: &mut World, scenario: &Scenario) -> Vec<u32> {
         .iter()
         .flat_map(|handle| {
             world
-                .soft_body_positions(*handle)
+                .inspect_soft_particles(*handle)
                 .into_iter()
                 .flat_map(|position| position.map(f32::to_bits))
                 .collect::<Vec<_>>()

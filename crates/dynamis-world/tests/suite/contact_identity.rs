@@ -37,7 +37,7 @@ fn pair_matches(manifold: &ContactManifold, first: BodyHandle, second: BodyHandl
 
 fn features_of(world: &mut World, first: BodyHandle, second: BodyHandle) -> Vec<u32> {
     let mut features = world
-        .contact_manifolds()
+        .inspect_contacts()
         .into_iter()
         .filter(|manifold| pair_matches(manifold, first, second))
         .flat_map(|manifold| manifold.points.into_iter().map(|point| point.feature))
@@ -143,7 +143,7 @@ fn manifold_points_hold_distinct_features() {
             continue;
         }
         world.wait();
-        for manifold in world.contact_manifolds() {
+        for manifold in world.inspect_contacts() {
             let held = manifold
                 .points
                 .iter()
