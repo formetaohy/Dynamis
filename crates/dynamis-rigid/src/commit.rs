@@ -244,7 +244,7 @@ impl Commit {
     }
 
     pub(crate) fn record_observe(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         count: u32,
@@ -253,7 +253,7 @@ impl Commit {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -274,16 +274,16 @@ impl Commit {
             .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
     }
 
-    pub fn record_gather(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    pub fn record_gather(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.resting_gather.record_stream(recorder, streams);
     }
 
     pub fn record_index(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
-        sort: &RadixSort,
+        sort: &mut RadixSort,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);
         let words = frame.shape.body_id_words;

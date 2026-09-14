@@ -102,7 +102,7 @@ impl Integrate {
     }
 
     fn record_begin(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -111,16 +111,20 @@ impl Integrate {
             .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
     }
 
-    pub fn record_substep(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    pub fn record_substep(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.substep_integrate.record_stream(recorder, streams);
     }
 
-    pub fn record_substep_advance(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    pub fn record_substep_advance(
+        &mut self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+    ) {
         self.substep_advance.record_stream(recorder, streams);
     }
 
     pub fn record_broadphase(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -130,11 +134,11 @@ impl Integrate {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
-        sort: &RadixSort,
+        sort: &mut RadixSort,
     ) {
         if frame.params.constraint_count > 0 {
             let words = frame.shape.body_row_words;

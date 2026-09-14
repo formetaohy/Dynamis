@@ -144,7 +144,7 @@ impl Rigid {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,
@@ -158,7 +158,7 @@ impl Rigid {
         } else if pass == self.passes.prepare {
             let mut prepare = schedule.open(encoder, pass);
             self.integrate
-                .record(&mut prepare, streams, frame, &self.sort);
+                .record(&mut prepare, streams, frame, &mut self.sort);
             drop(prepare);
         } else if pass == self.passes.query_aabbs {
             let mut aabbs = schedule.open(encoder, pass);
@@ -171,7 +171,7 @@ impl Rigid {
         } else if pass == self.passes.narrowphase {
             let mut narrowphase = schedule.open(encoder, pass);
             self.narrowphase
-                .record(&mut narrowphase, streams, frame, &self.sort);
+                .record(&mut narrowphase, streams, frame, &mut self.sort);
             drop(narrowphase);
         } else if pass == self.passes.islands {
             let mut islands = schedule.open(encoder, pass);
@@ -224,7 +224,7 @@ impl Rigid {
         } else if pass == self.resolution.resting_index {
             let mut index = schedule.open(encoder, pass);
             self.commit
-                .record_index(&mut index, streams, frame, &self.sort);
+                .record_index(&mut index, streams, frame, &mut self.sort);
             drop(index);
         } else if pass == self.resolution.query {
             let mut query = schedule.open(encoder, pass);

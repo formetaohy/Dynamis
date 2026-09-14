@@ -272,7 +272,7 @@ pub struct RadixSort {
     copy: Declared,
     rows: GpuBuffer,
     histograms: [GpuBuffer; 2],
-    state: std::sync::Mutex<State>,
+    state: State,
 }
 
 impl RadixSort {
@@ -318,15 +318,15 @@ impl RadixSort {
             copy,
             rows,
             histograms,
-            state: std::sync::Mutex::new(State {
+            state: State {
                 groups: Vec::new(),
                 parity: 0,
-            }),
+            },
         }
     }
 
     pub fn sort(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         channels: &SortChannels<'_>,
         major_words: u32,
@@ -338,7 +338,7 @@ impl RadixSort {
             "a sort needs at least one key digit to permute the payload"
         );
         let units = SLOTS as u32;
-        let mut state = self.state.lock().unwrap();
+        let state = &mut self.state;
         let parity = state.parity as usize % 2;
         let key = ChannelsKey::of(channels);
         let index = state

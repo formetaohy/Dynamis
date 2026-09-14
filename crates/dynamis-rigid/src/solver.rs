@@ -215,7 +215,7 @@ impl Solver {
     }
 
     pub fn record_prepare(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -225,17 +225,17 @@ impl Solver {
         self.total.record_workgroups(recorder, streams, 1);
     }
 
-    pub fn record_topology(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    pub fn record_topology(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.blocks.record_stream(recorder, streams);
     }
 
-    pub fn record_warm(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    pub fn record_warm(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.block_solve.record_warm(recorder, streams);
         self.block_apply.record_stream(recorder, streams);
     }
 
     pub fn record_iterations(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -247,7 +247,7 @@ impl Solver {
     }
 
     pub fn record_position_iterations(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,

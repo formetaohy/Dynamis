@@ -87,7 +87,7 @@ impl Channels {
 
 fn sort_once(
     context: &GpuContext,
-    sort: &RadixSort,
+    sort: &mut RadixSort,
     channels: &Channels,
     major_words: u32,
     minor_words: u32,
@@ -123,9 +123,9 @@ fn run_sort(
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let channels = Channels::new(context, major, minor, payload);
-    let sort = RadixSort::new(context, "test sort", major.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort", major.len() as u32);
     context.warmup(WarmupBudget::All);
-    sort_once(context, &sort, &channels, major_words, minor_words);
+    sort_once(context, &mut sort, &channels, major_words, minor_words);
     (
         read_u32s(context, &channels.major, major.len()),
         read_u32s(context, &channels.minor, minor.len()),
@@ -258,10 +258,10 @@ fn windows_prefers_dx12_when_vulkan_available() {
 fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort", keys.len() as u32);
     context.warmup(WarmupBudget::All);
     let first = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
-    sort_once(context, &sort, &first, 1, 0);
+    sort_once(context, &mut sort, &first, 1, 0);
     assert_sorted(context, &first, &keys);
 
     let rebound = vec![9u32, 8, 7, 6, 5, 4, 3, 2, 1, 0];
@@ -271,7 +271,7 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
         &rebound,
         &counting_payload(rebound.len()),
     );
-    sort_once(context, &sort, &second, 1, 0);
+    sort_once(context, &mut sort, &second, 1, 0);
     assert_sorted(context, &second, &rebound);
 }
 
@@ -279,11 +279,11 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
 fn reusing_the_channels_reuses_their_bindings() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort", keys.len() as u32);
     context.warmup(WarmupBudget::All);
     let channels = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     for _ in 0..3 {
-        sort_once(context, &sort, &channels, 1, 0);
+        sort_once(context, &mut sort, &channels, 1, 0);
         assert_sorted(context, &channels, &keys);
     }
 }

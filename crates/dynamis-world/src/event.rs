@@ -8,7 +8,6 @@ use std::mem::size_of;
 pub(crate) struct Events {
     pub(crate) contact: Vec<ContactEvent>,
     pub(crate) due: VecDeque<(u64, u32)>,
-    pub(crate) sink: Option<Box<dyn FnMut(ContactEvent)>>,
 }
 
 impl Events {
@@ -16,7 +15,6 @@ impl Events {
         Self {
             contact: Vec::new(),
             due: VecDeque::new(),
-            sink: None,
         }
     }
 }
@@ -33,10 +31,6 @@ impl World {
         self.collect_readbacks();
         self.sync_events();
         std::mem::take(&mut self.events.contact)
-    }
-
-    pub fn set_event_sink(&mut self, sink: Option<Box<dyn FnMut(ContactEvent)>>) {
-        self.events.sink = sink;
     }
 
     pub(crate) fn note_events_due(&mut self, step: u64) {
@@ -107,11 +101,6 @@ impl World {
                 point: record.point,
                 normal: record.normal,
             });
-        }
-        if let Some(sink) = self.events.sink.as_mut() {
-            for event in fresh.iter().copied() {
-                sink(event);
-            }
         }
         self.events.contact.extend(fresh);
     }

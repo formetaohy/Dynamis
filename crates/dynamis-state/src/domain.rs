@@ -67,7 +67,7 @@ impl Domain for StateDomain {
     }
 
     fn record(
-        _: &(),
+        _: &mut (),
         _: u32,
         _: &mut Schedule,
         _: &mut CommandEncoder,

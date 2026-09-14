@@ -106,11 +106,11 @@ impl Narrowphase {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
-        sort: &RadixSort,
+        sort: &mut RadixSort,
     ) {
         let words = frame.shape.collider_slot_words;
         let pairs = pair_capacity(streams);

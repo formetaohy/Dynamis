@@ -69,7 +69,7 @@ impl Domain for BroadphaseDomain {
     }
 
     fn record(
-        runtime: &Broadphase,
+        runtime: &mut Broadphase,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,

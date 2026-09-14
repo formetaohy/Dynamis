@@ -44,7 +44,7 @@ impl Queries {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,

@@ -52,7 +52,7 @@ pub trait Domain {
     fn capacity(streams: &Self::Streams) -> Self::Capacity;
 
     fn record(
-        runtime: &Self::Runtime,
+        runtime: &mut Self::Runtime,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,

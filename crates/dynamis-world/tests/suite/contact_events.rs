@@ -1,7 +1,5 @@
 use super::common::{DT, new_world, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, ContactEventKind, ContactEventMode, Shape};
-use std::cell::Cell;
-use std::rc::Rc;
 
 fn falling_ball_scene() -> (
     dynamis_world::World,
@@ -93,65 +91,6 @@ fn persist_without_both_opt_in_stays_silent() {
         persist_count, 0,
         "one-side opt-in must not emit persist events"
     );
-}
-
-#[test]
-fn event_sink_receives_events() {
-    let (mut world, ground, ball) = falling_ball_scene();
-    let begin_count = Rc::new(Cell::new(0));
-    let sink_count = begin_count.clone();
-    let sink_ground = ground;
-    let sink_ball = ball;
-    world.set_event_sink(Some(Box::new(move |event| {
-        if event.kind == ContactEventKind::Begin
-            && (event.first == sink_ground || event.second == sink_ground)
-            && (event.first == sink_ball || event.second == sink_ball)
-        {
-            sink_count.set(sink_count.get() + 1);
-        }
-    })));
-    for _ in 0..40 {
-        world.step(DT);
-        world.wait();
-    }
-    assert!(
-        begin_count.get() >= 1,
-        "event sink must deliver contact events"
-    );
-}
-
-#[test]
-fn persisted_touch_envokes_sink_per_frame() {
-    let mut world = super::common::new_world(super::common::gravity_config());
-    let ground = world.spawn(
-        BodyDesc::new(ColliderDesc::new(Shape::sphere(10.0)).events(ContactEventMode::Persist))
-            .mass(0.0)
-            .position([0.0, -2.0, 0.0]),
-    );
-    let ball = world.spawn(
-        BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).events(ContactEventMode::Persist))
-            .position([0.0, 2.0, 0.0]),
-    );
-    let persist_count = Rc::new(Cell::new(0));
-    let sink_count = persist_count.clone();
-    let sink_ball = ball;
-    world.set_event_sink(Some(Box::new(move |event| {
-        if event.kind == ContactEventKind::Persist
-            && (event.first == sink_ball || event.second == sink_ball)
-        {
-            sink_count.set(sink_count.get() + 1);
-        }
-    })));
-    for _ in 0..40 {
-        world.step(DT);
-        world.wait();
-    }
-    assert!(
-        persist_count.get() > 5,
-        "sink must receive per-frame touch, got {}",
-        persist_count.get()
-    );
-    let _ = ground;
 }
 
 #[test]

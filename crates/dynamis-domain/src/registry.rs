@@ -355,7 +355,7 @@ macro_rules! domains {
             }
 
             pub(crate) fn record(
-                &self,
+                &mut self,
                 pass: dynamis_pass::Pass,
                 index: u32,
                 schedule: &mut dynamis_pass::Schedule,
@@ -374,7 +374,7 @@ macro_rules! domains {
                         );
                         if pass.execution.held(facts) {
                             <$domain as $crate::Domain>::record(
-                                &self.$field,
+                                &mut self.$field,
                                 index,
                                 schedule,
                                 encoder,

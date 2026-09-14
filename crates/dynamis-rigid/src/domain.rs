@@ -117,7 +117,7 @@ impl Domain for RigidDomain {
     }
 
     fn record(
-        runtime: &RigidDomainRuntime,
+        runtime: &mut RigidDomainRuntime,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,

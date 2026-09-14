@@ -26,6 +26,7 @@ pub mod reaction;
 pub mod rest;
 pub mod rotation;
 pub mod shape;
+pub mod shareability;
 pub mod snapshot;
 pub mod soft;
 pub mod surface;

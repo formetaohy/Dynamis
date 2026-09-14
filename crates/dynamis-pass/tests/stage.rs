@@ -45,7 +45,7 @@ impl Resources for Slots {
     }
 }
 
-fn record(context: &GpuContext, stage: &Stage, slots: &Slots, workgroups: u32) {
+fn record(context: &GpuContext, stage: &mut Stage, slots: &Slots, workgroups: u32) {
     let mut encoder = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -103,7 +103,7 @@ fn a_stage_follows_the_storage_it_replaces() {
             },
         ),
     };
-    let stage = Stage::build(
+    let mut stage = Stage::build(
         context,
         "stage",
         Program {
@@ -117,7 +117,7 @@ fn a_stage_follows_the_storage_it_replaces() {
     );
     context.warmup(WarmupBudget::All);
 
-    record(context, &stage, &slots, 1);
+    record(context, &mut stage, &slots, 1);
     assert_filled(context, &slots, 64);
 
     let mut encoder =
@@ -128,6 +128,6 @@ fn a_stage_follows_the_storage_it_replaces() {
     );
     queue.submit([encoder.finish()]);
 
-    record(context, &stage, &slots, 2);
+    record(context, &mut stage, &slots, 2);
     assert_filled(context, &slots, 128);
 }

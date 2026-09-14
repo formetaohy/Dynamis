@@ -232,7 +232,7 @@ impl Islands {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -254,7 +254,7 @@ impl Islands {
     }
 
     pub fn record_wake(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -292,7 +292,7 @@ impl Sleep {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,

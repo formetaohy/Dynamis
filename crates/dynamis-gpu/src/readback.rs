@@ -1,7 +1,7 @@
 use crate::SubmissionEncoder;
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use wgpu::{
     Buffer, BufferAddress, BufferAsyncError, BufferDescriptor, BufferUsages, Device, MapMode,
@@ -14,7 +14,7 @@ struct Pending {
     sequence: u64,
     bytes: BufferAddress,
     submission: Arc<OnceLock<SubmissionIndex>>,
-    completion: Receiver<Result<(), BufferAsyncError>>,
+    completion: Mutex<Receiver<Result<(), BufferAsyncError>>>,
 }
 
 struct Slot {
@@ -83,20 +83,28 @@ impl Slot {
             sequence,
             bytes: at,
             submission: encoder.submission(),
-            completion,
+            completion: Mutex::new(completion),
         });
     }
 
     fn collect(&mut self) -> Option<(u64, Vec<u8>)> {
-        let pending = self.pending.as_ref()?;
-        pending.submission.get()?;
-        match pending.completion.try_recv() {
-            Ok(result) => Some(self.consume(result)),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                panic!("readback {} completion was dropped", self.label)
+        let result = {
+            let pending = self.pending.as_ref()?;
+            pending.submission.get()?;
+            match pending
+                .completion
+                .lock()
+                .expect("a readback completion is never poisoned")
+                .try_recv()
+            {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return None,
+                Err(TryRecvError::Disconnected) => {
+                    panic!("readback {} completion was dropped", self.label)
+                }
             }
-        }
+        };
+        Some(self.consume(result))
     }
 
     fn wait(&mut self, device: &Device) -> (u64, Vec<u8>) {
@@ -119,6 +127,8 @@ impl Slot {
             .unwrap_or_else(|error| panic!("readback {} submission failed: {error}", self.label));
         let result = pending
             .completion
+            .lock()
+            .expect("a readback completion is never poisoned")
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .unwrap_or_else(|error| panic!("readback {} completion failed: {error}", self.label));
         self.consume(result)

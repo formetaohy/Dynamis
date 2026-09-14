@@ -3,10 +3,15 @@ use dynamis_gpu::{
     ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, Resources, SlotRef, StorageId,
 };
 use dynamis_shader::{Dispatch, Program, workgroups_of};
-use std::cell::{RefCell, RefMut};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
+
+#[derive(Clone, Copy)]
+enum Entry {
+    Main,
+    Warm,
+}
 
 struct Bound {
     storage: BindGroup,
@@ -66,7 +71,7 @@ pub struct Stage {
     warm: Option<PipelineHandle>,
     storage: Vec<Binding>,
     shapes: Vec<Binding>,
-    bound: RefCell<Bound>,
+    bound: Bound,
 }
 
 impl Stage {
@@ -112,12 +117,12 @@ impl Stage {
             warm,
             storage,
             shapes,
-            bound: RefCell::new(bound),
+            bound,
         }
     }
 
     pub fn record_rows<R: Resources>(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,
         rows: u32,
@@ -126,24 +131,18 @@ impl Stage {
             matches!(self.dispatch, Dispatch::Rows),
             "an element stage derives its dispatch from its own row count"
         );
-        self.record(recorder, resources, &self.pipeline, workgroups_of(rows));
+        let workgroups = workgroups_of(rows);
+        self.record(recorder, resources, Entry::Main, workgroups);
     }
 
-    pub fn record_stream<R: Resources>(&self, recorder: &mut ComputeRecorder, resources: &R) {
-        self.record(
-            recorder,
-            resources,
-            &self.pipeline,
-            self.stream_workgroups(resources),
-        );
+    pub fn record_stream<R: Resources>(&mut self, recorder: &mut ComputeRecorder, resources: &R) {
+        let workgroups = self.stream_workgroups(resources);
+        self.record(recorder, resources, Entry::Main, workgroups);
     }
 
-    pub fn record_warm<R: Resources>(&self, recorder: &mut ComputeRecorder, resources: &R) {
-        let warm = self
-            .warm
-            .as_ref()
-            .expect("a warm recording requires a warm entry point");
-        self.record(recorder, resources, warm, self.stream_workgroups(resources));
+    pub fn record_warm<R: Resources>(&mut self, recorder: &mut ComputeRecorder, resources: &R) {
+        let workgroups = self.stream_workgroups(resources);
+        self.record(recorder, resources, Entry::Warm, workgroups);
     }
 
     fn stream_workgroups<R: Resources>(&self, resources: &R) -> u32 {
@@ -154,7 +153,7 @@ impl Stage {
     }
 
     pub fn record_workgroups<R: Resources>(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,
         workgroups: u32,
@@ -163,35 +162,40 @@ impl Stage {
             matches!(self.dispatch, Dispatch::Workgroups),
             "a workgroup stage takes an explicit dispatch count"
         );
-        self.record(recorder, resources, &self.pipeline, workgroups);
+        self.record(recorder, resources, Entry::Main, workgroups);
     }
 
     fn record<R: Resources>(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,
-        pipeline: &PipelineHandle,
+        entry: Entry,
         workgroups: u32,
     ) {
-        let bound = self.bind(resources);
-        let compiled = pipeline.pipeline();
+        let Stage {
+            device,
+            pipeline: main,
+            warm,
+            storage,
+            shapes,
+            bound,
+            ..
+        } = self;
+        if !bound.holds(resources, storage, shapes) {
+            *bound = Bound::of(main, device, resources, storage, shapes);
+        }
+        let compiled = match entry {
+            Entry::Main => main.pipeline(),
+            Entry::Warm => warm
+                .as_mut()
+                .expect("a warm recording requires a warm entry point")
+                .pipeline(),
+        };
         match &bound.shapes {
-            Some(shapes) => recorder.record(compiled, &[&bound.storage, shapes], workgroups),
+            Some(shape_group) => {
+                recorder.record(compiled, &[&bound.storage, shape_group], workgroups)
+            }
             None => recorder.record(compiled, &[&bound.storage], workgroups),
         }
-    }
-
-    fn bind<R: Resources>(&self, resources: &R) -> RefMut<'_, Bound> {
-        let mut current = self.bound.borrow_mut();
-        if !current.holds(resources, &self.storage, &self.shapes) {
-            *current = Bound::of(
-                &self.pipeline,
-                &self.device,
-                resources,
-                &self.storage,
-                &self.shapes,
-            );
-        }
-        current
     }
 }

@@ -76,7 +76,7 @@ impl Ccd {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut wgpu::CommandEncoder,

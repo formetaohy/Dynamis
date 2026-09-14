@@ -239,7 +239,7 @@ impl Commands {
         }
     }
 
-    fn reset(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    fn reset(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.reset_counters.record_workgroups(
             recorder,
             streams,
@@ -248,7 +248,7 @@ impl Commands {
     }
 
     pub fn record(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -267,7 +267,7 @@ impl Commands {
     }
 
     fn record_moves(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,
@@ -291,7 +291,7 @@ impl Commands {
     }
 
     fn record_edits(
-        &self,
+        &mut self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
         frame: &RigidFrame,

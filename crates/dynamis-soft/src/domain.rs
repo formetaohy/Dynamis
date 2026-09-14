@@ -76,7 +76,7 @@ impl Domain for SoftDomain {
     }
 
     fn record(
-        runtime: &Soft,
+        runtime: &mut Soft,
         pass: u32,
         schedule: &mut Schedule,
         encoder: &mut CommandEncoder,
