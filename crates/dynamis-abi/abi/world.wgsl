@@ -325,6 +325,13 @@ struct BrokenConstraint {
     generation: u32,
 }
 
+struct JointState {
+    coordinates: array<f32, JOINT_DOF>,
+    rates: array<f32, JOINT_DOF>,
+    impulses: array<f32, JOINT_DOF>,
+    dof_count: u32,
+}
+
 struct ConstraintRows {
     first_row: u32,
     second_row: u32,

@@ -331,10 +331,12 @@ fn apply_inverse_inertia(body: Body, v: vec3f) -> vec3f {
     return apply_inverse_inertia_of(body.desc, body.state.orientation, v);
 }
 
+fn point_velocity(body: Body, point: vec3f) -> vec3f {
+    return body.state.velocity + cross(body.state.angular_velocity, point - body_com(body));
+}
+
 fn relative_velocity(body_a: Body, body_b: Body, point_a: vec3f, point_b: vec3f) -> vec3f {
-    let va = body_a.state.velocity + cross(body_a.state.angular_velocity, point_a - body_com(body_a));
-    let vb = body_b.state.velocity + cross(body_b.state.angular_velocity, point_b - body_com(body_b));
-    return vb - va;
+    return point_velocity(body_b, point_b) - point_velocity(body_a, point_a);
 }
 
 fn orthogonal_axis(index: u32) -> vec3f {

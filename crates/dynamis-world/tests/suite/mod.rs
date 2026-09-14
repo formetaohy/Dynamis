@@ -15,6 +15,7 @@ pub mod dynamics;
 pub mod event;
 pub mod fluid;
 pub mod joint_precision;
+pub mod joint_state;
 pub mod mass;
 pub mod material;
 pub mod observation;

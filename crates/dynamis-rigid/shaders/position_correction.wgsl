@@ -196,7 +196,14 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
                 row(&first, &second, &total, local_row(local_axis, dot(error_vector, local_axis), scale, first, second));
             }
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-                let angle = constraint_angle(first, second, local_hinge);
+                let angle = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    constraint_anchor(first, local_a),
+                    constraint_anchor(second, local_b),
+                    0u,
+                );
                 if (angle > constraint.limit_max) {
                     row(&first, &second, &total, local_row(local_hinge, angle - constraint.limit_max, scale, first, second));
                 } else if (angle < constraint.limit_min) {
@@ -217,7 +224,14 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
                 row(&first, &second, &total, local_row(local_axis, dot(error_vector, local_axis), scale, first, second));
             }
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-                let separation = dot(constraint_anchor(second, local_b) - constraint_anchor(first, local_a), hinge);
+                let separation = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    constraint_anchor(first, local_a),
+                    constraint_anchor(second, local_b),
+                    0u,
+                );
                 if (separation > constraint.limit_max) {
                     row(&first, &second, &total, local_point_row(local_a, local_b, hinge, constraint.limit_max, scale, first, second));
                 } else if (separation < constraint.limit_min) {
@@ -230,7 +244,14 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
             }
             let local_hinge = normalize(constraint.axis_a);
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-                let angle = constraint_angle(first, second, local_hinge);
+                let angle = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    constraint_anchor(first, local_a),
+                    constraint_anchor(second, local_b),
+                    2u,
+                );
                 if (angle > constraint.limit_max) {
                     row(&first, &second, &total, local_row(local_hinge, angle - constraint.limit_max, scale, first, second));
                 } else if (angle < constraint.limit_min) {
@@ -239,12 +260,17 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
             }
             if ((constraint.flags & CONSTRAINT_HAS_SWING) != 0u) {
                 let tangents = constraint_local_frame(local_hinge);
-                let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
-                let perpendicular = q_rel.xyz - local_hinge * dot(q_rel.xyz, local_hinge);
                 for (var axis_index = 0u; axis_index < 2u; axis_index = axis_index + 1u) {
                     let local_axis = constraint_dof_axis(tangents, local_hinge, axis_index);
                     let limit = select(constraint.swing_a, constraint.swing_b, axis_index == 1u);
-                    let swing_angle = 2.0 * atan2(dot(perpendicular, local_axis), abs(q_rel.w));
+                    let swing_angle = joint_coordinate(
+                        constraint,
+                        first,
+                        second,
+                        constraint_anchor(first, local_a),
+                        constraint_anchor(second, local_b),
+                        axis_index,
+                    );
                     if (abs(swing_angle) > limit) {
                         row(&first, &second, &total, local_row(local_axis, swing_angle - select(limit, -limit, swing_angle < 0.0), scale, first, second));
                     }
@@ -271,17 +297,30 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
             let cone_axis = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
             let limb = normalize(quat_rotate(second.state.orientation, constraint.axis_b));
             let direction = -limb;
-            let angle = acos(clamp(dot(cone_axis, direction), -1.0, 1.0));
+            let angle = joint_coordinate(
+                constraint,
+                first,
+                second,
+                constraint_anchor(first, local_a),
+                constraint_anchor(second, local_b),
+                0u,
+            );
             if (angle > constraint.cone_angle) {
                 row(&first, &second, &total, angular_row(sign_normalize(cross(cone_axis, direction)), angle - constraint.cone_angle, scale, first, second));
             }
         } else if (constraint.kind == CONSTRAINT_SIXDOF) {
             let local_hinge = normalize(constraint.axis_a);
             let tangents = constraint_local_frame(local_hinge);
-            let error_vector = constraint_relative_error(first, second, constraint.reference);
             for (var axis_index = 0u; axis_index < 3u; axis_index = axis_index + 1u) {
                 let local_axis = constraint_dof_axis(tangents, local_hinge, axis_index);
-                let current = dot(constraint_anchor(second, local_b) - constraint_anchor(first, local_a), quat_rotate(first.state.orientation, local_axis));
+                let current = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    constraint_anchor(first, local_a),
+                    constraint_anchor(second, local_b),
+                    axis_index,
+                );
                 if (dof_locked(constraint.flags, axis_index)) {
                     row(&first, &second, &total, local_point_row(local_a, local_b, quat_rotate(first.state.orientation, local_axis), 0.0, scale, first, second));
                 } else if (dof_limited(constraint.flags, axis_index)) {
@@ -293,7 +332,14 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
                         row(&first, &second, &total, local_point_row(local_a, local_b, quat_rotate(first.state.orientation, local_axis), max_goal, scale, first, second));
                     }
                 }
-                let angular = dot(error_vector, local_axis);
+                let angular = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    constraint_anchor(first, local_a),
+                    constraint_anchor(second, local_b),
+                    3u + axis_index,
+                );
                 let row_index = 3u + axis_index;
                 if (dof_locked(constraint.flags, row_index)) {
                     row(&first, &second, &total, local_row(local_axis, angular, scale, first, second));

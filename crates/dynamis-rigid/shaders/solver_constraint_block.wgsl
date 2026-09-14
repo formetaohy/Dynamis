@@ -313,7 +313,14 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             let omega = 6.2831853 * constraint.spring_frequency;
             let stiffness = omega * omega;
             let damping = 2.0 * constraint.spring_damping_ratio * omega;
-            let separation = length(anchor_b - anchor_a);
+            let separation = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                0u,
+            );
             let error = separation - constraint.distance;
             let velocity = relative_velocity(first, second, anchor_a, anchor_b);
             let jacobian_speed = dot(velocity, axis);
@@ -347,7 +354,14 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         }
         let hinge = quat_rotate(first.state.orientation, local_hinge);
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
-            let current = constraint_angle(first, second, local_hinge);
+            let current = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                0u,
+            );
             let outcome = solve_driven_angular_row(
                 hinge, current, constraint.motor_target, constraint.motor_stiffness, constraint.motor_damping,
                 -constraint.motor_speed, constraint.motor_max_force,
@@ -359,7 +373,14 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             forces = outcome.forces;
         }
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-            let angle = constraint_angle(first, second, local_hinge);
+            let angle = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                0u,
+            );
             if (angle > constraint.limit_max) {
                 let outcome = limit_row(accumulated[5], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
@@ -402,7 +423,14 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         accumulated[4] = twist_outcome.accumulated;
         forces = twist_outcome.forces;
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
-            let current = dot(anchor_b - anchor_a, axis);
+            let current = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                0u,
+            );
             let outcome = solve_driven_point_row(
                 axis, anchor_a, anchor_b, current, constraint.motor_target,
                 constraint.motor_stiffness, constraint.motor_damping, constraint.motor_speed,
@@ -414,7 +442,14 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             forces = outcome.forces;
         }
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-            let separation = dot(anchor_b - anchor_a, axis);
+            let separation = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                0u,
+            );
             let above = separation > constraint.limit_max;
             let below = separation < constraint.limit_min;
             if (above) {
@@ -446,10 +481,16 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             forces = outcome.forces;
         }
         let local_hinge = normalize(constraint.axis_a);
-        let tangents = constraint_local_frame(local_hinge);
         let hinge = quat_rotate(first.state.orientation, local_hinge);
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
-            let angle = constraint_angle(first, second, local_hinge);
+            let angle = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                2u,
+            );
             if (angle > constraint.limit_max) {
                 let outcome = limit_row(accumulated[3], hinge, mass_first, mass_second, first, second, forces);
                 first = outcome.first;
@@ -465,13 +506,17 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             }
         }
         if ((constraint.flags & CONSTRAINT_HAS_SWING) != 0u) {
-            let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
-            let perp = q_rel.xyz - local_hinge * dot(q_rel.xyz, local_hinge);
             for (var i = 0u; i < 2u; i = i + 1u) {
-                let local_axis = select(tangents.first, tangents.second, i == 1u);
-                let swing_axis = quat_rotate(first.state.orientation, local_axis);
+                let swing_axis = joint_axis(constraint, first, second, anchor_a, anchor_b, i);
                 let limit = select(constraint.swing_a, constraint.swing_b, i == 1u);
-                let swing_angle = 2.0 * atan2(dot(perp, local_axis), abs(q_rel.w));
+                let swing_angle = joint_coordinate(
+                    constraint,
+                    first,
+                    second,
+                    anchor_a,
+                    anchor_b,
+                    i,
+                );
                 if (abs(swing_angle) > limit) {
                     let outcome = limit_row(accumulated[4u + i], swing_axis, mass_first, mass_second, first, second, forces);
                     first = outcome.first;
@@ -512,9 +557,8 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             + dot(rax, apply_inverse_inertia(mass_first, rax))
             + dot(rbx, apply_inverse_inertia(mass_second, rbx));
         if (k > 0.0) {
-            let velocity = relative_velocity(first, first, anchor_a, anchor_a);
-            let jacobian_speed = dot(velocity, dir_a)
-                + dot(relative_velocity(second, second, anchor_b, anchor_b), dir_b);
+            let jacobian_speed = dot(point_velocity(first, anchor_a), dir_a)
+                + dot(point_velocity(second, anchor_b), dir_b);
             let next = accumulated[0] - jacobian_speed / k;
             let impulse = row_impulse(accumulated[0], next, 0.0);
             first.state.velocity = first.state.velocity + dir_a * impulse.applied * first.desc.inverse_mass;
@@ -544,13 +588,16 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             accumulated[i] = outcome.accumulated;
             forces = outcome.forces;
         }
-        let cone_axis = normalize(quat_rotate(first.state.orientation, constraint.axis_a));
-        let limb = normalize(quat_rotate(second.state.orientation, constraint.axis_b));
-        let direction = -limb;
-        let cosine = clamp(dot(cone_axis, direction), -1.0, 1.0);
-        let angle = acos(cosine);
+        let angle = joint_coordinate(
+            constraint,
+            first,
+            second,
+            anchor_a,
+            anchor_b,
+            0u,
+        );
         if (angle > constraint.cone_angle) {
-            let swing_axis = sign_normalize(cross(cone_axis, direction));
+            let swing_axis = joint_axis(constraint, first, second, anchor_a, anchor_b, 0u);
             let outcome = limit_row(accumulated[3], swing_axis, mass_first, mass_second, first, second, forces);
             first = outcome.first;
             second = outcome.second;
@@ -561,9 +608,15 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         let hinge = normalize(constraint.axis_a);
         let tangents = make_tangents(hinge);
         for (var i = 0u; i < 3u; i = i + 1u) {
-            let local_axis = constraint_dof_axis(tangents, hinge, i);
-            let world_axis = sign_normalize(quat_rotate(first.state.orientation, local_axis));
-            let current = dot(anchor_b - anchor_a, world_axis);
+            let world_axis = joint_dof_axis(constraint, first, i);
+            let current = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                i,
+            );
             if (dof_locked(constraint.flags, i)) {
                 let outcome = solve_point_row(world_axis, anchor_a, anchor_b, 0.0, mass_first, mass_second, first, second, accumulated[i], forces);
                 first = outcome.first;
@@ -607,9 +660,15 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         let deviation = quat_mul(q_rel, quat_conjugate(constraint.reference));
         let error_vector = vec3f(2.0 * deviation.x, 2.0 * deviation.y, 2.0 * deviation.z);
         for (var i = 0u; i < 3u; i = i + 1u) {
-            let local_axis = constraint_dof_axis(tangents, hinge, i);
-            let world_axis = sign_normalize(quat_rotate(first.state.orientation, local_axis));
-            let current = dot(error_vector, local_axis);
+            let world_axis = joint_dof_axis(constraint, first, 3u + i);
+            let current = joint_coordinate(
+                constraint,
+                first,
+                second,
+                anchor_a,
+                anchor_b,
+                3u + i,
+            );
             let row = 3u + i;
             if (dof_locked(constraint.flags, row)) {
                 let outcome = solve_angular_row(world_axis, mass_first, mass_second, first, second, accumulated[row], forces);

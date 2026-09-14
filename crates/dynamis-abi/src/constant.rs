@@ -96,6 +96,7 @@ declare_constants! {
     pub const DOF_DRIVEN: u32 = 1 << 20;
     pub const DOF_LIMIT_ROW_BASE: u32 = 8;
     pub const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16;
+    pub const JOINT_DOF: u32 = 6;
     pub const QUERY_RAY: u32 = 0;
     pub const QUERY_SPHERE: u32 = 1;
     pub const QUERY_CUBOID: u32 = 2;

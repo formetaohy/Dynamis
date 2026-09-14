@@ -14,7 +14,19 @@ const BLOCKS: &[&str] = &[
     include_str!("../shaders/solver_contact_block.wgsl"),
     include_str!("../shaders/solver_constraint_block.wgsl"),
 ];
+
+fn block_fragments() -> Vec<&'static str> {
+    let mut fragments = dynamis_kernel::JOINTS.to_vec();
+    fragments.extend_from_slice(BLOCKS);
+    fragments
+}
 const POSITION_CORRECTION: &[&str] = &[include_str!("../shaders/position_correction.wgsl")];
+
+fn position_fragments() -> Vec<&'static str> {
+    let mut fragments = dynamis_kernel::JOINTS.to_vec();
+    fragments.extend_from_slice(POSITION_CORRECTION);
+    fragments
+}
 
 pub struct Solver {
     reset: Stage,
@@ -155,7 +167,7 @@ impl Solver {
             stream_warm(
                 context,
                 include_str!("../shaders/solver_block_solve.wgsl"),
-                BLOCKS,
+                &block_fragments(),
                 "work",
                 RigidStream::SolverAPayload,
             ),
@@ -214,7 +226,7 @@ impl Solver {
             stream(
                 context,
                 include_str!("../shaders/position_block.wgsl"),
-                POSITION_CORRECTION,
+                &position_fragments(),
                 "work",
                 RigidStream::SolverAPayload,
             ),

@@ -3,9 +3,10 @@ use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
     ConstraintRuntimeRecord, ContactRecord, Counters, DeclaredCounters, FEATURE_KIND_MASK,
-    FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH,
+    FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK, JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD,
+    SHAPE_MESH,
 };
-use dynamis_model::{BodyHandle, ConstraintHandle, SurfaceDesc};
+use dynamis_model::{BodyHandle, ConstraintHandle, JointState, SurfaceDesc};
 use std::collections::HashSet;
 use std::mem::size_of;
 
@@ -131,6 +132,51 @@ impl World {
             .expect("a constraint force read covers exactly one record");
         let (first, second) = self.constraint_bodies(handle);
         self.constraint_force_of(handle, first, second, record.reaction)
+    }
+
+    pub fn joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
+        let count = self.constraints.alive.len();
+        if count == 0 {
+            return Vec::new();
+        }
+        self.wait();
+        let states = &self.backend.streams.rigid.joint_states;
+        let bytes = count as u64 * states.stride();
+        let buffer = states.buffer().clone();
+        let read = self.read_regions("joint state readback", &[(&buffer, 0, bytes)]);
+        dynamis_abi::decode::<JointStateRecord>(&read)
+            .into_iter()
+            .enumerate()
+            .map(|(row, state)| (self.constraints.alive[row], self.joint_state_of(row, state)))
+            .collect()
+    }
+
+    pub fn joint_state(&mut self, handle: ConstraintHandle) -> JointState {
+        self.validate_constraint(handle);
+        let row = self.constraints.index_of[handle.id as usize];
+        self.wait();
+        let states = &self.backend.streams.rigid.joint_states;
+        let stride = states.stride();
+        let buffer = states.buffer().clone();
+        let read = self.read_regions(
+            "joint state readback",
+            &[(&buffer, u64::from(row) * stride, stride)],
+        );
+        let state = dynamis_abi::decode::<JointStateRecord>(&read)
+            .first()
+            .copied()
+            .expect("a joint state read covers exactly one record");
+        self.joint_state_of(row as usize, state)
+    }
+
+    fn joint_state_of(&self, row: usize, state: JointStateRecord) -> JointState {
+        let kind = self.constraints.records[row].constraint_kind();
+        assert_eq!(
+            state.dof_count as usize,
+            kind.dofs().len(),
+            "the device and the host must agree on the {kind:?} dof layout"
+        );
+        JointState::new(kind, state.coordinates, state.rates, state.impulses)
     }
 
     fn constraint_force_of(

@@ -9,11 +9,13 @@ const GRID_INDEX_FRAGMENT: &str = include_str!("../shaders/grid_index.wgsl");
 const CONVEX_FRAGMENT: &str = include_str!("../shaders/convex.wgsl");
 const SCENE_FRAGMENT: &str = include_str!("../shaders/scene.wgsl");
 const SHAPES_FRAGMENT: &str = include_str!("../shaders/shapes.wgsl");
+const JOINTS_FRAGMENT: &str = include_str!("../shaders/joints.wgsl");
 
 pub const CORE: &[&str] = &[];
 pub const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
 pub const GRID_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT];
 pub const GEOMETRY_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT, CONVEX_FRAGMENT, SCENE_FRAGMENT];
+pub const JOINTS: &[&str] = &[JOINTS_FRAGMENT];
 
 pub fn assemble(context: &GpuContext, body: &str, fragments: &[&str]) -> String {
     let mut source = shader_constants(context.workgroups_per_row());

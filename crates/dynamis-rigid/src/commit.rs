@@ -10,7 +10,7 @@ use dynamis_abi::{
 };
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_kernel::{CORE, GEOMETRY_INDEX, rows, stream, workgroups};
+use dynamis_kernel::{CORE, GEOMETRY_INDEX, JOINTS, rows, stream, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
 use dynamis_sort::RadixSort;
@@ -23,6 +23,7 @@ pub struct Commit {
     resting_commit: Stage,
     contact_archive: Stage,
     constraint_breaks: Stage,
+    joint_states: Stage,
     archive_count_sync: Stage,
     static_wake_clear: Stage,
     query: Stage,
@@ -172,6 +173,30 @@ impl Commit {
                 ],
                 &[],
             ),
+            joint_states: Stage::build(
+                context,
+                "joint_states",
+                rows(
+                    context,
+                    include_str!("../shaders/joint_states.wgsl"),
+                    JOINTS,
+                    Count::Constraints.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    (
+                        "constraint_descs",
+                        StateStream::ConstraintDescriptors.whole(),
+                    ),
+                    ("constraint_rows", RigidStream::ConstraintRows.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
+                    ("joint_states", RigidStream::JointStates.whole()),
+                ],
+                &[],
+            ),
             archive_count_sync: Stage::build(
                 context,
                 "archive_count_sync",
@@ -288,6 +313,8 @@ impl Commit {
             streams,
             Count::Constraints.rows(&frame.params),
         );
+        self.joint_states
+            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
         self.record_query(recorder, streams, frame);
         self.record_observe(recorder, streams, frame.observed_count);
     }

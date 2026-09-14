@@ -11,6 +11,94 @@ pub enum ConstraintKind {
     SixDof,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JointDof {
+    Separation,
+    Hinge,
+    Slide,
+    SwingA,
+    SwingB,
+    Twist,
+    Cone,
+    Rope,
+    Linear(usize),
+    Angular(usize),
+}
+
+impl ConstraintKind {
+    pub const fn dofs(self) -> &'static [JointDof] {
+        match self {
+            Self::Distance => &[JointDof::Separation],
+            Self::Revolute => &[JointDof::Hinge],
+            Self::Prismatic => &[JointDof::Slide],
+            Self::Ball => &[JointDof::SwingA, JointDof::SwingB, JointDof::Twist],
+            Self::Cone => &[JointDof::Cone],
+            Self::Gear => &[],
+            Self::Pulley => &[JointDof::Rope],
+            Self::SixDof => &[
+                JointDof::Linear(0),
+                JointDof::Linear(1),
+                JointDof::Linear(2),
+                JointDof::Angular(0),
+                JointDof::Angular(1),
+                JointDof::Angular(2),
+            ],
+            Self::Fixed => &[],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JointState {
+    kind: ConstraintKind,
+    coordinates: [f32; 6],
+    rates: [f32; 6],
+    impulses: [f32; 6],
+}
+
+impl JointState {
+    pub fn new(
+        kind: ConstraintKind,
+        coordinates: [f32; 6],
+        rates: [f32; 6],
+        impulses: [f32; 6],
+    ) -> Self {
+        Self {
+            kind,
+            coordinates,
+            rates,
+            impulses,
+        }
+    }
+
+    pub const fn kind(&self) -> ConstraintKind {
+        self.kind
+    }
+
+    pub const fn dofs(&self) -> &'static [JointDof] {
+        self.kind.dofs()
+    }
+
+    pub fn coordinate(&self, dof: JointDof) -> f32 {
+        self.coordinates[self.slot(dof)]
+    }
+
+    pub fn rate(&self, dof: JointDof) -> f32 {
+        self.rates[self.slot(dof)]
+    }
+
+    pub fn impulse(&self, dof: JointDof) -> f32 {
+        self.impulses[self.slot(dof)]
+    }
+
+    fn slot(&self, dof: JointDof) -> usize {
+        self.dofs()
+            .iter()
+            .position(|candidate| *candidate == dof)
+            .unwrap_or_else(|| panic!("joint dof {dof:?} is outside the {:?} layout", self.kind))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ConstraintLimit {
     pub min: f32,

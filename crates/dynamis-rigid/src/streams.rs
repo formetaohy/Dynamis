@@ -1,7 +1,7 @@
 use crate::RigidDomain;
 use dynamis_abi::{
     AabbRecord, BodyStateRecord, CONTACT_MAX_POINTS, ConstraintRowsRecord, ConstraintRuntimeRecord,
-    ContactEventRecord, ContactRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
+    ContactEventRecord, ContactRecord, JointStateRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
 };
 use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
@@ -30,6 +30,7 @@ streams! {
         body_motion, BodyMotion: "body motion", u32, 1, Contents::Scratch, demand.bodies;
         body_state_scratch, BodyStateScratch: "body state scratch", BodyStateRecord, 1, Contents::Scratch, demand.bodies;
         constraint_rows, ConstraintRows: "constraint rows", ConstraintRowsRecord, 1, Contents::Scratch, demand.constraints;
+        joint_states, JointStates: "joint states", JointStateRecord, 1, Contents::Scratch, demand.constraints;
         constraint_scratch, ConstraintScratch: "constraint state scratch", ConstraintRuntimeRecord, 1, Contents::Scratch, demand.constraints;
         joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Contents::Scratch, demand.constraints;
         joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Contents::Scratch, demand.constraints;
