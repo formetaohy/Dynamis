@@ -564,9 +564,28 @@ margin: f32,
     return contact;
 }
 
+fn contact_triangle(contact: Contact) -> u32 {
+    var deepest = 0u;
+    for (var point = 1u; point < contact.point_count; point = point + 1u) {
+        if (contact.points[point].depth > contact.points[deepest].depth) {
+            deepest = point;
+        }
+    }
+    let feature = contact.points[deepest].feature;
+    if ((feature & FEATURE_KIND_MASK) != FEATURE_TRIANGLE) {
+        return NO_TRIANGLE;
+    }
+    return feature & FEATURE_TRIANGLE_MASK;
+}
+
+fn contact_triangle_of(contact: Contact, world_geom: bool) -> u32 {
+    return select(NO_TRIANGLE, contact_triangle(contact), world_geom);
+}
+
 fn manifold_from_hit(contact: ptr<function, Contact>, hit: ShapeHit, margin: f32) {
     if (hit.distance <= margin) {
-        manifold_push(contact, hit.point, -hit.distance, feature_point());
+        let feature = select(feature_point(), feature_triangle(hit.triangle), hit.triangle != NO_TRIANGLE);
+        manifold_push(contact, hit.point, -hit.distance, feature);
     }
 }
 
@@ -661,7 +680,7 @@ fn work(index: u32) {
                 manifold_emit(&contact, -hit.normal);
                 generated = true;
                 if (!scene_convex_manifold(scene, world_first, margin, &contact)) {
-                    let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal);
+                    let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal, hit.triangle);
                     manifold_from_hit(&contact, reversed_hit, margin);
                 }
                 contact_mirror_features(&contact);
@@ -749,10 +768,19 @@ fn work(index: u32) {
     contact.second_body_id = second.state.body_id;
     contact.first_generation = first.state.generation;
     contact.second_generation = second.state.generation;
-    contact.friction = material_combine(first_collider.friction, second_collider.friction, params.friction_combine);
-    contact.restitution = material_combine(first_collider.restitution, second_collider.restitution, params.restitution_combine);
-    contact.rolling_friction = max(first_collider.rolling_friction, second_collider.rolling_friction);
-    contact.spin_friction = max(first_collider.spin_friction, second_collider.spin_friction);
+    let first_triangle = contact_triangle_of(contact, first_world_geom);
+    let second_triangle = contact_triangle_of(contact, second_world_geom);
+    let first_surface = surface_material(first_collider, first_triangle);
+    let second_surface = surface_material(second_collider, second_triangle);
+    contact.surface = select(
+        triangle_surface_index(first_collider, first_triangle),
+        triangle_surface_index(second_collider, second_triangle),
+        second_world_geom,
+    );
+    contact.friction = material_combine(first_surface.friction, second_surface.friction, params.friction_combine);
+    contact.restitution = material_combine(first_surface.restitution, second_surface.restitution, params.restitution_combine);
+    contact.rolling_friction = max(first_surface.rolling_friction, second_surface.rolling_friction);
+    contact.spin_friction = max(first_surface.spin_friction, second_surface.spin_friction);
     contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
     if (contact.point_count > 0u) {
         manifold_anchor(&contact, first, second);

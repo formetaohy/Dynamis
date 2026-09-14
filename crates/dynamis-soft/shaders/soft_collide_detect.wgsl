@@ -43,7 +43,12 @@ fn sphere_probe(center: vec3f, radius: f32) -> WorldShape {
     return world;
 }
 
-fn particle_contact(world: WorldShape, center: vec3f, radius: f32) -> ParticleContact {
+fn particle_contact(
+    world: WorldShape,
+    center: vec3f,
+    radius: f32,
+    out_triangle: ptr<function, u32>,
+) -> ParticleContact {
     var contact = no_contact();
     if (world.kind == SHAPE_PLANE) {
         let normal = plane_normal(world);
@@ -54,8 +59,7 @@ fn particle_contact(world: WorldShape, center: vec3f, radius: f32) -> ParticleCo
     }
     let probe = sphere_probe(center, radius);
     if (world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD) {
-        var triangle = 0u;
-        let closest = scene_convex_closest(world, probe, &triangle);
+        let closest = scene_convex_closest(world, probe, out_triangle);
         contact.separation = closest.distance;
         contact.normal = closest.normal;
         contact.point = closest.point_a;
@@ -113,11 +117,12 @@ fn visit_entry(
         if (collider.kind == SHAPE_NONE || (collider.flags & COLLIDER_SENSOR) != 0u) {
             return;
         }
-        var contact = particle_contact(world_collider(body_states[entry_group(node)], collider), center, radius);
+        var triangle = NO_TRIANGLE;
+        var contact = particle_contact(world_collider(body_states[entry_group(node)], collider), center, radius, &triangle);
         contact.kind = ENTRY_KIND_COLLIDER;
         contact.partner = entry_index(info);
         contact.group = entry_group(node);
-        contact.friction = collider.friction;
+        contact.friction = surface_material(collider, triangle).friction;
         if (contact_precedes(contact, *held)) {
             *held = contact;
         }

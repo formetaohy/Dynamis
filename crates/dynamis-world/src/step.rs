@@ -182,7 +182,7 @@ impl World {
             self.consume_pack(step, &bytes);
         }
         if let Some((batch, bytes)) = queries {
-            self.queries.pool.collect(batch, &bytes);
+            self.collect_query_batch(batch, &bytes);
         }
     }
 

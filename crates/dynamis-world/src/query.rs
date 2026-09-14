@@ -171,7 +171,7 @@ impl World {
         );
         self.submit(encoder);
         if let Some((batch, bytes)) = arrived {
-            self.queries.pool.collect(batch, &bytes);
+            self.collect_query_batch(batch, &bytes);
         }
         self.queries.pending.clear();
         let live = self.live();
@@ -184,10 +184,18 @@ impl World {
         if !self.queries.pool.is_ready(handle) {
             let pending = self.backend.readback.queries.drain();
             for (batch, bytes) in pending {
-                self.queries.pool.collect(batch, &bytes);
+                self.collect_query_batch(batch, &bytes);
             }
         }
         self.validate_query(handle);
+    }
+
+    pub(crate) fn collect_query_batch(&mut self, batch: u64, bytes: &[u8]) {
+        let colliders = self.colliders.records();
+        let shapes = &self.shapes.pool;
+        self.queries.pool.collect(batch, bytes, |collider, index| {
+            shapes.source_surface(colliders[collider as usize].source, index)
+        });
     }
 
     fn validate_query(&self, handle: QueryHandle) {

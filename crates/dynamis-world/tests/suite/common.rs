@@ -105,7 +105,7 @@ pub fn flat_mesh_floor(world: &mut World) -> BodyHandle {
         [-30.0, 0.0, 30.0],
     ];
     let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0))
 }
 

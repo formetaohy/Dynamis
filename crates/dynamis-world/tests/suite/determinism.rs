@@ -14,7 +14,7 @@ fn build_scenario(world: &mut World) -> Scenario {
         [-30.0, 0.0, 30.0],
     ];
     let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0));
     let anchor = world.spawn(BodyDesc::static_sphere(0.3).position([0.0, 6.0, 0.0]));
     let mut handles = vec![anchor];

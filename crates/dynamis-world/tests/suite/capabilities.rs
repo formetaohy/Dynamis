@@ -388,6 +388,7 @@ fn remove_shape_invalidates_handle() {
     let source = world.add_mesh(
         &[[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 1.0]],
         &[[0, 2, 1]],
+        None,
     );
     world.remove_shape(source);
     assert!(
@@ -402,7 +403,7 @@ fn remove_shape_invalidates_handle() {
 #[test]
 fn update_height_field_reshapes_terrain() {
     let mut world = new_world(gravity_config());
-    let source = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0]);
+    let source = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0], None);
     let _floor =
         world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.2).position([2.0, 3.0, 2.0]));
@@ -414,7 +415,7 @@ fn update_height_field_reshapes_terrain() {
         (rest_a - 0.7).abs() < 0.1,
         "ball must rest on height field at 0.5 + radius, got {rest_a}"
     );
-    world.update_height_field(source, 2, 2, &[0.1, 0.1, 0.1, 0.1], [4.0, 4.0]);
+    world.update_height_field(source, 2, 2, &[0.1, 0.1, 0.1, 0.1], [4.0, 4.0], None);
     settle_until(&mut world, 60, |world| {
         world.read_state(ball).position[1] < rest_a - 0.2
     });

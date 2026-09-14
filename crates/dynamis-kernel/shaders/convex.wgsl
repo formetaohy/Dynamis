@@ -474,7 +474,7 @@ fn convex_closest(first: WorldShape, second: WorldShape, out_simplex: ptr<functi
 }
 
 fn no_hit() -> ShapeHit {
-    return ShapeHit(NO_HIT, vec3f(0.0), vec3f(0.0));
+    return ShapeHit(NO_HIT, vec3f(0.0), vec3f(0.0), NO_TRIANGLE);
 }
 
 fn support_projection_depth(first: WorldShape, second: WorldShape, direction: vec3f) -> f32 {
@@ -545,10 +545,10 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
             if (dot(normal, second.center - first.center) < 0.0) {
                 normal = -normal;
             }
-            return ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, normal);
+            return ShapeHit(-probe.depth, (closest.point_a + closest.point_b) * 0.5, normal, NO_TRIANGLE);
         }
         if (closest.distance > 0.0) {
-            return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+            return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal, NO_TRIANGLE);
         }
         return no_hit();
     }
@@ -557,12 +557,12 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     if (epa.valid && epa.depth > 0.0 && epa.depth < 3.402823466e38 && length(epa.normal) > 0.5 && epa.depth < support_projection_depth(first, second, epa.normal) + 0.1 * min(shape_scale(first), shape_scale(second))) {
         let point_a = support(first, epa.normal);
         let point_b = support(second, -epa.normal);
-        result = ShapeHit(-epa.depth, (point_a + point_b) * 0.5, epa.normal);
+        result = ShapeHit(-epa.depth, (point_a + point_b) * 0.5, epa.normal, NO_TRIANGLE);
     } else {
         let probe = convex_penetration_probe(first, second, simplex, count);
         let point_a = support(first, probe.normal);
         let point_b = support(second, -probe.normal);
-        result = ShapeHit(-probe.depth, (point_a + point_b) * 0.5, probe.normal);
+        result = ShapeHit(-probe.depth, (point_a + point_b) * 0.5, probe.normal, NO_TRIANGLE);
     }
     if (dot(result.normal, second.center - first.center) < 0.0) {
         result.normal = -result.normal;
@@ -672,7 +672,7 @@ fn convex_hit_at(
         }
         time = max(time, 0.0);
         let point = start + direction * time;
-        return ShapeHit(time, point, n);
+        return ShapeHit(time, point, n, NO_TRIANGLE);
     }
     if (static_target.kind == SHAPE_HULL || static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
         return scene_sweep_hit(static_target, moving, start, direction, max_dist);

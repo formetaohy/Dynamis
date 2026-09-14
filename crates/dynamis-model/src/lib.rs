@@ -7,6 +7,7 @@ mod mass;
 mod query;
 mod shape;
 mod soft;
+mod surface;
 
 pub use body::{BodyDesc, BodyHandle, BodyState};
 pub use collider::{ColliderDesc, ContactEventMode};
@@ -26,3 +27,4 @@ pub use soft::{
     FluidMaterial, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,
     SoftElementState, SoftMaterial,
 };
+pub use surface::{SurfaceDesc, SurfaceTable};

@@ -12,12 +12,14 @@ use dynamis_abi::{
     QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
     SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
     SHAPE_SPHERE, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
-    StepParamsRecord, dof_driven, dof_limited, dof_locked,
+    StepParamsRecord, SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
 };
+use dynamis_abi::{ContactRecord, QueryHitRecord};
 use dynamis_model::{
     BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
-    PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState,
+    PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState, SurfaceDesc,
 };
+use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
 
 #[test]
@@ -673,4 +675,51 @@ fn soft_particle_packs_its_scalar_lanes() {
         SoftElementRecord::cleared().particles,
         [NO_SLOT; ELEMENT_PARTICLES as usize]
     );
+}
+
+#[test]
+fn triangle_record_carries_its_surface_material() {
+    let surface = SurfaceDesc::new()
+        .friction(0.25)
+        .restitution(0.75)
+        .rolling_friction(0.125)
+        .spin_friction(0.5);
+    let material = SurfaceRecord::build(&surface);
+    assert_eq!(material.desc(), surface);
+    let triangle = TriangleRecord {
+        a: 1,
+        b: 2,
+        c: 3,
+        surface: 4,
+        material,
+    };
+    assert_eq!(triangle.surface, 4);
+    assert_eq!(triangle.material.desc(), surface);
+    assert_eq!(size_of::<TriangleRecord>(), 32);
+}
+
+#[test]
+fn query_hit_record_pins_the_hit_triangle_and_surface() {
+    let hit = QueryHitRecord {
+        body_id: 1,
+        body_generation: 2,
+        distance: 3.0,
+        collider_index: 4,
+        point: [5.0, 6.0, 7.0],
+        triangle: 8,
+        normal: [9.0, 10.0, 11.0],
+        surface: 12,
+    };
+    assert_eq!(offset_of!(QueryHitRecord, triangle), 28);
+    assert_eq!(offset_of!(QueryHitRecord, surface), 44);
+    assert_eq!(size_of::<QueryHitRecord>(), 48);
+    assert_eq!((hit.triangle, hit.surface), (8, 12));
+}
+
+#[test]
+fn contact_record_pins_the_manifold_surface() {
+    assert_eq!(offset_of!(ContactRecord, events), 44);
+    assert_eq!(offset_of!(ContactRecord, surface), 48);
+    assert_eq!(offset_of!(ContactRecord, friction), 52);
+    assert_eq!(offset_of!(ContactRecord, points), 80);
 }

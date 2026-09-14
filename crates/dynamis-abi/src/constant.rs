@@ -111,6 +111,8 @@ declare_constants! {
     pub const EVENT_PERSIST: u32 = 2;
     pub const NO_BODY: u32 = 0xFFFF_FFFF;
     pub const NO_SLOT: u32 = 0xFFFF_FFFF;
+    pub const NO_SURFACE: u32 = 0xFFFF_FFFF;
+    pub const NO_TRIANGLE: u32 = 0xFFFF_FFFF;
     pub const MAX_HITS_PER_QUERY: u32 = 16;
 }
 

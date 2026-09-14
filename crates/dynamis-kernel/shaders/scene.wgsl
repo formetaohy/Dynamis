@@ -15,7 +15,7 @@ fn ray_sphere(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, radiu
     }
     let point = origin + direction * t;
     let normal = normalize(point - center);
-    return ShapeHit(t, point, normal);
+    return ShapeHit(t, point, normal, NO_TRIANGLE);
 }
 
 fn ray_box(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, q: vec4f, half_extents: vec3f) -> ShapeHit {
@@ -63,7 +63,7 @@ fn ray_box(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, q: vec4f
     let local_point = local_origin + local_direction * tmin;
     let point = center + quat_rotate(q, local_point);
     let normal = quat_rotate(q, normal_axis);
-    return ShapeHit(tmin, point, normal);
+    return ShapeHit(tmin, point, normal, NO_TRIANGLE);
 }
 
 fn ray_segment(origin: vec3f, direction: vec3f, extent: f32, seg: Segment, radius: f32) -> ShapeHit {
@@ -123,7 +123,7 @@ fn ray_triangle(origin: vec3f, direction: vec3f, extent: f32, a: vec3f, b: vec3f
     }
     let point = origin + direction * t;
     let normal = sign_normalize(cross(edge1, edge2));
-    return ShapeHit(t, point, select(normal, -normal, det < 0.0));
+    return ShapeHit(t, point, select(normal, -normal, det < 0.0), NO_TRIANGLE);
 }
 
 fn scene_local_point(scene: WorldShape, point: vec3f) -> vec3f {
@@ -184,6 +184,7 @@ fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32
                 let hit = ray_triangle(origin, direction, extent, a, b, c);
                 if (hit.distance < best.distance) {
                     best = hit;
+                    best.triangle = node.left + i;
                 }
             }
         } else {
@@ -197,6 +198,28 @@ fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32
         }
     }
     return best;
+}
+
+fn triangle_surface_index(collider: Collider, triangle: u32) -> u32 {
+    if (triangle == NO_TRIANGLE) {
+        return NO_SURFACE;
+    }
+    return triangle_surface(collider, triangle).surface;
+}
+
+fn surface_material(collider: Collider, triangle: u32) -> Surface {
+    if (triangle == NO_TRIANGLE) {
+        return collider_surface(collider);
+    }
+    let surface = triangle_surface(collider, triangle);
+    if (surface.surface == NO_SURFACE) {
+        return collider_surface(collider);
+    }
+    return surface.material;
+}
+
+fn triangle_surface(collider: Collider, triangle: u32) -> Triangle {
+    return shape_triangles[shape_sources[collider.source].triangle_offset + triangle];
 }
 
 fn triangle_points(source_index: u32, triangle_index: u32, scale: vec3f) -> array<vec3f, 3> {
@@ -305,7 +328,7 @@ fn scene_convex_hit(scene: WorldShape, world: WorldShape) -> ShapeHit {
     if (closest.distance == 3.402823466e38) {
         return no_hit();
     }
-    return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+    return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal, triangle);
 }
 
 fn triangle_plane_margin(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> f32 {
@@ -423,9 +446,9 @@ fn scene_sweep_hit(
     moved.center = start + direction * (hi + 1e-4);
     let closest = scene_convex_closest(scene, moved, &triangle);
     if (closest.penetrating) {
-        return ShapeHit(hi, closest.point_a, closest.normal);
+        return ShapeHit(hi, closest.point_a, closest.normal, triangle);
     }
-    return ShapeHit(hi, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+    return ShapeHit(hi, (closest.point_a + closest.point_b) * 0.5, closest.normal, triangle);
 }
 
 fn ray_scaled_shape(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32, expand: f32) -> ShapeHit {
@@ -466,6 +489,7 @@ fn ray_scaled_shape(world: WorldShape, origin: vec3f, direction: vec3f, extent: 
     }
     var hit: ShapeHit;
     hit.distance = local.distance;
+    hit.triangle = NO_TRIANGLE;
     hit.point = world.center + quat_rotate(world.rotation, (local_origin + local_direction * local.distance) * world.scale);
     hit.normal = quat_rotate(world.rotation, sign_normalize(local.normal * unscale));
     return hit;

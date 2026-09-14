@@ -363,7 +363,7 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
     let before = floor_hit_height(&mut world).expect("the floor must answer a downward ray");
 
     let (vertices, triangles) = lifted_mesh();
-    let lifted = world.add_mesh(&vertices, &triangles);
+    let lifted = world.add_mesh(&vertices, &triangles, None);
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(lifted)))
             .mass(0.0)

@@ -146,7 +146,7 @@ fn mesh_floor_catches_ball_and_blocks_from_below() {
 fn height_field_catches_ball_and_blocks_from_below() {
     let mut world = new_world(super::common::gravity_config());
     let heights = vec![0.0f32; 9];
-    let source = world.add_height_field(3, 3, &heights, [2.0, 2.0]);
+    let source = world.add_height_field(3, 3, &heights, [2.0, 2.0], None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([1.0, 5.0, 1.0]));
     settle_until(&mut world, 120, |world| asleep(world));
@@ -158,7 +158,7 @@ fn height_field_catches_ball_and_blocks_from_below() {
 
     let mut world = new_world(super::common::gravity_config());
     let heights = vec![0.0f32; 9];
-    let source = world.add_height_field(3, 3, &heights, [2.0, 2.0]);
+    let source = world.add_height_field(3, 3, &heights, [2.0, 2.0], None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
@@ -187,7 +187,7 @@ fn height_field_ramp_directs_ball_downhill() {
             heights.push((4 - col) as f32);
         }
     }
-    let source = world.add_height_field(3, 5, &heights, [2.0, 2.0]);
+    let source = world.add_height_field(3, 5, &heights, [2.0, 2.0], None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
     let ball = world.spawn(
         BodyDesc::sphere(0.3)
@@ -478,7 +478,7 @@ fn a_small_off_center_mesh_floor_catches_a_ball_over_its_span() {
         [10.0, 0.0, 0.5],
     ];
     let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.4).position([10.5, 3.0, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world));
@@ -527,13 +527,13 @@ fn ray_height(world: &mut World, x: f32) -> Option<f32> {
 fn a_recycled_source_reuses_the_slots_it_released() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = grid_floor(4.0, 9);
-    let mut oldest = world.add_mesh(&vertices, &triangles);
-    let mut newest = world.add_mesh(&vertices, &triangles);
+    let mut oldest = world.add_mesh(&vertices, &triangles, None);
+    let mut newest = world.add_mesh(&vertices, &triangles, None);
     let mut planned = None;
     for cycle in 0..12 {
         world.remove_shape(oldest);
         oldest = newest;
-        newest = world.add_mesh(&vertices, &triangles);
+        newest = world.add_mesh(&vertices, &triangles, None);
         world.step(DT);
         world.wait();
         let room = world.stream_capacity().state;
@@ -555,7 +555,7 @@ fn a_recycled_source_reuses_the_slots_it_released() {
 fn a_shape_update_asks_the_domain_for_work() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = grid_floor(2.0, 4);
-    let source = world.add_mesh(&vertices, &triangles);
+    let source = world.add_mesh(&vertices, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(source))).mass(0.0));
     for _ in 0..4 {
         world.step(DT);
@@ -564,7 +564,7 @@ fn a_shape_update_asks_the_domain_for_work() {
     assert!(world.is_idle(), "a static mesh world must idle");
 
     let (wider, wider_triangles) = grid_floor(4.0, 2);
-    world.update_mesh(source, &wider, &wider_triangles);
+    world.update_mesh(source, &wider, &wider_triangles, None);
     world.step(DT);
     world.wait();
     assert!(
@@ -583,7 +583,7 @@ fn a_shape_update_asks_the_domain_for_work() {
 fn resizing_a_source_repossesses_its_slots() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = grid_floor(2.0, 4);
-    let source = world.add_mesh(&vertices, &triangles);
+    let source = world.add_mesh(&vertices, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(source))).mass(0.0));
     assert!(
         ray_height(&mut world, 3.5).is_none(),
@@ -591,7 +591,7 @@ fn resizing_a_source_repossesses_its_slots() {
     );
 
     let (wider, wider_triangles) = grid_floor(4.0, 2);
-    world.update_mesh(source, &wider, &wider_triangles);
+    world.update_mesh(source, &wider, &wider_triangles, None);
     let hit = ray_height(&mut world, 3.5).expect("the resized floor must reach x = 3.5");
     assert!(
         (hit - 5.0).abs() < 1e-3,
@@ -607,7 +607,7 @@ fn resizing_a_source_repossesses_its_slots() {
 fn a_recycled_source_carries_the_replacement_geometry() {
     let mut world = new_world(super::common::gravity_config());
     let (vertices, triangles) = grid_floor(4.0, 3);
-    let low = world.add_mesh(&vertices, &triangles);
+    let low = world.add_mesh(&vertices, &triangles, None);
     let floor = world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(low))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     settle_until(&mut world, 150, |world| asleep(world));
@@ -623,7 +623,7 @@ fn a_recycled_source_carries_the_replacement_geometry() {
         .iter()
         .map(|vertex| [vertex[0], 2.0, vertex[2]])
         .collect::<Vec<_>>();
-    let high = world.add_mesh(&raised, &triangles);
+    let high = world.add_mesh(&raised, &triangles, None);
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(high))).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
     settle_until(&mut world, 150, |world| asleep(world));

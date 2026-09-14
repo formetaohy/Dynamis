@@ -1,5 +1,5 @@
 use dynamis_abi::{MAX_HITS_PER_QUERY, QueryResultHeaderRecord, QueryResultRecord};
-use dynamis_model::BodyHandle;
+use dynamis_model::{BodyHandle, SurfaceDesc};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +15,8 @@ pub struct QueryHit {
     pub distance: f32,
     pub point: [f32; 3],
     pub normal: [f32; 3],
+    pub triangle: Option<u32>,
+    pub surface: Option<SurfaceDesc>,
     pub step: u64,
 }
 
@@ -83,7 +85,12 @@ impl QueryPool {
             .find(|batch| batch.batch == handle.batch)
     }
 
-    pub(crate) fn collect(&mut self, batch_id: u64, bytes: &[u8]) {
+    pub(crate) fn collect(
+        &mut self,
+        batch_id: u64,
+        bytes: &[u8],
+        surface: impl Fn(u32, u32) -> SurfaceDesc,
+    ) {
         let batch = self
             .batches
             .iter_mut()
@@ -114,6 +121,10 @@ impl QueryPool {
                     distance: record.distance,
                     point: record.point,
                     normal: record.normal,
+                    triangle: (record.triangle != dynamis_abi::NO_TRIANGLE)
+                        .then_some(record.triangle),
+                    surface: (record.surface != dynamis_abi::NO_SURFACE)
+                        .then(|| surface(record.collider_index, record.surface)),
                     step,
                 })
                 .collect();

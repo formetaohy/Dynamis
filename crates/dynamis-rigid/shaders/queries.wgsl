@@ -161,7 +161,7 @@ fn ray_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
             return no_hit();
         }
         let point = query.origin + direction * t;
-        return ShapeHit(t, point, n);
+        return ShapeHit(t, point, n, NO_TRIANGLE);
     }
     if (collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_HULL) {
         return ray_scene(world, query.origin, direction, query.extent);
@@ -390,7 +390,7 @@ fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
             is_world_geom,
         );
         if (distance < NO_HIT) {
-            return ShapeHit(distance, query.origin + normalize(query.direction) * distance, normal);
+            return ShapeHit(distance, query.origin + normalize(query.direction) * distance, normal, NO_TRIANGLE);
         }
         return no_hit();
     }
@@ -401,14 +401,14 @@ fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
             is_world_geom,
         );
         if (separation < NO_HIT) {
-            return ShapeHit(separation, world_collider(body.state, collider).center, normal);
+            return ShapeHit(separation, world_collider(body.state, collider).center, normal, NO_TRIANGLE);
         }
         return no_hit();
     }
     if (is_world_geom) {
         let separation = overlap_world_geom(query, body, collider, &normal);
         if (separation < NO_HIT) {
-            return ShapeHit(separation, world_collider(body.state, collider).center, normal);
+            return ShapeHit(separation, world_collider(body.state, collider).center, normal, NO_TRIANGLE);
         }
         return no_hit();
     }
@@ -418,7 +418,7 @@ fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
     var count = 0u;
     let closest = convex_closest(probe, world, &simplex, &count);
     if (closest.penetrating) {
-        return ShapeHit(0.0, (closest.point_a + closest.point_b) * 0.5, closest.normal);
+        return ShapeHit(0.0, (closest.point_a + closest.point_b) * 0.5, closest.normal, NO_TRIANGLE);
     }
     return no_hit();
 }
@@ -517,7 +517,7 @@ fn main(
             let body = load_body(collider_owners[chosen_slot]);
             let collider = colliders[chosen_slot];
             let hit = resolve_hit(query, body, collider);
-            query_results[batch].hits[round] = QueryHit(body.state.body_id, body.state.generation, hit.distance, collider.slot, hit.point, 0.0, hit.normal, 0.0);
+            query_results[batch].hits[round] = QueryHit(body.state.body_id, body.state.generation, hit.distance, collider.slot, hit.point, hit.triangle, hit.normal, triangle_surface_index(collider, hit.triangle));
             drop_nearest(&nearest_key, &nearest_slot, &stored);
         }
         round = round + 1u;

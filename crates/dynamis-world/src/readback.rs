@@ -2,9 +2,10 @@ use super::World;
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
-    ConstraintRuntimeRecord, ContactRecord, Counters, DeclaredCounters,
+    ConstraintRuntimeRecord, ContactRecord, Counters, DeclaredCounters, FEATURE_KIND_MASK,
+    FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH,
 };
-use dynamis_model::{BodyHandle, ConstraintHandle};
+use dynamis_model::{BodyHandle, ConstraintHandle, SurfaceDesc};
 use std::collections::HashSet;
 use std::mem::size_of;
 
@@ -14,6 +15,7 @@ pub struct ContactPoint {
     pub normal_impulse: f32,
     pub tangent_impulse: f32,
     pub feature: u32,
+    pub triangle: Option<u32>,
 }
 
 pub struct ContactManifold {
@@ -21,6 +23,8 @@ pub struct ContactManifold {
     pub second: BodyHandle,
     pub sensor: bool,
     pub normal: [f32; 3],
+    pub material: SurfaceDesc,
+    pub surface: Option<SurfaceDesc>,
     pub points: Vec<ContactPoint>,
     pub step: u64,
 }
@@ -181,7 +185,7 @@ impl World {
         let active_bytes = active * size_of::<ContactRecord>();
         for record in dynamis_abi::decode::<ContactRecord>(&bytes[..active_bytes]) {
             if seen.insert((record.a, record.b)) {
-                manifolds.push(manifold_of(&record, step));
+                manifolds.push(manifold_of(&record, step, self.contact_surface(&record)));
             }
         }
         if resting > 0 {
@@ -195,7 +199,7 @@ impl World {
                     continue;
                 }
                 if seen.insert((record.a, record.b)) {
-                    manifolds.push(manifold_of(&record, step));
+                    manifolds.push(manifold_of(&record, step, self.contact_surface(&record)));
                 }
             }
         }
@@ -243,7 +247,7 @@ impl World {
             self.consume_breaks(&bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.collect() {
-            self.queries.pool.collect(batch, &bytes);
+            self.collect_query_batch(batch, &bytes);
         }
         for (sequence, bytes) in self.backend.readback.observations.collect() {
             self.consume_observations(sequence, &bytes);
@@ -268,7 +272,7 @@ impl World {
             self.consume_breaks(&bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.drain() {
-            self.queries.pool.collect(batch, &bytes);
+            self.collect_query_batch(batch, &bytes);
         }
         for (sequence, bytes) in self.backend.readback.observations.drain() {
             self.consume_observations(sequence, &bytes);
@@ -292,6 +296,23 @@ impl World {
         &self.backend.measured
     }
 
+    pub(crate) fn contact_surface(&self, record: &ContactRecord) -> Option<SurfaceDesc> {
+        if record.surface == NO_SURFACE {
+            return None;
+        }
+        for slot in [record.a, record.b] {
+            let collider = self.colliders.records()[slot as usize];
+            if collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD {
+                return Some(
+                    self.shapes
+                        .pool
+                        .source_surface(collider.source, record.surface),
+                );
+            }
+        }
+        panic!("a contact surface must belong to its scene geometry");
+    }
+
     pub(crate) fn accept_constraint_break(&mut self, constraint_id: u32, generation: u32) {
         let id = constraint_id as usize;
         if id >= self.constraints.ids.len() {
@@ -311,7 +332,11 @@ impl World {
     }
 }
 
-fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
+fn feature_triangle(feature: u32) -> Option<u32> {
+    ((feature & FEATURE_KIND_MASK) == FEATURE_TRIANGLE).then_some(feature & FEATURE_TRIANGLE_MASK)
+}
+
+fn manifold_of(record: &ContactRecord, step: u64, surface: Option<SurfaceDesc>) -> ContactManifold {
     ContactManifold {
         first: BodyHandle {
             id: record.first_body_id,
@@ -323,6 +348,13 @@ fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
         },
         sensor: record.sensor == 1,
         normal: record.normal,
+        material: SurfaceDesc {
+            friction: record.friction,
+            restitution: record.restitution,
+            rolling_friction: record.rolling_friction,
+            spin_friction: record.spin_friction,
+        },
+        surface,
         points: record.points[..record.point_count as usize]
             .iter()
             .map(|point| ContactPoint {
@@ -333,6 +365,7 @@ fn manifold_of(record: &ContactRecord, step: u64) -> ContactManifold {
                     + point.accumulated_tangent_2 * point.accumulated_tangent_2)
                     .sqrt(),
                 feature: point.feature,
+                triangle: feature_triangle(point.feature),
             })
             .collect(),
         step,

@@ -195,7 +195,7 @@ fn scaled_mesh_ray_hit_uses_local_scale() {
         [-1.0, 0.0, 1.0],
     ];
     let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     let _body = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(floor)).scale([1.0, 2.0, 1.0]))
             .position([0.0, 0.0, 0.0])

@@ -54,7 +54,7 @@ fn sphere_hull(rings: u32, segments: u32) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
 fn a_moved_mesh_floor_carries_a_ball() {
     let mut world = new_world(gravity_config());
     let (vertices, triangles) = quad();
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(floor)))
             .mass(0.0)
@@ -73,7 +73,7 @@ fn a_moved_mesh_floor_carries_a_ball() {
 fn a_rotated_mesh_wall_stops_a_ball() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = quad();
-    let wall = world.add_mesh(&vertices, &triangles);
+    let wall = world.add_mesh(&vertices, &triangles, None);
     let half_turn = std::f32::consts::FRAC_1_SQRT_2;
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(wall)))
@@ -98,7 +98,7 @@ fn a_rotated_mesh_wall_stops_a_ball() {
 #[test]
 fn a_moved_height_field_carries_a_ball() {
     let mut world = new_world(gravity_config());
-    let field = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0]);
+    let field = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0], None);
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::height_field(field)))
             .mass(0.0)
@@ -119,7 +119,7 @@ fn a_moved_height_field_carries_a_ball() {
 fn a_sweep_query_respects_a_moved_mesh() {
     let mut world = new_world(static_config());
     let (vertices, triangles) = quad();
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     let body = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(floor)))
             .mass(0.0)
@@ -149,7 +149,7 @@ fn a_sweep_query_respects_a_moved_mesh() {
 fn a_dense_hull_rests_on_a_moved_mesh_floor() {
     let mut world = new_world(gravity_config());
     let (vertices, triangles) = quad();
-    let floor = world.add_mesh(&vertices, &triangles);
+    let floor = world.add_mesh(&vertices, &triangles, None);
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::mesh(floor)))
             .mass(0.0)
@@ -172,7 +172,7 @@ fn a_dense_hull_rests_on_a_moved_mesh_floor() {
 #[test]
 fn a_scaled_height_field_lifts_its_surface() {
     let mut world = new_world(gravity_config());
-    let field = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0]);
+    let field = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0], None);
     let scaled = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::height_field(field)).scale([2.0, 2.0, 2.0]))
             .mass(0.0)

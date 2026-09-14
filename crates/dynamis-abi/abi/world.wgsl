@@ -166,6 +166,13 @@ struct Collider {
     spin_friction: f32,
 }
 
+struct Surface {
+    friction: f32,
+    restitution: f32,
+    rolling_friction: f32,
+    spin_friction: f32,
+}
+
 struct ShapeSource {
     kind: u32,
     vertex_offset: u32,
@@ -196,7 +203,8 @@ struct Triangle {
     a: u32,
     b: u32,
     c: u32,
-    _pad0: u32,
+    surface: u32,
+    material: Surface,
 }
 
 struct Aabb {
@@ -235,6 +243,7 @@ struct Contact {
     second_generation: u32,
     normal: vec3f,
     events: u32,
+    surface: u32,
     friction: f32,
     restitution: f32,
     rolling_friction: f32,
@@ -369,9 +378,9 @@ struct QueryHit {
     distance: f32,
     collider_index: u32,
     point: vec3f,
-    _pad1: f32,
+    triangle: u32,
     normal: vec3f,
-    _pad2: f32,
+    surface: u32,
 }
 
 struct QueryResult {

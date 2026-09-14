@@ -1,8 +1,8 @@
 use super::arena::{Arena, Run, merged};
 use super::ids::IdSpace;
 use bytemuck::Zeroable;
-use dynamis_abi::{BvhNodeRecord, TriangleRecord};
-use dynamis_model::{ShapeSourceHandle, SolidGeometry};
+use dynamis_abi::{BvhNodeRecord, SurfaceRecord, TriangleRecord};
+use dynamis_model::{ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
 use dynamis_state::ShapeCapacity;
 use dynamis_state::{TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
@@ -32,6 +32,9 @@ impl<T: Copy> Geometry<T> {
     }
 
     fn take(&mut self, blank: T, values: &[T]) -> Run {
+        if values.is_empty() {
+            return Run::EMPTY;
+        }
         let run = self.arena.take(values.len() as u32);
         self.rows.resize(self.arena.used() as usize, blank);
         self.rows[run.span()].copy_from_slice(values);
@@ -40,6 +43,10 @@ impl<T: Copy> Geometry<T> {
     }
 
     fn rewrite(&mut self, run: Run, blank: T, values: &[T]) -> Run {
+        if values.is_empty() {
+            self.release(run, blank);
+            return Run::EMPTY;
+        }
         if run.len as usize == values.len() {
             self.rows[run.span()].copy_from_slice(values);
             self.dirty.push(run);
@@ -50,6 +57,9 @@ impl<T: Copy> Geometry<T> {
     }
 
     fn release(&mut self, run: Run, blank: T) {
+        if run.len == 0 {
+            return;
+        }
         self.rows[run.span()].fill(blank);
         self.arena.release(run);
         self.rows.truncate(self.arena.used() as usize);
@@ -66,6 +76,7 @@ struct Source {
     vertices: Run,
     triangles: Run,
     nodes: Run,
+    palette: Run,
     bounds: ([f32; 3], [f32; 3]),
     solid: Option<SolidGeometry>,
 }
@@ -76,6 +87,7 @@ impl Source {
         vertices: Run::EMPTY,
         triangles: Run::EMPTY,
         nodes: Run::EMPTY,
+        palette: Run::EMPTY,
         bounds: ([0.0; 3], [0.0; 3]),
         solid: None,
     };
@@ -93,6 +105,7 @@ pub(crate) struct ShapePool {
     vertices: Geometry<[f32; 4]>,
     triangles: Geometry<TriangleRecord>,
     nodes: Geometry<BvhNodeRecord>,
+    palettes: Geometry<SurfaceRecord>,
 }
 
 impl ShapePool {
@@ -104,6 +117,7 @@ impl ShapePool {
             vertices: Geometry::new(),
             triangles: Geometry::new(),
             nodes: Geometry::new(),
+            palettes: Geometry::new(),
         }
     }
 
@@ -114,6 +128,19 @@ impl ShapePool {
             triangles: self.triangles.used(),
             nodes: self.nodes.used(),
         }
+    }
+
+    pub(crate) fn source_surface(&self, source: u32, index: u32) -> SurfaceDesc {
+        let source = self
+            .sources
+            .get(source as usize)
+            .filter(|source| source.alive())
+            .unwrap_or_else(|| panic!("shape source {source} is not alive"));
+        assert!(
+            index < source.palette.len,
+            "surface index {index} is outside the shape source palette"
+        );
+        self.palettes.rows[source.palette.offset as usize + index as usize].desc()
     }
 
     pub(crate) fn solid(&self, handle: ShapeSourceHandle) -> SolidGeometry {
@@ -171,6 +198,8 @@ impl ShapePool {
         self.triangles
             .release(source.triangles, TriangleRecord::zeroed());
         self.nodes.release(source.nodes, BvhNodeRecord::zeroed());
+        self.palettes
+            .release(source.palette, SurfaceRecord::zeroed());
         self.sources[id] = Source::DEAD;
         self.ids.release(handle.id);
     }
@@ -180,24 +209,28 @@ impl ShapePool {
         kind: u32,
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
+        surfaces: Option<SurfaceTable<'_>>,
     ) -> ShapeSourceHandle {
-        validate_geometry(kind, vertices, triangles);
+        validate_geometry(kind, vertices, triangles, surfaces);
         let nodes = build_bvh(vertices, triangles);
         let bounds = bounds_of(vertices);
         let (id, generation) = self.ids.acquire();
         self.grow_to(id);
         let vertex_rows = vertex_rows(vertices);
-        let triangle_rows = triangle_rows(triangles);
+        let triangle_rows = triangle_rows(triangles, surfaces);
+        let palette_rows = palette_rows(surfaces);
         let vertex_run = self.vertices.take([0.0; 4], &vertex_rows);
         let triangle_run = self
             .triangles
             .take(TriangleRecord::zeroed(), &triangle_rows);
         let node_run = self.nodes.take(BvhNodeRecord::zeroed(), &nodes);
+        let palette_run = self.palettes.take(SurfaceRecord::zeroed(), &palette_rows);
         self.sources[id as usize] = Source {
             kind,
             vertices: vertex_run,
             triangles: triangle_run,
             nodes: node_run,
+            palette: palette_run,
             bounds,
             solid: solid_of(kind, vertices, triangles),
         };
@@ -209,13 +242,15 @@ impl ShapePool {
         handle: ShapeSourceHandle,
         vertices: &[[f32; 3]],
         triangles: &[[u32; 3]],
+        surfaces: Option<SurfaceTable<'_>>,
     ) {
         let source = *self.source(handle);
-        validate_geometry(source.kind, vertices, triangles);
+        validate_geometry(source.kind, vertices, triangles, surfaces);
         let nodes = build_bvh(vertices, triangles);
         let bounds = bounds_of(vertices);
         let vertex_rows = vertex_rows(vertices);
-        let triangle_rows = triangle_rows(triangles);
+        let triangle_rows = triangle_rows(triangles, surfaces);
+        let palette_rows = palette_rows(surfaces);
         let vertex_run = self
             .vertices
             .rewrite(source.vertices, [0.0; 4], &vertex_rows);
@@ -225,10 +260,14 @@ impl ShapePool {
         let node_run = self
             .nodes
             .rewrite(source.nodes, BvhNodeRecord::zeroed(), &nodes);
+        let palette_run =
+            self.palettes
+                .rewrite(source.palette, SurfaceRecord::zeroed(), &palette_rows);
         self.sources[handle.id as usize] = Source {
             vertices: vertex_run,
             triangles: triangle_run,
             nodes: node_run,
+            palette: palette_run,
             bounds,
             solid: solid_of(source.kind, vertices, triangles),
             ..source
@@ -288,7 +327,23 @@ impl ShapePool {
     }
 }
 
-fn validate_geometry(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) {
+fn validate_geometry(
+    kind: u32,
+    vertices: &[[f32; 3]],
+    triangles: &[[u32; 3]],
+    surfaces: Option<SurfaceTable<'_>>,
+) {
+    assert!(
+        kind != dynamis_abi::SHAPE_HULL || surfaces.is_none(),
+        "a hull carries no addressable faces for surfaces"
+    );
+    if let Some(surfaces) = surfaces {
+        assert_eq!(
+            surfaces.count(),
+            triangles.len(),
+            "a surface table carries one surface per triangle"
+        );
+    }
     assert!(
         kind != dynamis_abi::SHAPE_HULL
             || vertices.len() <= dynamis_abi::FEATURE_INDEX_LIMIT as usize,
@@ -309,16 +364,36 @@ fn vertex_rows(vertices: &[[f32; 3]]) -> Vec<[f32; 4]> {
         .collect()
 }
 
-fn triangle_rows(triangles: &[[u32; 3]]) -> Vec<TriangleRecord> {
+fn triangle_rows(
+    triangles: &[[u32; 3]],
+    surfaces: Option<SurfaceTable<'_>>,
+) -> Vec<TriangleRecord> {
     triangles
         .iter()
-        .map(|triangle| TriangleRecord {
-            a: triangle[0],
-            b: triangle[1],
-            c: triangle[2],
-            _pad0: 0,
+        .enumerate()
+        .map(|(slot, triangle)| {
+            let (surface, material) = match surfaces {
+                Some(table) => (
+                    table.indices()[slot],
+                    SurfaceRecord::build(&table.palette()[table.indices()[slot] as usize]),
+                ),
+                None => (dynamis_abi::NO_SURFACE, SurfaceRecord::zeroed()),
+            };
+            TriangleRecord {
+                a: triangle[0],
+                b: triangle[1],
+                c: triangle[2],
+                surface,
+                material,
+            }
         })
         .collect()
+}
+
+fn palette_rows(surfaces: Option<SurfaceTable<'_>>) -> Vec<SurfaceRecord> {
+    surfaces
+        .map(|table| table.palette().iter().map(SurfaceRecord::build).collect())
+        .unwrap_or_default()
 }
 
 fn solid_of(kind: u32, vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Option<SolidGeometry> {

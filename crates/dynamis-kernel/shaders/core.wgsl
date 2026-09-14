@@ -70,6 +70,7 @@ struct ShapeHit {
     distance: f32,
     point: vec3f,
     normal: vec3f,
+    triangle: u32,
 }
 
 fn global_index(gid: vec3u) -> u32 {
@@ -283,6 +284,10 @@ fn material_combine(first: f32, second: f32, mode: u32) -> f32 {
         return (first + second) * 0.5;
     }
     return sqrt(first * second);
+}
+
+fn collider_surface(collider: Collider) -> Surface {
+    return Surface(collider.friction, collider.restitution, collider.rolling_friction, collider.spin_friction);
 }
 
 fn body_com(body: Body) -> vec3f {

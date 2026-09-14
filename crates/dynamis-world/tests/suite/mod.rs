@@ -26,6 +26,7 @@ pub mod rotation;
 pub mod shape;
 pub mod snapshot;
 pub mod soft;
+pub mod surface;
 #[cfg(feature = "profile")]
 pub mod timing;
 pub mod waking;
