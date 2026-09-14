@@ -1,8 +1,34 @@
 mod common;
 
 use crate::common::shared;
-use dynamis_gpu::{Backend, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy, PowerPreference};
-use wgpu::Features;
+use dynamis_gpu::{
+    AdapterInfo, Backend, GpuBuffer, GpuContext, GpuRequest, GpuRuntime, GpuUnavailable,
+    LimitsPolicy, PowerPreference,
+};
+use wgpu::{BufferUsages, Device, Features, Queue};
+
+fn host_device() -> (Device, Queue, AdapterInfo) {
+    let runtime = pollster::block_on(GpuRuntime::shared());
+    let adapter = pollster::block_on(runtime.instance().request_adapter(
+        &wgpu::RequestAdapterOptions {
+            power_preference: PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        },
+    ))
+    .expect("this machine must expose a native adapter");
+    let info = adapter.get_info();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("host device"),
+        required_features: Features::empty(),
+        required_limits: adapter.limits(),
+        memory_hints: wgpu::MemoryHints::Performance,
+        ..Default::default()
+    }))
+    .expect("the host device must be requestable");
+    (device, queue, info)
+}
 
 #[test]
 fn default_request_lands_on_a_native_backend() {
@@ -129,4 +155,34 @@ fn a_fresh_device_is_not_lost() {
 #[test]
 fn timestamp_period_is_reported() {
     assert!(shared().timestamp_period_ns() > 0.0);
+}
+
+#[test]
+fn adoption_reports_the_hosts_device_facts() {
+    let (device, queue, info) = host_device();
+    let context = GpuContext::adopt(device.clone(), queue.clone(), info.clone());
+    assert_eq!(context.adapter_info(), info);
+    assert_eq!(context.features(), device.features());
+    assert_eq!(context.limits(), &device.limits());
+    assert_eq!(context.timestamp_period_ns(), queue.get_timestamp_period());
+    assert!(context.device_lost().is_none());
+    context.assert_alive();
+}
+
+#[test]
+fn an_adopted_context_runs_on_the_hosts_device() {
+    let (device, queue, info) = host_device();
+    let context = GpuContext::adopt(device.clone(), queue.clone(), info);
+    let buffer = GpuBuffer::new(
+        context.device(),
+        "interop",
+        16,
+        BufferUsages::STORAGE
+            .union(BufferUsages::COPY_DST)
+            .union(BufferUsages::COPY_SRC),
+    );
+    queue.write_buffer(buffer.buffer(), 0, &[7u8; 16]);
+    let bytes =
+        dynamis_gpu::read_regions(&device, &queue, "interop read", &[(buffer.buffer(), 0, 16)]);
+    assert_eq!(bytes, vec![7u8; 16]);
 }

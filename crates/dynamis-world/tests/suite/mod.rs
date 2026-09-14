@@ -14,6 +14,7 @@ pub mod determinism;
 pub mod dynamics;
 pub mod event;
 pub mod fluid;
+pub mod interop;
 pub mod joint_precision;
 pub mod joint_state;
 pub mod mass;

@@ -66,6 +66,21 @@ impl GpuRequest {
             ..Self::default()
         }
     }
+
+    pub async fn adapter(&self) -> Result<Adapter, GpuUnavailable> {
+        let adapter = select_adapter(self).await?;
+        let available = adapter.features();
+        let missing = self.required_features.difference(available);
+        if !missing.is_empty() {
+            return Err(GpuUnavailable::MissingFeatures { missing, available });
+        }
+        if !GpuContext::MINIMUM_LIMITS.check_limits(&adapter.limits()) {
+            return Err(GpuUnavailable::InsufficientLimits {
+                adapter: adapter.get_info().name,
+            });
+        }
+        Ok(adapter)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,7 +153,7 @@ struct Health {
 }
 
 pub struct GpuContext {
-    adapter: Adapter,
+    info: AdapterInfo,
     device: Device,
     queue: Queue,
     features: Features,
@@ -163,22 +178,13 @@ impl GpuContext {
     };
 
     pub async fn open(request: &GpuRequest) -> Result<Self, GpuUnavailable> {
-        let adapter = select_adapter(request).await?;
+        let adapter = request.adapter().await?;
         let available = adapter.features();
-        let missing = request.required_features.difference(available);
-        if !missing.is_empty() {
-            return Err(GpuUnavailable::MissingFeatures { missing, available });
-        }
         let features = request.required_features | (request.optional_features & available);
         let limits = match request.limits {
             LimitsPolicy::Adapter => adapter.limits(),
             LimitsPolicy::Minimum => Self::MINIMUM_LIMITS,
         };
-        if !Self::MINIMUM_LIMITS.check_limits(&adapter.limits()) {
-            return Err(GpuUnavailable::InsufficientLimits {
-                adapter: adapter.get_info().name,
-            });
-        }
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("dynamis device"),
@@ -191,14 +197,36 @@ impl GpuContext {
             .map_err(|error| GpuUnavailable::DeviceRejected {
                 message: error.to_string(),
             })?;
+        Ok(Self::of_device(
+            device,
+            queue,
+            adapter.get_info(),
+            features,
+            limits,
+        ))
+    }
+
+    pub fn adopt(device: Device, queue: Queue, info: AdapterInfo) -> Self {
+        let features = device.features();
+        let limits = device.limits();
+        Self::of_device(device, queue, info, features, limits)
+    }
+
+    fn of_device(
+        device: Device,
+        queue: Queue,
+        info: AdapterInfo,
+        features: Features,
+        limits: Limits,
+    ) -> Self {
         let health = Arc::new(Health::default());
         let callback = health.clone();
         device.set_device_lost_callback(move |reason, message| {
             *callback.lost.lock().unwrap() = Some(DeviceLost { reason, message });
         });
         let timestamp_period_ns = queue.get_timestamp_period();
-        Ok(Self {
-            adapter,
+        Self {
+            info,
             device,
             queue,
             features,
@@ -207,7 +235,7 @@ impl GpuContext {
             health,
             pipelines: Arc::new(Mutex::new(PipelineLibrary::new())),
             compilation: Arc::new(Mutex::new(())),
-        })
+        }
     }
 
     pub async fn new() -> Self {
@@ -235,7 +263,7 @@ impl GpuContext {
     }
 
     pub fn adapter_info(&self) -> AdapterInfo {
-        self.adapter.get_info()
+        self.info.clone()
     }
 
     pub fn features(&self) -> Features {
@@ -341,7 +369,7 @@ impl GpuContext {
 impl Clone for GpuContext {
     fn clone(&self) -> Self {
         Self {
-            adapter: self.adapter.clone(),
+            info: self.info.clone(),
             device: self.device.clone(),
             queue: self.queue.clone(),
             features: self.features,

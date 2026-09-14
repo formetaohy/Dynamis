@@ -1,5 +1,7 @@
 use dynamis_abi::COUNTER_ACTIVE;
-use dynamis_gpu::{Backends, GpuContext, GpuRequest, WarmupBudget};
+use dynamis_gpu::{
+    AdapterInfo, Backends, Device, GpuContext, GpuRequest, LimitsPolicy, Queue, WarmupBudget,
+};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, PhysicsConfig, Shape};
 use dynamis_world::World;
 use std::sync::OnceLock;
@@ -8,21 +10,58 @@ pub const DT: f32 = 1.0 / 60.0;
 
 const SETTLE_POLL: usize = 4;
 
+pub struct Host {
+    pub device: Device,
+    pub queue: Queue,
+    pub info: AdapterInfo,
+}
+
+static HOST: OnceLock<Host> = OnceLock::new();
 static GPU: OnceLock<GpuContext> = OnceLock::new();
+
+fn request() -> GpuRequest {
+    let mut request = GpuRequest::default();
+    if let Ok(backend) = std::env::var("DYNAMIS_TEST_BACKEND") {
+        request.backends = match backend.as_str() {
+            "vulkan" => Backends::VULKAN,
+            "dx12" => Backends::DX12,
+            _ => request.backends,
+        };
+    }
+    request
+}
+
+pub fn host() -> &'static Host {
+    HOST.get_or_init(|| {
+        let request = request();
+        let adapter = pollster::block_on(request.adapter()).expect("test adapter");
+        let available = adapter.features();
+        let features = request.required_features | (request.optional_features & available);
+        let limits = match request.limits {
+            LimitsPolicy::Adapter => adapter.limits(),
+            LimitsPolicy::Minimum => GpuContext::MINIMUM_LIMITS,
+        };
+        let info = adapter.get_info();
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("dynamis host device"),
+            required_features: features,
+            required_limits: limits,
+            memory_hints: wgpu::MemoryHints::Performance,
+            ..Default::default()
+        }))
+        .expect("the host device must be requestable");
+        Host {
+            device,
+            queue,
+            info,
+        }
+    })
+}
 
 pub fn gpu() -> GpuContext {
     GPU.get_or_init(|| {
-        pollster::block_on(async {
-            let mut request = GpuRequest::default();
-            if let Ok(backend) = std::env::var("DYNAMIS_TEST_BACKEND") {
-                request.backends = match backend.as_str() {
-                    "vulkan" => Backends::VULKAN,
-                    "dx12" => Backends::DX12,
-                    _ => request.backends,
-                };
-            }
-            GpuContext::open(&request).await.expect("test gpu")
-        })
+        let host = host();
+        GpuContext::adopt(host.device.clone(), host.queue.clone(), host.info.clone())
     })
     .clone()
 }

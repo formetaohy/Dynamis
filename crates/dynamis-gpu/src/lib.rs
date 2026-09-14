@@ -26,5 +26,6 @@ pub use submission::SubmissionEncoder;
 #[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};
 pub use wgpu::{
-    AdapterInfo, Backend, Backends, DeviceLostReason, DeviceType, Features, Limits, PowerPreference,
+    Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType, Features,
+    Limits, PowerPreference, Queue,
 };
