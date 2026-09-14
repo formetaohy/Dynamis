@@ -11,6 +11,8 @@ pub struct BroadphaseDomain;
 impl Domain for BroadphaseDomain {
     const ID: u32 = 1;
 
+    const SIMULATES: bool = false;
+
     type Demand = BroadphaseDemand;
     type Inputs = BroadphaseInputs;
     type Work = ();
@@ -25,7 +27,15 @@ impl Domain for BroadphaseDomain {
         Capacity::floor()
     }
 
-    fn active(_: &Counters, _: &()) -> bool {
+    fn occupied(inputs: &BroadphaseInputs) -> bool {
+        inputs.colliders > 0 || inputs.particles > 0
+    }
+
+    fn pending(_: &()) -> bool {
+        false
+    }
+
+    fn active(_: &Counters) -> bool {
         false
     }
 

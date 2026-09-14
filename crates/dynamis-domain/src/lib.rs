@@ -1,15 +1,17 @@
 mod facts;
 mod registry;
 
+pub use dynamis_abi::Counters;
 pub use facts::{Run, StepFacts};
 
-use dynamis_abi::Counters;
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{PassGroup, Pipeline, Resources, Schedule};
 use wgpu::CommandEncoder;
 
 pub trait Domain {
     const ID: u32;
+
+    const SIMULATES: bool;
 
     type Demand: Copy;
     type Inputs: Copy;
@@ -23,7 +25,11 @@ pub trait Domain {
 
     fn minimum() -> Self::Demand;
 
-    fn active(measured: &Counters, work: &Self::Work) -> bool;
+    fn occupied(inputs: &Self::Inputs) -> bool;
+
+    fn pending(work: &Self::Work) -> bool;
+
+    fn active(measured: &Counters) -> bool;
 
     fn pass_groups() -> &'static [PassGroup];
 

@@ -1,7 +1,7 @@
 use crate::World;
 use dynamis_abi::{Counters, FrameCounts, RowStreams, StepParamsRecord};
 use dynamis_broadphase::BroadphaseDomain;
-use dynamis_domain::{Domain, Run, StepFacts};
+use dynamis_domain::StepFacts;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{Pass, PipelineBuilder, Schedule};
 use dynamis_rigid::RigidDomain;
@@ -14,6 +14,7 @@ dynamis_domain::domains! {
     broadphase: BroadphaseDomain,
     rigid: RigidDomain,
     soft: SoftDomain,
+    [rigid <-> soft]
 }
 
 pub(crate) const ACTIVITY_LAG: u32 = dynamis_gpu::Readback::DEPTH as u32 + 2;
@@ -33,50 +34,6 @@ impl Rest {
         }
         self.quiet = self.quiet.saturating_add(1);
         self.quiet < ACTIVITY_LAG
-    }
-}
-
-impl HostWork {
-    pub(crate) fn pending(&self) -> bool {
-        self.state.queries > 0
-            || self.state.shape_uploads
-            || self.rigid.body_commands > 0
-            || self.rigid.constraint_commands > 0
-            || self.soft.uploads
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Activity {
-    state: bool,
-    rigid: bool,
-    soft: bool,
-}
-
-impl Activity {
-    pub(crate) const BUSY: Self = Self {
-        state: true,
-        rigid: true,
-        soft: true,
-    };
-
-    fn of(measured: &Counters, work: &HostWork) -> Self {
-        let mut live = Self {
-            state: StateDomain::active(measured, &work.state),
-            rigid: RigidDomain::active(measured, &work.rigid),
-            soft: SoftDomain::active(measured, &work.soft),
-        };
-        live.rigid |= live.soft;
-        live.soft |= live.rigid;
-        live
-    }
-
-    pub(crate) fn simulating(self) -> bool {
-        self.rigid || self.soft
-    }
-
-    pub(crate) fn busy(self) -> bool {
-        self.state || self.simulating()
     }
 }
 
@@ -275,22 +232,23 @@ impl World {
     }
 
     pub(crate) fn busy(&self, work: &HostWork) -> bool {
-        self.observed(work).busy()
+        self.observed(&self.live(), work).busy()
     }
 
-    fn observed(&self, work: &HostWork) -> Activity {
+    fn observed(&self, live: &Live, work: &HostWork) -> Activity {
+        match self.backend.measured_step {
+            None => Activity::BUSY,
+            Some(_) => Activity::of(&self.backend.measured, live, work),
+        }
+    }
+
+    fn gated(&mut self, live: &Live, work: &HostWork) -> Activity {
         if self.backend.measured_step.is_none() {
             return Activity::BUSY;
         }
-        Activity::of(&self.backend.measured, work)
-    }
-
-    fn gated(&mut self, work: &HostWork) -> Activity {
-        let mut liveness = self.observed(work);
-        let lag = self.backend.rest.gate(liveness.simulating());
-        liveness.rigid |= lag;
-        liveness.soft |= lag;
-        liveness
+        let liveness = Activity::of(&self.backend.measured, live, work);
+        let hold = self.backend.rest.gate(liveness.simulating());
+        liveness.held(hold)
     }
 
     pub(crate) fn frames(
@@ -299,45 +257,11 @@ impl World {
         work: &HostWork,
         params: StepParamsRecord,
     ) -> StepFrames {
-        let liveness = self.gated(work);
-        let indexing = liveness.busy();
+        let liveness = self.gated(live, work);
         let facts = StepFacts {
             params,
             counts: self.frame_counts(),
         };
-        StepFrames {
-            state: StateDomain::frame(
-                &facts,
-                &live.state,
-                Run {
-                    awake: liveness.state,
-                    indexing,
-                },
-            ),
-            broadphase: BroadphaseDomain::frame(
-                &facts,
-                &live.broadphase,
-                Run {
-                    awake: indexing,
-                    indexing,
-                },
-            ),
-            rigid: RigidDomain::frame(
-                &facts,
-                &live.rigid,
-                Run {
-                    awake: liveness.rigid,
-                    indexing,
-                },
-            ),
-            soft: SoftDomain::frame(
-                &facts,
-                &live.soft,
-                Run {
-                    awake: liveness.soft,
-                    indexing,
-                },
-            ),
-        }
+        StepFrames::of(&facts, live, liveness)
     }
 }

@@ -63,6 +63,50 @@ fn a_rigid_step_profiles_no_pass_of_an_absent_domain() {
 }
 
 #[test]
+fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
+    let mut world = new_world(gravity_config());
+    world.add_soft_body(
+        SoftBodyDesc::net(
+            vec![
+                [-0.25, 0.0, -0.25],
+                [0.25, 0.0, -0.25],
+                [0.25, 0.0, 0.25],
+                [-0.25, 0.0, 0.25],
+            ],
+            vec![[0, 1], [1, 2], [2, 3], [3, 0]],
+        )
+        .radius(0.1)
+        .position([0.0, 2.0, 0.0]),
+    );
+    settle(&mut world, 30);
+    let timings = world.gpu_pass_timings();
+    assert!(
+        timings.iter().any(|timing| timing.label == "soft_substeps"),
+        "a free soft body must simulate"
+    );
+    for timing in timings {
+        assert!(
+            !matches!(
+                timing.label,
+                "narrowphase"
+                    | "islands"
+                    | "wake"
+                    | "live"
+                    | "solver_prepare"
+                    | "substeps"
+                    | "ccd_sweep"
+                    | "ccd_apply"
+                    | "sleep"
+                    | "resting_gather"
+                    | "resting_index"
+            ),
+            "pass {} ran while the world holds no rigid body",
+            timing.label
+        );
+    }
+}
+
+#[test]
 fn a_full_scene_profiles_every_declared_pass() {
     let mut world = new_world(gravity_config());
     world.spawn(BodyDesc::sphere(0.4).position([0.0, 4.0, 0.0]).ccd(true));

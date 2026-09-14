@@ -112,9 +112,7 @@ impl World {
     }
 
     pub fn is_idle(&self) -> bool {
-        !self.backend.working
-            && self.backend.measured_step.is_some()
-            && !self.busy(&self.host_work())
+        !self.backend.published && !self.busy(&self.host_work())
     }
 
     pub fn state_buffer(&self) -> &GpuBuffer {

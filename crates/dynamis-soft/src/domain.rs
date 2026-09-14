@@ -17,6 +17,8 @@ pub struct SoftWork {
 impl Domain for SoftDomain {
     const ID: u32 = 3;
 
+    const SIMULATES: bool = true;
+
     type Demand = SoftDemand;
     type Inputs = SoftInputs;
     type Work = SoftWork;
@@ -31,8 +33,16 @@ impl Domain for SoftDomain {
         floor()
     }
 
-    fn active(measured: &Counters, work: &SoftWork) -> bool {
-        measured[COUNTER_SOFT_ACTIVE] != 0 || work.uploads
+    fn occupied(inputs: &SoftInputs) -> bool {
+        inputs.particles > 0
+    }
+
+    fn pending(work: &SoftWork) -> bool {
+        work.uploads
+    }
+
+    fn active(measured: &Counters) -> bool {
+        measured[COUNTER_SOFT_ACTIVE] != 0
     }
 
     fn pass_groups() -> &'static [PassGroup] {
@@ -50,7 +60,7 @@ impl Domain for SoftDomain {
     fn frame(facts: &StepFacts, inputs: &SoftInputs, run: Run) -> SoftFrame {
         SoftFrame {
             params: facts.params,
-            simulating: run.awake && inputs.particles > 0,
+            simulating: run.awake,
             material: inputs.material,
         }
     }

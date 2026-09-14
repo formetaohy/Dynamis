@@ -32,6 +32,8 @@ pub struct RigidWork {
 impl Domain for RigidDomain {
     const ID: u32 = 2;
 
+    const SIMULATES: bool = true;
+
     type Demand = RigidDemand;
     type Inputs = RigidInputs;
     type Work = RigidWork;
@@ -46,8 +48,16 @@ impl Domain for RigidDomain {
         Capacity::floor(dynamis_pass::STREAM_FLOOR)
     }
 
-    fn active(measured: &Counters, work: &RigidWork) -> bool {
-        measured[COUNTER_ACTIVE] != 0 || work.body_commands > 0 || work.constraint_commands > 0
+    fn occupied(inputs: &RigidInputs) -> bool {
+        inputs.bodies > 0
+    }
+
+    fn pending(work: &RigidWork) -> bool {
+        work.body_commands > 0 || work.constraint_commands > 0
+    }
+
+    fn active(measured: &Counters) -> bool {
+        measured[COUNTER_ACTIVE] != 0
     }
 
     fn pass_groups() -> &'static [PassGroup] {

@@ -45,7 +45,7 @@ impl World {
         self.apply_pending_commands();
         let work = self.host_work();
         let query_count = work.state.queries;
-        self.backend.working = work.pending();
+        self.backend.published = work.pending();
         let params = self.step_params(dt);
         let frames = self.frames(&live, &work, params);
         self.shapes.uploaded = false;

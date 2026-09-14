@@ -2,6 +2,7 @@
 macro_rules! domains {
     (
         $( $field:ident: $domain:ty, )*
+        [ $( $source:ident <-> $target:ident ),* $(,)? ]
     ) => {
         const _: () = {
             let mut seen: u64 = 0;
@@ -34,9 +35,124 @@ macro_rules! domains {
             $( pub(crate) $field: <$domain as $crate::Domain>::Work, )*
         }
 
+        impl HostWork {
+            pub(crate) fn pending(&self) -> bool {
+                false $( || <$domain as $crate::Domain>::pending(&self.$field) )*
+            }
+        }
+
+        const DOMAIN_COUNT: usize = [ $( stringify!($field), )* ].len();
+
+        const SIMULATES: [bool; DOMAIN_COUNT] = [ $( <$domain as $crate::Domain>::SIMULATES, )* ];
+
+        #[derive(Clone, Copy)]
+        struct Occupied {
+            $( $field: bool, )*
+        }
+
+        impl Occupied {
+            fn runs(self) -> [bool; DOMAIN_COUNT] {
+                [ $( self.$field, )* ]
+            }
+        }
+
+        #[derive(Clone, Copy)]
+        pub(crate) struct Activity {
+            $( pub(crate) $field: bool, )*
+            occupied: Occupied,
+        }
+
+        impl Activity {
+            pub(crate) const BUSY: Self = Self {
+                $( $field: true, )*
+                occupied: Occupied { $( $field: true, )* },
+            };
+
+            pub(crate) fn of(measured: &$crate::Counters, live: &Live, work: &HostWork) -> Self {
+                let occupied = Occupied {
+                    $( $field: <$domain as $crate::Domain>::occupied(&live.$field), )*
+                };
+                let mut runs = [
+                    $(
+                        <$domain as $crate::Domain>::pending(&work.$field)
+                            || <$domain as $crate::Domain>::active(measured),
+                    )*
+                ];
+                for (running, occupied) in runs.iter_mut().zip(occupied.runs()) {
+                    *running &= occupied;
+                }
+                let mut activity = Self { $( $field: false, )* occupied };
+                activity.resume(runs);
+                activity.close();
+                activity
+            }
+
+            pub(crate) fn held(mut self, hold: bool) -> Self {
+                if hold {
+                    let occupied = self.occupied.runs();
+                    let mut runs = self.runs();
+                    for (running, (occupied, simulates)) in
+                        runs.iter_mut().zip(occupied.into_iter().zip(SIMULATES))
+                    {
+                        *running |= occupied && simulates;
+                    }
+                    self.resume(runs);
+                    self.close();
+                }
+                self
+            }
+
+            pub(crate) fn simulating(self) -> bool {
+                self.runs()
+                    .into_iter()
+                    .zip(SIMULATES)
+                    .any(|(running, simulates)| running && simulates)
+            }
+
+            pub(crate) fn busy(self) -> bool {
+                self.runs().into_iter().any(|running| running)
+            }
+
+            fn close(&mut self) {
+                while self.close_once() {}
+            }
+
+            fn close_once(&mut self) -> bool {
+                let before = self.runs();
+                $(
+                    self.$target = self.$target || (self.$source && self.occupied.$target);
+                )*
+                self.runs() != before
+            }
+
+            fn runs(&self) -> [bool; DOMAIN_COUNT] {
+                [ $( self.$field, )* ]
+            }
+
+            fn resume(&mut self, runs: [bool; DOMAIN_COUNT]) {
+                let [ $( $field, )* ] = runs;
+                $( self.$field = $field; )*
+            }
+        }
+
         #[derive(Clone, Copy)]
         pub(crate) struct StepFrames {
             $( pub(crate) $field: <$domain as $crate::Domain>::Frame, )*
+        }
+
+        impl StepFrames {
+            pub(crate) fn of(facts: &$crate::StepFacts, live: &Live, liveness: Activity) -> Self {
+                let indexing = liveness.busy();
+                Self {
+                    $(
+                        $field: <$domain as $crate::Domain>::frame(
+                            facts,
+                            &live.$field,
+                            $crate::Run { awake: liveness.$field, indexing },
+                        ),
+                    )*
+                }
+            }
         }
 
         #[derive(Default)]

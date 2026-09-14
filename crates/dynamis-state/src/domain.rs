@@ -17,6 +17,8 @@ pub struct StateWork {
 impl Domain for StateDomain {
     const ID: u32 = 0;
 
+    const SIMULATES: bool = false;
+
     type Demand = StateDemand;
     type Inputs = StateInputs;
     type Work = StateWork;
@@ -31,8 +33,16 @@ impl Domain for StateDomain {
         floor()
     }
 
-    fn active(_: &Counters, work: &StateWork) -> bool {
+    fn occupied(_: &StateInputs) -> bool {
+        true
+    }
+
+    fn pending(work: &StateWork) -> bool {
         work.queries > 0 || work.shape_uploads
+    }
+
+    fn active(_: &Counters) -> bool {
+        false
     }
 
     fn pass_groups() -> &'static [PassGroup] {
