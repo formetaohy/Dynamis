@@ -21,7 +21,6 @@ pub(crate) fn keyed<'a, R: Resources>(
 ) -> SortChannels<'a> {
     let [scratch_major, scratch_minor, scratch_payload] = scratch(resources);
     SortChannels {
-        generation: resources.generation(),
         count: count.resolve(resources),
         major: major.resolve(resources),
         minor: minor.resolve(resources),
@@ -40,7 +39,6 @@ pub(crate) fn lanes_dual<'a, R: Resources>(
 ) -> SortChannels<'a> {
     let [scratch_major, scratch_minor, scratch_payload] = scratch(resources);
     SortChannels {
-        generation: resources.generation(),
         count: count.resolve(resources),
         major: major.resolve(resources),
         minor: minor.resolve(resources),

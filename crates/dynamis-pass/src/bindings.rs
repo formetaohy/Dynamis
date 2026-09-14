@@ -1,7 +1,7 @@
 use dynamis_gpu::SlotRef;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, PipelineHandle, ShaderBinding, StreamElement, TypedSlot,
-    assert_binding_element, parse_bindings,
+    BindingKind, BindingSpec, PipelineHandle, Resources, ShaderBinding, StorageId, StreamElement,
+    TypedSlot, assert_binding_element, parse_bindings,
 };
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
@@ -9,6 +9,12 @@ use wgpu::{BindGroup, BindGroupEntry, Device};
 pub(crate) struct Binding {
     pub(crate) index: u32,
     pub(crate) slot: SlotRef,
+}
+
+impl Binding {
+    pub(crate) fn storage_id<R: Resources>(&self, resources: &R) -> StorageId {
+        self.slot.resolve(resources).storage_id()
+    }
 }
 
 pub struct Bindings {

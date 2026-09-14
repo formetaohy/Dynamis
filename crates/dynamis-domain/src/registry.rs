@@ -194,7 +194,6 @@ macro_rules! domains {
 
         pub(crate) struct Streams {
             $( pub(crate) $field: <$domain as $crate::Domain>::Streams, )*
-            generation: u64,
         }
 
         impl Streams {
@@ -212,7 +211,6 @@ macro_rules! domains {
                             &plan.$field,
                         ),
                     )*
-                    generation: 0,
                 }
             }
 
@@ -230,12 +228,6 @@ macro_rules! domains {
                 use $crate::DomainStreams as _;
                 let mut changed = false;
                 $( changed |= self.$field.reserve(device, encoder, &plan.$field); )*
-                if changed {
-                    self.generation = self
-                        .generation
-                        .checked_add(1)
-                        .expect("a storage generation must not overflow");
-                }
                 changed
             }
 
@@ -266,10 +258,6 @@ macro_rules! domains {
         }
 
         impl dynamis_gpu::Resources for Streams {
-            fn generation(&self) -> u64 {
-                self.generation
-            }
-
             fn slots(&self, resource: dynamis_gpu::ResourceId) -> u32 {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {

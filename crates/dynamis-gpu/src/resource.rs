@@ -3,7 +3,7 @@ use crate::{GpuSlot, StreamElement, TypedSlot};
 const DOMAIN_SHIFT: u32 = 24;
 const LOCAL_MASK: u32 = (1 << DOMAIN_SHIFT) - 1;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResourceId(u32);
 
 impl ResourceId {
@@ -77,8 +77,6 @@ impl SlotRef {
 }
 
 pub trait Resources {
-    fn generation(&self) -> u64;
-
     fn slots(&self, resource: ResourceId) -> u32;
 
     fn whole(&self, resource: ResourceId) -> GpuSlot<'_>;

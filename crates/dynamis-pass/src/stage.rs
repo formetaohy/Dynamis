@@ -1,6 +1,6 @@
 use crate::bindings::{Binding, Bindings};
 use dynamis_gpu::{
-    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, Resources, SlotRef,
+    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, Resources, SlotRef, StorageId,
 };
 use dynamis_shader::{Dispatch, Program, workgroups_of};
 use std::cell::{RefCell, RefMut};
@@ -9,9 +9,9 @@ use wgpu::{BindGroup, BindGroupEntry, Device};
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
 
 struct Bound {
-    generation: u64,
     storage: BindGroup,
     shapes: Option<BindGroup>,
+    ids: Vec<StorageId>,
 }
 
 impl Bound {
@@ -26,11 +26,27 @@ impl Bound {
         let shape_group = (!shapes.is_empty())
             .then(|| pipeline.create_bind_group(device, 1, &entries(resources, shapes)));
         Self {
-            generation: resources.generation(),
             storage: group,
             shapes: shape_group,
+            ids: ids(resources, storage, shapes),
         }
     }
+
+    fn holds<R: Resources>(&self, resources: &R, storage: &[Binding], shapes: &[Binding]) -> bool {
+        self.ids.len() == storage.len() + shapes.len()
+            && self.ids.iter().copied().eq(storage
+                .iter()
+                .chain(shapes)
+                .map(|binding| binding.storage_id(resources)))
+    }
+}
+
+fn ids<R: Resources>(resources: &R, storage: &[Binding], shapes: &[Binding]) -> Vec<StorageId> {
+    storage
+        .iter()
+        .chain(shapes)
+        .map(|binding| binding.storage_id(resources))
+        .collect()
 }
 
 fn entries<'a, R: Resources>(resources: &'a R, bindings: &[Binding]) -> Vec<BindGroupEntry<'a>> {
@@ -167,7 +183,7 @@ impl Stage {
 
     fn bind<R: Resources>(&self, resources: &R) -> RefMut<'_, Bound> {
         let mut current = self.bound.borrow_mut();
-        if current.generation != resources.generation() {
+        if !current.holds(resources, &self.storage, &self.shapes) {
             *current = Bound::of(
                 &self.pipeline,
                 &self.device,

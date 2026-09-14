@@ -12,6 +12,73 @@ impl Run {
     }
 }
 
+pub(crate) trait Cleared: Copy {
+    const CLEARED: Self;
+}
+
+#[derive(Clone)]
+pub(crate) struct Mirror<T> {
+    storage: Vec<T>,
+    arena: Arena,
+    pending: Vec<Run>,
+}
+
+impl<T: Cleared> Mirror<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            storage: Vec::new(),
+            arena: Arena::new(),
+            pending: Vec::new(),
+        }
+    }
+
+    pub(crate) fn used(&self) -> u32 {
+        self.arena.used()
+    }
+
+    pub(crate) fn take(&mut self, len: u32) -> Run {
+        if len == 0 {
+            return Run::EMPTY;
+        }
+        let run = self.arena.take(len);
+        let used = self.arena.used() as usize;
+        if self.storage.len() < used {
+            self.storage.resize(used, T::CLEARED);
+        }
+        self.pending.push(run);
+        run
+    }
+
+    pub(crate) fn retire(&mut self, run: Run) {
+        if run.len == 0 {
+            return;
+        }
+        for slot in run.span() {
+            self.storage[slot] = T::CLEARED;
+        }
+        self.arena.release(run);
+        self.pending.push(run);
+    }
+
+    pub(crate) fn records(&self) -> &[T] {
+        &self.storage
+    }
+
+    pub(crate) fn records_mut(&mut self) -> &mut [T] {
+        &mut self.storage
+    }
+
+    pub(crate) fn flush(&mut self, mut write: impl FnMut(u32, &[T])) {
+        let pending = std::mem::take(&mut self.pending);
+        for run in pending {
+            if run.len == 0 {
+                continue;
+            }
+            write(run.offset, &self.storage[run.span()]);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Arena {
     free: Vec<Run>,

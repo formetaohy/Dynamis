@@ -7,6 +7,7 @@ use dynamis_world::{Snapshot, World};
 
 const FRAMES: usize = 40;
 const TAIL: usize = 12;
+const BURST: usize = 200;
 
 struct Scenario {
     bodies: Vec<BodyHandle>,
@@ -221,6 +222,34 @@ fn a_snapshot_replaces_the_scene_of_the_world_it_lands_in() {
         world_bits(&mut host, &scenario),
         expected,
         "a snapshot must replay its frames in any world it lands in"
+    );
+}
+
+#[test]
+fn a_restored_world_keeps_simulating_the_snapshot_that_grew_its_storage() {
+    let mut author = new_world(gravity_config());
+    let ball = author.spawn(BodyDesc::sphere(0.2).position([0.0, 6.0, 0.0]));
+    let burst = (0..BURST)
+        .map(|index| author.spawn(BodyDesc::sphere(0.2).position([40.0 + index as f32, 6.0, 0.0])))
+        .collect::<Vec<_>>();
+    advance(&mut author, 4);
+    for body in burst {
+        author.remove(body);
+    }
+    advance(&mut author, 3);
+    let snapshot = author.snapshot();
+
+    let mut host = new_world(gravity_config());
+    host.spawn(BodyDesc::sphere(0.2).position([-40.0, 6.0, 0.0]));
+    advance(&mut host, 2);
+    restore(&mut host, &snapshot);
+
+    let captured = host.read_state(ball).position;
+    advance(&mut host, TAIL);
+    let replayed = host.read_state(ball).position;
+    assert!(
+        replayed[1] < captured[1] - 0.1,
+        "a restored world must keep simulating the storage it installed, {captured:?} -> {replayed:?}"
     );
 }
 

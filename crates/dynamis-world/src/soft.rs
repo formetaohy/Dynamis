@@ -1,5 +1,5 @@
 use super::World;
-use super::arena::{Arena, Run};
+use super::arena::{Cleared, Mirror, Run};
 use super::ids::IdSpace;
 use dynamis_abi::{
     ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftAttachmentInit, SoftAttachmentRecord,
@@ -36,20 +36,28 @@ pub(crate) struct SoftBodies {
     runs: Vec<SoftRuns>,
     states: Vec<SoftBodyRecord>,
     dirty_states: Vec<u32>,
-    particles: Vec<SoftParticleRecord>,
-    elements: Vec<SoftElementRecord>,
-    attachments: Vec<SoftAttachmentRecord>,
+    particles: Mirror<SoftParticleRecord>,
+    elements: Mirror<SoftElementRecord>,
+    attachments: Mirror<SoftAttachmentRecord>,
     attachment_refs: Vec<u32>,
-    adjacency: Vec<u32>,
-    particle_arena: Arena,
-    element_arena: Arena,
-    attachment_arena: Arena,
-    adjacency_arena: Arena,
-    pending_particles: Vec<Run>,
-    pending_elements: Vec<Run>,
-    pending_attachments: Vec<Run>,
-    pending_adjacency: Vec<Run>,
+    adjacency: Mirror<u32>,
     pub(crate) uploaded: bool,
+}
+
+impl Cleared for SoftParticleRecord {
+    const CLEARED: Self = Self::cleared();
+}
+
+impl Cleared for SoftElementRecord {
+    const CLEARED: Self = Self::cleared();
+}
+
+impl Cleared for SoftAttachmentRecord {
+    const CLEARED: Self = Self::cleared();
+}
+
+impl Cleared for u32 {
+    const CLEARED: Self = u32::MAX;
 }
 
 impl SoftBodies {
@@ -61,19 +69,11 @@ impl SoftBodies {
             runs: Vec::new(),
             states: Vec::new(),
             dirty_states: Vec::new(),
-            particles: Vec::new(),
-            elements: Vec::new(),
-            attachments: Vec::new(),
+            particles: Mirror::new(),
+            elements: Mirror::new(),
+            attachments: Mirror::new(),
             attachment_refs: Vec::new(),
-            adjacency: Vec::new(),
-            particle_arena: Arena::new(),
-            element_arena: Arena::new(),
-            attachment_arena: Arena::new(),
-            adjacency_arena: Arena::new(),
-            pending_particles: Vec::new(),
-            pending_elements: Vec::new(),
-            pending_attachments: Vec::new(),
-            pending_adjacency: Vec::new(),
+            adjacency: Mirror::new(),
             uploaded: false,
         }
     }
@@ -98,10 +98,10 @@ impl SoftBodies {
 
     pub(crate) fn used(&self) -> (u32, u32, u32, u32) {
         (
-            self.particles.len() as u32,
-            self.elements.len() as u32,
-            self.attachments.len() as u32,
-            self.adjacency.len() as u32,
+            self.particles.used(),
+            self.elements.used(),
+            self.attachments.used(),
+            self.adjacency.used(),
         )
     }
 
@@ -148,27 +148,6 @@ impl SoftBodies {
         self.runs.resize(id as usize + 1, SoftRuns::EMPTY);
     }
 
-    fn take_element_run(&mut self, elements: usize) -> Run {
-        if elements == 0 {
-            return Run::EMPTY;
-        }
-        self.element_arena.take(elements as u32)
-    }
-
-    fn take_adjacency_run(&mut self, entries: usize) -> Run {
-        if entries == 0 {
-            return Run::EMPTY;
-        }
-        self.adjacency_arena.take(entries as u32)
-    }
-
-    fn take_attachment_run(&mut self, attachments: usize) -> Run {
-        if attachments == 0 {
-            return Run::EMPTY;
-        }
-        self.attachment_arena.take(attachments as u32)
-    }
-
     fn hold_attachment(&mut self, body: BodyHandle) {
         let id = body.id as usize;
         if self.attachment_refs.len() <= id {
@@ -193,26 +172,14 @@ impl SoftBodies {
             .resize(self.ids.len(), SoftBodyRecord::cleared());
         self.states[id as usize] = SoftBodyRecord::awake();
         self.dirty_states.push(id);
-        let particles = self.particle_arena.take(desc.particles.len() as u32);
-        let elements = self.take_element_run(desc.elements.len());
-        let attachments = self.take_attachment_run(desc.attachments.len());
-        let adjacency = self.take_adjacency_run(desc.elements.len() * ELEMENT_PARTICLES as usize);
-        self.particles.resize(
-            self.particle_arena.used() as usize,
-            SoftParticleRecord::cleared(),
-        );
-        self.elements.resize(
-            self.element_arena.used() as usize,
-            SoftElementRecord::cleared(),
-        );
-        self.attachments.resize(
-            self.attachment_arena.used() as usize,
-            SoftAttachmentRecord::cleared(),
-        );
-        self.adjacency
-            .resize(self.adjacency_arena.used() as usize, u32::MAX);
+        let particles = self.particles.take(desc.particles.len() as u32);
+        let elements = self.elements.take(desc.elements.len() as u32);
+        let attachments = self.attachments.take(desc.attachments.len() as u32);
+        let adjacency = self
+            .adjacency
+            .take(desc.elements.len() as u32 * ELEMENT_PARTICLES);
         let neighbours = assemble_adjacency(
-            &mut self.adjacency,
+            self.adjacency.records_mut(),
             desc.particles.len(),
             &desc.elements,
             adjacency.offset,
@@ -221,7 +188,7 @@ impl SoftBodies {
         for (slot, local) in desc.particles.iter().enumerate() {
             let position = add(desc.position, quat_rotate(desc.orientation, *local));
             let (offset, count) = neighbours[slot];
-            self.particles[particles.offset as usize + slot] =
+            self.particles.records_mut()[particles.offset as usize + slot] =
                 SoftParticleRecord::build(SoftParticleInit {
                     position,
                     prev_position: position,
@@ -238,7 +205,7 @@ impl SoftBodies {
                 });
         }
         for (slot, element) in desc.elements.iter().enumerate() {
-            self.elements[elements.offset as usize + slot] =
+            self.elements.records_mut()[elements.offset as usize + slot] =
                 SoftElementRecord::build(SoftElementInit {
                     kind: element.kind() as u32,
                     particles: global_particles(element, particles.offset),
@@ -251,7 +218,7 @@ impl SoftBodies {
         }
         for (slot, attachment) in desc.attachments.iter().enumerate() {
             self.hold_attachment(attachment.body());
-            self.attachments[attachments.offset as usize + slot] =
+            self.attachments.records_mut()[attachments.offset as usize + slot] =
                 SoftAttachmentRecord::build(SoftAttachmentInit {
                     particle: particles.offset + attachment.particle(),
                     body_id: attachment.body().id,
@@ -269,10 +236,6 @@ impl SoftBodies {
         let handle = SoftBodyHandle { id, generation };
         self.index_of[id as usize] = self.alive.len() as u32;
         self.alive.push(handle);
-        self.pending_particles.push(particles);
-        self.pending_elements.push(elements);
-        self.pending_attachments.push(attachments);
-        self.pending_adjacency.push(adjacency);
         handle
     }
 
@@ -282,27 +245,13 @@ impl SoftBodies {
         let runs = self.runs[id];
         self.states[id] = SoftBodyRecord::cleared();
         self.dirty_states.push(handle.id);
-        for index in runs.particles.span() {
-            self.particles[index] = SoftParticleRecord::cleared();
+        for slot in runs.attachments.span() {
+            self.release_attachment(self.attachments.records()[slot].body_id);
         }
-        for index in runs.elements.span() {
-            self.elements[index] = SoftElementRecord::cleared();
-        }
-        for index in runs.attachments.span() {
-            let released = self.attachments[index];
-            self.release_attachment(released.body_id);
-            self.attachments[index] = SoftAttachmentRecord::cleared();
-        }
-        self.particle_arena.release(runs.particles);
-        if runs.elements.len > 0 {
-            self.element_arena.release(runs.elements);
-        }
-        if runs.attachments.len > 0 {
-            self.attachment_arena.release(runs.attachments);
-        }
-        if runs.adjacency.len > 0 {
-            self.adjacency_arena.release(runs.adjacency);
-        }
+        self.particles.retire(runs.particles);
+        self.elements.retire(runs.elements);
+        self.attachments.retire(runs.attachments);
+        self.adjacency.retire(runs.adjacency);
         self.runs[id] = SoftRuns::EMPTY;
         let slot = self.index_of[id] as usize;
         self.alive.swap_remove(slot);
@@ -311,16 +260,6 @@ impl SoftBodies {
         }
         self.index_of[id] = u32::MAX;
         self.ids.release(handle.id);
-        self.pending_particles.push(runs.particles);
-        if runs.elements.len > 0 {
-            self.pending_elements.push(runs.elements);
-        }
-        if runs.attachments.len > 0 {
-            self.pending_attachments.push(runs.attachments);
-        }
-        if runs.adjacency.len > 0 {
-            self.pending_adjacency.push(runs.adjacency);
-        }
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
@@ -336,59 +275,45 @@ impl SoftBodies {
             }
         }
         let particle_stride = streams.particles.stride();
-        for run in self.pending_particles.drain(..) {
-            if run.len == 0 {
-                continue;
-            }
+        self.particles.flush(|offset, records| {
             streams.particles.write_at(
                 queue,
-                run.offset as u64 * particle_stride,
-                bytemuck::cast_slice(&self.particles[run.span()]),
+                u64::from(offset) * particle_stride,
+                bytemuck::cast_slice(records),
             );
-        }
+        });
         let element_stride = streams.elements.stride();
-        for run in self.pending_elements.drain(..) {
-            if run.len == 0 {
-                continue;
-            }
+        self.elements.flush(|offset, records| {
             streams.elements.write_at(
                 queue,
-                run.offset as u64 * element_stride,
-                bytemuck::cast_slice(&self.elements[run.span()]),
+                u64::from(offset) * element_stride,
+                bytemuck::cast_slice(records),
             );
-        }
+        });
         let attachment_stride = streams.attachments.stride();
-        for run in self.pending_attachments.drain(..) {
-            if run.len == 0 {
-                continue;
-            }
+        self.attachments.flush(|offset, records| {
             streams.attachments.write_at(
                 queue,
-                run.offset as u64 * attachment_stride,
-                bytemuck::cast_slice(&self.attachments[run.span()]),
+                u64::from(offset) * attachment_stride,
+                bytemuck::cast_slice(records),
             );
-        }
-        for run in self.pending_adjacency.drain(..) {
-            if run.len == 0 {
-                continue;
-            }
-            streams.adjacency.write_at(
-                queue,
-                run.offset as u64 * 4,
-                bytemuck::cast_slice(&self.adjacency[run.span()]),
-            );
-        }
+        });
+        self.adjacency.flush(|offset, records| {
+            streams
+                .adjacency
+                .write_at(queue, u64::from(offset) * 4, bytemuck::cast_slice(records));
+        });
     }
 
     pub(crate) fn observe(&mut self, run: Run, records: &[SoftParticleRecord]) {
         for (slot, record) in records.iter().enumerate() {
-            self.particles[run.offset as usize + slot] = *record;
+            self.particles.records_mut()[run.offset as usize + slot] = *record;
         }
     }
 
     pub(crate) fn observe_elements(&mut self, run: Run, records: &[SoftElementRecord]) {
         for (slot, record) in records.iter().enumerate() {
-            self.elements[run.offset as usize + slot] = *record;
+            self.elements.records_mut()[run.offset as usize + slot] = *record;
         }
     }
 }

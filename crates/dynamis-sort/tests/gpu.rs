@@ -69,12 +69,11 @@ impl Channels {
         }
     }
 
-    fn lanes(&self, generation: u64) -> SortChannels<'_> {
+    fn lanes(&self) -> SortChannels<'_> {
         fn words<'a>(buffer: &'a GpuBuffer) -> TypedSlot<'a> {
             TypedSlot::new(GpuSlot::whole(buffer), StreamElement::new("u32", 4))
         }
         SortChannels {
-            generation,
             count: words(&self.count),
             major: words(&self.major),
             minor: words(&self.minor),
@@ -83,6 +82,35 @@ impl Channels {
             scratch_minor: words(&self.scratch_minor),
             scratch_payload: words(&self.scratch_payload),
         }
+    }
+}
+
+fn sort_once(
+    context: &GpuContext,
+    sort: &RadixSort,
+    channels: &Channels,
+    major_words: u32,
+    minor_words: u32,
+) {
+    let row = context.workgroups_per_row();
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
+        sort.sort(&mut recorder, &channels.lanes(), major_words, minor_words);
+    }
+    context.queue().submit([encoder.finish()]);
+}
+
+fn assert_sorted(context: &GpuContext, channels: &Channels, keys: &[u32]) {
+    let mut expected = keys.to_vec();
+    expected.sort();
+    let sorted = read_u32s(context, &channels.major, keys.len());
+    assert_eq!(sorted, expected, "the major lane must hold the sorted keys");
+    let carried = read_u32s(context, &channels.payload, keys.len());
+    for (key, at) in sorted.iter().zip(carried.iter()) {
+        assert_eq!(*key, keys[*at as usize], "the payload must follow its key");
     }
 }
 
@@ -95,17 +123,9 @@ fn run_sort(
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let channels = Channels::new(context, major, minor, payload);
-    let row = context.workgroups_per_row();
     let sort = RadixSort::new(context, "test sort", major.len() as u32);
     context.warmup(WarmupBudget::All);
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
-        sort.sort(&mut recorder, &channels.lanes(0), major_words, minor_words);
-    }
-    context.queue().submit([encoder.finish()]);
+    sort_once(context, &sort, &channels, major_words, minor_words);
     (
         read_u32s(context, &channels.major, major.len()),
         read_u32s(context, &channels.minor, minor.len()),
@@ -235,36 +255,35 @@ fn windows_prefers_dx12_when_vulkan_available() {
 }
 
 #[test]
-fn storage_generation_changes_rebuild_the_sort_bindings() {
+fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let payload = counting_payload(keys.len());
-    let channels = Channels::new(context, &keys, &keys, &payload);
-    let row = context.workgroups_per_row();
     let sort = RadixSort::new(context, "test sort", keys.len() as u32);
     context.warmup(WarmupBudget::All);
-    let mut expected = keys.clone();
-    expected.sort();
-    for generation in [0u64, 0, 1, 1, 2] {
-        let mut encoder = context
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
-            sort.sort(&mut recorder, &channels.lanes(generation), 1, 0);
-        }
-        context.queue().submit([encoder.finish()]);
-        let sorted = read_u32s(context, &channels.major, keys.len());
-        assert_eq!(
-            sorted, expected,
-            "generation {generation} must keep the key order"
-        );
-        let carried = read_u32s(context, &channels.payload, keys.len());
-        for (key, at) in sorted.iter().zip(carried.iter()) {
-            assert_eq!(
-                *key, keys[*at as usize],
-                "generation {generation} must pair every key with its payload"
-            );
-        }
+    let first = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
+    sort_once(context, &sort, &first, 1, 0);
+    assert_sorted(context, &first, &keys);
+
+    let rebound = vec![9u32, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+    let second = Channels::new(
+        context,
+        &rebound,
+        &rebound,
+        &counting_payload(rebound.len()),
+    );
+    sort_once(context, &sort, &second, 1, 0);
+    assert_sorted(context, &second, &rebound);
+}
+
+#[test]
+fn reusing_the_channels_reuses_their_bindings() {
+    let context = shared();
+    let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
+    let sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    context.warmup(WarmupBudget::All);
+    let channels = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
+    for _ in 0..3 {
+        sort_once(context, &sort, &channels, 1, 0);
+        assert_sorted(context, &channels, &keys);
     }
 }

@@ -1,4 +1,4 @@
-use crate::{GpuBuffer, GpuSlot};
+use crate::{GpuBuffer, GpuSlot, StorageId};
 use wgpu::{BufferAddress, BufferUsages, CommandEncoder, Device, Queue};
 
 pub const STREAM: BufferUsages = BufferUsages::STORAGE
@@ -101,8 +101,8 @@ impl<'a> TypedSlot<'a> {
         self.element
     }
 
-    pub fn identity(self) -> (u64, u64, u64) {
-        self.slot.identity()
+    pub fn storage_id(self) -> StorageId {
+        self.slot.storage_id()
     }
 }
 

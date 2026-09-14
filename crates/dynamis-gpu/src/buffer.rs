@@ -1,13 +1,13 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use wgpu::{Buffer, BufferAddress, BufferDescriptor, BufferUsages, Device, Queue};
 
-static NEXT_BUFFER_TOKEN: AtomicU64 = AtomicU64::new(1);
+static NEXT_BUFFER_ALLOCATION: AtomicU64 = AtomicU64::new(1);
 
 pub struct GpuBuffer {
     buffer: Buffer,
     size: BufferAddress,
     usage: BufferUsages,
-    token: u64,
+    allocation: u64,
 }
 
 impl GpuBuffer {
@@ -22,7 +22,7 @@ impl GpuBuffer {
             buffer,
             size,
             usage,
-            token: NEXT_BUFFER_TOKEN.fetch_add(1, Ordering::Relaxed),
+            allocation: NEXT_BUFFER_ALLOCATION.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -44,12 +44,12 @@ impl GpuBuffer {
             buffer,
             size,
             usage,
-            token: NEXT_BUFFER_TOKEN.fetch_add(1, Ordering::Relaxed),
+            allocation: NEXT_BUFFER_ALLOCATION.fetch_add(1, Ordering::Relaxed),
         }
     }
 
-    pub fn token(&self) -> u64 {
-        self.token
+    pub fn allocation(&self) -> u64 {
+        self.allocation
     }
 
     pub fn write(&self, queue: &Queue, bytes: &[u8]) {
@@ -105,6 +105,13 @@ impl<'a> From<&'a GpuBuffer> for GpuSlot<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StorageId {
+    allocation: u64,
+    offset: BufferAddress,
+    size: BufferAddress,
+}
+
 #[derive(Clone, Copy)]
 pub struct GpuSlot<'a> {
     buffer: &'a GpuBuffer,
@@ -136,7 +143,11 @@ impl<'a> GpuSlot<'a> {
         self.buffer.as_binding_at(self.offset, self.size)
     }
 
-    pub fn identity(&self) -> (u64, BufferAddress, BufferAddress) {
-        (self.buffer.token(), self.offset, self.size)
+    pub fn storage_id(self) -> StorageId {
+        StorageId {
+            allocation: self.buffer.allocation(),
+            offset: self.offset,
+            size: self.size,
+        }
     }
 }

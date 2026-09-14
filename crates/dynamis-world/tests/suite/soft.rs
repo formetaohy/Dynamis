@@ -864,3 +864,58 @@ fn a_snapshot_keeps_the_material_state_a_body_crept_into() {
         "a restored world must fail the same link again"
     );
 }
+
+fn lattice(side: u32) -> (Vec<[f32; 3]>, Vec<[u32; 2]>) {
+    let mut vertices = Vec::new();
+    for row in 0..side {
+        for col in 0..side {
+            vertices.push([col as f32 * 0.2, 0.0, row as f32 * 0.2]);
+        }
+    }
+    let mut links = Vec::new();
+    let at = |row: u32, col: u32| row * side + col;
+    for row in 0..side {
+        for col in 0..side {
+            if col + 1 < side {
+                links.push([at(row, col), at(row, col + 1)]);
+            }
+            if row + 1 < side {
+                links.push([at(row, col), at(row + 1, col)]);
+            }
+            if col + 1 < side && row + 1 < side {
+                links.push([at(row, col), at(row + 1, col + 1)]);
+            }
+        }
+    }
+    (vertices, links)
+}
+
+#[test]
+fn a_fresh_soft_body_replaces_the_run_a_removed_one_retires() {
+    let mut world = new_world(gravity_config());
+    let (vertices, links) = lattice(24);
+    let retired =
+        world.add_soft_body(SoftBodyDesc::net(vertices, links).position([0.0, 20.0, 0.0]));
+    settle(&mut world, 3);
+    world.remove_soft_body(retired);
+    let fresh = world.add_soft_body(chain());
+    settle(&mut world, 30);
+    assert_eq!(
+        world.soft_body_count(),
+        1,
+        "only the fresh body must remain"
+    );
+    let positions = world.soft_body_positions(fresh);
+    assert_eq!(positions.len(), 4, "the fresh body must own every particle");
+    assert!(
+        positions[0][1] < 4.0,
+        "the fresh body must simulate in the run the removed one retired, got {:?}",
+        positions[0]
+    );
+    for (index, length) in link_lengths(&positions).iter().enumerate() {
+        assert!(
+            (length - 1.0).abs() < 0.05,
+            "link {index} must hold its rest length, got {length}"
+        );
+    }
+}

@@ -1,6 +1,6 @@
 use dynamis_gpu::{
     ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
-    PipelineHandle, StreamElement, TypedSlot,
+    PipelineHandle, StorageId, StreamElement, TypedSlot,
 };
 use dynamis_pass::Bindings;
 use wgpu::{BindGroup, Device};
@@ -9,6 +9,7 @@ const BINS: u32 = 256;
 const BINS_ALL: usize = BINS as usize * 8;
 const REGIONS: u32 = 8;
 const SLOTS: usize = 64;
+const CACHED_CHANNELS: usize = 4;
 
 struct Declared {
     label: String,
@@ -44,7 +45,6 @@ pub fn key_words(elements: u32) -> u32 {
 }
 
 pub struct SortChannels<'a> {
-    pub generation: u64,
     pub count: TypedSlot<'a>,
     pub major: TypedSlot<'a>,
     pub minor: TypedSlot<'a>,
@@ -56,25 +56,25 @@ pub struct SortChannels<'a> {
 
 #[derive(PartialEq, Eq)]
 struct ChannelsKey {
-    count: (u64, u64, u64),
-    major: (u64, u64, u64),
-    minor: (u64, u64, u64),
-    payload: (u64, u64, u64),
-    scratch_major: (u64, u64, u64),
-    scratch_minor: (u64, u64, u64),
-    scratch_payload: (u64, u64, u64),
+    count: StorageId,
+    major: StorageId,
+    minor: StorageId,
+    payload: StorageId,
+    scratch_major: StorageId,
+    scratch_minor: StorageId,
+    scratch_payload: StorageId,
 }
 
 impl ChannelsKey {
     fn of(channels: &SortChannels<'_>) -> Self {
         Self {
-            count: channels.count.identity(),
-            major: channels.major.identity(),
-            minor: channels.minor.identity(),
-            payload: channels.payload.identity(),
-            scratch_major: channels.scratch_major.identity(),
-            scratch_minor: channels.scratch_minor.identity(),
-            scratch_payload: channels.scratch_payload.identity(),
+            count: channels.count.storage_id(),
+            major: channels.major.storage_id(),
+            minor: channels.minor.storage_id(),
+            payload: channels.payload.storage_id(),
+            scratch_major: channels.scratch_major.storage_id(),
+            scratch_minor: channels.scratch_minor.storage_id(),
+            scratch_payload: channels.scratch_payload.storage_id(),
         }
     }
 }
@@ -89,7 +89,6 @@ struct SortBindGroups {
 
 struct State {
     groups: Vec<SortBindGroups>,
-    storage: Option<u64>,
     parity: u32,
 }
 
@@ -263,7 +262,6 @@ impl RadixSort {
             histograms,
             state: std::sync::Mutex::new(State {
                 groups: Vec::new(),
-                storage: None,
                 parity: 0,
             }),
         }
@@ -286,15 +284,14 @@ impl RadixSort {
         );
         let units = SLOTS as u32;
         let mut state = self.state.lock().unwrap();
-        if state.storage != Some(channels.generation) {
-            state.groups.clear();
-            state.storage = Some(channels.generation);
-        }
         let parity = state.parity as usize % 2;
         let key = ChannelsKey::of(channels);
         let index = match state.groups.iter().position(|entry| entry.channels == key) {
             Some(index) => index,
             None => {
+                if state.groups.len() == CACHED_CHANNELS {
+                    state.groups.remove(0);
+                }
                 state.groups.push(SortBindGroups::build(
                     &self.device,
                     channels,

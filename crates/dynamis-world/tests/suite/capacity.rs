@@ -319,7 +319,7 @@ fn widening_one_stream_leaves_the_other_streams_allocated() {
         .map(|index| world.spawn(BodyDesc::sphere(6.0).position(spread_position(index, 20.0))))
         .collect::<Vec<_>>();
     settle(&mut world, 4);
-    let states = world.state_buffer().token();
+    let states = world.state_buffer().allocation();
     let pairs = world.stream_capacity().broadphase.pairs;
     assert_eq!(
         world.measured()[COUNTER_REFUSED_PAIRS],
@@ -337,7 +337,7 @@ fn widening_one_stream_leaves_the_other_streams_allocated() {
         "the crowded pile must widen the pair stream"
     );
     assert_eq!(
-        world.state_buffer().token(),
+        world.state_buffer().allocation(),
         states,
         "widening a stream must leave the unrelated streams allocated"
     );

@@ -482,6 +482,7 @@ version = "0.7.0"
 dependencies = [
  "dynamis-gpu",
  "dynamis-shader",
+ "pollster",
  "wgpu",
 ]
 
