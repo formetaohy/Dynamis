@@ -675,7 +675,7 @@ fn convex_hit_at(
         return ShapeHit(time, point, n, NO_TRIANGLE);
     }
     if (static_target.kind == SHAPE_HULL || static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
-        return scene_sweep_hit(static_target, moving, start, direction, max_dist);
+        return scene_convex_sweep(static_target, moving, start, direction, max_dist);
     }
     return ray_scaled_shape(static_target, start, direction, NO_HIT, expand);
 }

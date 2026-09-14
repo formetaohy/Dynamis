@@ -1,8 +1,8 @@
 use super::common::{
     DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
 };
-use dynamis_model::{BodyDesc, QueryFilter, Shape};
-use dynamis_world::{QueryState, World};
+use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
+use dynamis_world::{QueryHit, QueryState, World};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn query_static(world: &mut World, radius: f32, position: [f32; 3]) -> dynamis_model::BodyHandle {
@@ -114,6 +114,15 @@ fn cuboid_query_reports_overlap_and_outside() {
     assert_eq!(world.query_hit(outside), None, "disjoint box must miss");
 }
 
+fn down_ray(world: &mut World, kind: &str, start: [f32; 3]) -> QueryHit {
+    let handle = world.ray_query(start, [0.0, -1.0, 0.0], 20.0, &QueryFilter::default());
+    world.step(DT);
+    world.wait();
+    world
+        .query_hit(handle)
+        .unwrap_or_else(|| panic!("a {kind} down ray must hit"))
+}
+
 #[test]
 fn sweep_query_stops_at_surface() {
     let mut world = new_world(static_config());
@@ -134,6 +143,241 @@ fn sweep_query_stops_at_surface() {
         (hit.distance - 7.7).abs() < 0.05,
         "sweep must stop at the surface (7.7), got {}",
         hit.distance
+    );
+    assert!(
+        (hit.normal[2] + 1.0).abs() < 1e-3,
+        "sweep normal must face the sweeping shape, got {:?}",
+        hit.normal
+    );
+}
+
+fn down_sweep(
+    world: &mut World,
+    kind: &str,
+    probe: &Shape,
+    start: [f32; 3],
+    length: f32,
+) -> QueryHit {
+    let handle = world.sweep_query(
+        probe,
+        [0.0, 0.0, 0.0, 1.0],
+        start,
+        [0.0, -1.0, 0.0],
+        length,
+        &QueryFilter::default(),
+    );
+    world.step(DT);
+    world.wait();
+    world
+        .query_hit(handle)
+        .unwrap_or_else(|| panic!("a {kind} down sweep must hit"))
+}
+
+#[test]
+fn sweep_normals_and_depths_agree_across_every_floor_kind() {
+    let mut boxed = new_world(static_config());
+    boxed.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let boxed_hit = down_sweep(
+        &mut boxed,
+        "cuboid",
+        &Shape::sphere(0.5),
+        [0.0, 3.0, 0.0],
+        20.0,
+    );
+
+    let mut spherical = new_world(static_config());
+    spherical.spawn(BodyDesc::static_sphere(2.5).position([0.0, -2.5, 0.0]));
+    let sphere_hit = down_sweep(
+        &mut spherical,
+        "sphere",
+        &Shape::sphere(0.5),
+        [0.0, 3.0, 0.0],
+        20.0,
+    );
+
+    let mut planed = new_world(static_config());
+    planed.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
+    let plane_hit = down_sweep(
+        &mut planed,
+        "plane",
+        &Shape::sphere(0.5),
+        [0.0, 3.0, 0.0],
+        20.0,
+    );
+
+    let mut meshed = new_world(static_config());
+    let quad = meshed.add_mesh(
+        &[
+            [-5.0, 0.0, -5.0],
+            [5.0, 0.0, -5.0],
+            [5.0, 0.0, 5.0],
+            [-5.0, 0.0, 5.0],
+        ],
+        &[[0, 1, 2], [0, 2, 3]],
+        None,
+    );
+    meshed.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(quad))).mass(0.0));
+    let mesh_hit = down_sweep(
+        &mut meshed,
+        "mesh",
+        &Shape::sphere(0.5),
+        [0.0, 3.0, 0.0],
+        20.0,
+    );
+
+    for (kind, hit) in [
+        ("cuboid", boxed_hit),
+        ("sphere", sphere_hit),
+        ("plane", plane_hit),
+        ("mesh", mesh_hit),
+    ] {
+        assert!(
+            (hit.normal[1] - 1.0).abs() < 1e-3,
+            "a {kind} floor must report a floor normal facing the sweep, got {:?}",
+            hit.normal
+        );
+        assert!(
+            (hit.distance - 2.5).abs() < 1e-2,
+            "a {kind} floor must stop the sweep at the surface (2.5), got {}",
+            hit.distance
+        );
+    }
+}
+
+#[test]
+fn ray_normals_and_depths_agree_across_every_floor_kind() {
+    let mut boxed = new_world(static_config());
+    boxed.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let boxed_hit = down_ray(&mut boxed, "cuboid", [0.0, 3.0, 0.0]);
+
+    let mut spherical = new_world(static_config());
+    spherical.spawn(BodyDesc::static_sphere(2.5).position([0.0, -2.5, 0.0]));
+    let sphere_hit = down_ray(&mut spherical, "sphere", [0.0, 3.0, 0.0]);
+
+    let mut planed = new_world(static_config());
+    planed.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
+    let plane_hit = down_ray(&mut planed, "plane", [0.0, 3.0, 0.0]);
+
+    let mut meshed = new_world(static_config());
+    let quad = meshed.add_mesh(
+        &[
+            [-5.0, 0.0, -5.0],
+            [5.0, 0.0, -5.0],
+            [5.0, 0.0, 5.0],
+            [-5.0, 0.0, 5.0],
+        ],
+        &[[0, 1, 2], [0, 2, 3]],
+        None,
+    );
+    meshed.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(quad))).mass(0.0));
+    let mesh_hit = down_ray(&mut meshed, "mesh", [0.0, 3.0, 0.0]);
+
+    let mut hulled = new_world(static_config());
+    let hull = hulled.add_hull(&slab_vertices(), &slab_triangles());
+    hulled.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
+            .mass(0.0)
+            .position([0.0, 0.0, 0.0]),
+    );
+    let hull_hit = down_ray(&mut hulled, "hull", [0.0, 3.0, 0.0]);
+
+    for (kind, hit) in [
+        ("cuboid", boxed_hit),
+        ("sphere", sphere_hit),
+        ("plane", plane_hit),
+        ("mesh", mesh_hit),
+        ("hull", hull_hit),
+    ] {
+        assert!(
+            (hit.normal[1] - 1.0).abs() < 1e-3,
+            "a {kind} floor must report a floor normal opposing the ray, got {:?}",
+            hit.normal
+        );
+        assert!(
+            (hit.distance - 3.0).abs() < 1e-2,
+            "a {kind} floor must stop the ray at the surface (3.0), got {}",
+            hit.distance
+        );
+    }
+}
+
+fn slab_vertices() -> Vec<[f32; 3]> {
+    vec![
+        [-5.0, 0.0, -5.0],
+        [5.0, 0.0, -5.0],
+        [5.0, 0.0, 5.0],
+        [-5.0, 0.0, 5.0],
+        [-5.0, -1.0, -5.0],
+        [5.0, -1.0, -5.0],
+        [5.0, -1.0, 5.0],
+        [-5.0, -1.0, 5.0],
+    ]
+}
+
+fn slab_triangles() -> Vec<[u32; 3]> {
+    vec![
+        [0, 3, 2],
+        [0, 2, 1],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [3, 7, 6],
+        [3, 6, 2],
+        [0, 4, 7],
+        [0, 7, 3],
+        [1, 2, 6],
+        [1, 6, 5],
+    ]
+}
+
+#[test]
+fn sweep_stops_at_the_floor_for_every_convex_probe() {
+    let mut world = new_world(static_config());
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
+    let cuboid = down_sweep(
+        &mut world,
+        "cuboid probe",
+        &Shape::cuboid([0.5, 1.5, 0.5]),
+        [0.0, 5.0, 0.0],
+        20.0,
+    );
+    assert!(
+        (cuboid.distance - 3.5).abs() < 1e-2,
+        "a cuboid probe must stop a half height above the plane, got {}",
+        cuboid.distance
+    );
+    let capsule = down_sweep(
+        &mut world,
+        "capsule probe",
+        &Shape::capsule(0.4, 0.6),
+        [0.0, 5.0, 0.0],
+        20.0,
+    );
+    assert!(
+        (capsule.distance - 4.0).abs() < 1e-2,
+        "a capsule probe must stop a half height plus radius above the plane, got {}",
+        capsule.distance
+    );
+    let cylinder = down_sweep(
+        &mut world,
+        "cylinder probe",
+        &Shape::cylinder(0.4, 0.6),
+        [0.0, 5.0, 0.0],
+        20.0,
+    );
+    assert!(
+        (cylinder.distance - 4.4).abs() < 1e-2,
+        "a cylinder probe must stop a half height above the plane, got {}",
+        cylinder.distance
     );
 }
 
@@ -648,7 +892,11 @@ fn capsule_down_sweep_normal_is_vertical() {
         let hit = world
             .query_hit(handle)
             .expect("down sweep must hit the floor");
-        eprintln!("x={x} d={} n={:?}", hit.distance, hit.normal);
+        assert!(
+            (hit.normal[1] - 1.0).abs() < 1e-3,
+            "a down sweep over x={x} must report a floor normal facing the sweep, got {:?}",
+            hit.normal
+        );
     }
 }
 
@@ -681,8 +929,8 @@ fn capsule_sweep_stops_before_wall_face() {
         hit.distance
     );
     assert!(
-        hit.normal[0] > 0.99,
-        "wall normal must face the capsule, got {:?}",
+        hit.normal[0] < -0.99,
+        "wall normal must face the sweeping sphere, got {:?}",
         hit.normal
     );
 }

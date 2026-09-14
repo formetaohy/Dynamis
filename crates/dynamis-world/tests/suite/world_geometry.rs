@@ -139,9 +139,14 @@ fn a_sweep_query_respects_a_moved_mesh() {
         .expect("the sweep must hit the moved mesh");
     assert_eq!(hit.body, body);
     assert!(
-        (1.2..=1.6).contains(&hit.distance),
-        "the sweep must stop above the moved mesh surface, got {}",
+        (hit.distance - 1.6).abs() < 1e-2,
+        "the sweep must stop at the moved mesh surface (1.6), got {}",
         hit.distance
+    );
+    assert!(
+        (hit.normal[1] - 1.0).abs() < 1e-3,
+        "the sweep must report the mesh floor normal facing the sweep, got {:?}",
+        hit.normal
     );
 }
 
@@ -204,8 +209,8 @@ fn a_scaled_height_field_lifts_its_surface() {
         .expect("the sweep must reach the scaled field");
     assert_eq!(hit.body, scaled);
     assert!(
-        hit.distance < 2.1,
-        "the sweep must stop above the raised surface, got {}",
+        (hit.distance - 1.9).abs() < 2e-2,
+        "the sweep must stop at the raised surface (1.9), got {}",
         hit.distance
     );
 }

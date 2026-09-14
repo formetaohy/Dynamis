@@ -121,23 +121,30 @@ fn collect_candidates(query_box: Aabb, invocation: u32) {
 fn ray_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
     let direction = normalize(query.direction);
     let world = world_collider(body.state, collider);
+    var hit = no_hit();
     if (collider.kind == SHAPE_PLANE) {
         let n = plane_normal(world);
         let denom = dot(direction, n);
         if (abs(denom) < 1e-8) {
             return no_hit();
         }
-        var t = dot(world.center - query.origin, n) / denom;
+        let t = dot(world.center - query.origin, n) / denom;
         if (t < 0.0 || t > query.extent) {
             return no_hit();
         }
-        let point = query.origin + direction * t;
-        return ShapeHit(t, point, n, NO_TRIANGLE);
+        hit = ShapeHit(t, query.origin + direction * t, n, NO_TRIANGLE);
+    } else if (collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_HULL) {
+        hit = ray_scene(world, query.origin, direction, query.extent);
+    } else {
+        hit = ray_scaled_shape(world, query.origin, direction, query.extent, 0.0);
     }
-    if (collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_HULL) {
-        return ray_scene(world, query.origin, direction, query.extent);
+    if (hit.distance == NO_HIT) {
+        return hit;
     }
-    return ray_scaled_shape(world, query.origin, direction, query.extent, 0.0);
+    if (dot(hit.normal, direction) > 0.0) {
+        hit.normal = -hit.normal;
+    }
+    return hit;
 }
 
 fn query_shape_world(query: Query, center: vec3f) -> WorldShape {
@@ -156,22 +163,26 @@ fn query_shape_world(query: Query, center: vec3f) -> WorldShape {
 fn sweep_world_geom(query: Query, static_target: WorldShape, out_normal: ptr<function, vec3f>) -> f32 {
     let direction = normalize(query.direction);
     let start = query.origin;
+    let moving = query_shape_world(query, start);
     if (static_target.kind == SHAPE_PLANE) {
         let n = plane_normal(static_target);
-        let signed = dot(start - static_target.center, n);
         let travel = dot(direction, n);
         if (travel >= 0.0) {
             return NO_HIT;
         }
-        let time = max((signed - query.radius) / (-travel), 0.0);
+        let offset = dot(start - static_target.center, n);
+        if (offset <= 0.0) {
+            return NO_HIT;
+        }
+        let extent = dot(support(moving, -n) - moving.center, -n);
+        let time = max((offset - extent) / (-travel), 0.0);
         if (time > query.extent) {
             return NO_HIT;
         }
         *out_normal = n;
         return time;
     }
-    let moving = query_shape_world(query, start);
-    let hit = scene_sweep_hit(static_target, moving, start, direction, query.extent);
+    let hit = scene_convex_sweep(static_target, moving, start, direction, query.extent);
     if (hit.distance == NO_HIT) {
         return NO_HIT;
     }
@@ -184,7 +195,7 @@ fn sweep_convex(query: Query, static_target: WorldShape, out_normal: ptr<functio
     var t = 0.0;
     var simplex: array<SimplexPoint, 4>;
     var count = 0u;
-    var normal = sign_normalize(static_target.center - query.origin);
+    var normal = sign_normalize(query.origin - static_target.center);
     for (var iter = 0u; iter < 8u; iter = iter + 1u) {
         let moved = query_shape_world(query, query.origin + direction * t);
         let closest = convex_closest(moved, static_target, &simplex, &count);
@@ -196,7 +207,7 @@ fn sweep_convex(query: Query, static_target: WorldShape, out_normal: ptr<functio
             *out_normal = normal;
             return t;
         }
-        normal = closest.normal;
+        normal = -closest.normal;
         t = t + closest.distance;
         if (t > query.extent) {
             return NO_HIT;
@@ -214,11 +225,11 @@ fn overlap_hit(query: Query, body: Body, collider: Collider, out_normal: ptr<fun
     let closest = convex_closest(probe, world, &simplex, &count);
     if (closest.penetrating) {
         let hit = convex_hit(query_shape_world(query, query.origin), world);
-        *out_normal = hit.normal;
+        *out_normal = -hit.normal;
         return -query.extent + max(hit.distance + query.extent, 0.0);
     }
     if (closest.distance <= query.extent) {
-        *out_normal = closest.normal;
+        *out_normal = -closest.normal;
         return closest.distance - query.extent;
     }
     return NO_HIT;
@@ -236,11 +247,7 @@ fn overlap_world_geom(query: Query, body: Body, collider: Collider, out_normal: 
     var triangle = 0u;
     let closest = scene_convex_closest(scene, probe, &triangle);
     *out_normal = closest.normal;
-    if (closest.penetrating) {
-        return -closest.distance;
-    }
-    let margin = scene_plane_margin(scene, probe, &triangle);
-    return margin - query.extent;
+    return closest.distance;
 }
 
 fn body_passes(body: Body, collider: Collider, query: Query) -> bool {

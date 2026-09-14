@@ -2,7 +2,7 @@ mod common;
 
 use common::{DT, gravity_config, new_world};
 use dynamis_character::{Character, CharacterDesc};
-use dynamis_model::BodyDesc;
+use dynamis_model::{BodyDesc, ColliderDesc, Shape};
 use dynamis_world::World;
 
 fn walk_and_settle(
@@ -222,5 +222,49 @@ fn character_queries_ride_the_world_step() {
     assert!(
         character.grounded(),
         "a pipelined character must stay grounded on flat ground"
+    );
+}
+
+#[test]
+fn character_grounds_on_a_plane_floor() {
+    let mut world = new_world(gravity_config());
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    walk_and_settle(&mut world, &mut character, 40, [1.0, 0.0, 0.0]);
+    assert!(
+        character.grounded(),
+        "a plane floor must ground the character"
+    );
+    assert!(
+        (character.position()[1] - 1.0).abs() < 0.2,
+        "a plane floor must hold the character height, got y={}",
+        character.position()[1]
+    );
+}
+
+#[test]
+fn character_grounds_on_a_mesh_floor() {
+    let mut world = new_world(gravity_config());
+    let floor = world.add_mesh(
+        &[
+            [-20.0, 0.0, -20.0],
+            [20.0, 0.0, -20.0],
+            [20.0, 0.0, 20.0],
+            [-20.0, 0.0, 20.0],
+        ],
+        &[[0, 1, 2], [0, 2, 3]],
+        None,
+    );
+    world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0));
+    let mut character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    walk_and_settle(&mut world, &mut character, 40, [1.0, 0.0, 0.0]);
+    assert!(
+        character.grounded(),
+        "a mesh floor must ground the character"
+    );
+    assert!(
+        (character.position()[1] - 1.0).abs() < 0.2,
+        "a mesh floor must hold the character height, got y={}",
+        character.position()[1]
     );
 }

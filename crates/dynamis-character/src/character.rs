@@ -138,7 +138,7 @@ impl Character {
                         -(landing.distance - SKIN).clamp(0.0, sweeps.down_length),
                     ),
                 );
-                let surface = negate(landing.normal);
+                let surface = landing.normal;
                 grounded = dot(surface, up) > slope_cos;
                 vertical_after = if grounded { 0.0 } else { vertical };
             }
@@ -294,7 +294,7 @@ fn pick_forward(
     second: Option<QueryHit>,
     up: [f32; 3],
 ) -> Option<QueryHit> {
-    let floor_like = |hit: &QueryHit| dot(hit.normal, up) < -0.5;
+    let floor_like = |hit: &QueryHit| dot(hit.normal, up) > 0.5;
     match (first, second) {
         (Some(a), Some(b)) => {
             if floor_like(&a) && floor_like(&b) {
