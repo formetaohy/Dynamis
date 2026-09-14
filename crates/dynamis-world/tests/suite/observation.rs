@@ -526,3 +526,51 @@ fn a_stopped_body_observation_forgets_its_state() {
         observed.position[1]
     );
 }
+
+#[test]
+fn a_repeated_sync_wait_publishes_nothing_new() {
+    let mut world = new_world(gravity_config());
+    let _body = falling_sphere(&mut world);
+    settle(&mut world, 4);
+    let submissions = world.submissions();
+    world.wait();
+    assert_eq!(
+        world.submissions(),
+        submissions,
+        "a wait over covered bodies must not submit device work"
+    );
+}
+
+#[test]
+fn a_sync_wait_releases_the_bodies_it_published() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 8);
+    settle(&mut world, 4);
+    let synced = world.read_state(bodies[0]);
+    let observed = bodies[1];
+    world.try_state(observed);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mirrored = loop {
+        world.step(DT);
+        world.poll();
+        if let Some(state) = world.try_state(observed)
+            && state.step > synced.step
+        {
+            break state;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "an observed body must keep publishing after a sync"
+        );
+        std::thread::yield_now();
+    };
+    assert!(mirrored.position[1] < synced.position[1]);
+    assert_eq!(
+        world
+            .try_state(bodies[0])
+            .expect("a synced body keeps its mirror")
+            .step,
+        synced.step,
+        "a sync must not leave its bodies observed"
+    );
+}

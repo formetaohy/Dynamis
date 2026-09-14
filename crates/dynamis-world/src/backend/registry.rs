@@ -102,12 +102,23 @@ impl StepPasses {
         self.run(encoder, streams, frames);
     }
 
+    pub(crate) fn record_publish(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        streams: &Streams,
+        frames: &StepFrames,
+    ) {
+        self.schedule.begin_publish();
+        self.run(encoder, streams, frames);
+    }
+
     fn run(&mut self, encoder: &mut CommandEncoder, streams: &Streams, frames: &StepFrames) {
         let Self { schedule, runtimes } = self;
         for index in 0..schedule.pipeline().len() as u32 {
             let pass = schedule.pass(index);
             runtimes.record(pass, index, schedule, encoder, streams, frames);
         }
+        schedule.finish();
     }
 
     pub(crate) fn declared(&self) -> &[Pass] {
@@ -265,5 +276,13 @@ impl World {
             counts: self.frame_counts(),
         };
         StepFrames::queries(&facts, live)
+    }
+
+    pub(crate) fn publish_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
+        let facts = StepFacts {
+            params,
+            counts: self.frame_counts(),
+        };
+        StepFrames::publication(&facts, live)
     }
 }

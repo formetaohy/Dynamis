@@ -174,6 +174,15 @@ macro_rules! domains {
                     awake: Awake { $( $field: false, )* },
                 }
             }
+
+            pub(crate) fn publication(facts: &$crate::StepFacts, live: &Live) -> Self {
+                Self {
+                    $( $field: <$domain as $crate::Domain>::frame(facts, &live.$field), )*
+                    run: dynamis_pass::Run::Publish,
+                    indexing: false,
+                    awake: Awake { $( $field: false, )* },
+                }
+            }
         }
 
         #[derive(Default)]

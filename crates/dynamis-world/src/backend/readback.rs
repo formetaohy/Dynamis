@@ -1,7 +1,6 @@
 use super::registry::Plan;
 use dynamis_abi::{
-    BodyStateRecord, BrokenConstraintRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE,
-    ContactEventRecord,
+    BrokenConstraintRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ContactEventRecord,
 };
 use dynamis_gpu::{GpuBuffer, Readback};
 use dynamis_state::QUERY_RESULT_BYTES;
@@ -16,7 +15,6 @@ pub(crate) struct ReadbackBuffers {
     pub(crate) events: Readback,
     pub(crate) breaks: Readback,
     pub(crate) queries: Readback,
-    pub(crate) states: Option<Readback>,
 }
 
 fn readback_sizes(plan: &Plan) -> (u64, u64, u64, u64) {
@@ -52,7 +50,6 @@ impl ReadbackBuffers {
                 query_bytes,
                 Readback::DEPTH,
             ),
-            states: None,
         }
     }
 
@@ -107,38 +104,5 @@ impl ReadbackBuffers {
             );
         }
         true
-    }
-
-    pub(crate) fn open_states(&mut self, device: &Device, slots: u32) {
-        let bytes = u64::from(slots) * size_of::<BodyStateRecord>() as u64;
-        if let Some(states) = &self.states {
-            if states.size() >= bytes {
-                return;
-            }
-            assert!(
-                states.is_idle(),
-                "the body state readback requires a drained ring before it reallocates"
-            );
-        }
-        self.states = Some(Readback::new(
-            device,
-            "body state readback",
-            bytes,
-            Readback::DEPTH,
-        ));
-    }
-
-    pub(crate) fn collect_states(&mut self) -> Vec<(u64, Vec<u8>)> {
-        match &mut self.states {
-            Some(states) => states.collect(),
-            None => Vec::new(),
-        }
-    }
-
-    pub(crate) fn drain_states(&mut self) -> Vec<(u64, Vec<u8>)> {
-        match &mut self.states {
-            Some(states) => states.drain(),
-            None => Vec::new(),
-        }
     }
 }

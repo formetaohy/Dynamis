@@ -14,13 +14,15 @@ pub struct PassSpec {
 pub enum Run {
     Step,
     Query,
+    Publish,
 }
 
 impl Run {
     pub const fn facts(self) -> u16 {
         match self {
-            Self::Step => Execution::STEP.0,
-            Self::Query => Execution::QUERY.0,
+            Self::Step => Execution::STEP.0 | Execution::GRAPH.0 | Execution::PUBLISH.0,
+            Self::Query => Execution::QUERY.0 | Execution::GRAPH.0,
+            Self::Publish => Execution::PUBLISH.0,
         }
     }
 }
@@ -38,6 +40,10 @@ impl Execution {
     pub const STEP: Self = Self(1 << 2);
 
     pub const QUERY: Self = Self(1 << 3);
+
+    pub const PUBLISH: Self = Self(1 << 10);
+
+    pub const GRAPH: Self = Self(1 << 11);
 
     const GATE_BASE: u32 = 4;
     const GATE_COUNT: u32 = 6;

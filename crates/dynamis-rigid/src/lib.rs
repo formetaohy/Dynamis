@@ -81,7 +81,7 @@ pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_c
 
 domain_passes!(
     RigidPasses,
-    commands => Execution::ALWAYS => &[],
+    commands => Execution::GRAPH => &[],
     prepare => Execution::INDEXING.and(Execution::STEP) => &["commands"],
     query_aabbs => Execution::QUERY => &["commands"],
     entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
@@ -97,9 +97,10 @@ domain_passes!(
     RigidResolutionPasses,
     sleep => Execution::AWAKE => &["soft_apply"],
     commit => Execution::STEP => &["sleep"],
+    observe => Execution::PUBLISH => &["commit"],
     resting_gather => Execution::AWAKE => &["commit"],
     resting_index => Execution::AWAKE => &["resting_gather"],
-    query => Execution::ALWAYS => &["broadphase", "commit"],
+    query => Execution::GRAPH => &["broadphase", "commit"],
 );
 
 pub struct Rigid {
@@ -211,6 +212,11 @@ impl Rigid {
             let mut commit = schedule.open(encoder, pass);
             self.commit.record(&mut commit, streams, frame);
             drop(commit);
+        } else if pass == self.resolution.observe {
+            let mut observe = schedule.open(encoder, pass);
+            self.commit
+                .record_observe(&mut observe, streams, frame.observed_count);
+            drop(observe);
         } else if pass == self.resolution.resting_gather {
             let mut gather = schedule.open(encoder, pass);
             self.commit.record_gather(&mut gather, streams);

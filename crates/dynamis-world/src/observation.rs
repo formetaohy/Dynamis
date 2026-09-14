@@ -123,6 +123,7 @@ impl Observations {
 pub(crate) struct BodyMirror {
     observed: Vec<u32>,
     slot_of: Vec<u32>,
+    required: Vec<u32>,
     dirty: bool,
     epoch: Option<u64>,
     ring: Ring,
@@ -133,6 +134,7 @@ impl BodyMirror {
         Self {
             observed: Vec::new(),
             slot_of: Vec::new(),
+            required: Vec::new(),
             dirty: false,
             epoch: None,
             ring: Ring::new("body state observation", DEPTH),
@@ -148,15 +150,32 @@ impl BodyMirror {
     }
 
     pub(crate) fn observe(&mut self, id: u32) {
+        self.insert(id);
+    }
+
+    pub(crate) fn require(&mut self, id: u32) {
+        if self.insert(id) {
+            self.required.push(id);
+        }
+    }
+
+    pub(crate) fn release_required(&mut self) {
+        for id in std::mem::take(&mut self.required) {
+            self.forget(id);
+        }
+    }
+
+    fn insert(&mut self, id: u32) -> bool {
         if self.slot_of.len() <= id as usize {
             self.slot_of.resize(id as usize + 1, NO_SLOT);
         }
         if self.slot_of[id as usize] != NO_SLOT {
-            return;
+            return false;
         }
         self.slot_of[id as usize] = self.observed.len() as u32;
         self.observed.push(id);
         self.dirty = true;
+        true
     }
 
     pub(crate) fn forget(&mut self, id: u32) {
@@ -179,6 +198,7 @@ impl BodyMirror {
     fn reset(&mut self) {
         self.observed.clear();
         self.slot_of.clear();
+        self.required.clear();
         self.dirty = false;
         self.epoch = None;
         self.ring.clear();
@@ -498,13 +518,26 @@ impl World {
     pub fn wait(&mut self) {
         self.backend.gpu.assert_alive();
         self.resolve_queries();
-        loop {
-            self.drain_readbacks();
-            if self.states_current() {
-                return;
+        self.drain_readbacks();
+        let stale = self
+            .bodies
+            .alive
+            .iter()
+            .filter(|handle| !self.body_current(handle.id))
+            .map(|handle| handle.id)
+            .collect::<Vec<_>>();
+        if !stale.is_empty() {
+            for id in stale {
+                self.observed.bodies.require(id);
             }
-            self.submit_states();
+            self.publish_observations();
+            self.drain_readbacks();
+            self.observed.bodies.release_required();
         }
+        assert!(
+            self.states_current(),
+            "a publication must cover every live body"
+        );
     }
 
     pub fn try_state(&mut self, handle: BodyHandle) -> Option<BodyState> {
@@ -739,49 +772,23 @@ impl World {
         self.observed.bodies.epoch = Some(sequence);
     }
 
-    fn submit_states(&mut self) {
+    fn publish_observations(&mut self) {
+        let live = self.live();
+        self.apply_plan(&live);
+        self.flush_observed();
+        let params = self.step_params(self.clock.sub_dt);
+        self.write_step_records(params);
+        let frames = self.publish_frames(&live, params);
+        let device = self.backend.gpu.device().clone();
+        let mut encoder = SubmissionEncoder::new(&device, "dynamis observation");
+        self.backend
+            .passes
+            .record_publish(&mut encoder, &self.backend.streams, &frames);
         let step = self
             .completed_step()
-            .expect("a body state snapshot requires a completed step");
-        let bytes = u64::from(self.bodies.device_count) * size_of::<BodyStateRecord>() as u64;
-        if bytes == 0 {
-            self.observed.bodies.epoch = Some(step);
-            return;
-        }
-        let device = self.backend.gpu.device().clone();
-        self.backend
-            .readback
-            .open_states(&device, self.backend.streams.state.body_states.slots());
-        let mut encoder = SubmissionEncoder::new(&device, "dynamis body state readback");
-        let displaced = self
-            .backend
-            .readback
-            .states
-            .as_mut()
-            .expect("a body state snapshot opens its readback ring")
-            .enqueue(
-                &mut encoder,
-                self.backend.streams.state.body_states.buffer(),
-                0,
-                bytes,
-                step,
-            );
+            .expect("a body state publication requires a completed step");
+        self.declare_body_observations(&mut encoder, step);
         self.submit(encoder);
-        if let Some((sequence, bytes)) = displaced {
-            self.consume_states(sequence, &bytes);
-        }
-    }
-
-    pub(crate) fn consume_states(&mut self, sequence: u64, bytes: &[u8]) {
-        let (records, remainder) = bytes.as_chunks::<{ size_of::<BodyStateRecord>() }>();
-        assert!(
-            remainder.is_empty(),
-            "a body state readback must be a whole number of records"
-        );
-        for chunk in records {
-            self.accept_body(sequence, bytemuck::pod_read_unaligned(chunk));
-        }
-        self.observed.bodies.epoch = Some(sequence);
     }
 
     fn accept_body(&mut self, sequence: u64, record: BodyStateRecord) {

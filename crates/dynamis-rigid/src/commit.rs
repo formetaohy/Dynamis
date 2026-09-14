@@ -243,7 +243,12 @@ impl Commit {
         }
     }
 
-    fn record_observe(&self, recorder: &mut ComputeRecorder, streams: &impl Resources, count: u32) {
+    pub(crate) fn record_observe(
+        &self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        count: u32,
+    ) {
         self.observe.record_rows(recorder, streams, count);
     }
 
@@ -267,7 +272,6 @@ impl Commit {
         );
         self.joint_states
             .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
-        self.record_observe(recorder, streams, frame.observed_count);
     }
 
     pub fn record_gather(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {

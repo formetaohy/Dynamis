@@ -330,6 +330,25 @@ fn a_pass_runs_exactly_when_every_declared_fact_holds() {
 }
 
 #[test]
+fn a_publication_run_holds_only_the_publishing_passes() {
+    let step = Execution::facts(Run::Step, false, false, 0);
+    let query = Execution::facts(Run::Query, false, false, 0);
+    let publish = Execution::facts(Run::Publish, false, false, 0);
+    assert!(Execution::PUBLISH.held(step));
+    assert!(Execution::PUBLISH.held(publish));
+    assert!(!Execution::PUBLISH.held(query));
+    assert!(Execution::GRAPH.held(step));
+    assert!(Execution::GRAPH.held(query));
+    assert!(!Execution::GRAPH.held(publish));
+    assert!(Execution::STEP.held(step));
+    assert!(!Execution::STEP.held(publish));
+    assert!(!Execution::STEP.held(query));
+    assert!(!Execution::INDEXING.held(publish));
+    assert!(!Execution::AWAKE.held(publish));
+    assert!(!Execution::gate(0).held(publish));
+}
+
+#[test]
 #[should_panic(expected = "gate")]
 fn a_gate_beyond_the_declared_field_is_refused() {
     let _ = Execution::gate(std::hint::black_box(6));

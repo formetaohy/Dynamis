@@ -22,12 +22,13 @@ const STEP: &[&str] = &[
     "soft_apply",
     "sleep",
     "commit",
+    "observe",
     "resting_gather",
     "resting_index",
     "query",
 ];
 
-const IDLE: &[&str] = &["commands", "commit", "query"];
+const IDLE: &[&str] = &["commands", "commit", "observe", "query"];
 
 #[test]
 fn the_step_resolves_the_declared_domain_coupling() {

@@ -8,7 +8,9 @@ pub struct Schedule {
     pipeline: Pipeline,
     per_row: u32,
     opened: Vec<bool>,
+    completed: Vec<bool>,
     last: Option<u32>,
+    graph: bool,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
     timed: bool,
@@ -33,7 +35,9 @@ impl Schedule {
         Self {
             per_row: context.workgroups_per_row(),
             opened: vec![false; pipeline.len()],
+            completed: vec![false; pipeline.len()],
             last: None,
+            graph: false,
             pipeline,
             #[cfg(feature = "profile")]
             timer: context.supports_pass_timing().then(|| {
@@ -69,23 +73,34 @@ impl Schedule {
             .passes()
             .iter()
             .enumerate()
-            .filter(|(index, _)| self.ran(*index as u32))
+            .filter(|(index, _)| self.completed[*index])
             .map(|(_, pass)| pass.label)
             .collect()
     }
 
     pub fn begin_step(&mut self) {
-        self.begin(true);
+        self.begin(true, true);
     }
 
     pub fn begin_query(&mut self) {
-        self.begin(false);
+        self.begin(true, false);
     }
 
-    fn begin(&mut self, timed: bool) {
+    pub fn begin_publish(&mut self) {
+        self.begin(false, false);
+    }
+
+    fn begin(&mut self, graph: bool, timed: bool) {
         self.opened.fill(false);
         self.last = None;
+        self.graph = graph;
         self.timed = timed;
+    }
+
+    pub fn finish(&mut self) {
+        if self.graph {
+            self.completed.copy_from_slice(&self.opened);
+        }
     }
 
     pub fn open<'a>(

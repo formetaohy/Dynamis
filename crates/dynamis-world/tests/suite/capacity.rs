@@ -146,23 +146,23 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     sphere_pile(&mut world);
 
     world.step(DT);
+    let served = world.stream_capacity();
+    assert!(
+        served.broadphase.pairs > floor.broadphase.pairs,
+        "the live rows alone must widen the plan"
+    );
     world.wait();
     assert!(
         world.measured()[COUNTER_REFUSED_PAIRS] > 0,
         "the pile must outgrow the pair stream"
     );
-    let planned = world.stream_capacity();
     assert!(
-        planned.broadphase.pairs > floor.broadphase.pairs,
-        "the live rows alone must widen the plan"
+        world.stream_capacity().broadphase.pairs > served.broadphase.pairs,
+        "the spilled step must widen the plan further"
     );
 
     world.step(DT);
     world.wait();
-    assert!(
-        world.stream_capacity().broadphase.pairs > planned.broadphase.pairs,
-        "the spilled step must widen the plan further"
-    );
     assert_eq!(
         world.measured()[COUNTER_REFUSED_PAIRS],
         0,

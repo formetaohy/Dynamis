@@ -54,7 +54,6 @@ impl World {
         self.declare_step(step);
         let batch = self.submit_queries(step, query_count);
         self.encode_step(&frames, batch, step);
-        self.bodies.device_count = params.body_count;
         self.queries.pending.clear();
         self.clock.step += 1;
     }
@@ -83,7 +82,7 @@ impl World {
         RigidShape::of(&self.frame_counts())
     }
 
-    fn write_step_records(&self, params: StepParamsRecord) {
+    pub(crate) fn write_step_records(&self, params: StepParamsRecord) {
         self.backend
             .streams
             .state
