@@ -2,7 +2,7 @@ use crate::World;
 use dynamis_abi::{Counters, FrameCounts, RowStreams, StepParamsRecord};
 use dynamis_broadphase::BroadphaseDomain;
 use dynamis_domain::StepFacts;
-use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_gpu::GpuContext;
 use dynamis_pass::{Pass, PipelineBuilder, Schedule};
 use dynamis_rigid::RigidDomain;
 use dynamis_soft::SoftDomain;
@@ -89,37 +89,25 @@ impl StepPasses {
         frames: &StepFrames,
     ) {
         self.schedule.begin_step();
+        self.run(encoder, streams, frames);
+    }
+
+    pub(crate) fn record_queries(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        streams: &Streams,
+        frames: &StepFrames,
+    ) {
+        self.schedule.begin_query();
+        self.run(encoder, streams, frames);
+    }
+
+    fn run(&mut self, encoder: &mut CommandEncoder, streams: &Streams, frames: &StepFrames) {
         let Self { schedule, runtimes } = self;
         for index in 0..schedule.pipeline().len() as u32 {
             let pass = schedule.pass(index);
             runtimes.record(pass, index, schedule, encoder, streams, frames);
         }
-    }
-
-    pub(crate) fn encode_queries(
-        &self,
-        encoder: &mut CommandEncoder,
-        streams: &Streams,
-        frames: &StepFrames,
-    ) {
-        let mut commands =
-            ComputeRecorder::begin(encoder, "query commands", self.schedule.per_row());
-        self.runtimes
-            .rigid
-            .simulation
-            .record_query_commands(&mut commands, streams, &frames.rigid);
-        drop(commands);
-
-        let mut sort = ComputeRecorder::begin(encoder, "query sort", self.schedule.per_row());
-        self.runtimes.broadphase.sort_entries(&mut sort, streams);
-        drop(sort);
-
-        let mut flush = ComputeRecorder::begin(encoder, "query flush", self.schedule.per_row());
-        self.runtimes
-            .rigid
-            .simulation
-            .record_query_flush(&mut flush, streams, &frames.rigid);
-        drop(flush);
     }
 
     pub(crate) fn declared(&self) -> &[Pass] {
@@ -269,5 +257,13 @@ impl World {
             counts: self.frame_counts(),
         };
         StepFrames::of(&facts, live, liveness)
+    }
+
+    pub(crate) fn query_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
+        let facts = StepFacts {
+            params,
+            counts: self.frame_counts(),
+        };
+        StepFrames::queries(&facts, live)
     }
 }

@@ -60,7 +60,7 @@ impl Domain for SoftDomain {
         Soft::new(context, streams, passes)
     }
 
-    fn gates(_: &SoftFrame) -> u8 {
+    fn gates(_: &SoftFrame) -> u16 {
         0
     }
 

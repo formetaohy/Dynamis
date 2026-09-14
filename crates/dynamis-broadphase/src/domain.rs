@@ -58,7 +58,7 @@ impl Domain for BroadphaseDomain {
         Broadphase::new(context, streams, passes)
     }
 
-    fn gates(_: &()) -> u8 {
+    fn gates(_: &()) -> u16 {
         0
     }
 

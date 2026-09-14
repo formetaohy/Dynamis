@@ -10,8 +10,23 @@ pub struct PassSpec {
     pub execution: Execution,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Run {
+    Step,
+    Query,
+}
+
+impl Run {
+    pub const fn facts(self) -> u16 {
+        match self {
+            Self::Step => Execution::STEP.0,
+            Self::Query => Execution::QUERY.0,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct Execution(u8);
+pub struct Execution(u16);
 
 impl Execution {
     pub const ALWAYS: Self = Self(0);
@@ -20,9 +35,13 @@ impl Execution {
 
     pub const AWAKE: Self = Self(1 << 1);
 
-    const GATE_BASE: u32 = 2;
+    pub const STEP: Self = Self(1 << 2);
+
+    pub const QUERY: Self = Self(1 << 3);
+
+    const GATE_BASE: u32 = 4;
     const GATE_COUNT: u32 = 6;
-    const GATE_MASK: u8 = ((1 << Self::GATE_COUNT) - 1) << Self::GATE_BASE;
+    const GATE_MASK: u16 = ((1 << Self::GATE_COUNT) - 1) << Self::GATE_BASE;
 
     pub const fn gate(index: u32) -> Self {
         assert!(
@@ -36,15 +55,15 @@ impl Execution {
         Self(self.0 | other.0)
     }
 
-    pub const fn bits(self) -> u8 {
+    pub const fn bits(self) -> u16 {
         self.0
     }
 
-    pub const fn facts(indexing: bool, awake: bool, gates: u8) -> u8 {
-        (indexing as u8) | ((awake as u8) << 1) | (gates & Self::GATE_MASK)
+    pub const fn facts(run: Run, indexing: bool, awake: bool, gates: u16) -> u16 {
+        run.facts() | (indexing as u16) | ((awake as u16) << 1) | (gates & Self::GATE_MASK)
     }
 
-    pub const fn held(self, facts: u8) -> bool {
+    pub const fn held(self, facts: u16) -> bool {
         self.0 & !facts == 0
     }
 }

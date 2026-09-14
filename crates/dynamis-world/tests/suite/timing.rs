@@ -1,6 +1,8 @@
 use super::common::{gravity_config, new_world, settle};
 use dynamis_model::{BodyDesc, SoftBodyDesc};
 
+const QUERY_RUN: &[&str] = &["query_aabbs"];
+
 #[test]
 fn a_stepped_world_reports_one_duration_per_pass() {
     let mut world = new_world(gravity_config());
@@ -107,7 +109,7 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
 }
 
 #[test]
-fn a_full_scene_profiles_every_declared_pass() {
+fn a_full_scene_profiles_every_pass_of_a_step() {
     let mut world = new_world(gravity_config());
     world.spawn(BodyDesc::sphere(0.4).position([0.0, 4.0, 0.0]).ccd(true));
     world.add_soft_body(
@@ -124,7 +126,11 @@ fn a_full_scene_profiles_every_declared_pass() {
         .position([0.0, 2.0, 0.0]),
     );
     settle(&mut world, 12);
-    let mut declared = world.pass_labels();
+    let mut declared: Vec<&str> = world
+        .pass_labels()
+        .into_iter()
+        .filter(|label| !QUERY_RUN.contains(label))
+        .collect();
     declared.sort_unstable();
     let mut reported: Vec<&str> = world
         .gpu_pass_timings()
@@ -135,7 +141,7 @@ fn a_full_scene_profiles_every_declared_pass() {
     reported.dedup();
     assert_eq!(
         reported, declared,
-        "every pass the schedule declares must be profiled while the scene speaks to every domain"
+        "every pass the schedule declares for a step must be profiled while the scene speaks to every domain"
     );
 }
 
@@ -209,7 +215,7 @@ fn a_query_on_a_sleeping_world_profiles_only_the_index() {
         "a query must still refresh the broadphase index"
     );
     assert!(
-        timings.iter().any(|timing| timing.label == "commit"),
-        "a query must still resolve inside the commit pass"
+        timings.iter().any(|timing| timing.label == "query"),
+        "a query must resolve inside the declared query pass"
     );
 }

@@ -45,7 +45,7 @@ pub trait Domain {
     fn build(context: &GpuContext, streams: &impl Resources, passes: Self::Passes)
     -> Self::Runtime;
 
-    fn gates(frame: &Self::Frame) -> u8;
+    fn gates(frame: &Self::Frame) -> u16;
 
     fn frame(facts: &StepFacts, inputs: &Self::Inputs) -> Self::Frame;
 

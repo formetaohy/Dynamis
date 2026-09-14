@@ -1,4 +1,5 @@
 use super::World;
+use crate::commands::Consumption;
 use crate::query_pool::{QueryHandle, QueryHit, QueryPool};
 use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
@@ -136,7 +137,7 @@ impl World {
         let live = self.live();
         self.apply_plan(&live);
         self.flush_rows();
-        self.apply_pending_commands();
+        self.apply_pending_commands(Consumption::Preview);
         let step = self.clock.step;
         let queue = self.backend.gpu.queue().clone();
         let device = self.backend.gpu.device().clone();
@@ -146,9 +147,8 @@ impl World {
             .query_records
             .write(&queue, bytemuck::cast_slice(&self.queries.pending));
         let count = self.queries.pending.len();
-        let work = self.host_work();
         let params = self.step_params(self.clock.sub_dt);
-        let frames = self.frames(&live, &work, params);
+        let frames = self.query_frames(&live, params);
         self.backend
             .streams
             .state
@@ -160,7 +160,7 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query resolve");
         self.backend
             .passes
-            .encode_queries(&mut encoder, &self.backend.streams, &frames);
+            .record_queries(&mut encoder, &self.backend.streams, &frames);
         let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
         let arrived = self.backend.readback.queries.enqueue(
             &mut encoder,

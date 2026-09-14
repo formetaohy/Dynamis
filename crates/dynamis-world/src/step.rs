@@ -1,6 +1,6 @@
 use super::World;
 use crate::backend::StepFrames;
-use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands};
+use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
 use dynamis_abi::QueryResultRecord;
 use dynamis_abi::StepParamsRecord;
 use dynamis_rigid::RigidShape;
@@ -42,7 +42,7 @@ impl World {
         let live = self.live();
         self.apply_plan(&live);
         self.flush_rows();
-        self.apply_pending_commands();
+        self.apply_pending_commands(Consumption::Step);
         let work = self.host_work();
         let query_count = work.state.queries;
         self.backend.published = work.pending();
@@ -59,7 +59,7 @@ impl World {
         self.clock.step += 1;
     }
 
-    pub(crate) fn apply_pending_commands(&mut self) {
+    pub(crate) fn apply_pending_commands(&mut self, consumption: Consumption) {
         if self.bodies.commands.is_empty() && self.constraints.commands.is_empty() {
             self.bodies.last_edits = 0;
             self.bodies.last_moves = 0;
@@ -67,14 +67,16 @@ impl World {
             self.constraints.last_moves = 0;
             return;
         }
-        let body_commands = self.compile_body_commands();
+        let body_commands = self.compile_body_commands(consumption);
         let constraint_commands = self.compile_constraint_commands();
         self.upload_body_commands(&body_commands);
         self.upload_constraint_commands(&constraint_commands);
         self.bodies.last_edits = body_commands.runs.len() as u32;
         self.constraints.last_commands = self.constraints.commands.len() as u32;
-        self.bodies.commands.clear();
-        self.constraints.commands.clear();
+        if consumption == Consumption::Step {
+            self.bodies.commands.clear();
+            self.constraints.commands.clear();
+        }
     }
 
     pub fn rigid_shape(&self) -> RigidShape {

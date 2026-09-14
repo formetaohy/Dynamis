@@ -94,7 +94,7 @@ impl Domain for RigidDomain {
         }
     }
 
-    fn gates(frame: &RigidFrame) -> u8 {
+    fn gates(frame: &RigidFrame) -> u16 {
         if frame.ccd {
             Execution::gate(crate::ccd::CCD_GATE).bits()
         } else {

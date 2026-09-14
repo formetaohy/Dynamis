@@ -139,6 +139,7 @@ macro_rules! domains {
         #[derive(Clone, Copy)]
         pub(crate) struct StepFrames {
             $( pub(crate) $field: <$domain as $crate::Domain>::Frame, )*
+            run: dynamis_pass::Run,
             indexing: bool,
             awake: Awake,
         }
@@ -159,8 +160,18 @@ macro_rules! domains {
                 let awake = Awake { $( $field: liveness.$field, )* };
                 Self {
                     $( $field: <$domain as $crate::Domain>::frame(facts, &live.$field), )*
+                    run: dynamis_pass::Run::Step,
                     indexing: awake.any(),
                     awake,
+                }
+            }
+
+            pub(crate) fn queries(facts: &$crate::StepFacts, live: &Live) -> Self {
+                Self {
+                    $( $field: <$domain as $crate::Domain>::frame(facts, &live.$field), )*
+                    run: dynamis_pass::Run::Query,
+                    indexing: true,
+                    awake: Awake { $( $field: false, )* },
                 }
             }
         }
@@ -359,6 +370,7 @@ macro_rules! domains {
                     if pass.domain == <$domain as $crate::Domain>::ID {
                         let frame = &frames.$field;
                         let facts = dynamis_pass::Execution::facts(
+                            frames.run,
                             frames.indexing,
                             frames.awake.$field,
                             <$domain as $crate::Domain>::gates(frame),

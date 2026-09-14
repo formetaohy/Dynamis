@@ -4,6 +4,12 @@ use dynamis_abi::{
     BodyEditRecord, BodyEditRunRecord, BodyStateRecord, ConstraintRuntimeRecord, RowMoveRecord,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Consumption {
+    Preview,
+    Step,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum ConstraintCommand {
     Add { slot: u32, id: u32, generation: u32 },
@@ -81,6 +87,18 @@ impl BodyCommand {
         }
     }
 
+    fn drives_step(&self) -> bool {
+        matches!(
+            self,
+            Self::Force { .. }
+                | Self::ForceAtPoint { .. }
+                | Self::Torque { .. }
+                | Self::Impulse { .. }
+                | Self::ImpulseAtPoint { .. }
+                | Self::AngularImpulse { .. }
+        )
+    }
+
     fn edit(&self) -> Option<BodyEditRecord> {
         Some(match *self {
             Self::Patch { mask, state, .. } => BodyEditRecord::patch(mask, state),
@@ -112,7 +130,7 @@ pub(crate) struct CompiledConstraintCommands {
 }
 
 impl World {
-    pub(crate) fn compile_body_commands(&self) -> CompiledBodyCommands {
+    pub(crate) fn compile_body_commands(&self, consumption: Consumption) -> CompiledBodyCommands {
         let mut map = RowMap::new();
         let mut journal: RowJournal<BodyCommand> = RowJournal::new();
         let mut fresh: Vec<BodyStateRecord> = Vec::new();
@@ -124,7 +142,12 @@ impl World {
                 }
                 BodyCommand::Remove { hole, tail } => map.remove(*hole, *tail),
                 BodyCommand::Swap { first, second } => map.swap(*first, *second),
-                _ => journal.push(map.identity_of(command.row()), *command),
+                _ => {
+                    if consumption == Consumption::Preview && command.drives_step() {
+                        continue;
+                    }
+                    journal.push(map.identity_of(command.row()), *command);
+                }
             }
         }
         let rows = self.bodies.alive.len() as u32;

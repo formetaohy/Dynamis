@@ -4,6 +4,7 @@ use dynamis_model::BodyDesc;
 const STEP: &[&str] = &[
     "commands",
     "prepare",
+    "query_aabbs",
     "soft_bounds",
     "entries",
     "soft_entries",
@@ -23,7 +24,10 @@ const STEP: &[&str] = &[
     "commit",
     "resting_gather",
     "resting_index",
+    "query",
 ];
+
+const IDLE: &[&str] = &["commands", "commit", "query"];
 
 #[test]
 fn the_step_resolves_the_declared_domain_coupling() {
@@ -51,7 +55,7 @@ fn an_idle_world_runs_only_the_unconditional_passes() {
     let _floor = static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle_until(&mut world, 600, |world| {
-        world.read_state(ball).sleeping && world.ran_passes() == ["commands", "commit"]
+        world.read_state(ball).sleeping && world.ran_passes() == IDLE
     });
-    assert_eq!(world.ran_passes(), ["commands", "commit"]);
+    assert_eq!(world.ran_passes(), IDLE);
 }

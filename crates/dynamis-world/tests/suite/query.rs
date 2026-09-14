@@ -1,4 +1,6 @@
-use super::common::{DT, new_world, settle, static_config};
+use super::common::{
+    DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
+};
 use dynamis_model::{BodyDesc, QueryFilter, Shape};
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -863,4 +865,127 @@ fn a_query_batch_that_fills_the_stream_keeps_every_result() {
             .all(|handle| world.query_hit(*handle).map(|hit| hit.body) == Some(target)),
         "every query of a full batch must report the body it hits"
     );
+}
+
+#[test]
+fn a_query_run_preserves_pending_step_inputs() {
+    let mut world = new_world(static_config());
+    let _ground = static_sphere_ground(&mut world, 1.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.0, 0.0]));
+    settle(&mut world, 2);
+    let before = world.read_state(ball).velocity;
+    world.apply_force(ball, [0.0, 600.0, 0.0]);
+    world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.resolve_queries();
+    world.step(DT);
+    world.wait();
+    let after = world.read_state(ball).velocity;
+    let rise = after[1] - before[1];
+    assert!(
+        (rise - 600.0 / 60.0).abs() < 1e-2,
+        "a force applied before a query resolve must still accelerate the body, rose {rise}"
+    );
+}
+
+#[test]
+fn a_query_run_declares_the_passes_it_runs() {
+    let mut world = new_world(static_config());
+    let _target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
+    settle(&mut world, 2);
+    world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.resolve_queries();
+    let ran = world.ran_passes();
+    for pass in ["commands", "query_aabbs", "entries", "broadphase", "query"] {
+        assert!(
+            ran.contains(&pass),
+            "a query resolve must run {pass}, ran {ran:?}"
+        );
+    }
+    assert!(
+        !ran.contains(&"substeps"),
+        "a query resolve must not advance the simulation, ran {ran:?}"
+    );
+}
+
+#[test]
+fn a_query_run_leaves_pending_inputs_for_the_next_step_once() {
+    let mut world = new_world(static_config());
+    let _ground = static_sphere_ground(&mut world, 1.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.0, 0.0]));
+    settle(&mut world, 2);
+    let before = world.read_state(ball).velocity;
+    world.apply_impulse(ball, [60.0, 0.0, 0.0]);
+    world.point_query([0.0, 4.0, 0.0], &QueryFilter::default());
+    world.resolve_queries();
+    world.step(DT);
+    world.wait();
+    let after = world.read_state(ball).velocity;
+    let gained = after[0] - before[0];
+    assert!(
+        (gained - 60.0).abs() < 1e-2,
+        "an impulse applied before a query resolve must land exactly once, gained {gained}"
+    );
+}
+
+#[test]
+fn a_query_run_wakes_a_sleeping_body_for_its_pending_force() {
+    let mut world = new_world(gravity_config());
+    let _floor = static_sphere_ground(&mut world, 1.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
+    settle_until(&mut world, 600, |world| world.read_state(ball).sleeping);
+    world.apply_force(ball, [0.0, 600.0, 0.0]);
+    world.ray_query(
+        [0.0, 4.0, 0.0],
+        [0.0, -1.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.resolve_queries();
+    world.step(DT);
+    world.wait();
+    let state = world.read_state(ball);
+    let expected = 600.0 / 60.0 - 9.81 / 60.0;
+    assert!(
+        !state.sleeping,
+        "the pending force must wake the body again"
+    );
+    assert!(
+        (state.velocity[1] - expected).abs() < 1e-2,
+        "a sleeping body must still receive the force a query resolve left pending, got {:?}",
+        state.velocity
+    );
+}
+
+#[test]
+fn a_patch_survives_both_a_query_run_and_a_step() {
+    let mut world = new_world(static_config());
+    let body = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
+    world.set_position(body, [0.0, 0.0, 2.0]);
+    world.point_query([0.0, 0.0, 2.0], &QueryFilter::default());
+    world.resolve_queries();
+    world.step(DT);
+    world.wait();
+    assert_eq!(world.read_state(body).position, [0.0, 0.0, 2.0]);
+    let query = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("the patched body must stay put");
+    assert_eq!(hit.body, body);
+    assert!((hit.distance - 1.5).abs() < 1e-3, "got {}", hit.distance);
 }

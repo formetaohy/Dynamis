@@ -239,7 +239,7 @@ impl Commands {
         }
     }
 
-    pub fn reset(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    fn reset(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.reset_counters.record_workgroups(
             recorder,
             streams,
@@ -266,7 +266,7 @@ impl Commands {
             .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
     }
 
-    pub fn record_moves(
+    fn record_moves(
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
@@ -290,7 +290,7 @@ impl Commands {
         );
     }
 
-    pub fn record_edits(
+    fn record_edits(
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,

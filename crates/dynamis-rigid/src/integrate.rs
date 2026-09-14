@@ -101,7 +101,7 @@ impl Integrate {
         }
     }
 
-    pub fn record_begin(
+    fn record_begin(
         &self,
         recorder: &mut ComputeRecorder,
         streams: &impl Resources,
@@ -147,7 +147,6 @@ impl Integrate {
             sort.sort(recorder, &channels, words, words);
         }
         self.record_begin(recorder, streams, frame);
-        self.broadphase_aabb
-            .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
+        self.record_broadphase(recorder, streams, frame);
     }
 }

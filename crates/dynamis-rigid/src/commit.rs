@@ -8,11 +8,10 @@ use dynamis_abi::{
     COUNTER_REFUSED_RESTING, COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX,
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE_DEFERRED,
 };
-use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Stage;
-use dynamis_shader::{CORE, GEOMETRY_INDEX, JOINTS, rows, stream, workgroups};
+use dynamis_shader::{CORE, JOINTS, rows, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
@@ -26,7 +25,6 @@ pub struct Commit {
     joint_states: Stage,
     archive_count_sync: Stage,
     static_wake_clear: Stage,
-    query: Stage,
     observe: Stage,
 }
 
@@ -223,31 +221,6 @@ impl Commit {
                 ],
                 &[],
             ),
-            query: Stage::build(
-                context,
-                "query",
-                workgroups(
-                    context,
-                    include_str!("../shaders/queries.wgsl"),
-                    GEOMETRY_INDEX,
-                ),
-                streams,
-                &[
-                    ("queries", StateStream::QueryRecords.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
-                    ("colliders", StateStream::Colliders.whole()),
-                    ("aabbs", RigidStream::ColliderAabbs.whole()),
-                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
-                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
-                    ("entries", BroadphaseStream::Entries.whole()),
-                    ("counters", StateStream::Counters.whole()),
-                    ("query_results", StateStream::QueryResults.whole()),
-                    ("params", StateStream::Params.whole()),
-                    ("collider_owners", StateStream::ColliderOwners.whole()),
-                ],
-                &dynamis_state::shape_resources(),
-            ),
             observe: Stage::build(
                 context,
                 "observe",
@@ -270,22 +243,7 @@ impl Commit {
         }
     }
 
-    pub fn record_query(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.query
-            .record_workgroups(recorder, streams, frame.query_count);
-    }
-
-    pub fn record_observe(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        count: u32,
-    ) {
+    fn record_observe(&self, recorder: &mut ComputeRecorder, streams: &impl Resources, count: u32) {
         self.observe.record_rows(recorder, streams, count);
     }
 
@@ -309,7 +267,6 @@ impl Commit {
         );
         self.joint_states
             .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
-        self.record_query(recorder, streams, frame);
         self.record_observe(recorder, streams, frame.observed_count);
     }
 

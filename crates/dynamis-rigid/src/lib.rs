@@ -8,6 +8,7 @@ mod integrate;
 mod islands;
 mod live;
 mod narrowphase;
+mod queries;
 mod solver;
 mod sort;
 mod streams;
@@ -64,6 +65,7 @@ use islands::Islands;
 use islands::Sleep;
 use live::Live;
 use narrowphase::Narrowphase;
+use queries::Queries;
 use solver::Solver;
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
@@ -74,8 +76,9 @@ pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_c
 domain_passes!(
     RigidPasses,
     commands => Execution::ALWAYS => &[],
-    prepare => Execution::INDEXING => &["commands"],
-    entries => Execution::INDEXING => &["prepare", "soft_bounds"],
+    prepare => Execution::INDEXING.and(Execution::STEP) => &["commands"],
+    query_aabbs => Execution::QUERY => &["commands"],
+    entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
     narrowphase => Execution::AWAKE => &["broadphase"],
     islands => Execution::AWAKE => &["narrowphase"],
     wake => Execution::AWAKE => &["islands"],
@@ -87,9 +90,10 @@ domain_passes!(
 domain_passes!(
     RigidResolutionPasses,
     sleep => Execution::AWAKE => &["soft_apply"],
-    commit => Execution::ALWAYS => &["sleep"],
+    commit => Execution::STEP => &["sleep"],
     resting_gather => Execution::AWAKE => &["commit"],
     resting_index => Execution::AWAKE => &["resting_gather"],
+    query => Execution::ALWAYS => &["broadphase", "commit"],
 );
 
 pub struct Rigid {
@@ -99,6 +103,7 @@ pub struct Rigid {
     integrate: Integrate,
     entries: Entries,
     narrowphase: Narrowphase,
+    queries: Queries,
     islands: Islands,
     sleep: Sleep,
     live: Live,
@@ -121,6 +126,7 @@ impl Rigid {
             integrate: Integrate::build(context, streams),
             entries: Entries::build(context, streams),
             narrowphase: Narrowphase::build(context, streams),
+            queries: Queries::build(context, streams),
             islands: Islands::build(context, streams),
             sleep: Sleep::build(context, streams),
             live: Live::build(context, streams),
@@ -147,6 +153,10 @@ impl Rigid {
             self.integrate
                 .record(&mut prepare, streams, frame, &self.sort);
             drop(prepare);
+        } else if pass == self.passes.query_aabbs {
+            let mut aabbs = schedule.open(encoder, pass);
+            self.integrate.record_broadphase(&mut aabbs, streams, frame);
+            drop(aabbs);
         } else if pass == self.passes.entries {
             let mut entries = schedule.open(encoder, pass);
             self.entries.record(&mut entries, streams, frame);
@@ -204,28 +214,10 @@ impl Rigid {
             self.commit
                 .record_index(&mut index, streams, frame, &self.sort);
             drop(index);
+        } else if pass == self.resolution.query {
+            let mut query = schedule.open(encoder, pass);
+            self.queries.record(&mut query, streams, frame);
+            drop(query);
         }
-    }
-
-    pub fn record_query_commands(
-        &self,
-        recorder: &mut dynamis_gpu::ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.commands.record_moves(recorder, streams, frame);
-        self.commands.record_edits(recorder, streams, frame);
-        self.commands.reset(recorder, streams);
-        self.integrate.record_broadphase(recorder, streams, frame);
-        self.entries.record(recorder, streams, frame);
-    }
-
-    pub fn record_query_flush(
-        &self,
-        recorder: &mut dynamis_gpu::ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.commit.record_query(recorder, streams, frame);
     }
 }

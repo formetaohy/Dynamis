@@ -1,5 +1,6 @@
 use dynamis_pass::{
-    Execution, PassEdges, PassGroup, PassGroupEdges, PassSpec, PipelineBuilder, assert_declared,
+    Execution, PassEdges, PassGroup, PassGroupEdges, PassSpec, PipelineBuilder, Run,
+    assert_declared,
 };
 
 const FIRST: u32 = 0;
@@ -306,19 +307,26 @@ fn a_pass_carries_its_declared_execution() {
 
 #[test]
 fn a_pass_runs_exactly_when_every_declared_fact_holds() {
-    let idle = Execution::facts(true, true, 0);
-    let stopped = Execution::facts(false, false, 0);
+    let idle = Execution::facts(Run::Step, true, true, 0);
+    let stopped = Execution::facts(Run::Step, false, false, 0);
+    let query = Execution::facts(Run::Query, true, false, 0);
     assert!(Execution::ALWAYS.held(stopped));
     assert!(Execution::INDEXING.held(idle));
     assert!(!Execution::INDEXING.held(stopped));
     assert!(Execution::AWAKE.held(idle));
-    assert!(!Execution::AWAKE.held(Execution::facts(true, false, 0)));
+    assert!(!Execution::AWAKE.held(Execution::facts(Run::Step, true, false, 0)));
     assert!(!Execution::AWAKE.and(Execution::gate(0)).held(idle));
     assert!(
         Execution::AWAKE
             .and(Execution::gate(0))
-            .held(Execution::facts(true, true, 1 << 2))
+            .held(Execution::facts(Run::Step, true, true, 1 << 4))
     );
+    assert!(Execution::STEP.held(idle));
+    assert!(!Execution::STEP.held(query));
+    assert!(!Execution::QUERY.held(idle));
+    assert!(Execution::QUERY.held(query));
+    assert!(Execution::INDEXING.held(query));
+    assert!(!Execution::AWAKE.held(query));
 }
 
 #[test]

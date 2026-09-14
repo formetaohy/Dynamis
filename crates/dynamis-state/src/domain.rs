@@ -56,7 +56,7 @@ impl Domain for StateDomain {
 
     fn build(_: &GpuContext, _: &impl Resources, _: ()) {}
 
-    fn gates(_: &()) -> u8 {
+    fn gates(_: &()) -> u16 {
         0
     }
 

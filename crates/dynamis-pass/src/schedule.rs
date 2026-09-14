@@ -11,6 +11,7 @@ pub struct Schedule {
     last: Option<u32>,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
+    timed: bool,
 }
 
 impl Schedule {
@@ -43,6 +44,7 @@ impl Schedule {
                     label,
                 )
             }),
+            timed: true,
         }
     }
 
@@ -73,8 +75,17 @@ impl Schedule {
     }
 
     pub fn begin_step(&mut self) {
+        self.begin(true);
+    }
+
+    pub fn begin_query(&mut self) {
+        self.begin(false);
+    }
+
+    fn begin(&mut self, timed: bool) {
         self.opened.fill(false);
         self.last = None;
+        self.timed = timed;
     }
 
     pub fn open<'a>(
@@ -99,7 +110,9 @@ impl Schedule {
         self.opened[pass as usize] = true;
         self.last = Some(pass);
         #[cfg(feature = "profile")]
-        if let Some(timer) = &self.timer {
+        if self.timed
+            && let Some(timer) = &self.timer
+        {
             return ComputeRecorder::begin_timed(
                 encoder,
                 declared.label,

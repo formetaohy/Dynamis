@@ -83,11 +83,7 @@ impl Broadphase {
         }
     }
 
-    pub fn sort_entries(
-        &self,
-        recorder: &mut dynamis_gpu::ComputeRecorder,
-        streams: &impl Resources,
-    ) {
+    fn sort_entries(&self, recorder: &mut dynamis_gpu::ComputeRecorder, streams: &impl Resources) {
         let count = dynamis_state::counter(COUNTER_ENTRIES).resolve(streams);
         let channels = SortChannels {
             generation: streams.generation(),
