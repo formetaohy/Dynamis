@@ -1,4 +1,7 @@
-use dynamis_gpu::{ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, WarmupBudget, read_regions};
+use dynamis_gpu::{
+    ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, StreamElement, TypedSlot, WarmupBudget,
+    read_regions,
+};
 use dynamis_sort::{RadixSort, SortChannels, key_words};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
@@ -67,15 +70,18 @@ impl Channels {
     }
 
     fn lanes(&self, generation: u64) -> SortChannels<'_> {
+        fn words<'a>(buffer: &'a GpuBuffer) -> TypedSlot<'a> {
+            TypedSlot::new(GpuSlot::whole(buffer), StreamElement::new("u32", 4))
+        }
         SortChannels {
             generation,
-            count: GpuSlot::whole(&self.count),
-            major: GpuSlot::whole(&self.major),
-            minor: GpuSlot::whole(&self.minor),
-            payload: GpuSlot::whole(&self.payload),
-            scratch_major: GpuSlot::whole(&self.scratch_major),
-            scratch_minor: GpuSlot::whole(&self.scratch_minor),
-            scratch_payload: GpuSlot::whole(&self.scratch_payload),
+            count: words(&self.count),
+            major: words(&self.major),
+            minor: words(&self.minor),
+            payload: words(&self.payload),
+            scratch_major: words(&self.scratch_major),
+            scratch_minor: words(&self.scratch_minor),
+            scratch_payload: words(&self.scratch_payload),
         }
     }
 }

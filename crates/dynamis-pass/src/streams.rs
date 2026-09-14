@@ -26,7 +26,7 @@ macro_rules! streams {
         demand { $( $field:ident: $ty:ty, )* }
         streams {
             $(
-                $name:ident, $variant:ident: $label:literal, $stride:expr, $contents:expr, $slots:expr $(, $usage:expr)?;
+                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $contents:expr, $slots:expr $(, $usage:expr)?;
             )*
         }
     ) => {
@@ -55,15 +55,23 @@ macro_rules! streams {
                 }
             }
 
+            pub const fn element(self) -> ::dynamis_gpu::StreamElement {
+                match self {
+                    $(
+                        Self::$variant => ::dynamis_gpu::StreamElement::new(
+                            <$element as ::dynamis_abi::StreamRecord>::WGSL,
+                            ::core::mem::size_of::<$element>() as u64,
+                        ),
+                    )*
+                }
+            }
+
             pub const fn durable(self) -> bool {
                 self.contents().durable()
             }
 
             pub const fn whole(self) -> $crate::SlotRef {
-                $crate::SlotRef::whole($crate::ResourceId::new(
-                    $domain,
-                    self as u32,
-                ))
+                $crate::SlotRef::whole($crate::ResourceId::new($domain, self as u32), self.element())
             }
 
             pub fn of(local: u32) -> Self {
@@ -104,11 +112,14 @@ macro_rules! streams {
                         $name: ::dynamis_gpu::Stream::new(
                             device,
                             queue,
-                            $label,
-                            $slots,
-                            $stride,
-                            $crate::stream_usage!($($usage)?),
-                            $contents,
+                            ::dynamis_gpu::StreamDesc {
+                                label: $label,
+                                slots: $slots,
+                                element: $id::$variant.element(),
+                                elements_per_slot: $per_slot as u64,
+                                usage: $crate::stream_usage!($($usage)?),
+                                contents: $contents,
+                            },
                         ),
                     )*
                 }

@@ -6,7 +6,6 @@ use dynamis_abi::{
 use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::streams;
-use std::mem::size_of;
 
 pub const REACTION_WORDS: u32 = 8;
 
@@ -21,15 +20,15 @@ streams! {
         rigid_bodies: u32,
     }
     streams {
-        particles, Particles: "soft particles", size_of::<SoftParticleRecord>() as u64, Contents::Durable, demand.particles;
-        elements, Elements: "soft elements", size_of::<SoftElementRecord>() as u64, Contents::Durable, demand.elements;
-        attachments, Attachments: "soft attachments", size_of::<SoftAttachmentRecord>() as u64, Contents::Durable, demand.attachments;
-        adjacency, Adjacency: "soft adjacency", 4, Contents::Durable, demand.adjacency;
-        bodies, BodyStates: "soft body states", size_of::<SoftBodyRecord>() as u64, Contents::Durable, demand.soft_bodies;
-        contributions, Contributions: "soft element contributions", size_of::<[f32; 4]>() as u64, Contents::Scratch, demand.element_contributions();
-        contacts, Contacts: "soft particle contacts", size_of::<SoftContactRecord>() as u64, Contents::Scratch, demand.particles;
-        pressure, Pressure: "soft particle pressure", size_of::<[f32; 4]>() as u64, Contents::Scratch, demand.particles;
-        reactions, Reactions: "soft reactions", 4, Contents::Durable, demand.reaction_words();
+        particles, Particles: "soft particles", SoftParticleRecord, 1, Contents::Durable, demand.particles;
+        elements, Elements: "soft elements", SoftElementRecord, 1, Contents::Durable, demand.elements;
+        attachments, Attachments: "soft attachments", SoftAttachmentRecord, 1, Contents::Durable, demand.attachments;
+        adjacency, Adjacency: "soft adjacency", u32, 1, Contents::Durable, demand.adjacency;
+        bodies, BodyStates: "soft body states", SoftBodyRecord, 1, Contents::Durable, demand.soft_bodies;
+        contributions, Contributions: "soft element contributions", [f32; 4], 1, Contents::Scratch, demand.element_contributions();
+        contacts, Contacts: "soft particle contacts", SoftContactRecord, 1, Contents::Scratch, demand.particles;
+        pressure, Pressure: "soft particle pressure", [f32; 4], 1, Contents::Scratch, demand.particles;
+        reactions, Reactions: "soft reactions", u32, 1, Contents::Durable, demand.reaction_words();
     }
 }
 

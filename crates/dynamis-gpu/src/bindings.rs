@@ -1,4 +1,4 @@
-use crate::BindingKind;
+use crate::{BindingKind, StreamElement};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShaderBinding {
@@ -6,6 +6,25 @@ pub struct ShaderBinding {
     pub binding: u32,
     pub kind: BindingKind,
     pub name: String,
+    pub element: String,
+}
+
+pub fn assert_binding_element(
+    label: &str,
+    name: &str,
+    declaration: &ShaderBinding,
+    element: StreamElement,
+) {
+    let declared = declaration.element.as_str();
+    assert!(
+        declared == element.wgsl() || (word_view(declared) && element.bytes() >= 4),
+        "stage {label:?} binds {name:?} to the {} stream while its shader declares {declared:?}",
+        element.wgsl(),
+    );
+}
+
+fn word_view(declared: &str) -> bool {
+    declared == "u32" || declared == "f32"
 }
 
 pub fn parse_bindings(source: &str) -> Vec<ShaderBinding> {
@@ -26,6 +45,8 @@ pub fn parse_bindings(source: &str) -> Vec<ShaderBinding> {
         let declaration = read_until(source, &mut cursor, ':');
         let name = declaration.trim().to_owned();
         assert!(!name.is_empty(), "every shader binding needs a name");
+        skip_space(source, &mut cursor);
+        let element = element_of(&read_until(source, &mut cursor, ';'));
         assert!(
             !bindings
                 .iter()
@@ -43,9 +64,37 @@ pub fn parse_bindings(source: &str) -> Vec<ShaderBinding> {
             binding,
             kind: kind_of(&access),
             name,
+            element,
         });
     }
     bindings
+}
+
+fn element_of(declaration: &str) -> String {
+    let declared = declaration.trim();
+    let element = match declared.strip_prefix("array<") {
+        Some(inner) => {
+            let inner = inner.strip_suffix('>').unwrap_or_else(|| {
+                panic!("the shader declares the malformed array type {declared:?}")
+            });
+            match inner.rsplit_once(',') {
+                Some((element, _)) => element,
+                None => inner,
+            }
+        }
+        None => declared,
+    };
+    let element = match element.strip_prefix("atomic<") {
+        Some(inner) => inner.strip_suffix('>').unwrap_or_else(|| {
+            panic!("the shader declares the malformed atomic type {declared:?}")
+        }),
+        None => element,
+    };
+    assert!(
+        !element.is_empty() && !element.contains(' '),
+        "the shader declares the malformed binding type {declared:?}"
+    );
+    element.to_owned()
 }
 
 fn kind_of(access: &str) -> BindingKind {

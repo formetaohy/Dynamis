@@ -13,12 +13,28 @@ fn parses_every_binding_class() {
     assert_eq!(bindings.len(), 4);
     assert_eq!(bindings[0].name, "params");
     assert_eq!(bindings[0].kind, BindingKind::Uniform);
+    assert_eq!(bindings[0].element, "StepParams");
     assert_eq!(bindings[1].name, "bodies");
     assert_eq!(bindings[1].kind, BindingKind::ReadOnlyStorage);
+    assert_eq!(bindings[1].element, "BodyState");
     assert_eq!(bindings[2].name, "counts");
     assert_eq!(bindings[2].kind, BindingKind::ReadWriteStorage);
+    assert_eq!(bindings[2].element, "u32");
     assert_eq!(bindings[3].group, 1);
     assert_eq!(bindings[3].binding, 0);
+}
+
+#[test]
+fn parses_the_element_a_binding_exposes() {
+    let source = "
+@group(0) @binding(0) var<storage, read> sized: array<atomic<u32>, 2048>;
+@group(0) @binding(1) var<storage, read_write> words: array<vec4f, 4>;
+@group(0) @binding(2) var<storage, read> records: array<QueryResult>;
+";
+    let bindings = parse_bindings(source);
+    assert_eq!(bindings[0].element, "u32");
+    assert_eq!(bindings[1].element, "vec4f");
+    assert_eq!(bindings[2].element, "QueryResult");
 }
 
 #[test]

@@ -16,6 +16,22 @@ mod wgsl;
 
 pub const ABI_WGSL: &str = include_str!("../abi/world.wgsl");
 
+pub trait StreamRecord {
+    const WGSL: &'static str;
+}
+
+impl StreamRecord for u32 {
+    const WGSL: &'static str = "u32";
+}
+
+impl StreamRecord for f32 {
+    const WGSL: &'static str = "f32";
+}
+
+impl StreamRecord for [f32; 4] {
+    const WGSL: &'static str = "vec4f";
+}
+
 pub use constant::{
     BODY_CCD, BODY_KINEMATIC, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR,
     CONSTRAINT_ACCUMULATOR_SLOTS, CONSTRAINT_BALL, CONSTRAINT_CONE, CONSTRAINT_DISABLE_COLLISIONS,

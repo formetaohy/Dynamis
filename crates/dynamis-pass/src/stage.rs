@@ -98,7 +98,7 @@ fn entries<'a, R: Resources>(resources: &'a R, bindings: &[Binding]) -> Vec<Bind
         .iter()
         .map(|binding| BindGroupEntry {
             binding: binding.index,
-            resource: binding.slot.resolve(resources).as_binding(),
+            resource: binding.slot.resolve(resources).slot().as_binding(),
         })
         .collect()
 }
@@ -247,6 +247,7 @@ fn storage_bindings(
             .iter()
             .find(|entry| entry.group == 0 && entry.name == *name)
             .unwrap_or_else(|| panic!("stage {label:?} declares no binding {name:?}"));
+        dynamis_gpu::assert_binding_element(label, name, declaration, slot.element());
         assert!(
             !bindings
                 .iter()
@@ -294,6 +295,12 @@ fn shape_bindings(
                         declaration.name
                     )
                 });
+            dynamis_gpu::assert_binding_element(
+                label,
+                &declaration.name,
+                declaration,
+                slot.element(),
+            );
             Binding {
                 index: declaration.binding,
                 slot: *slot,

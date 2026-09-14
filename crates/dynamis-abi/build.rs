@@ -387,4 +387,10 @@ fn emit_record(output: &mut String, abi: &Abi, record: &Record) {
         .unwrap();
     }
     writeln!(output, "}};").unwrap();
+    writeln!(
+        output,
+        "impl crate::StreamRecord for {rust_name} {{ const WGSL: &'static str = {:?}; }}",
+        record.name
+    )
+    .unwrap();
 }

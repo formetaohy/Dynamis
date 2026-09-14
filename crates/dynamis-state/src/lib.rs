@@ -22,6 +22,7 @@ pub fn counter(slot: usize) -> SlotRef {
         StateStream::Counters.into(),
         slot as u64 * COUNTER_STRIDE,
         4,
+        StateStream::Counters.element(),
     )
 }
 

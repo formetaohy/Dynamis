@@ -835,3 +835,32 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
         "a later query must not answer with an earlier query's candidates"
     );
 }
+
+#[test]
+fn a_query_batch_that_fills_the_stream_keeps_every_result() {
+    let mut world = new_world(static_config());
+    let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
+    let count = dynamis_pass::STREAM_FLOOR;
+    let handles = (0..count)
+        .map(|_| {
+            world.ray_query(
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                20.0,
+                &QueryFilter::default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    world.step(DT);
+    world.wait();
+    assert!(
+        handles.iter().all(|handle| world.query_ready(*handle)),
+        "a batch as wide as the query stream must resolve completely"
+    );
+    assert!(
+        handles
+            .iter()
+            .all(|handle| world.query_hit(*handle).map(|hit| hit.body) == Some(target)),
+        "every query of a full batch must report the body it hits"
+    );
+}

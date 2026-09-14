@@ -1,10 +1,10 @@
-use dynamis_gpu::GpuSlot;
+use dynamis_gpu::TypedSlot;
 use dynamis_pass::{Resources, SlotRef};
 use dynamis_sort::SortChannels;
 
 use crate::RigidStream;
 
-fn scratch<R: Resources>(resources: &R) -> [GpuSlot<'_>; 3] {
+fn scratch<R: Resources>(resources: &R) -> [TypedSlot<'_>; 3] {
     [
         RigidStream::SortScratchMajor.whole().resolve(resources),
         RigidStream::SortScratchMinor.whole().resolve(resources),

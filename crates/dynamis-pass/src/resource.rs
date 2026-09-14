@@ -1,4 +1,4 @@
-use dynamis_gpu::GpuSlot;
+use dynamis_gpu::{GpuSlot, StreamElement, TypedSlot};
 
 const DOMAIN_SHIFT: u32 = 24;
 const LOCAL_MASK: u32 = (1 << DOMAIN_SHIFT) - 1;
@@ -24,35 +24,54 @@ impl ResourceId {
 
 #[derive(Clone, Copy)]
 pub enum SlotRef {
-    Whole(ResourceId),
+    Whole {
+        resource: ResourceId,
+        element: StreamElement,
+    },
     Range {
         resource: ResourceId,
         offset: u64,
         size: u64,
+        element: StreamElement,
     },
 }
 
 impl SlotRef {
-    pub const fn whole(resource: ResourceId) -> Self {
-        Self::Whole(resource)
+    pub const fn whole(resource: ResourceId, element: StreamElement) -> Self {
+        Self::Whole { resource, element }
     }
 
-    pub const fn range(resource: ResourceId, offset: u64, size: u64) -> Self {
+    pub const fn range(
+        resource: ResourceId,
+        offset: u64,
+        size: u64,
+        element: StreamElement,
+    ) -> Self {
         Self::Range {
             resource,
             offset,
             size,
+            element,
         }
     }
 
-    pub fn resolve<R: Resources>(self, resources: &R) -> GpuSlot<'_> {
+    pub const fn element(self) -> StreamElement {
         match self {
-            Self::Whole(resource) => resources.whole(resource),
+            Self::Whole { element, .. } | Self::Range { element, .. } => element,
+        }
+    }
+
+    pub fn resolve<R: Resources>(self, resources: &R) -> TypedSlot<'_> {
+        match self {
+            Self::Whole { resource, .. } => {
+                TypedSlot::new(resources.whole(resource), self.element())
+            }
             Self::Range {
                 resource,
                 offset,
                 size,
-            } => resources.range(resource, offset, size),
+                ..
+            } => TypedSlot::new(resources.range(resource, offset, size), self.element()),
         }
     }
 }

@@ -1,12 +1,36 @@
 mod common;
 
 use common::shared;
-use dynamis_gpu::{Contents, Stream, SubmissionEncoder, read_regions};
+use dynamis_gpu::{
+    Contents, GpuContext, Stream, StreamDesc, StreamElement, SubmissionEncoder, read_regions,
+};
 use wgpu::BufferUsages;
 
 const STREAM_USAGE: BufferUsages = BufferUsages::STORAGE
     .union(BufferUsages::COPY_DST)
     .union(BufferUsages::COPY_SRC);
+
+fn stream(
+    context: &GpuContext,
+    label: &'static str,
+    slots: u32,
+    element: StreamElement,
+    elements_per_slot: u64,
+    contents: Contents,
+) -> Stream {
+    Stream::new(
+        context.device(),
+        context.queue(),
+        StreamDesc {
+            label,
+            slots,
+            element,
+            elements_per_slot,
+            usage: STREAM_USAGE,
+            contents,
+        },
+    )
+}
 
 fn seed(stream: &Stream, values: &[u32]) {
     stream.write(shared().queue(), bytemuck::cast_slice(values));
@@ -36,13 +60,12 @@ fn resized(stream: &mut Stream, slots: u32) -> bool {
 #[test]
 fn a_preserving_stream_keeps_its_leading_slots_across_resizes() {
     let context = shared();
-    let mut stream = Stream::new(
-        context.device(),
-        context.queue(),
+    let mut stream = stream(
+        context,
         "preserving stream",
         4,
-        4,
-        STREAM_USAGE,
+        StreamElement::new("u32", 4),
+        1,
         Contents::Durable,
     );
     seed(&stream, &[7, 8, 9, 10]);
@@ -57,13 +80,12 @@ fn a_preserving_stream_keeps_its_leading_slots_across_resizes() {
 #[test]
 fn a_reset_stream_drops_its_contents_across_resizes() {
     let context = shared();
-    let mut stream = Stream::new(
-        context.device(),
-        context.queue(),
+    let mut stream = stream(
+        context,
         "reset stream",
         4,
-        4,
-        STREAM_USAGE,
+        StreamElement::new("u32", 4),
+        1,
         Contents::Scratch,
     );
     seed(&stream, &[7, 8, 9, 10]);
@@ -74,13 +96,12 @@ fn a_reset_stream_drops_its_contents_across_resizes() {
 #[test]
 fn a_seeded_stream_starts_with_its_head_word() {
     let context = shared();
-    let stream = Stream::new(
-        context.device(),
-        context.queue(),
+    let stream = stream(
+        context,
         "seeded stream",
         1,
-        4,
-        STREAM_USAGE,
+        StreamElement::new("u32", 4),
+        1,
         Contents::Seeded(u32::MAX),
     );
     assert_eq!(read(&stream, 1), vec![u32::MAX]);
@@ -89,16 +110,16 @@ fn a_seeded_stream_starts_with_its_head_word() {
 #[test]
 fn a_stream_reports_its_stride_and_bytes() {
     let context = shared();
-    let stream = Stream::new(
-        context.device(),
-        context.queue(),
+    let stream = stream(
+        context,
         "strided stream",
         3,
-        64,
-        STREAM_USAGE,
+        StreamElement::new("vec4f", 16),
+        4,
         Contents::Scratch,
     );
     assert_eq!(stream.slots(), 3);
+    assert_eq!(stream.element(), StreamElement::new("vec4f", 16));
     assert_eq!(stream.stride(), 64);
     assert_eq!(stream.size(), 192);
 }
@@ -107,28 +128,40 @@ fn a_stream_reports_its_stride_and_bytes() {
 #[should_panic(expected = "requires at least one slot")]
 fn a_stream_refuses_an_empty_capacity() {
     let context = shared();
-    let _ = Stream::new(
-        context.device(),
-        context.queue(),
+    let _ = stream(
+        context,
         "empty stream",
         0,
-        4,
-        STREAM_USAGE,
+        StreamElement::new("u32", 4),
+        1,
         Contents::Scratch,
     );
 }
 
 #[test]
-#[should_panic(expected = "word aligned stride")]
-fn a_stream_refuses_an_unaligned_stride() {
+#[should_panic(expected = "requires at least one element per slot")]
+fn a_stream_refuses_an_empty_slot() {
     let context = shared();
-    let _ = Stream::new(
-        context.device(),
-        context.queue(),
+    let _ = stream(
+        context,
+        "dense stream",
+        4,
+        StreamElement::new("u32", 4),
+        0,
+        Contents::Scratch,
+    );
+}
+
+#[test]
+#[should_panic(expected = "word aligned record")]
+fn a_stream_refuses_an_unaligned_record() {
+    let context = shared();
+    let _ = stream(
+        context,
         "unaligned stream",
         4,
-        6,
-        STREAM_USAGE,
+        StreamElement::new("u32", 6),
+        1,
         Contents::Scratch,
     );
 }
@@ -137,13 +170,12 @@ fn a_stream_refuses_an_unaligned_stride() {
 #[should_panic(expected = "storage binding limit")]
 fn a_stream_refuses_to_exceed_the_binding_limit() {
     let context = shared();
-    let _ = Stream::new(
-        context.device(),
-        context.queue(),
+    let _ = stream(
+        context,
         "oversized stream",
         u32::MAX,
-        64,
-        STREAM_USAGE,
+        StreamElement::new("vec4f", 16),
+        4,
         Contents::Scratch,
     );
 }

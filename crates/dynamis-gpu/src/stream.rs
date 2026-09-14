@@ -1,6 +1,27 @@
 use crate::{GpuBuffer, GpuSlot};
 use wgpu::{BufferAddress, BufferUsages, CommandEncoder, Device, Queue};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamElement {
+    wgsl: &'static str,
+    bytes: u64,
+}
+
+impl StreamElement {
+    pub const fn new(wgsl: &'static str, bytes: u64) -> Self {
+        assert!(bytes > 0, "a stream element must occupy at least one byte");
+        Self { wgsl, bytes }
+    }
+
+    pub const fn wgsl(self) -> &'static str {
+        self.wgsl
+    }
+
+    pub const fn bytes(self) -> u64 {
+        self.bytes
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Contents {
     Scratch,
@@ -26,6 +47,7 @@ pub struct Stream {
     buffer: GpuBuffer,
     slots: u32,
     stride: u64,
+    element: StreamElement,
     usage: BufferUsages,
     contents: Contents,
 }
@@ -45,21 +67,60 @@ fn assert_fits(device: &Device, label: &str, bytes: BufferAddress) {
     );
 }
 
+pub struct StreamDesc {
+    pub label: &'static str,
+    pub slots: u32,
+    pub element: StreamElement,
+    pub elements_per_slot: u64,
+    pub usage: BufferUsages,
+    pub contents: Contents,
+}
+
+#[derive(Clone, Copy)]
+pub struct TypedSlot<'a> {
+    slot: GpuSlot<'a>,
+    element: StreamElement,
+}
+
+impl<'a> TypedSlot<'a> {
+    pub fn new(slot: GpuSlot<'a>, element: StreamElement) -> Self {
+        Self { slot, element }
+    }
+
+    pub fn slot(self) -> GpuSlot<'a> {
+        self.slot
+    }
+
+    pub fn element(self) -> StreamElement {
+        self.element
+    }
+
+    pub fn identity(self) -> (u64, u64, u64) {
+        self.slot.identity()
+    }
+}
+
 impl Stream {
-    pub fn new(
-        device: &Device,
-        queue: &Queue,
-        label: &'static str,
-        slots: u32,
-        stride: u64,
-        usage: BufferUsages,
-        contents: Contents,
-    ) -> Self {
+    pub fn new(device: &Device, queue: &Queue, desc: StreamDesc) -> Self {
+        let StreamDesc {
+            label,
+            slots,
+            element,
+            elements_per_slot,
+            usage,
+            contents,
+        } = desc;
         assert!(slots > 0, "stream {label:?} requires at least one slot");
         assert!(
-            stride > 0 && stride.is_multiple_of(4),
-            "stream {label:?} requires a positive word aligned stride"
+            elements_per_slot > 0,
+            "stream {label:?} requires at least one element per slot"
         );
+        assert!(
+            element.bytes().is_multiple_of(4),
+            "stream {label:?} requires a word aligned record of {}",
+            element.wgsl()
+        );
+        let stride = element.bytes() * elements_per_slot;
         let bytes = slots as BufferAddress * stride;
         assert_fits(device, label, bytes);
         let stream = Self {
@@ -67,6 +128,7 @@ impl Stream {
             buffer: GpuBuffer::new(device, label, bytes, usage),
             slots,
             stride,
+            element,
             usage,
             contents,
         };
@@ -82,6 +144,10 @@ impl Stream {
 
     pub fn stride(&self) -> u64 {
         self.stride
+    }
+
+    pub fn element(&self) -> StreamElement {
+        self.element
     }
 
     pub fn size(&self) -> BufferAddress {
@@ -138,5 +204,11 @@ impl Stream {
 impl<'a> From<&'a Stream> for GpuSlot<'a> {
     fn from(stream: &'a Stream) -> Self {
         stream.slot()
+    }
+}
+
+impl<'a> From<&'a Stream> for TypedSlot<'a> {
+    fn from(stream: &'a Stream) -> Self {
+        Self::new(stream.slot(), stream.element())
     }
 }

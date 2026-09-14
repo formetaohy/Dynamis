@@ -1,6 +1,7 @@
 use dynamis_gpu::{
     BindingSpec, ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
-    PipelineHandle, ShaderBinding, parse_bindings,
+    PipelineHandle, ShaderBinding, StreamElement, TypedSlot, assert_binding_element,
+    parse_bindings,
 };
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
@@ -26,7 +27,7 @@ impl Declared {
         self.handle.pipeline()
     }
 
-    fn group(&self, device: &Device, resources: &[(&str, GpuSlot<'_>)]) -> BindGroup {
+    fn group(&self, device: &Device, resources: &[(&str, TypedSlot<'_>)]) -> BindGroup {
         assert!(
             self.bindings.len() == resources.len(),
             "the shader declares {} bindings but the sort provides {}",
@@ -43,9 +44,10 @@ impl Declared {
                     .unwrap_or_else(|| {
                         panic!("the shader never declares the binding {:?}", binding.name)
                     });
+                assert_binding_element("sort", &binding.name, binding, resource.1.element());
                 BindGroupEntry {
                     binding: binding.binding,
-                    resource: resource.1.as_binding(),
+                    resource: resource.1.slot().as_binding(),
                 }
             })
             .collect::<Vec<_>>();
@@ -82,13 +84,13 @@ pub fn key_words(elements: u32) -> u32 {
 
 pub struct SortChannels<'a> {
     pub generation: u64,
-    pub count: GpuSlot<'a>,
-    pub major: GpuSlot<'a>,
-    pub minor: GpuSlot<'a>,
-    pub payload: GpuSlot<'a>,
-    pub scratch_major: GpuSlot<'a>,
-    pub scratch_minor: GpuSlot<'a>,
-    pub scratch_payload: GpuSlot<'a>,
+    pub count: TypedSlot<'a>,
+    pub major: TypedSlot<'a>,
+    pub minor: TypedSlot<'a>,
+    pub payload: TypedSlot<'a>,
+    pub scratch_major: TypedSlot<'a>,
+    pub scratch_minor: TypedSlot<'a>,
+    pub scratch_payload: TypedSlot<'a>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -193,15 +195,22 @@ impl SortBindGroups {
         let out_minor = [channels.scratch_minor, channels.minor];
         let out_major = [channels.scratch_major, channels.major];
         let out_payload = [channels.scratch_payload, channels.payload];
+        let histogram = |index: usize| {
+            TypedSlot::new(
+                GpuSlot::whole(&histograms[index]),
+                StreamElement::new("u32", 4),
+            )
+        };
+        let rows = TypedSlot::new(GpuSlot::whole(rows), StreamElement::new("u32", 4));
         let prepare_groups = std::array::from_fn(|parity| {
             prepare.group(
                 device,
                 &[
                     ("keys_lo", channels.minor),
                     ("keys_hi", channels.major),
-                    ("histogram", GpuSlot::whole(&histograms[parity])),
-                    ("histogram_free", GpuSlot::whole(&histograms[1 - parity])),
-                    ("rows", GpuSlot::whole(rows)),
+                    ("histogram", histogram(parity)),
+                    ("histogram_free", histogram(1 - parity)),
+                    ("rows", rows),
                     ("count_holder", channels.count),
                 ],
             )
@@ -212,7 +221,7 @@ impl SortBindGroups {
                 &[
                     ("keys_lo", in_minor[source]),
                     ("keys_hi", in_major[source]),
-                    ("rows", GpuSlot::whole(rows)),
+                    ("rows", rows),
                     ("count_holder", channels.count),
                 ],
             )
@@ -225,8 +234,8 @@ impl SortBindGroups {
                         ("keys_lo", in_minor[source]),
                         ("keys_hi", in_major[source]),
                         ("payload_in", in_payload[source]),
-                        ("histogram", GpuSlot::whole(&histograms[parity])),
-                        ("rows", GpuSlot::whole(rows)),
+                        ("histogram", histogram(parity)),
+                        ("rows", rows),
                         ("keys_lo_out", out_minor[source]),
                         ("keys_hi_out", out_major[source]),
                         ("payload_out", out_payload[source]),

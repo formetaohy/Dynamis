@@ -11,7 +11,7 @@ mod submission;
 #[cfg(feature = "profile")]
 mod timing;
 
-pub use bindings::{ShaderBinding, parse_bindings};
+pub use bindings::{ShaderBinding, assert_binding_element, parse_bindings};
 pub use buffer::{GpuBuffer, GpuSlot};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
 pub use library::{WarmupBudget, WarmupProgress};
@@ -19,7 +19,7 @@ pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, Pi
 pub use readback::{Readback, read_regions};
 pub use recorder::ComputeRecorder;
 pub use runtime::GpuRuntime;
-pub use stream::{Contents, Stream};
+pub use stream::{Contents, Stream, StreamDesc, StreamElement, TypedSlot};
 pub use submission::SubmissionEncoder;
 #[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};

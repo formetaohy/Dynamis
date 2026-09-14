@@ -7,15 +7,11 @@ use dynamis_domain::Domain;
 use dynamis_gpu::Contents;
 use dynamis_pass::EVENT_SLOTS;
 use dynamis_pass::streams;
-use std::mem::size_of;
 
 pub const COMPACT_BLOCK: u32 = 256;
 
 const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;
-const SOLVER_DELTA_BYTES: u64 = 64;
-const SOLVER_CORRECTION_BYTES: u64 = 64;
-const SOLVER_RESOLUTION_BYTES: u64 = 16;
-const CONTACT_TARGET_BYTES: u64 = 4 * CONTACT_MAX_POINTS as u64;
+const SOLVER_BLOCK_VECTORS: u64 = 4;
 
 streams! {
     RigidStreams, RigidStream, RigidDemand, RigidDomain::ID, demand,
@@ -28,55 +24,55 @@ streams! {
         sort: u32,
     }
     streams {
-        collider_aabbs, ColliderAabbs: "broadphase aabbs", size_of::<AabbRecord>() as u64, Contents::Scratch, demand.colliders;
-        live_bodies, LiveBodies: "live body rows", 4, Contents::Scratch, demand.bodies;
-        body_activity, BodyActivity: "body activity", 4, Contents::Scratch, demand.bodies;
-        body_motion, BodyMotion: "body motion", 4, Contents::Scratch, demand.bodies;
-        body_state_scratch, BodyStateScratch: "body state scratch", size_of::<BodyStateRecord>() as u64, Contents::Scratch, demand.bodies;
-        constraint_rows, ConstraintRows: "constraint rows", size_of::<ConstraintRowsRecord>() as u64, Contents::Scratch, demand.constraints;
-        constraint_scratch, ConstraintScratch: "constraint state scratch", size_of::<ConstraintRuntimeRecord>() as u64, Contents::Scratch, demand.constraints;
-        joint_filter_major, JointFilterMajor: "joint filter major", 4, Contents::Scratch, demand.constraints;
-        joint_filter_minor, JointFilterMinor: "joint filter minor", 4, Contents::Scratch, demand.constraints;
-        ccd_factor, CcdFactor: "ccd retreat factors", 4, Contents::Scratch, demand.bodies;
-        ccd_impact, CcdImpact: "ccd impacts", 16, Contents::Scratch, demand.bodies;
-        contacts_raw, ContactsRaw: "contacts raw", size_of::<ContactRecord>() as u64, Contents::Scratch, demand.pairs;
-        contact_valid, ContactValid: "contact valid", 4, Contents::Scratch, demand.pairs;
-        compact_ranks, CompactRanks: "compact ranks", 4, Contents::Scratch, demand.pairs;
-        compact_block_sums, CompactBlockSums: "compact block sums", 4, Contents::Scratch, demand.compact_blocks();
-        compact_block_offsets, CompactBlockOffsets: "compact block offsets", 4, Contents::Scratch, demand.compact_blocks();
-        contacts, Contacts: "contacts", size_of::<ContactRecord>() as u64, Contents::Scratch, demand.pairs;
-        contact_target_speeds, ContactTargetSpeeds: "contact target speeds", CONTACT_TARGET_BYTES, Contents::Scratch, demand.pairs;
-        contact_matched, ContactMatched: "contact matched", 4, Contents::Scratch, demand.pairs;
-        contact_archive, ContactArchive: "contact archive", size_of::<ContactRecord>() as u64, Contents::Durable, demand.pairs;
-        resting_contacts, RestingContacts: "resting contacts", size_of::<ContactRecord>() as u64, Contents::Durable, demand.pairs;
-        resting_live, RestingLive: "resting contact live", 4, Contents::Durable, demand.pairs;
-        resting_next, RestingNext: "resting contact next", 4, Contents::Durable, demand.pairs;
-        resting_free, RestingFree: "resting contact free", 4, Contents::Seeded(NO_SLOT), 1;
-        resting_index_major, RestingIndexMajor: "resting index major", 4, Contents::Durable, demand.pairs;
-        resting_index_minor, RestingIndexMinor: "resting index minor", 4, Contents::Durable, demand.pairs;
-        resting_index_slots, RestingIndexSlots: "resting index slots", 4, Contents::Durable, demand.pairs;
-        solver_segments, SolverSegments: "solver segments", 4, Contents::Scratch, SOLVER_BLOCK_KINDS;
-        solver_a_bodies, SolverABodies: "solver block bodies", 4, Contents::Scratch, demand.blocks();
-        solver_a_payload, SolverAPayload: "solver block payload", 4, Contents::Scratch, demand.blocks();
-        solver_b_bodies, SolverBBodies: "solver block second bodies", 4, Contents::Scratch, demand.blocks();
-        solver_b_blocks, SolverBBlocks: "solver block second slots", 4, Contents::Scratch, demand.blocks();
-        solver_block_first_body, SolverBlockFirstBody: "solver block first owner", 4, Contents::Scratch, demand.blocks();
-        solver_block_second_body, SolverBlockSecondBody: "solver block second owner", 4, Contents::Scratch, demand.blocks();
-        solver_first_a, SolverFirstA: "solver first block", 4, Contents::Scratch, demand.bodies;
-        solver_first_b, SolverFirstB: "solver first second block", 4, Contents::Scratch, demand.bodies;
-        solver_block_counts, SolverBlockCounts: "solver block counts", 4, Contents::Scratch, demand.bodies;
-        solver_contact_counts, SolverContactCounts: "solver contact counts", 4, Contents::Scratch, demand.bodies;
-        solver_block_deltas, SolverBlockDeltas: "solver block deltas", SOLVER_DELTA_BYTES, Contents::Scratch, demand.blocks();
-        solver_block_corrections, SolverBlockCorrections: "solver block corrections", SOLVER_CORRECTION_BYTES, Contents::Scratch, demand.blocks();
-        solver_resolution, SolverResolution: "solver resolution", SOLVER_RESOLUTION_BYTES, Contents::Scratch, demand.bodies;
-        solver_contributions, SolverContributions: "solver contributions", 4, Contents::Scratch, demand.bodies;
-        island_parents, IslandParents: "island parents", 4, Contents::Scratch, demand.bodies;
-        island_state, IslandState: "island state", 4, Contents::Scratch, demand.bodies;
-        events, Events: "contact events", size_of::<ContactEventRecord>() as u64, Contents::Scratch, demand.events.saturating_mul(EVENT_SLOTS);
-        sort_scratch_major, SortScratchMajor: "sort scratch major", 4, Contents::Scratch, demand.sort;
-        sort_scratch_minor, SortScratchMinor: "sort scratch minor", 4, Contents::Scratch, demand.sort;
-        sort_scratch_payload, SortScratchPayload: "sort scratch payload", 4, Contents::Scratch, demand.sort;
-        sort_dummy_payload, SortDummyPayload: "sort dummy payload", 4, Contents::Scratch, demand.sort;
+        collider_aabbs, ColliderAabbs: "broadphase aabbs", AabbRecord, 1, Contents::Scratch, demand.colliders;
+        live_bodies, LiveBodies: "live body rows", u32, 1, Contents::Scratch, demand.bodies;
+        body_activity, BodyActivity: "body activity", u32, 1, Contents::Scratch, demand.bodies;
+        body_motion, BodyMotion: "body motion", u32, 1, Contents::Scratch, demand.bodies;
+        body_state_scratch, BodyStateScratch: "body state scratch", BodyStateRecord, 1, Contents::Scratch, demand.bodies;
+        constraint_rows, ConstraintRows: "constraint rows", ConstraintRowsRecord, 1, Contents::Scratch, demand.constraints;
+        constraint_scratch, ConstraintScratch: "constraint state scratch", ConstraintRuntimeRecord, 1, Contents::Scratch, demand.constraints;
+        joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Contents::Scratch, demand.constraints;
+        joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Contents::Scratch, demand.constraints;
+        ccd_factor, CcdFactor: "ccd retreat factors", u32, 1, Contents::Scratch, demand.bodies;
+        ccd_impact, CcdImpact: "ccd impacts", [f32; 4], 1, Contents::Scratch, demand.bodies;
+        contacts_raw, ContactsRaw: "contacts raw", ContactRecord, 1, Contents::Scratch, demand.pairs;
+        contact_valid, ContactValid: "contact valid", u32, 1, Contents::Scratch, demand.pairs;
+        compact_ranks, CompactRanks: "compact ranks", u32, 1, Contents::Scratch, demand.pairs;
+        compact_block_sums, CompactBlockSums: "compact block sums", u32, 1, Contents::Scratch, demand.compact_blocks();
+        compact_block_offsets, CompactBlockOffsets: "compact block offsets", u32, 1, Contents::Scratch, demand.compact_blocks();
+        contacts, Contacts: "contacts", ContactRecord, 1, Contents::Scratch, demand.pairs;
+        contact_target_speeds, ContactTargetSpeeds: "contact target speeds", f32, CONTACT_MAX_POINTS, Contents::Scratch, demand.pairs;
+        contact_matched, ContactMatched: "contact matched", u32, 1, Contents::Scratch, demand.pairs;
+        contact_archive, ContactArchive: "contact archive", ContactRecord, 1, Contents::Durable, demand.pairs;
+        resting_contacts, RestingContacts: "resting contacts", ContactRecord, 1, Contents::Durable, demand.pairs;
+        resting_live, RestingLive: "resting contact live", u32, 1, Contents::Durable, demand.pairs;
+        resting_next, RestingNext: "resting contact next", u32, 1, Contents::Durable, demand.pairs;
+        resting_free, RestingFree: "resting contact free", u32, 1, Contents::Seeded(NO_SLOT), 1;
+        resting_index_major, RestingIndexMajor: "resting index major", u32, 1, Contents::Durable, demand.pairs;
+        resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Contents::Durable, demand.pairs;
+        resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Contents::Durable, demand.pairs;
+        solver_segments, SolverSegments: "solver segments", u32, 1, Contents::Scratch, SOLVER_BLOCK_KINDS;
+        solver_a_bodies, SolverABodies: "solver block bodies", u32, 1, Contents::Scratch, demand.blocks();
+        solver_a_payload, SolverAPayload: "solver block payload", u32, 1, Contents::Scratch, demand.blocks();
+        solver_b_bodies, SolverBBodies: "solver block second bodies", u32, 1, Contents::Scratch, demand.blocks();
+        solver_b_blocks, SolverBBlocks: "solver block second slots", u32, 1, Contents::Scratch, demand.blocks();
+        solver_block_first_body, SolverBlockFirstBody: "solver block first owner", u32, 1, Contents::Scratch, demand.blocks();
+        solver_block_second_body, SolverBlockSecondBody: "solver block second owner", u32, 1, Contents::Scratch, demand.blocks();
+        solver_first_a, SolverFirstA: "solver first block", u32, 1, Contents::Scratch, demand.bodies;
+        solver_first_b, SolverFirstB: "solver first second block", u32, 1, Contents::Scratch, demand.bodies;
+        solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Contents::Scratch, demand.bodies;
+        solver_contact_counts, SolverContactCounts: "solver contact counts", u32, 1, Contents::Scratch, demand.bodies;
+        solver_block_deltas, SolverBlockDeltas: "solver block deltas", [f32; 4], SOLVER_BLOCK_VECTORS, Contents::Scratch, demand.blocks();
+        solver_block_corrections, SolverBlockCorrections: "solver block corrections", [f32; 4], SOLVER_BLOCK_VECTORS, Contents::Scratch, demand.blocks();
+        solver_resolution, SolverResolution: "solver resolution", [f32; 4], 1, Contents::Scratch, demand.bodies;
+        solver_contributions, SolverContributions: "solver contributions", u32, 1, Contents::Scratch, demand.bodies;
+        island_parents, IslandParents: "island parents", u32, 1, Contents::Scratch, demand.bodies;
+        island_state, IslandState: "island state", u32, 1, Contents::Scratch, demand.bodies;
+        events, Events: "contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(EVENT_SLOTS);
+        sort_scratch_major, SortScratchMajor: "sort scratch major", u32, 1, Contents::Scratch, demand.sort;
+        sort_scratch_minor, SortScratchMinor: "sort scratch minor", u32, 1, Contents::Scratch, demand.sort;
+        sort_scratch_payload, SortScratchPayload: "sort scratch payload", u32, 1, Contents::Scratch, demand.sort;
+        sort_dummy_payload, SortDummyPayload: "sort dummy payload", u32, 1, Contents::Scratch, demand.sort;
     }
 }
 
