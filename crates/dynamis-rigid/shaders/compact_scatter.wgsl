@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> contacts: array<Contact>;
 @group(0) @binding(5) var<storage, read_write> contact_matched: array<u32>;
 @group(0) @binding(6) var<storage, read_write> count_holder: array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read_write> refused: array<atomic<u32>>;
 
 const BLOCK_SIZE: u32 = 256u;
 
@@ -17,6 +18,10 @@ fn work(index: u32) {
         return;
     }
     let dest = block_offsets[index / BLOCK_SIZE] + ranks[index];
+    if (dest >= arrayLength(&contacts)) {
+        atomicAdd(&refused[0], 1u);
+        return;
+    }
     contacts[dest] = contacts_raw[index];
     contact_matched[dest] = 0u;
 }

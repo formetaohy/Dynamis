@@ -22,6 +22,8 @@ streams! {
         colliders: u32,
         constraints: u32,
         pairs: u32,
+        contacts: u32,
+        resting: u32,
         events: u32,
         sort: u32,
     }
@@ -43,17 +45,17 @@ streams! {
         compact_ranks, CompactRanks: "compact ranks", u32, 1, Contents::Scratch, demand.pairs;
         compact_block_sums, CompactBlockSums: "compact block sums", u32, 1, Contents::Scratch, demand.compact_blocks();
         compact_block_offsets, CompactBlockOffsets: "compact block offsets", u32, 1, Contents::Scratch, demand.compact_blocks();
-        contacts, Contacts: "contacts", ContactRecord, 1, Contents::Scratch, demand.pairs;
-        contact_target_speeds, ContactTargetSpeeds: "contact target speeds", f32, CONTACT_MAX_POINTS, Contents::Scratch, demand.pairs;
-        contact_matched, ContactMatched: "contact matched", u32, 1, Contents::Scratch, demand.pairs;
-        contact_archive, ContactArchive: "contact archive", ContactRecord, 1, Contents::Durable, demand.pairs;
-        resting_contacts, RestingContacts: "resting contacts", ContactRecord, 1, Contents::Durable, demand.pairs;
-        resting_live, RestingLive: "resting contact live", u32, 1, Contents::Durable, demand.pairs;
-        resting_next, RestingNext: "resting contact next", u32, 1, Contents::Durable, demand.pairs;
+        contacts, Contacts: "contacts", ContactRecord, 1, Contents::Scratch, demand.contacts;
+        contact_target_speeds, ContactTargetSpeeds: "contact target speeds", f32, CONTACT_MAX_POINTS, Contents::Scratch, demand.contacts;
+        contact_matched, ContactMatched: "contact matched", u32, 1, Contents::Scratch, demand.contacts;
+        contact_archive, ContactArchive: "contact archive", ContactRecord, 1, Contents::Durable, demand.contacts;
+        resting_contacts, RestingContacts: "resting contacts", ContactRecord, 1, Contents::Durable, demand.resting;
+        resting_live, RestingLive: "resting contact live", u32, 1, Contents::Durable, demand.resting;
+        resting_next, RestingNext: "resting contact next", u32, 1, Contents::Durable, demand.resting;
         resting_free, RestingFree: "resting contact free", u32, 1, Contents::Seeded(NO_SLOT), 1;
-        resting_index_major, RestingIndexMajor: "resting index major", u32, 1, Contents::Durable, demand.pairs;
-        resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Contents::Durable, demand.pairs;
-        resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Contents::Durable, demand.pairs;
+        resting_index_major, RestingIndexMajor: "resting index major", u32, 1, Contents::Durable, demand.resting;
+        resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Contents::Durable, demand.resting;
+        resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Contents::Durable, demand.resting;
         solver_segments, SolverSegments: "solver segments", u32, 1, Contents::Scratch, SOLVER_BLOCK_KINDS;
         solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Contents::Scratch, demand.bodies;
         solver_blocks, SolverBlocks: "solver block lanes", u32, 1, Contents::Scratch, demand.solver_words();
@@ -73,7 +75,7 @@ streams! {
 
 impl RigidDemand {
     pub fn blocks(&self) -> u32 {
-        self.pairs.saturating_add(self.constraints)
+        self.contacts.saturating_add(self.constraints)
     }
 
     pub fn solver_words(&self) -> u32 {

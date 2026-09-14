@@ -65,6 +65,10 @@ impl StreamWatch {
         capacity.max(budget).max(self.served).max(STREAM_FLOOR)
     }
 
+    pub fn doubled(&self, capacity: u32, budget: u32) -> u32 {
+        grown(capacity, self.served.max(budget), STREAM_FLOOR)
+    }
+
     pub fn pressured(&self) -> bool {
         self.pressure
     }

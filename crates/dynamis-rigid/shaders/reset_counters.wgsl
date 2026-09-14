@@ -10,6 +10,7 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
         slot == COUNTER_JOINTS ||
         slot == COUNTER_EVENTS ||
         slot == COUNTER_REFUSED_PAIRS ||
+        slot == COUNTER_REFUSED_CONTACTS ||
         slot == COUNTER_REFUSED_EVENTS ||
         slot == COUNTER_ENTRY_FAULTS ||
         slot == COUNTER_REFUSED_RESTING ||

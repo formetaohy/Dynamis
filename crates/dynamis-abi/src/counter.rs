@@ -33,7 +33,8 @@ pub mod device {
         pub const COUNTER_SOFT_ACTIVE: usize = 28;
         pub const COUNTER_SOFT_SLEPT: usize = 29;
         pub const COUNTER_SOFT_WOKE: usize = 30;
-        pub const COUNTER_DEVICE_COUNT: usize = 31;
+        pub const COUNTER_REFUSED_CONTACTS: usize = 31;
+        pub const COUNTER_DEVICE_COUNT: usize = 32;
     }
 }
 

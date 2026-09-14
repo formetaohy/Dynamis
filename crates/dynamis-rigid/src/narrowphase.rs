@@ -2,7 +2,7 @@ use super::streams::COMPACT_BLOCK;
 use super::streams::RigidStream;
 use crate::RigidFrame;
 use crate::sort;
-use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS};
+use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_REFUSED_CONTACTS};
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -98,6 +98,7 @@ impl Narrowphase {
                     ("contacts", RigidStream::Contacts.whole()),
                     ("contact_matched", RigidStream::ContactMatched.whole()),
                     ("count_holder", dynamis_state::counter(COUNTER_PAIRS)),
+                    ("refused", dynamis_state::counter(COUNTER_REFUSED_CONTACTS)),
                 ],
                 &[],
             ),

@@ -2,7 +2,9 @@ use super::common::{
     DT, flat_mesh_floor, gravity_config, new_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
-use dynamis_abi::{COUNTER_CONTACTS, COUNTER_REFUSED_PAIRS};
+use dynamis_abi::{
+    COUNTER_CONTACTS, COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
+};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape, SoftBodyDesc};
 use dynamis_world::World;
 
@@ -381,4 +383,96 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
         (after - before).abs() < 1e-3,
         "the uploaded floor must keep its height, {before} became {after}"
     );
+}
+
+#[test]
+fn the_contact_store_follows_the_contacts_not_the_swept_candidates() {
+    let mut world = new_world(static_config());
+    let floor = world.stream_capacity();
+    let sweepers = (0..512)
+        .map(|index| {
+            world.spawn(
+                BodyDesc::sphere(0.2)
+                    .position([0.0, 1.0 + index as f32, 0.0])
+                    .velocity([0.0, -400.0, 0.0]),
+            )
+        })
+        .collect::<Vec<_>>();
+    settle(&mut world, 2);
+    let sweeping = world.stream_capacity();
+    assert!(
+        sweeping.rigid.pairs > floor.rigid.pairs,
+        "a fast column must widen the candidate store, {floor:?} vs {sweeping:?}"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_CONTACTS],
+        0,
+        "a column spaced wider than its swept reach must touch nothing"
+    );
+    assert!(
+        sweeping.rigid.contacts * 2 < sweeping.rigid.pairs,
+        "a world without contacts must keep the contact store far below the candidate store, {sweeping:?}"
+    );
+    for body in sweepers {
+        world.remove(body);
+    }
+
+    let pile = sphere_pile(&mut world);
+    settle_until(&mut world, 60, |world| {
+        world.measured()[COUNTER_REFUSED_CONTACTS] == 0
+            && world.stream_capacity().rigid.contacts >= 2 * world.measured()[COUNTER_CONTACTS]
+    });
+    assert_eq!(
+        world.measured()[COUNTER_REFUSED_CONTACTS],
+        0,
+        "the widened contact store must serve every contact of the pile"
+    );
+    assert!(
+        world.stream_capacity().rigid.contacts > sweeping.rigid.contacts,
+        "the spilled pile must widen the contact store"
+    );
+    let _ = pile;
+}
+
+#[test]
+fn the_resting_pool_never_shrinks_below_its_watermark() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let pile = (0..64)
+        .map(|index| {
+            let x = (index % 8) as f32 * 0.85 - 3.0;
+            let z = (index / 8) as f32 * 0.85 - 3.0;
+            world.spawn(BodyDesc::sphere(0.4).position([x, 0.4, z]).friction(0.6))
+        })
+        .collect::<Vec<_>>();
+    settle_until(&mut world, 600, |world| {
+        world.measured()[COUNTER_RESTING] >= 24
+    });
+    let frozen = world.stream_capacity().rigid.resting;
+    assert!(
+        frozen >= world.measured()[COUNTER_RESTING],
+        "the resting pool must cover the slots the device froze, {frozen} vs {}",
+        world.measured()[COUNTER_RESTING]
+    );
+
+    for _ in 0..400 {
+        world.step(DT);
+        world.wait();
+    }
+    let idle = world.stream_capacity().rigid;
+    assert!(
+        idle.resting >= frozen,
+        "the frozen slots outlive the contacts that produced them, {frozen} vs {idle:?}"
+    );
+    assert!(
+        world.contact_manifolds().len() >= 24,
+        "the released contact store must still report the frozen contacts"
+    );
+    for body in pile {
+        world.remove(body);
+    }
 }

@@ -1,11 +1,18 @@
 use super::streams::{RigidDemand, RigidStreams};
-use dynamis_abi::{COUNTER_EVENTS, COUNTER_REFUSED_EVENTS, Counters};
+use dynamis_abi::{
+    COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_EVENTS,
+    COUNTER_RESTING, Counters,
+};
 use dynamis_domain::{MIN_SLOTS, StreamWatch, settled};
 
 const STREAM_DENSITY_EVENTS: u32 = 8;
+const STREAM_DENSITY_CONTACTS: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidCapacity {
+    pub pairs: u32,
+    pub contacts: u32,
+    pub resting: u32,
     pub events: u32,
 }
 
@@ -22,12 +29,16 @@ pub struct RigidInputs {
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
     RigidCapacity {
+        pairs: streams.contact_valid.slots(),
+        contacts: streams.contacts.slots(),
+        resting: streams.resting_contacts.slots(),
         events: streams.events.slots() / dynamis_gpu::EVENT_SLOTS,
     }
 }
 
 pub struct Capacity {
     events: StreamWatch,
+    contacts: StreamWatch,
 }
 
 impl Default for Capacity {
@@ -40,6 +51,7 @@ impl Capacity {
     pub const fn new() -> Self {
         Self {
             events: StreamWatch::IDLE,
+            contacts: StreamWatch::IDLE,
         }
     }
 
@@ -74,6 +86,30 @@ impl Capacity {
                 event_budget,
             )
         };
+        self.contacts.observe(
+            measured[COUNTER_CONTACTS],
+            measured[COUNTER_REFUSED_CONTACTS] > 0,
+            current.contacts.slots(),
+        );
+        if self.contacts.pressured() {
+            self.contacts.settle(false);
+        } else if idle {
+            self.contacts.settle(true);
+        }
+        let contact_budget =
+            dynamis_domain::product(inputs.colliders, STREAM_DENSITY_CONTACTS, "contact");
+        let contacts = if idle {
+            self.contacts
+                .released(current.contacts.slots(), contact_budget)
+        } else {
+            self.contacts
+                .doubled(current.contacts.slots(), contact_budget)
+        };
+        let resting = current
+            .resting_contacts
+            .slots()
+            .max(measured[COUNTER_RESTING])
+            .max(contacts);
         let bodies = dynamis_domain::grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS);
         let colliders = current
             .collider_aabbs
@@ -92,6 +128,8 @@ impl Capacity {
             colliders,
             constraints,
             pairs,
+            contacts,
+            resting,
             events,
             sort,
         }
@@ -103,6 +141,8 @@ impl Capacity {
             colliders: MIN_SLOTS,
             constraints: MIN_SLOTS,
             pairs,
+            contacts: dynamis_domain::STREAM_FLOOR,
+            resting: dynamis_domain::STREAM_FLOOR,
             events: dynamis_domain::STREAM_FLOOR,
             sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
         }
