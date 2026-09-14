@@ -202,8 +202,7 @@ impl Rigid {
                 return;
             }
             let mut substeps = schedule.open(encoder, pass);
-            self.solver
-                .record_topology(&mut substeps, streams, frame, &self.sort);
+            self.solver.record_topology(&mut substeps, streams);
             for substep in 0..frame.params.substeps {
                 self.integrate.record_substep(&mut substeps, streams);
                 if substep == 0 {

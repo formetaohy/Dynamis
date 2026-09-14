@@ -11,7 +11,9 @@ use dynamis_pass::streams;
 pub const COMPACT_BLOCK: u32 = 256;
 
 const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;
-const SOLVER_BLOCK_VECTORS: u64 = 4;
+
+pub const DELTA_WORDS: u32 = dynamis_abi::SOLVER_DELTA_WORDS;
+pub const BLOCK_LANES: u32 = 2;
 
 streams! {
     RigidStreams, RigidStream, RigidDemand, RigidDomain::ID, demand,
@@ -53,18 +55,10 @@ streams! {
         resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Contents::Durable, demand.pairs;
         resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Contents::Durable, demand.pairs;
         solver_segments, SolverSegments: "solver segments", u32, 1, Contents::Scratch, SOLVER_BLOCK_KINDS;
-        solver_a_bodies, SolverABodies: "solver block bodies", u32, 1, Contents::Scratch, demand.blocks();
-        solver_a_payload, SolverAPayload: "solver block payload", u32, 1, Contents::Scratch, demand.blocks();
-        solver_b_bodies, SolverBBodies: "solver block second bodies", u32, 1, Contents::Scratch, demand.blocks();
-        solver_b_blocks, SolverBBlocks: "solver block second slots", u32, 1, Contents::Scratch, demand.blocks();
-        solver_block_first_body, SolverBlockFirstBody: "solver block first owner", u32, 1, Contents::Scratch, demand.blocks();
-        solver_block_second_body, SolverBlockSecondBody: "solver block second owner", u32, 1, Contents::Scratch, demand.blocks();
-        solver_first_a, SolverFirstA: "solver first block", u32, 1, Contents::Scratch, demand.bodies;
-        solver_first_b, SolverFirstB: "solver first second block", u32, 1, Contents::Scratch, demand.bodies;
         solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Contents::Scratch, demand.bodies;
-        solver_contact_counts, SolverContactCounts: "solver contact counts", u32, 1, Contents::Scratch, demand.bodies;
-        solver_block_deltas, SolverBlockDeltas: "solver block deltas", [f32; 4], SOLVER_BLOCK_VECTORS, Contents::Scratch, demand.blocks();
-        solver_block_corrections, SolverBlockCorrections: "solver block corrections", [f32; 4], SOLVER_BLOCK_VECTORS, Contents::Scratch, demand.blocks();
+        solver_blocks, SolverBlocks: "solver block lanes", u32, 1, Contents::Scratch, demand.solver_words();
+        solver_velocity_deltas, SolverVelocityDeltas: "solver velocity deltas", u32, 1, Contents::Scratch, demand.body_words();
+        solver_position_deltas, SolverPositionDeltas: "solver position deltas", u32, 1, Contents::Scratch, demand.body_words();
         solver_resolution, SolverResolution: "solver resolution", [f32; 4], 1, Contents::Scratch, demand.bodies;
         solver_contributions, SolverContributions: "solver contributions", u32, 1, Contents::Scratch, demand.bodies;
         island_parents, IslandParents: "island parents", u32, 1, Contents::Scratch, demand.bodies;
@@ -80,6 +74,14 @@ streams! {
 impl RigidDemand {
     pub fn blocks(&self) -> u32 {
         self.pairs.saturating_add(self.constraints)
+    }
+
+    pub fn solver_words(&self) -> u32 {
+        self.blocks().saturating_mul(BLOCK_LANES)
+    }
+
+    pub fn body_words(&self) -> u32 {
+        self.bodies.saturating_mul(DELTA_WORDS)
     }
 
     pub fn compact_blocks(&self) -> u32 {

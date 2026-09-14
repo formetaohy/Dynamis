@@ -3,6 +3,17 @@ struct Body {
     desc: BodyDescriptor,
 }
 
+const SOLVER_VELOCITY_SCALE: f32 = 262144.0;
+const SOLVER_POSITION_SCALE: f32 = 16777216.0;
+
+fn solver_word(value: f32, scale: f32) -> u32 {
+    return u32(i32(clamp(value * scale, -2.0e9, 2.0e9)));
+}
+
+fn solver_value(word: u32, scale: f32) -> f32 {
+    return f32(i32(word)) / scale;
+}
+
 struct TangentBasis {
     first: vec3f,
     second: vec3f,

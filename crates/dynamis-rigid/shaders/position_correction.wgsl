@@ -34,13 +34,6 @@ fn pair_holds(pair: CorrectionPair) -> bool {
     return correction_holds(pair.first) || correction_holds(pair.second);
 }
 
-fn store_block_correction(slot: u32, pair: CorrectionPair) {
-    block_corrections[slot * 4u] = vec4f(pair.first.linear, 0.0);
-    block_corrections[slot * 4u + 1u] = vec4f(pair.first.angular, 0.0);
-    block_corrections[slot * 4u + 2u] = vec4f(pair.second.linear, 0.0);
-    block_corrections[slot * 4u + 3u] = vec4f(pair.second.angular, 0.0);
-}
-
 fn apply_correction(body: ptr<function, Body>, correction: Correction) {
     (*body).state.position = (*body).state.position + correction.linear;
     (*body).state.orientation = normalize(quat_mul(vec4f(correction.angular * 0.5, 1.0), (*body).state.orientation));
@@ -114,14 +107,13 @@ fn local_point_row(
     );
 }
 
-fn solve_contact_correction(contact_index: u32, slot: u32) {
+fn solve_contact_correction(contact_index: u32) {
     let contact = contacts[contact_index];
     if (!contact_block_resolves(contact)) {
-        store_block_correction(slot, pair_zero());
         return;
     }
-    let first_row = collider_owners[contact.a];
-    let second_row = collider_owners[contact.b];
+    let first_row = blocks[contact_index * 2u];
+    let second_row = blocks[contact_index * 2u + 1u];
     let first_loaded = load_body(first_row);
     let second_loaded = load_body(second_row);
     var first = first_loaded;
@@ -149,19 +141,16 @@ fn solve_contact_correction(contact_index: u32, slot: u32) {
         contributing = contributing + 1u;
     }
     if (contributing == 0u) {
-        store_block_correction(slot, pair_zero());
         return;
     }
-    atomicAdd(&contributions[first_row], 1u);
-    atomicAdd(&contributions[second_row], 1u);
     let correction = total / f32(contributing);
     var pair = pair_zero();
     pair.first.linear = -correction * first.desc.inverse_mass;
     pair.second.linear = correction * second.desc.inverse_mass;
-    store_block_correction(slot, pair);
+    accumulate_correction(first_row, second_row, pair);
 }
 
-fn solve_constraint_correction(constraint_index: u32, slot: u32) {
+fn solve_constraint_correction(constraint_index: u32) {
     let constraint = constraint_descs[constraint_index];
     let rows = constraint_rows[constraint_index];
     var total = pair_zero();
@@ -362,10 +351,6 @@ fn solve_constraint_correction(constraint_index: u32, slot: u32) {
                 row(&first, &second, &total, local_row(orthogonal_axis(axis_index), dot(error_vector, orthogonal_axis(axis_index)), scale, first, second));
             }
         }
-        if (pair_holds(total)) {
-            atomicAdd(&contributions[rows.first_row], 1u);
-            atomicAdd(&contributions[rows.second_row], 1u);
-        }
     }
-    store_block_correction(slot, total);
+    accumulate_correction(rows.first_row, rows.second_row, total);
 }

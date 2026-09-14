@@ -1,13 +1,11 @@
 use super::streams::RigidStream;
 use crate::RigidFrame;
-use crate::sort;
 use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_kernel::{CORE, rows, stream, stream_warm, workgroups};
 use dynamis_pass::Resources;
 use dynamis_pass::Stage;
-use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
 const BLOCKS: &[&str] = &[
@@ -32,8 +30,6 @@ pub struct Solver {
     reset: Stage,
     total: Stage,
     blocks: Stage,
-    pair_order: Stage,
-    boundaries: Stage,
     block_solve: Stage,
     block_apply: Stage,
     position_block: Stage,
@@ -56,12 +52,11 @@ impl Solver {
             streams,
             &[
                 ("params", StateStream::Params.whole()),
-                ("first_a", RigidStream::SolverFirstA.whole()),
-                ("first_b", RigidStream::SolverFirstB.whole()),
                 ("block_counts", RigidStream::SolverBlockCounts.whole()),
-                ("contact_counts", RigidStream::SolverContactCounts.whole()),
                 ("resolution", RigidStream::SolverResolution.whole()),
                 ("contributions", RigidStream::SolverContributions.whole()),
+                ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
+                ("position_deltas", RigidStream::SolverPositionDeltas.whole()),
             ],
             &[],
         );
@@ -88,7 +83,7 @@ impl Solver {
                 include_str!("../shaders/solver_blocks.wgsl"),
                 CORE,
                 "work",
-                RigidStream::SolverAPayload,
+                RigidStream::SolverBlocks,
             ),
             streams,
             &[
@@ -96,68 +91,13 @@ impl Solver {
                 ("body_states", StateStream::BodyStates.whole()),
                 ("body_descs", StateStream::BodyDescriptors.whole()),
                 ("contacts", RigidStream::Contacts.whole()),
-                ("segments", segments),
-                (
-                    "block_first_body",
-                    RigidStream::SolverBlockFirstBody.whole(),
-                ),
-                (
-                    "block_second_body",
-                    RigidStream::SolverBlockSecondBody.whole(),
-                ),
-                ("a_bodies", RigidStream::SolverABodies.whole()),
-                ("a_payload", RigidStream::SolverAPayload.whole()),
-                ("collider_owners", StateStream::ColliderOwners.whole()),
-                ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
-                ("constraint_rows", RigidStream::ConstraintRows.whole()),
-            ],
-            &[],
-        );
-        let pair_order = Stage::build(
-            context,
-            "solver pair order",
-            stream(
-                context,
-                include_str!("../shaders/solver_pair_order.wgsl"),
-                CORE,
-                "work",
-                RigidStream::SolverAPayload,
-            ),
-            streams,
-            &[
-                ("a_payload", RigidStream::SolverAPayload.whole()),
-                (
-                    "block_second_body",
-                    RigidStream::SolverBlockSecondBody.whole(),
-                ),
-                ("b_bodies", RigidStream::SolverBBodies.whole()),
-                ("b_blocks", RigidStream::SolverBBlocks.whole()),
-                ("block_count", block_count),
-            ],
-            &[],
-        );
-        let boundaries = Stage::build(
-            context,
-            "solver boundaries",
-            stream(
-                context,
-                include_str!("../shaders/solver_boundaries.wgsl"),
-                CORE,
-                "work",
-                RigidStream::SolverAPayload,
-            ),
-            streams,
-            &[
-                ("segments", segments),
-                ("a_bodies", RigidStream::SolverABodies.whole()),
-                ("b_bodies", RigidStream::SolverBBodies.whole()),
-                ("a_payload", RigidStream::SolverAPayload.whole()),
-                ("first_a", RigidStream::SolverFirstA.whole()),
-                ("first_b", RigidStream::SolverFirstB.whole()),
-                ("contacts", RigidStream::Contacts.whole()),
                 ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
+                ("segments", segments),
+                ("collider_owners", StateStream::ColliderOwners.whole()),
+                ("constraint_rows", RigidStream::ConstraintRows.whole()),
                 ("block_counts", RigidStream::SolverBlockCounts.whole()),
-                ("contact_counts", RigidStream::SolverContactCounts.whole()),
+                ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
+                ("blocks", RigidStream::SolverBlocks.whole()),
             ],
             &[],
         );
@@ -169,7 +109,7 @@ impl Solver {
                 include_str!("../shaders/solver_block_solve.wgsl"),
                 &block_fragments(),
                 "work",
-                RigidStream::SolverAPayload,
+                RigidStream::SolverBlocks,
             ),
             streams,
             &[
@@ -183,12 +123,11 @@ impl Solver {
                 ),
                 ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                 ("segments", segments),
-                ("a_payload", RigidStream::SolverAPayload.whole()),
-                ("block_deltas", RigidStream::SolverBlockDeltas.whole()),
+                ("blocks", RigidStream::SolverBlocks.whole()),
+                ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
                 ("block_counts", RigidStream::SolverBlockCounts.whole()),
-                ("collider_owners", StateStream::ColliderOwners.whole()),
+                ("block_count", dynamis_state::counter(COUNTER_BLOCKS)),
                 ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
-                ("block_count", block_count),
                 ("constraint_rows", RigidStream::ConstraintRows.whole()),
             ],
             &[],
@@ -205,16 +144,8 @@ impl Solver {
             ),
             streams,
             &[
-                ("params", StateStream::Params.whole()),
                 ("body_states", StateStream::BodyStates.whole()),
-                ("first_a", RigidStream::SolverFirstA.whole()),
-                ("first_b", RigidStream::SolverFirstB.whole()),
-                ("a_bodies", RigidStream::SolverABodies.whole()),
-                ("b_bodies", RigidStream::SolverBBodies.whole()),
-                ("b_blocks", RigidStream::SolverBBlocks.whole()),
-                ("block_counts", RigidStream::SolverBlockCounts.whole()),
-                ("block_deltas", RigidStream::SolverBlockDeltas.whole()),
-                ("block_count", block_count),
+                ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
                 ("live_bodies", RigidStream::LiveBodies.whole()),
                 ("live_count", dynamis_state::counter(COUNTER_LIVE)),
             ],
@@ -228,7 +159,7 @@ impl Solver {
                 include_str!("../shaders/position_block.wgsl"),
                 &position_fragments(),
                 "work",
-                RigidStream::SolverAPayload,
+                RigidStream::SolverBlocks,
             ),
             streams,
             &[
@@ -242,13 +173,9 @@ impl Solver {
                 ),
                 ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                 ("segments", segments),
-                ("a_payload", RigidStream::SolverAPayload.whole()),
-                (
-                    "block_corrections",
-                    RigidStream::SolverBlockCorrections.whole(),
-                ),
+                ("blocks", RigidStream::SolverBlocks.whole()),
+                ("position_deltas", RigidStream::SolverPositionDeltas.whole()),
                 ("resolution", RigidStream::SolverResolution.whole()),
-                ("collider_owners", StateStream::ColliderOwners.whole()),
                 ("contributions", RigidStream::SolverContributions.whole()),
                 ("block_count", block_count),
                 ("constraint_rows", RigidStream::ConstraintRows.whole()),
@@ -267,20 +194,10 @@ impl Solver {
             ),
             streams,
             &[
-                ("params", StateStream::Params.whole()),
                 ("body_states", StateStream::BodyStates.whole()),
-                ("first_a", RigidStream::SolverFirstA.whole()),
-                ("first_b", RigidStream::SolverFirstB.whole()),
-                ("a_bodies", RigidStream::SolverABodies.whole()),
-                ("b_bodies", RigidStream::SolverBBodies.whole()),
-                ("b_blocks", RigidStream::SolverBBlocks.whole()),
-                (
-                    "block_corrections",
-                    RigidStream::SolverBlockCorrections.whole(),
-                ),
-                ("block_count", block_count),
-                ("resolution", RigidStream::SolverResolution.whole()),
+                ("position_deltas", RigidStream::SolverPositionDeltas.whole()),
                 ("contributions", RigidStream::SolverContributions.whole()),
+                ("resolution", RigidStream::SolverResolution.whole()),
                 ("live_bodies", RigidStream::LiveBodies.whole()),
                 ("live_count", dynamis_state::counter(COUNTER_LIVE)),
             ],
@@ -290,8 +207,6 @@ impl Solver {
             reset,
             total,
             blocks,
-            pair_order,
-            boundaries,
             block_solve,
             block_apply,
             position_block,
@@ -310,40 +225,8 @@ impl Solver {
         self.total.record_workgroups(recorder, streams, 1);
     }
 
-    pub fn record_topology(
-        &self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-        sort: &RadixSort,
-    ) {
-        let words = frame.shape.body_row_words;
-        let block_count = dynamis_state::counter(COUNTER_BLOCKS);
+    pub fn record_topology(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
         self.blocks.record_stream(recorder, streams);
-        sort.sort(
-            recorder,
-            &sort::lanes(
-                streams,
-                block_count,
-                RigidStream::SolverABodies.whole(),
-                RigidStream::SolverAPayload.whole(),
-            ),
-            words,
-            0,
-        );
-        self.pair_order.record_stream(recorder, streams);
-        sort.sort(
-            recorder,
-            &sort::lanes(
-                streams,
-                block_count,
-                RigidStream::SolverBBodies.whole(),
-                RigidStream::SolverBBlocks.whole(),
-            ),
-            words,
-            0,
-        );
-        self.boundaries.record_stream(recorder, streams);
     }
 
     pub fn record_warm(&self, recorder: &mut ComputeRecorder, streams: &impl Resources) {

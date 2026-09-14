@@ -6,8 +6,8 @@ fn tangential_mass(mass: f32, contact: Contact) -> f32 {
 
 fn solve_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
-    let first_slot = collider_owners[contact.a];
-    let second_slot = collider_owners[contact.b];
+    let first_slot = blocks[slot * 2u];
+    let second_slot = blocks[slot * 2u + 1u];
     if (!contact_block_resolves(contact)) {
         commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;
@@ -142,8 +142,8 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
 
 fn warm_contact_block(contact_index: u32, slot: u32) {
     let contact = contacts[contact_index];
-    let first_slot = collider_owners[contact.a];
-    let second_slot = collider_owners[contact.b];
+    let first_slot = blocks[slot * 2u];
+    let second_slot = blocks[slot * 2u + 1u];
     if (!contact_block_resolves(contact)) {
         commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
         return;

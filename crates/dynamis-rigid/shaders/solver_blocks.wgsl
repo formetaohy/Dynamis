@@ -1,15 +1,14 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
-@group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(4) var<storage, read> segments: array<u32>;
-@group(0) @binding(5) var<storage, read_write> block_first_body: array<u32>;
-@group(0) @binding(6) var<storage, read_write> block_second_body: array<u32>;
-@group(0) @binding(7) var<storage, read_write> a_bodies: array<u32>;
-@group(0) @binding(8) var<storage, read_write> a_payload: array<u32>;
-@group(0) @binding(9) var<storage, read> collider_owners: array<u32>;
-@group(0) @binding(10) var<storage, read_write> target_speeds: array<f32>;
-@group(0) @binding(11) var<storage, read> constraint_rows: array<ConstraintRows>;
+@group(0) @binding(3) var<storage, read> contacts: array<Contact>;
+@group(0) @binding(4) var<storage, read> constraint_runtime: array<ConstraintRuntime>;
+@group(0) @binding(5) var<storage, read> segments: array<u32>;
+@group(0) @binding(6) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(7) var<storage, read> constraint_rows: array<ConstraintRows>;
+@group(0) @binding(8) var<storage, read_write> block_counts: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> target_speeds: array<f32>;
+@group(0) @binding(10) var<storage, read_write> blocks: array<u32>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -21,15 +20,15 @@ fn extent() -> u32 {
 
 fn work(index: u32) {
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    a_payload[index] = index;
+    var first_body = NO_BODY;
+    var second_body = NO_BODY;
+    var resolves = false;
     if (index < contact_blocks) {
         let contact = contacts[index];
-        let first_body = collider_owners[contact.a];
-        let second_body = collider_owners[contact.b];
-        block_first_body[index] = first_body;
-        block_second_body[index] = second_body;
-        a_bodies[index] = first_body;
+        first_body = collider_owners[contact.a];
+        second_body = collider_owners[contact.b];
         if (contact_block_resolves(contact)) {
+            resolves = true;
             let first = load_body(first_body);
             let second = load_body(second_body);
             for (var point_index = 0u; point_index < contact.point_count; point_index = point_index + 1u) {
@@ -46,9 +45,15 @@ fn work(index: u32) {
         }
     } else {
         let rows = constraint_rows[index - contact_blocks];
-        block_first_body[index] = rows.first_row;
-        block_second_body[index] = rows.second_row;
-        a_bodies[index] = rows.first_row;
+        first_body = rows.first_row;
+        second_body = rows.second_row;
+        resolves = constraint_runtime[index - contact_blocks].broken == 0u;
     }
+    blocks[index * 2u] = first_body;
+    blocks[index * 2u + 1u] = second_body;
+    if (!resolves) {
+        return;
+    }
+    atomicAdd(&block_counts[first_body], 1u);
+    atomicAdd(&block_counts[second_body], 1u);
 }
-
