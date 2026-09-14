@@ -3,6 +3,8 @@ use dynamis_gpu::{
     PipelineHandle, StorageId, StreamElement, TypedSlot,
 };
 use dynamis_pass::Bindings;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use wgpu::{BindGroup, Device};
 
 const BINS: u32 = 256;
@@ -82,7 +84,6 @@ impl ChannelsKey {
 struct SortBindGroups {
     channels: ChannelsKey,
     prepare: [BindGroup; 2],
-    aggregate: [BindGroup; 2],
     binning: [[BindGroup; 2]; 2],
     copy: BindGroup,
 }
@@ -92,43 +93,96 @@ struct State {
     parity: u32,
 }
 
-pub struct RadixSort {
-    device: Device,
-    prepare: Declared,
-    aggregates: [Declared; 8],
-    binnings: [Declared; 8],
-    copy: Declared,
-    rows: GpuBuffer,
-    histograms: [GpuBuffer; 2],
-    state: std::sync::Mutex<State>,
+type Digit = usize;
+type NextDigit = Option<Digit>;
+type Plan = (Digit, NextDigit, NextDigit);
+
+fn digit_passes(minor_words: u32, major_words: u32) -> Vec<Digit> {
+    (0..minor_words)
+        .chain(4..4 + major_words)
+        .map(|pass| pass as Digit)
+        .collect()
 }
 
-fn region_offset(pass: usize) -> usize {
-    pass * SLOTS * BINS as usize
+fn digit_declarations() -> (BTreeSet<(Digit, NextDigit)>, BTreeSet<Plan>) {
+    let mut leading = BTreeSet::new();
+    let mut plans = BTreeSet::new();
+    for minor_words in 0..=4u32 {
+        for major_words in 0..=4u32 {
+            let passes = digit_passes(minor_words, major_words);
+            if let Some(first) = passes.first() {
+                leading.insert((*first, passes.get(1).copied()));
+            }
+            for (order, digit) in passes.iter().enumerate() {
+                plans.insert((
+                    *digit,
+                    passes.get(order + 1).copied(),
+                    passes.get(order + 2).copied(),
+                ));
+            }
+        }
+    }
+    (leading, plans)
 }
 
-fn declare_prepare(context: &GpuContext, label: &str, row: u32) -> Declared {
+fn region(offset: usize) -> u32 {
+    (offset * SLOTS * BINS as usize) as u32
+}
+
+fn declare_prepare(
+    context: &GpuContext,
+    label: &str,
+    row: u32,
+    first: Digit,
+    second: Option<Digit>,
+) -> Declared {
     let source = include_str!("shaders/sort_prepare.wgsl")
         .replace("__SLOTS__", &SLOTS.to_string())
-        .replace("__ROW__", &row.to_string());
-    Declared::declare(context, format!("{label} prepare"), source, "main")
+        .replace("__ROW__", &row.to_string())
+        .replace("__FIRST_DIGIT__", &first.to_string())
+        .replace("__FIRST_REGION__", &region(first).to_string())
+        .replace(
+            "__SECOND_REGION__",
+            &second.map(region).unwrap_or_default().to_string(),
+        )
+        .replace("__HAS_SECOND__", &u32::from(second.is_some()).to_string());
+    Declared::declare(
+        context,
+        format!("{label} prepare {first} -> {second:?}"),
+        source,
+        "main",
+    )
 }
 
-fn declare_binning(context: &GpuContext, label: &str, row: u32, pass: usize) -> Declared {
+fn declare_binning(context: &GpuContext, label: &str, row: u32, plan: Plan) -> Declared {
+    let (digit, next, zero) = plan;
     let source = include_str!("shaders/sort_binning.wgsl")
-        .replace("__SHIFT__", &(pass * 8).to_string())
-        .replace("__DIGIT__", &pass.to_string())
-        .replace("__REGION__", &region_offset(pass).to_string())
-        .replace("__ROW__", &row.to_string());
-    Declared::declare(context, format!("{label} binning {pass}"), source, "main")
-}
-
-fn declare_aggregate(context: &GpuContext, label: &str, row: u32, pass: usize) -> Declared {
-    let source = include_str!("shaders/sort_aggregate.wgsl")
-        .replace("__SHIFT__", &(pass * 8).to_string())
-        .replace("__REGION__", &region_offset(pass).to_string())
-        .replace("__ROW__", &row.to_string());
-    Declared::declare(context, format!("{label} aggregate {pass}"), source, "main")
+        .replace("__SHIFT__", &(digit * 8).to_string())
+        .replace("__DIGIT__", &digit.to_string())
+        .replace("__REGION__", &region(digit).to_string())
+        .replace("__ROW__", &row.to_string())
+        .replace(
+            "__NEXT_REGION__",
+            &next.map(region).unwrap_or_default().to_string(),
+        )
+        .replace(
+            "__NEXT_SHIFT__",
+            &next.map(|digit| digit * 8).unwrap_or_default().to_string(),
+        )
+        .replace(
+            "__NEXT_WORD__",
+            &next
+                .map(|digit| u32::from(digit >= 4))
+                .unwrap_or_default()
+                .to_string(),
+        )
+        .replace("__HAS_NEXT__", &u32::from(next.is_some()).to_string())
+        .replace(
+            "__ZERO_REGION__",
+            &zero.map(region).unwrap_or_default().to_string(),
+        )
+        .replace("__HAS_ZERO__", &u32::from(zero.is_some()).to_string());
+    Declared::declare(context, format!("{label} binning {plan:?}"), source, "main")
 }
 
 fn declare_copy(context: &GpuContext, label: &str, row: u32) -> Declared {
@@ -142,13 +196,10 @@ impl SortBindGroups {
         channels: &SortChannels<'_>,
         rows: &GpuBuffer,
         histograms: &[GpuBuffer; 2],
-        programs: &RadixSort,
-        pass: usize,
+        prepare: &Declared,
+        binning: &Declared,
+        copy: &Declared,
     ) -> Self {
-        let prepare = &programs.prepare;
-        let aggregate = &programs.aggregates[pass];
-        let binning = &programs.binnings[pass];
-        let copy = &programs.copy;
         let in_minor = [channels.minor, channels.scratch_minor];
         let in_major = [channels.major, channels.scratch_major];
         let in_payload = [channels.payload, channels.scratch_payload];
@@ -170,17 +221,6 @@ impl SortBindGroups {
                     ("keys_hi", channels.major),
                     ("histogram", histogram(parity)),
                     ("histogram_free", histogram(1 - parity)),
-                    ("rows", rows),
-                    ("count_holder", channels.count),
-                ],
-            )
-        });
-        let aggregate_groups = std::array::from_fn(|source: usize| {
-            aggregate.group(
-                device,
-                &[
-                    ("keys_lo", in_minor[source]),
-                    ("keys_hi", in_major[source]),
                     ("rows", rows),
                     ("count_holder", channels.count),
                 ],
@@ -219,20 +259,43 @@ impl SortBindGroups {
         Self {
             channels: ChannelsKey::of(channels),
             prepare: prepare_groups,
-            aggregate: aggregate_groups,
             binning: binning_groups,
             copy: copy_group,
         }
     }
 }
 
+pub struct RadixSort {
+    device: Device,
+    prepare: BTreeMap<(Digit, NextDigit), Declared>,
+    binning: BTreeMap<Plan, Declared>,
+    copy: Declared,
+    rows: GpuBuffer,
+    histograms: [GpuBuffer; 2],
+    state: std::sync::Mutex<State>,
+}
+
 impl RadixSort {
     pub fn new(context: &GpuContext, label: &str, capacity: u32) -> Self {
         let device = context.device().clone();
         let row = context.workgroups_per_row();
-        let prepare = declare_prepare(context, label, row);
-        let aggregates = std::array::from_fn(|pass| declare_aggregate(context, label, row, pass));
-        let binnings = std::array::from_fn(|pass| declare_binning(context, label, row, pass));
+        assert!(
+            capacity < (1 << 30),
+            "a sort stream holds at most 2^30 elements, got {capacity}"
+        );
+        let (leading, plans) = digit_declarations();
+        assert!(
+            !leading.is_empty() && !plans.is_empty(),
+            "a sort declares at least one digit plan"
+        );
+        let prepare = leading
+            .into_iter()
+            .map(|plan| (plan, declare_prepare(context, label, row, plan.0, plan.1)))
+            .collect::<BTreeMap<_, _>>();
+        let binning = plans
+            .into_iter()
+            .map(|plan| (plan, declare_binning(context, label, row, plan)))
+            .collect::<BTreeMap<_, _>>();
         let copy = declare_copy(context, label, row);
         let rows = GpuBuffer::zeroed(
             &device,
@@ -248,15 +311,10 @@ impl RadixSort {
                 wgpu::BufferUsages::STORAGE,
             )
         });
-        assert!(
-            capacity < (1 << 30),
-            "a sort stream holds at most 2^30 elements, got {capacity}"
-        );
         Self {
             device,
             prepare,
-            aggregates,
-            binnings,
+            binning,
             copy,
             rows,
             histograms,
@@ -274,10 +332,7 @@ impl RadixSort {
         major_words: u32,
         minor_words: u32,
     ) {
-        let passes = (0..minor_words)
-            .chain(4..4 + major_words)
-            .map(|pass| pass as usize)
-            .collect::<Vec<_>>();
+        let passes = digit_passes(minor_words, major_words);
         assert!(
             !passes.is_empty(),
             "a sort needs at least one key digit to permute the payload"
@@ -286,9 +341,11 @@ impl RadixSort {
         let mut state = self.state.lock().unwrap();
         let parity = state.parity as usize % 2;
         let key = ChannelsKey::of(channels);
-        let index = match state.groups.iter().position(|entry| entry.channels == key) {
-            Some(index) => index,
-            None => {
+        let index = state
+            .groups
+            .iter()
+            .position(|entry| entry.channels == key)
+            .unwrap_or_else(|| {
                 if state.groups.len() == CACHED_CHANNELS {
                     state.groups.remove(0);
                 }
@@ -297,21 +354,33 @@ impl RadixSort {
                     channels,
                     &self.rows,
                     &self.histograms,
-                    self,
-                    passes[0],
+                    self.prepare
+                        .values()
+                        .next()
+                        .expect("a sort declares its leading digits"),
+                    self.binning
+                        .values()
+                        .next()
+                        .expect("a sort declares its digit plans"),
+                    &self.copy,
                 ));
                 state.groups.len() - 1
-            }
-        };
+            });
         let groups = &state.groups[index];
-        recorder.record(self.prepare.pipeline(), &[&groups.prepare[parity]], units);
-        for (order, pass) in passes.iter().enumerate() {
-            if order > 0 {
-                let group = &groups.aggregate[order % 2];
-                recorder.record(self.aggregates[*pass].pipeline(), &[group], units);
-            }
+        let leading = (passes[0], passes.get(1).copied());
+        recorder.record(
+            self.prepare[&leading].pipeline(),
+            &[&groups.prepare[parity]],
+            units,
+        );
+        for (order, digit) in passes.iter().enumerate() {
+            let plan = (
+                *digit,
+                passes.get(order + 1).copied(),
+                passes.get(order + 2).copied(),
+            );
             let group = &groups.binning[order % 2][parity];
-            recorder.record(self.binnings[*pass].pipeline(), &[group], units);
+            recorder.record(self.binning[&plan].pipeline(), &[group], units);
         }
         if passes.len() % 2 == 1 {
             recorder.record(self.copy.pipeline(), &[&groups.copy], units);

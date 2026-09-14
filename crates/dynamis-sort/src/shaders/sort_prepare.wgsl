@@ -7,9 +7,11 @@
 
 const BINS: u32 = 256u;
 const BINS_ALL: u32 = 2048u;
-const REGIONS: u32 = 8u;
 const SLOTS: u32 = __SLOTS__u;
 const ROW: u32 = __ROW__u;
+const FIRST_REGION: u32 = __FIRST_REGION__u;
+const SECOND_REGION: u32 = __SECOND_REGION__u;
+const HAS_SECOND: u32 = __HAS_SECOND__u;
 const REDUCTION: u32 = 1u;
 
 var<workgroup> bins: array<atomic<u32>, BINS_ALL>;
@@ -38,8 +40,8 @@ fn main(
     if (first >= last) {
         return;
     }
-    for (var region = 0u; region < REGIONS; region = region + 1u) {
-        atomicStore(&rows[(region * SLOTS + unit) * BINS + lane], REDUCTION);
+    if (HAS_SECOND != 0u) {
+        atomicStore(&rows[SECOND_REGION + unit * BINS + lane], 0u);
     }
     for (var digit = 0u; digit < 8u; digit = digit + 1u) {
         atomicStore(&bins[digit * BINS + lane], 0u);
@@ -56,13 +58,13 @@ fn main(
     }
     workgroupBarrier();
     for (var digit = 0u; digit < 8u; digit = digit + 1u) {
-        atomicStore(
-            &rows[(digit * SLOTS + unit) * BINS + lane],
-            (atomicLoad(&bins[digit * BINS + lane]) << 2u) | REDUCTION,
-        );
-        atomicAdd(
-            &histogram[digit * BINS + lane],
-            atomicLoad(&bins[digit * BINS + lane]),
-        );
+        let count = atomicLoad(&bins[digit * BINS + lane]);
+        if (digit == __FIRST_DIGIT__u) {
+            atomicStore(
+                &rows[FIRST_REGION + unit * BINS + lane],
+                (count << 2u) | REDUCTION,
+            );
+        }
+        atomicAdd(&histogram[digit * BINS + lane], count);
     }
 }

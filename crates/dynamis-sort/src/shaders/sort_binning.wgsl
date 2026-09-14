@@ -13,10 +13,17 @@ const TILE: u32 = 256u;
 const SHIFT: u32 = __SHIFT__u;
 const REGION: u32 = __REGION__u;
 const DIGIT: u32 = __DIGIT__u;
+const NEXT_REGION: u32 = __NEXT_REGION__u;
+const NEXT_SHIFT: u32 = __NEXT_SHIFT__u;
+const NEXT_WORD: u32 = __NEXT_WORD__u;
+const HAS_NEXT: u32 = __HAS_NEXT__u;
+const ZERO_REGION: u32 = __ZERO_REGION__u;
+const HAS_ZERO: u32 = __HAS_ZERO__u;
 const INCLUSIVE: u32 = 2u;
 const STATE: u32 = 3u;
 const EMPTY: u32 = 0xFFFFFFFFu;
 const ROW: u32 = __ROW__u;
+const COUNT: u32 = 4u;
 
 var<workgroup> running: array<u32, BINS>;
 var<workgroup> bases: array<u32, BINS>;
@@ -44,6 +51,9 @@ fn main(
 
     if (first >= spans) {
         return;
+    }
+    if (HAS_ZERO != 0u) {
+        atomicStore(&rows[ZERO_REGION + unit * BINS + lane], 0u);
     }
     let own = atomicLoad(&rows[REGION + unit * BINS + lane]) >> 2u;
     var total = own;
@@ -94,6 +104,13 @@ fn main(
             keys_lo_out[place] = keys_lo[index];
             keys_hi_out[place] = keys_hi[index];
             payload_out[place] = payload_in[index];
+            if (HAS_NEXT != 0u) {
+                let next_key = select(keys_lo[index], keys_hi[index], NEXT_WORD != 0u);
+                let next_bin = (next_key >> (NEXT_SHIFT & 31u)) & 0xFFu;
+                let dest_tile = place / TILE;
+                let dest_unit = min(dest_tile / span, units - 1u);
+                atomicAdd(&rows[NEXT_REGION + dest_unit * BINS + next_bin], COUNT);
+            }
         }
         workgroupBarrier();
         running[lane] = running[lane] + rank;
