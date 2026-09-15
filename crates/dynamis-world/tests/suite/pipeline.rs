@@ -24,6 +24,7 @@ const STEP: &[&str] = &[
     "sleep",
     "commit",
     "observe",
+    "observe_joints",
     "resting_gather",
     "resting_index",
     "query",

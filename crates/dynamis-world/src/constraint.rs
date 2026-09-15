@@ -92,6 +92,12 @@ impl Constraints {
         self.index_of[moved.id as usize] = slot as u32;
         true
     }
+
+    pub(crate) fn is_alive(&self, handle: ConstraintHandle) -> bool {
+        (handle.id as usize) < self.ids.len()
+            && self.ids.generation(handle.id) == handle.generation
+            && self.index_of[handle.id as usize] != u32::MAX
+    }
 }
 
 impl World {
@@ -384,6 +390,7 @@ impl World {
         self.constraints.index_of[id] = u32::MAX;
         self.constraints.ids.release(handle.id);
         self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
+        self.observed.joints.forget(handle);
     }
 
     pub(crate) fn note_breaks_due(&mut self, step: u64) {
@@ -407,15 +414,18 @@ impl World {
                 bytes <= segment,
                 "constraint break reports for step {step} outrun their segment"
             );
-            let displaced = self.backend.readback.breaks.enqueue(
+            let displaced = self.backend.readback.breaks.declare(
                 encoder,
-                self.backend.streams.state.constraint_breaks.buffer(),
-                offset,
-                bytes,
+                &[(
+                    self.backend.streams.state.constraint_breaks.buffer(),
+                    offset,
+                    bytes,
+                )],
                 step,
+                count,
             );
-            if let Some((_, bytes)) = displaced {
-                self.consume_breaks(&bytes);
+            if let Some((count, bytes)) = displaced {
+                self.consume_breaks(count, &bytes);
             }
         }
     }
@@ -428,13 +438,18 @@ impl World {
         let mut encoder = SubmissionEncoder::new(&device, "dynamis constraint break readback");
         self.copy_breaks(&mut encoder);
         self.submit(encoder);
-        for (_, bytes) in self.backend.readback.breaks.drain() {
-            self.consume_breaks(&bytes);
+        for (count, bytes) in self.backend.readback.breaks.drain() {
+            self.consume_breaks(count, &bytes);
         }
     }
 
-    pub(crate) fn consume_breaks(&mut self, bytes: &[u8]) {
-        for record in dynamis_abi::decode::<BrokenConstraintRecord>(bytes) {
+    pub(crate) fn consume_breaks(&mut self, count: u32, bytes: &[u8]) {
+        let records = dynamis_abi::decode::<BrokenConstraintRecord>(bytes);
+        assert!(
+            records.len() <= count as usize,
+            "a break publication must not carry more reports than it declared"
+        );
+        for record in records {
             self.accept_constraint_break(record.constraint_id, record.generation);
         }
     }

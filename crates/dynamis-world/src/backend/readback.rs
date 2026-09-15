@@ -1,108 +1,52 @@
-use super::registry::Plan;
-use dynamis_abi::{
-    BrokenConstraintRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ContactEventRecord,
-};
-use dynamis_gpu::{GpuBuffer, Readback};
-use dynamis_state::QUERY_RESULT_BYTES;
-use std::mem::size_of;
+use super::registry::Streams;
+use dynamis_abi::{COUNTER_DEVICE_COUNT, COUNTER_STRIDE, DeclaredCounters};
+use dynamis_gpu::{EVENT_SLOTS, GpuBuffer, Publication};
 use wgpu::Device;
 
-const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
+const DEPTH: usize = Publication::<()>::DEPTH;
+pub(crate) const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 
 pub(crate) struct ReadbackBuffers {
     pub(crate) pack: GpuBuffer,
-    pub(crate) step: Readback,
-    pub(crate) events: Readback,
-    pub(crate) breaks: Readback,
-    pub(crate) queries: Readback,
+    pub(crate) counters: Publication<(u64, DeclaredCounters)>,
+    pub(crate) events: Publication<u32>,
+    pub(crate) breaks: Publication<u32>,
+    pub(crate) queries: Publication<u64>,
 }
 
-fn readback_sizes(plan: &Plan) -> (u64, u64, u64, u64) {
-    (
+fn budgets(streams: &Streams) -> [u64; 4] {
+    [
         COUNTER_BYTES,
-        u64::from(plan.rigid.events) * size_of::<ContactEventRecord>() as u64,
-        u64::from(plan.state.constraints) * size_of::<BrokenConstraintRecord>() as u64,
-        u64::from(plan.state.queries) * QUERY_RESULT_BYTES,
-    )
+        streams.rigid.events.size() / EVENT_SLOTS as u64,
+        streams.state.constraint_breaks.size() / EVENT_SLOTS as u64,
+        streams.state.query_results.size(),
+    ]
 }
 
 impl ReadbackBuffers {
-    pub(crate) fn new(device: &Device, plan: &Plan) -> Self {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
-        Self {
-            pack: GpuBuffer::new(device, "world readback pack", pack_bytes, dynamis_gpu::PACK),
-            step: Readback::new(device, "world readback", pack_bytes, Readback::DEPTH),
-            events: Readback::new(
+    pub(crate) fn new(device: &Device, streams: &Streams) -> Self {
+        let mut buffers = Self {
+            pack: GpuBuffer::new(
                 device,
-                "world events readback",
-                event_bytes,
-                Readback::DEPTH,
+                "world readback pack",
+                COUNTER_BYTES,
+                dynamis_gpu::PACK,
             ),
-            breaks: Readback::new(
-                device,
-                "constraint breaks readback",
-                break_bytes,
-                Readback::DEPTH,
-            ),
-            queries: Readback::new(
-                device,
-                "query results readback",
-                query_bytes,
-                Readback::DEPTH,
-            ),
-        }
+            counters: Publication::new("world counters readback", DEPTH),
+            events: Publication::new("world events readback", DEPTH),
+            breaks: Publication::new("constraint break readback", DEPTH),
+            queries: Publication::new("query results readback", DEPTH),
+        };
+        buffers.reserve(device, streams);
+        buffers
     }
 
-    pub(crate) fn matches(&self, plan: &Plan) -> bool {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
-        self.pack.size() == pack_bytes
-            && self.step.size() == pack_bytes
-            && self.events.size() == event_bytes
-            && self.breaks.size() == break_bytes
-            && self.queries.size() == query_bytes
-    }
-
-    pub(crate) fn reserve(&mut self, device: &Device, plan: &Plan) -> bool {
-        let (pack_bytes, event_bytes, break_bytes, query_bytes) = readback_sizes(plan);
-        if self.matches(plan) {
-            return false;
-        }
-        assert!(
-            self.step.is_idle()
-                && self.events.is_idle()
-                && self.breaks.is_idle()
-                && self.queries.is_idle(),
-            "readback buffers require drained rings before they reallocate"
-        );
-        if self.pack.size() != pack_bytes {
-            self.pack =
-                GpuBuffer::new(device, "world readback pack", pack_bytes, dynamis_gpu::PACK);
-            self.step = Readback::new(device, "world readback", pack_bytes, Readback::DEPTH);
-        }
-        if self.events.size() != event_bytes {
-            self.events = Readback::new(
-                device,
-                "world events readback",
-                event_bytes,
-                Readback::DEPTH,
-            );
-        }
-        if self.breaks.size() != break_bytes {
-            self.breaks = Readback::new(
-                device,
-                "constraint breaks readback",
-                break_bytes,
-                Readback::DEPTH,
-            );
-        }
-        if self.queries.size() != query_bytes {
-            self.queries = Readback::new(
-                device,
-                "query results readback",
-                query_bytes,
-                Readback::DEPTH,
-            );
-        }
-        true
+    pub(crate) fn reserve(&mut self, device: &Device, streams: &Streams) -> bool {
+        let [counters, events, breaks, queries] = budgets(streams);
+        let mut changed = self.counters.reserve(device, counters);
+        changed |= self.events.reserve(device, events);
+        changed |= self.breaks.reserve(device, breaks);
+        changed |= self.queries.reserve(device, queries);
+        changed
     }
 }

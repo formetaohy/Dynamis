@@ -2,8 +2,9 @@ use crate::StateDomain;
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
-    ConstraintDescriptorRecord, ConstraintRuntimeRecord, QueryRecord, QueryResultRecord,
-    REACTION_WORDS, RowMoveRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
+    ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord, QueryRecord,
+    QueryResultRecord, REACTION_WORDS, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
+    TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -22,11 +23,13 @@ streams! {
         body_ids: u32,
         colliders: u32,
         constraints: u32,
+        constraint_ids: u32,
         body_commands: u32,
         constraint_commands: u32,
         queries: u32,
         shapes: crate::ShapeCapacity,
         observed: u32,
+        observed_joints: u32,
     }
     streams {
         params, Params: "step params", StepParamsRecord, 1, Contents::Scratch, 1, dynamis_gpu::UNIFORM;
@@ -41,6 +44,7 @@ streams! {
         body_fresh_rows, BodyFreshRows: "fresh body rows", BodyStateRecord, 1, Contents::Scratch, demand.body_commands;
         constraint_descriptors, ConstraintDescriptors: "constraint descriptors", ConstraintDescriptorRecord, 1, Contents::Durable, demand.constraints;
         constraint_runtime, ConstraintRuntime: "constraint runtime", ConstraintRuntimeRecord, 1, Contents::Durable, demand.constraints;
+        constraint_row_of_id, ConstraintRowOfId: "constraint row of id", u32, 1, Contents::Durable, demand.constraint_ids;
         wake_flags, WakeFlags: "body wake flags", u32, 1, Contents::Scratch, demand.bodies;
         body_reactions, BodyReactions: "body reactions", u32, REACTION_WORDS, Contents::Scratch, demand.body_reactions();
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", RowMoveRecord, 1, Contents::Scratch, demand.constraint_moves();
@@ -54,6 +58,9 @@ streams! {
         query_results, QueryResults: "query results", QueryResultRecord, 1, Contents::Scratch, demand.queries;
         observed_ids, ObservedIds: "observed body ids", u32, 1, Contents::Durable, demand.observed;
         observed_states, ObservedStates: "observed body states", BodyStateRecord, 1, Contents::Scratch, demand.observed;
+        observed_joint_ids, ObservedJointIds: "observed joint ids", u32, 1, Contents::Durable, demand.observed_joints;
+        observed_joint_states, ObservedJointStates: "observed joint states", JointStateRecord, 1, Contents::Scratch, demand.observed_joints;
+        observed_joint_runtimes, ObservedJointRuntimes: "observed joint runtimes", ConstraintRuntimeRecord, 1, Contents::Scratch, demand.observed_joints;
         counters, Counters: "world counters", u32, COUNTER_STRIDE / 4, Contents::Durable, COUNTER_DEVICE_COUNT as u32;
     }
 }

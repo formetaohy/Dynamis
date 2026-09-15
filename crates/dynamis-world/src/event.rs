@@ -11,7 +11,7 @@ pub(crate) struct Events {
 }
 
 impl Events {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             contact: Vec::new(),
             due: VecDeque::new(),
@@ -36,6 +36,7 @@ impl World {
     pub(crate) fn note_events_due(&mut self, step: u64) {
         let count = self.backend.measured[COUNTER_EVENTS];
         if count > 0 {
+            eprintln!("EVENT due step {step} count {count}");
             self.events.due.push_back((step, count));
         }
     }
@@ -50,15 +51,18 @@ impl World {
             let segment = self.backend.streams.rigid.events.size() / EVENT_SLOTS as u64;
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
-            let displaced = self.backend.readback.events.enqueue(
-                encoder,
-                self.backend.streams.rigid.events.buffer(),
-                offset,
-                bytes,
-                step,
+            let regions = [(self.backend.streams.rigid.events.buffer(), offset, bytes)];
+            eprintln!(
+                "EVENT declare step {step} count {count} due {}",
+                self.events.due.len()
             );
-            if let Some((_, bytes)) = displaced {
-                self.consume_events(&bytes);
+            let displaced = self
+                .backend
+                .readback
+                .events
+                .declare(encoder, &regions, step, count);
+            if let Some((count, bytes)) = displaced {
+                self.consume_events(count, &bytes);
             }
         }
     }
@@ -71,16 +75,19 @@ impl World {
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis event readback");
         self.copy_events(&mut encoder);
         self.submit(encoder);
-        for (_, bytes) in self.backend.readback.events.drain() {
-            self.consume_events(&bytes);
+        for (count, bytes) in self.backend.readback.events.drain() {
+            self.consume_events(count, &bytes);
         }
     }
 
-    pub(crate) fn consume_events(&mut self, bytes: &[u8]) {
+    pub(crate) fn consume_events(&mut self, count: u32, bytes: &[u8]) {
         let records = dynamis_abi::decode::<ContactEventRecord>(bytes);
-        let count = records.len();
-        let mut fresh = Vec::with_capacity(count);
-        for record in &records[..count] {
+        assert!(
+            records.len() <= count as usize,
+            "an event publication must not carry more events than it declared"
+        );
+        let mut fresh = Vec::with_capacity(records.len());
+        for record in &records {
             let kind = match record.kind {
                 dynamis_abi::EVENT_BEGIN => ContactEventKind::Begin,
                 dynamis_abi::EVENT_END => ContactEventKind::End,

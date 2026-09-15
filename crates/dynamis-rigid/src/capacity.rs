@@ -24,6 +24,7 @@ pub struct RigidInputs {
     pub constraints: u32,
     pub queries: u32,
     pub observed: u32,
+    pub observed_joints: u32,
     pub ccd: bool,
 }
 

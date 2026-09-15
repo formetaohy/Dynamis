@@ -179,3 +179,52 @@ fn parallel_submissions_recycle_slots_without_losing_or_mixing_results() {
         }
     });
 }
+
+#[test]
+fn a_publication_retires_every_declaration_in_order() {
+    let context = shared();
+    let source = source();
+    let mut publication: dynamis_gpu::Publication<u32> = dynamis_gpu::Publication::new(
+        "ordered publication",
+        dynamis_gpu::Publication::<u32>::DEPTH,
+    );
+    publication.reserve(context.device(), 16);
+    let mut received = Vec::new();
+    for sequence in 0..12u64 {
+        let data = [sequence as u8; 4];
+        source.write_at(context.queue(), 0, &data);
+        let regions = [(source.buffer(), 0, 4)];
+        let mut encoder = SubmissionEncoder::new(context.device(), "ordered expect");
+        if let Some((manifest, bytes)) =
+            publication.declare(&mut encoder, &regions, sequence, sequence as u32 * 10)
+        {
+            received.push((manifest, bytes));
+        }
+        encoder.submit(context.queue());
+    }
+    received.extend(publication.drain());
+    let expected = (0..12u32)
+        .map(|sequence| (sequence * 10, vec![sequence as u8; 4]))
+        .collect::<Vec<_>>();
+    assert_eq!(received, expected);
+    assert!(publication.is_idle());
+    publication.clear();
+    assert_eq!(publication.budget(), 0);
+}
+
+#[test]
+fn a_publication_refuses_a_declaration_that_outgrows_its_budget() {
+    let context = shared();
+    let source = source();
+    let mut publication: dynamis_gpu::Publication<u32> =
+        dynamis_gpu::Publication::new("budgeted publication", 2);
+    publication.reserve(context.device(), 4);
+    let mut encoder = SubmissionEncoder::new(context.device(), "overrun");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        publication.declare(&mut encoder, &[(source.buffer(), 0, 8)], 0, 0);
+    }));
+    assert!(
+        result.is_err(),
+        "a declaration that outruns its budget must be refused"
+    );
+}

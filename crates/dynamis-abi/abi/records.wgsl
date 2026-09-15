@@ -43,6 +43,7 @@ struct StepParams {
     settle_velocity: f32,
     soft_edit_count: u32,
     soft_body_edit_count: u32,
+    observed_joint_count: u32,
 }
 
 struct SoftParticle {

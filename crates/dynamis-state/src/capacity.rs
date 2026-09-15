@@ -21,11 +21,13 @@ pub struct StateInputs {
     pub body_ids: u32,
     pub collider_pool: u32,
     pub constraints: u32,
+    pub constraint_ids: u32,
     pub body_commands: u32,
     pub constraint_commands: u32,
     pub queries: u32,
     pub shapes: ShapeCapacity,
     pub observed: u32,
+    pub observed_joints: u32,
 }
 
 pub fn capacity(streams: &StateStreams) -> StateCapacity {
@@ -46,6 +48,7 @@ pub fn floor() -> StateDemand {
         body_ids: MIN_SLOTS,
         colliders: MIN_SLOTS,
         constraints: MIN_SLOTS,
+        constraint_ids: MIN_SLOTS,
         body_commands: STREAM_FLOOR,
         constraint_commands: STREAM_FLOOR,
         queries: STREAM_FLOOR,
@@ -56,6 +59,7 @@ pub fn floor() -> StateDemand {
             nodes: MIN_SLOTS,
         },
         observed: MIN_SLOTS,
+        observed_joints: MIN_SLOTS,
     }
 }
 
@@ -77,6 +81,11 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
         inputs.constraints,
         MIN_SLOTS,
     );
+    let constraint_ids = current
+        .constraint_row_of_id
+        .slots()
+        .max(inputs.constraint_ids)
+        .max(MIN_SLOTS);
     let body_commands = settled(
         idle,
         current.body_edits.slots(),
@@ -100,6 +109,7 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
         body_ids,
         colliders,
         constraints,
+        constraint_ids,
         body_commands,
         constraint_commands,
         queries,
@@ -122,5 +132,10 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
             nodes: grown(current.shape_nodes.slots(), inputs.shapes.nodes, MIN_SLOTS),
         },
         observed: grown(current.observed_ids.slots(), inputs.observed, MIN_SLOTS),
+        observed_joints: grown(
+            current.observed_joint_states.slots(),
+            inputs.observed_joints,
+            MIN_SLOTS,
+        ),
     }
 }

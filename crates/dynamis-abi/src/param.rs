@@ -59,7 +59,8 @@ impl StepParamsRecord {
             settle_velocity: config.settle_velocity,
             soft_edit_count: streams.soft_edits,
             soft_body_edit_count: streams.soft_body_edits,
-            _wgsl_pad0: [0; 12],
+            observed_joint_count: streams.observed_joints,
+            _wgsl_pad0: [0; 8],
         }
     }
 }
@@ -85,6 +86,7 @@ pub struct RowStreams {
     pub body_moves: u32,
     pub constraint_moves: u32,
     pub observed: u32,
+    pub observed_joints: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +105,7 @@ pub enum Count {
     BodyMoves,
     ConstraintMoves,
     Observed,
+    ObservedJoints,
 }
 
 impl Count {
@@ -122,6 +125,7 @@ impl Count {
             Self::BodyMoves => "body_move_count",
             Self::ConstraintMoves => "constraint_move_count",
             Self::Observed => "observed_count",
+            Self::ObservedJoints => "observed_joint_count",
         }
     }
 
@@ -141,6 +145,7 @@ impl Count {
             Self::BodyMoves => params.body_move_count,
             Self::ConstraintMoves => params.constraint_move_count,
             Self::Observed => params.observed_count,
+            Self::ObservedJoints => params.observed_joint_count,
         }
     }
 }

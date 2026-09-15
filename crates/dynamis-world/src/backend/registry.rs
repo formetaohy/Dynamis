@@ -135,11 +135,13 @@ impl World {
                 body_ids: self.bodies.ids.len() as u32,
                 collider_pool,
                 constraints,
+                constraint_ids: self.constraints.ids.len() as u32,
                 body_commands,
                 constraint_commands,
                 queries,
                 shapes: self.shapes.pool.used(),
                 observed: self.observed.bodies.len(),
+                observed_joints: self.observed.joints.demand(),
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 colliders,
@@ -153,6 +155,7 @@ impl World {
                 constraints,
                 queries,
                 observed: self.observed.bodies.len(),
+                observed_joints: self.observed.joints.watched(),
                 ccd: self.ccd_active(),
             },
             soft: dynamis_soft::SoftInputs {
@@ -213,6 +216,7 @@ impl World {
                 body_moves: self.bodies.last_moves,
                 constraint_moves: self.constraints.last_moves,
                 observed: self.observed.bodies.len(),
+                observed_joints: self.observed.joints.watched(),
             },
             self.event_slot_of(self.clock.step),
         )

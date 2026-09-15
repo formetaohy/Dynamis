@@ -1,6 +1,7 @@
 use super::World;
 use crate::backend::registry::HostWork;
 use crate::commands::Consumption;
+use dynamis_abi::DeclaredCounters;
 use dynamis_abi::QueryResultRecord;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_pass::Run;
@@ -13,9 +14,8 @@ struct Batch {
 }
 
 struct Declarations {
-    counters: Option<(u64, Vec<u8>)>,
+    counters: Option<(u64, DeclaredCounters, Vec<u8>)>,
     queries: Option<(u64, Vec<u8>)>,
-    observed: Option<(u64, Vec<u8>)>,
 }
 
 impl World {
@@ -24,6 +24,7 @@ impl World {
         self.collect_readbacks();
         let live = self.live();
         self.apply_plan(&live);
+        self.flush_observed();
         let work = self.prepare(run);
         let params = self.step_params(self.clock.sub_dt);
         self.write_step_records(params);
@@ -37,6 +38,7 @@ impl World {
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
         let declarations = self.publish(&mut encoder, run, batch);
+        self.copy_breaks(&mut encoder);
         self.submit(encoder);
         #[cfg(feature = "profile")]
         if let Some(timings) = timings {
@@ -62,10 +64,7 @@ impl World {
                 self.apply_pending_commands(Consumption::Preview);
                 None
             }
-            Run::Publish => {
-                self.flush_observed();
-                None
-            }
+            Run::Publish => None,
         }
     }
 
@@ -90,8 +89,6 @@ impl World {
         match run {
             Run::Step => {
                 self.copy_events(encoder);
-                self.copy_breaks(encoder);
-                self.declare_step(self.clock.step);
                 self.register_queries()
             }
             Run::Query => self.register_queries(),
@@ -108,25 +105,24 @@ impl World {
         match run {
             Run::Step => {
                 let step = self.clock.step;
+                self.declare_observations(encoder, step);
                 Declarations {
                     counters: self.enqueue_counters(encoder, step),
                     queries: batch.and_then(|batch| self.enqueue_queries(encoder, batch)),
-                    observed: self.declare_observations(encoder, step),
                 }
             }
             Run::Query => Declarations {
                 counters: None,
                 queries: batch.and_then(|batch| self.enqueue_queries(encoder, batch)),
-                observed: None,
             },
             Run::Publish => {
                 let step = self
                     .completed_step()
                     .expect("a body state publication requires a completed step");
+                self.declare_observations(encoder, step);
                 Declarations {
                     counters: None,
                     queries: None,
-                    observed: self.declare_body_observations(encoder, step),
                 }
             }
         }
@@ -155,15 +151,23 @@ impl World {
         &mut self,
         encoder: &mut SubmissionEncoder,
         step: u64,
-    ) -> Option<(u64, Vec<u8>)> {
+    ) -> Option<(u64, DeclaredCounters, Vec<u8>)> {
         let bytes = self.pack_step(encoder);
-        self.backend.readback.step.enqueue(
-            encoder,
-            self.backend.readback.pack.buffer(),
-            0,
-            bytes,
-            step,
-        )
+        let declared = DeclaredCounters {
+            bodies: self.bodies.alive.len() as u32,
+            colliders: self.colliders.live(),
+            constraints: self.constraints.alive.len() as u32,
+            body_edits: self.bodies.last_edits,
+            body_moves: self.bodies.last_moves,
+            constraint_commands: self.constraints.last_commands,
+            constraint_moves: self.constraints.last_moves,
+        };
+        let regions = [(self.backend.readback.pack.buffer(), 0, bytes)];
+        self.backend
+            .readback
+            .counters
+            .declare(encoder, &regions, step, (step, declared))
+            .map(|((step, declared), bytes)| (step, declared, bytes))
     }
 
     fn enqueue_queries(
@@ -171,24 +175,23 @@ impl World {
         encoder: &mut SubmissionEncoder,
         batch: Batch,
     ) -> Option<(u64, Vec<u8>)> {
-        self.backend.readback.queries.enqueue(
-            encoder,
+        let regions = [(
             self.backend.streams.state.query_results.buffer(),
             0,
             batch.bytes,
-            batch.id,
-        )
+        )];
+        self.backend
+            .readback
+            .queries
+            .declare(encoder, &regions, batch.id, batch.id)
     }
 
     fn consume(&mut self, declarations: Declarations) {
-        if let Some((step, bytes)) = declarations.counters {
-            self.consume_pack(step, &bytes);
+        if let Some((step, declared, bytes)) = declarations.counters {
+            self.consume_pack(step, declared, &bytes);
         }
         if let Some((batch, bytes)) = declarations.queries {
             self.collect_query_batch(batch, &bytes);
-        }
-        if let Some((sequence, bytes)) = declarations.observed {
-            self.consume_observations(sequence, &bytes);
         }
     }
 

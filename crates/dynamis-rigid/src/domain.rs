@@ -95,11 +95,14 @@ impl Domain for RigidDomain {
     }
 
     fn gates(frame: &RigidFrame) -> u16 {
+        let mut gates = 0;
         if frame.ccd {
-            Execution::gate(crate::ccd::CCD_GATE).bits()
-        } else {
-            0
+            gates |= Execution::gate(crate::ccd::CCD_GATE).bits();
         }
+        if frame.observed_joints > 0 {
+            gates |= Execution::gate(crate::commit::OBSERVED_JOINTS_GATE).bits();
+        }
+        gates
     }
 
     fn frame(facts: &StepFacts, inputs: &RigidInputs) -> RigidFrame {
@@ -108,6 +111,7 @@ impl Domain for RigidDomain {
             shape: RigidShape::of(&facts.counts),
             query_count: inputs.queries,
             observed_count: inputs.observed,
+            observed_joints: inputs.observed_joints,
             ccd: inputs.ccd,
         }
     }

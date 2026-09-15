@@ -268,6 +268,7 @@ fn step_params_record_maps_config() {
             body_moves: 4,
             constraint_moves: 1,
             observed: 6,
+            observed_joints: 8,
         },
         3,
     );
@@ -285,6 +286,7 @@ fn step_params_record_maps_config() {
     assert_eq!(record.body_move_count, 4);
     assert_eq!(record.constraint_move_count, 1);
     assert_eq!(record.observed_count, 6);
+    assert_eq!(record.observed_joint_count, 8);
     assert_eq!(record.event_slot, 3);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);

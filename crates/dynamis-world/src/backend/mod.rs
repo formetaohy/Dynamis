@@ -9,7 +9,6 @@ use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
 use registry::{Live, Plan, Planning, Rest, StepPasses, Streams};
-use std::collections::VecDeque;
 use wgpu::SubmissionIndex;
 
 pub(crate) use registry::StepFrames;
@@ -23,7 +22,6 @@ pub(crate) struct Backend {
     pub(crate) passes: StepPasses,
     pub(crate) planning: Planning,
     pub(crate) measured: dynamis_abi::Counters,
-    pub(crate) declared: VecDeque<(u64, dynamis_abi::DeclaredCounters)>,
     pub(crate) measured_step: Option<u64>,
     pub(crate) published: bool,
     pub(crate) rest: Rest,
@@ -37,7 +35,7 @@ impl Backend {
     pub(crate) fn new(gpu: GpuContext) -> Self {
         let plan = Plan::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
-        let readback = ReadbackBuffers::new(gpu.device(), &plan);
+        let readback = ReadbackBuffers::new(gpu.device(), &streams);
         let passes = StepPasses::new(&gpu, &streams);
         Self {
             gpu,
@@ -46,7 +44,6 @@ impl Backend {
             passes,
             planning: Planning::new(),
             measured: [0; dynamis_abi::COUNTER_COUNT],
-            declared: VecDeque::new(),
             measured_step: None,
             published: false,
             rest: Rest::IDLE,
@@ -73,21 +70,21 @@ impl World {
             .backend
             .planning
             .plan(&self.backend.measured, live, &self.backend.streams);
-        if self.backend.streams.matches(&plan) && self.backend.readback.matches(&plan) {
+        if self.backend.streams.matches(&plan) {
             return;
         }
-        if !self.backend.readback.matches(&plan) {
-            self.sync_events();
-            self.drain_readbacks();
-        }
+        self.sync_events();
+        self.drain_readbacks();
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");
         let streams = self.backend.streams.reserve(&device, &mut encoder, &plan);
-        let readback = self.backend.readback.reserve(&device, &plan);
         assert!(
-            streams | readback,
+            streams,
             "a buffer plan that changes capacity must reallocate"
         );
+        self.backend
+            .readback
+            .reserve(&device, &self.backend.streams);
         self.submit(encoder);
     }
 }

@@ -95,7 +95,6 @@ impl World {
 
     fn restart_measures(&mut self) {
         self.backend.measured = [0; COUNTER_COUNT];
-        self.backend.declared.clear();
         self.backend.measured_step = None;
         self.backend.planning = Planning::new();
         #[cfg(feature = "profile")]

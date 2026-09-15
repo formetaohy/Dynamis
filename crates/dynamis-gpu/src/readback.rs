@@ -151,7 +151,7 @@ impl Slot {
     }
 }
 
-pub const EVENT_SLOTS: u32 = Readback::DEPTH as u32 + 2;
+pub const EVENT_SLOTS: u32 = Publication::<()>::DEPTH as u32 + 2;
 
 pub const FACT_LAG: usize = EVENT_SLOTS as usize;
 
@@ -213,8 +213,9 @@ impl Readback {
         assert!(
             self.last_sequence
                 .is_none_or(|previous| sequence > previous),
-            "readback {} sequences must increase",
-            self.label
+            "readback {} sequences must increase: received {sequence} after {:?}",
+            self.label,
+            self.last_sequence
         );
         let displaced = self.reclaim();
         self.slots[self.inflight].record(encoder, regions, sequence);
@@ -272,6 +273,117 @@ impl Readback {
         if self.inflight == 0 {
             self.last_sequence = None;
         }
+    }
+}
+
+pub struct Publication<M> {
+    label: &'static str,
+    depth: usize,
+    readback: Option<Readback>,
+    declared: VecDeque<M>,
+}
+
+impl<M> Publication<M> {
+    pub const DEPTH: usize = Readback::DEPTH;
+
+    pub const fn new(label: &'static str, depth: usize) -> Self {
+        assert!(depth > 0, "a publication needs at least one staging slot");
+        Self {
+            label,
+            depth,
+            readback: None,
+            declared: VecDeque::new(),
+        }
+    }
+
+    pub fn budget(&self) -> BufferAddress {
+        self.readback.as_ref().map_or(0, Readback::size)
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.readback.as_ref().is_none_or(Readback::is_idle)
+    }
+
+    pub fn reserve(&mut self, device: &Device, budget: BufferAddress) -> bool {
+        assert!(
+            budget > 0 && budget.is_multiple_of(4),
+            "publication {:?} requires a positive word aligned budget",
+            self.label
+        );
+        if self.budget() == budget {
+            return false;
+        }
+        self.assert_drained("reallocate");
+        self.readback = Some(Readback::new(device, self.label, budget, self.depth));
+        true
+    }
+
+    pub fn clear(&mut self) {
+        self.assert_drained("clear");
+        self.readback = None;
+    }
+
+    pub fn declare(
+        &mut self,
+        encoder: &mut SubmissionEncoder,
+        regions: &[(&Buffer, BufferAddress, BufferAddress)],
+        sequence: u64,
+        manifest: M,
+    ) -> Option<(M, Vec<u8>)> {
+        let bytes: BufferAddress = regions.iter().map(|(_, _, bytes)| *bytes).sum();
+        assert!(
+            bytes > 0 && bytes <= self.budget(),
+            "publication {:?} declares {bytes} bytes within the {} byte budget it is sized for",
+            self.label,
+            self.budget()
+        );
+        let displaced = self
+            .readback
+            .as_mut()
+            .expect("a declaration publishes through a budgeted ring")
+            .enqueue_regions(encoder, regions, sequence);
+        let displaced = displaced.map(|(_, bytes)| (self.retire(), bytes));
+        self.declared.push_back(manifest);
+        displaced
+    }
+
+    pub fn collect(&mut self) -> Vec<(M, Vec<u8>)> {
+        let arrivals = match &mut self.readback {
+            Some(readback) => readback.collect(),
+            None => Vec::new(),
+        };
+        arrivals
+            .into_iter()
+            .map(|(_, bytes)| (self.retire(), bytes))
+            .collect()
+    }
+
+    pub fn drain(&mut self) -> Vec<(M, Vec<u8>)> {
+        let arrivals = match &mut self.readback {
+            Some(readback) => readback.drain(),
+            None => Vec::new(),
+        };
+        arrivals
+            .into_iter()
+            .map(|(_, bytes)| (self.retire(), bytes))
+            .collect()
+    }
+
+    fn retire(&mut self) -> M {
+        self.declared.pop_front().unwrap_or_else(|| {
+            panic!(
+                "publication {:?} retired an arrival it never declared",
+                self.label
+            )
+        })
+    }
+
+    fn assert_drained(&self, what: &str) {
+        assert!(
+            self.is_idle() && self.declared.is_empty(),
+            "publication {:?} must drain before it can {what}",
+            self.label
+        );
     }
 }
 

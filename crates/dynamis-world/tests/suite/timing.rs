@@ -1,5 +1,5 @@
 use super::common::{gravity_config, new_world, settle};
-use dynamis_model::{BodyDesc, SoftBodyDesc};
+use dynamis_model::{BodyDesc, ConstraintDesc, SoftBodyDesc};
 
 const QUERY_RUN: &[&str] = &["query_aabbs"];
 
@@ -113,6 +113,14 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
 fn a_full_scene_profiles_every_pass_of_a_step() {
     let mut world = new_world(gravity_config());
     world.spawn(BodyDesc::sphere(0.4).position([0.0, 4.0, 0.0]).ccd(true));
+    let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 3.0, 0.0]));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
+    let joint = world.add_constraint(
+        anchor,
+        arm,
+        ConstraintDesc::revolute([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    );
+    world.try_joint_state(joint);
     world.add_soft_body(
         SoftBodyDesc::net(
             vec![

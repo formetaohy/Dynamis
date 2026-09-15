@@ -10,10 +10,16 @@ use dynamis_abi::{
 };
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_pass::Execution;
 use dynamis_pass::Stage;
 use dynamis_shader::{CORE, JOINTS, rows, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
+
+pub const OBSERVED_JOINTS_GATE: u32 = 1;
+
+pub const OBSERVED_JOINTS_EXECUTION: Execution =
+    Execution::PUBLISH.and(Execution::gate(OBSERVED_JOINTS_GATE));
 
 pub struct Commit {
     thaw_contacts: Stage,
@@ -22,10 +28,10 @@ pub struct Commit {
     resting_commit: Stage,
     contact_archive: Stage,
     constraint_breaks: Stage,
-    joint_states: Stage,
     archive_count_sync: Stage,
     static_wake_clear: Stage,
     observe: Stage,
+    observe_joints: Stage,
 }
 
 impl Commit {
@@ -165,30 +171,6 @@ impl Commit {
                 ],
                 &[],
             ),
-            joint_states: Stage::build(
-                context,
-                "joint_states",
-                rows(
-                    context,
-                    include_str!("../shaders/joint_states.wgsl"),
-                    JOINTS,
-                    Count::Constraints.field(),
-                ),
-                streams,
-                &[
-                    ("params", StateStream::Params.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
-                    (
-                        "constraint_descs",
-                        StateStream::ConstraintDescriptors.whole(),
-                    ),
-                    ("constraint_rows", RigidStream::ConstraintRows.whole()),
-                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
-                    ("joint_states", RigidStream::JointStates.whole()),
-                ],
-                &[],
-            ),
             archive_count_sync: Stage::build(
                 context,
                 "archive_count_sync",
@@ -240,6 +222,39 @@ impl Commit {
                 ],
                 &[],
             ),
+            observe_joints: Stage::build(
+                context,
+                "observe_joints",
+                rows(
+                    context,
+                    include_str!("../shaders/observe_joints.wgsl"),
+                    JOINTS,
+                    Count::ObservedJoints.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("observed_joint_ids", StateStream::ObservedJointIds.whole()),
+                    ("row_of_constraint", StateStream::ConstraintRowOfId.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
+                    (
+                        "constraint_descs",
+                        StateStream::ConstraintDescriptors.whole(),
+                    ),
+                    ("constraint_rows", RigidStream::ConstraintRows.whole()),
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
+                    (
+                        "observed_joint_states",
+                        StateStream::ObservedJointStates.whole(),
+                    ),
+                    (
+                        "observed_joint_runtimes",
+                        StateStream::ObservedJointRuntimes.whole(),
+                    ),
+                ],
+                &[],
+            ),
         }
     }
 
@@ -250,6 +265,15 @@ impl Commit {
         count: u32,
     ) {
         self.observe.record_rows(recorder, streams, count);
+    }
+
+    pub(crate) fn record_observe_joints(
+        &mut self,
+        recorder: &mut ComputeRecorder,
+        streams: &impl Resources,
+        count: u32,
+    ) {
+        self.observe_joints.record_rows(recorder, streams, count);
     }
 
     pub fn record(
@@ -270,8 +294,6 @@ impl Commit {
             streams,
             Count::Constraints.rows(&frame.params),
         );
-        self.joint_states
-            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
     }
 
     pub fn record_gather(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {

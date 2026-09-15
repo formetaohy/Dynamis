@@ -2,9 +2,8 @@ use super::World;
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
-    ConstraintRuntimeRecord, ContactRecord, Counters, DeclaredCounters, FEATURE_KIND_MASK,
-    FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK, JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD,
-    SHAPE_MESH,
+    ContactRecord, Counters, DeclaredCounters, FEATURE_KIND_MASK, FEATURE_TRIANGLE,
+    FEATURE_TRIANGLE_MASK, JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH,
 };
 use dynamis_model::{BodyHandle, ConstraintHandle, JointState, SurfaceDesc};
 use std::collections::HashSet;
@@ -43,7 +42,6 @@ pub struct ConstraintForce {
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
-const DECLARED_DEPTH: usize = dynamis_gpu::FACT_LAG + 2;
 
 fn measured_counters(bytes: &[u8], counters: &mut Counters) {
     let stride = COUNTER_STRIDE as usize;
@@ -65,121 +63,10 @@ impl World {
         COUNTER_BYTES
     }
 
-    pub(crate) fn declare_step(&mut self, step: u64) {
-        let declared = DeclaredCounters {
-            bodies: self.bodies.alive.len() as u32,
-            colliders: self.colliders.live(),
-            constraints: self.constraints.alive.len() as u32,
-            body_edits: self.bodies.last_edits,
-            body_moves: self.bodies.last_moves,
-            constraint_commands: self.constraints.last_commands,
-            constraint_moves: self.constraints.last_moves,
-        };
-        assert!(
-            self.backend.declared.len() < DECLARED_DEPTH,
-            "a step declaration outlived its counter readback"
-        );
-        self.backend.declared.push_back((step, declared));
-    }
-
-    pub(crate) fn consume_pack(&mut self, step: u64, bytes: &[u8]) {
-        let (declared_step, declared) = self
-            .backend
-            .declared
-            .pop_front()
-            .expect("a counter readback retires a declared step");
-        assert_eq!(
-            declared_step, step,
-            "counter readbacks must retire in declaration order"
-        );
+    pub(crate) fn consume_pack(&mut self, step: u64, declared: DeclaredCounters, bytes: &[u8]) {
         declared.write_into(&mut self.backend.measured);
         measured_counters(bytes, &mut self.backend.measured);
         self.accept_measured(step);
-    }
-
-    pub fn inspect_constraint_forces(&mut self) -> Vec<ConstraintForce> {
-        let count = self.constraints.alive.len();
-        if count == 0 {
-            return Vec::new();
-        }
-        self.wait();
-        let runtime = &self.backend.streams.state.constraint_runtime;
-        let bytes = count as u64 * runtime.stride();
-        let buffer = runtime.buffer().clone();
-        let read = self.read_regions("constraint force readback", &[(&buffer, 0, bytes)]);
-        dynamis_abi::decode::<ConstraintRuntimeRecord>(&read)
-            .into_iter()
-            .enumerate()
-            .map(|(row, runtime)| {
-                let constraint = self.constraints.alive[row];
-                let (first, second) = self.constraint_bodies(constraint);
-                constraint_force_of(
-                    constraint,
-                    first,
-                    second,
-                    runtime.reaction,
-                    self.clock.sub_dt,
-                )
-            })
-            .collect()
-    }
-
-    pub fn inspect_constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
-        self.validate_constraint(handle);
-        let row = self.constraints.index_of[handle.id as usize];
-        self.wait();
-        let runtime = &self.backend.streams.state.constraint_runtime;
-        let stride = runtime.stride();
-        let buffer = runtime.buffer().clone();
-        let read = self.read_regions(
-            "constraint force readback",
-            &[(&buffer, u64::from(row) * stride, stride)],
-        );
-        let record = dynamis_abi::decode::<ConstraintRuntimeRecord>(&read)
-            .first()
-            .copied()
-            .expect("a constraint force read covers exactly one record");
-        let (first, second) = self.constraint_bodies(handle);
-        constraint_force_of(handle, first, second, record.reaction, self.clock.sub_dt)
-    }
-
-    pub fn inspect_joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
-        let count = self.constraints.alive.len();
-        if count == 0 {
-            return Vec::new();
-        }
-        self.wait();
-        let states = &self.backend.streams.rigid.joint_states;
-        let bytes = count as u64 * states.stride();
-        let buffer = states.buffer().clone();
-        let read = self.read_regions("joint state readback", &[(&buffer, 0, bytes)]);
-        dynamis_abi::decode::<JointStateRecord>(&read)
-            .into_iter()
-            .enumerate()
-            .map(|(row, state)| (self.constraints.alive[row], self.joint_state_at(row, state)))
-            .collect()
-    }
-
-    pub fn inspect_joint_state(&mut self, handle: ConstraintHandle) -> JointState {
-        self.validate_constraint(handle);
-        let row = self.constraints.index_of[handle.id as usize];
-        self.wait();
-        let states = &self.backend.streams.rigid.joint_states;
-        let stride = states.stride();
-        let buffer = states.buffer().clone();
-        let read = self.read_regions(
-            "joint state readback",
-            &[(&buffer, u64::from(row) * stride, stride)],
-        );
-        let state = dynamis_abi::decode::<JointStateRecord>(&read)
-            .first()
-            .copied()
-            .expect("a joint state read covers exactly one record");
-        self.joint_state_at(row as usize, state)
-    }
-
-    fn joint_state_at(&self, row: usize, state: JointStateRecord) -> JointState {
-        joint_state_of(self.constraints.records[row].constraint_kind(), state)
     }
 
     pub fn inspect_contacts(&mut self) -> Vec<ContactManifold> {
@@ -262,14 +149,14 @@ impl World {
     pub(crate) fn collect_readbacks(&mut self) {
         self.backend.gpu.poll();
         self.collect_observations();
-        for (step, bytes) in self.backend.readback.step.collect() {
-            self.consume_pack(step, &bytes);
+        for ((step, declared), bytes) in self.backend.readback.counters.collect() {
+            self.consume_pack(step, declared, &bytes);
         }
-        for (_, bytes) in self.backend.readback.events.collect() {
-            self.consume_events(&bytes);
+        for (count, bytes) in self.backend.readback.events.collect() {
+            self.consume_events(count, &bytes);
         }
-        for (_, bytes) in self.backend.readback.breaks.collect() {
-            self.consume_breaks(&bytes);
+        for (count, bytes) in self.backend.readback.breaks.collect() {
+            self.consume_breaks(count, &bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.collect() {
             self.collect_query_batch(batch, &bytes);
@@ -282,14 +169,14 @@ impl World {
 
     pub(crate) fn drain_readbacks(&mut self) {
         self.drain_observations();
-        for (step, bytes) in self.backend.readback.step.drain() {
-            self.consume_pack(step, &bytes);
+        for ((step, declared), bytes) in self.backend.readback.counters.drain() {
+            self.consume_pack(step, declared, &bytes);
         }
-        for (_, bytes) in self.backend.readback.events.drain() {
-            self.consume_events(&bytes);
+        for (count, bytes) in self.backend.readback.events.drain() {
+            self.consume_events(count, &bytes);
         }
-        for (_, bytes) in self.backend.readback.breaks.drain() {
-            self.consume_breaks(&bytes);
+        for (count, bytes) in self.backend.readback.breaks.drain() {
+            self.consume_breaks(count, &bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.drain() {
             self.collect_query_batch(batch, &bytes);

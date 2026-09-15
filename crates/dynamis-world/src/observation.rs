@@ -1,26 +1,28 @@
 use super::World;
 use super::body::NEVER_REPORTED;
+use super::constraint::Constraints;
+use super::ids::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
     BodyStateRecord, ConstraintReactionRecord, ConstraintRuntimeRecord, JointStateRecord, NO_SLOT,
     SoftElementRecord, SoftParticleRecord,
 };
-use dynamis_gpu::{Readback, SubmissionEncoder};
+use dynamis_gpu::{Publication, Stream, SubmissionEncoder};
 use dynamis_model::{
     BodyHandle, BodyState, ConstraintHandle, ConstraintKind, JointState, SoftBodyHandle,
     SoftElementState,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::mem::size_of;
-use wgpu::{Buffer, Device};
+use wgpu::{Device, Queue};
 
 pub struct Observation<T> {
     pub step: u64,
     pub value: T,
 }
 
-const DEPTH: usize = Readback::DEPTH;
+pub(crate) const DEPTH: usize = Publication::<()>::DEPTH;
 const SOFT_DEPTH: usize = 2;
 
 #[derive(Clone, Copy)]
@@ -31,76 +33,9 @@ pub(crate) struct ConstraintRow {
     pub(crate) second: BodyHandle,
 }
 
-struct Ring {
-    label: &'static str,
-    depth: usize,
-    readback: Option<Readback>,
-}
-
-impl Ring {
-    const fn new(label: &'static str, depth: usize) -> Self {
-        Self {
-            label,
-            depth,
-            readback: None,
-        }
-    }
-
-    fn clear(&mut self) {
-        self.readback = None;
-    }
-
-    fn publish(
-        &mut self,
-        device: &Device,
-        encoder: &mut SubmissionEncoder,
-        capacity: u64,
-        regions: &[(&Buffer, u64, u64)],
-        sequence: u64,
-    ) -> Option<(u64, Vec<u8>)> {
-        let bytes = regions.iter().map(|(_, _, bytes)| *bytes).sum::<u64>();
-        assert!(
-            bytes > 0 && bytes <= capacity,
-            "an observation publishes {bytes} bytes within the {capacity} byte mirror it is sized for"
-        );
-        if self
-            .readback
-            .as_ref()
-            .is_none_or(|ring| ring.size() < capacity)
-        {
-            if let Some(ring) = &self.readback {
-                assert!(
-                    ring.is_idle(),
-                    "observation {:?} must drain before its ring reallocates",
-                    self.label
-                );
-            }
-            self.readback = Some(Readback::new(device, self.label, capacity, self.depth));
-        }
-        self.readback
-            .as_mut()
-            .expect("a publication opens its ring")
-            .enqueue_regions(encoder, regions, sequence)
-    }
-
-    fn collect(&mut self) -> Vec<(u64, Vec<u8>)> {
-        self.readback
-            .as_mut()
-            .map(Readback::collect)
-            .unwrap_or_default()
-    }
-
-    fn drain(&mut self) -> Vec<(u64, Vec<u8>)> {
-        self.readback
-            .as_mut()
-            .map(Readback::drain)
-            .unwrap_or_default()
-    }
-}
-
 pub(crate) struct Observations {
     pub(crate) bodies: BodyMirror,
-    joints: JointMirror,
+    pub(crate) joints: JointMirror,
     soft: SoftMirror,
 }
 
@@ -126,7 +61,7 @@ pub(crate) struct BodyMirror {
     required: Vec<u32>,
     dirty: bool,
     epoch: Option<u64>,
-    ring: Ring,
+    publication: Publication<u64>,
 }
 
 impl BodyMirror {
@@ -137,7 +72,7 @@ impl BodyMirror {
             required: Vec::new(),
             dirty: false,
             epoch: None,
-            ring: Ring::new("body state observation", DEPTH),
+            publication: Publication::new("body state observation", DEPTH),
         }
     }
 
@@ -195,13 +130,13 @@ impl BodyMirror {
         self.dirty = true;
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.observed.clear();
         self.slot_of.clear();
         self.required.clear();
         self.dirty = false;
         self.epoch = None;
-        self.ring.clear();
+        self.publication.clear();
     }
 
     fn take_dirty(&mut self) -> bool {
@@ -209,137 +144,221 @@ impl BodyMirror {
     }
 }
 
+struct JointWatch {
+    handles: Vec<ConstraintHandle>,
+}
+
+impl JointWatch {
+    const fn new() -> Self {
+        Self {
+            handles: Vec::new(),
+        }
+    }
+
+    fn watch(&mut self, handle: ConstraintHandle) {
+        if let Err(slot) = self
+            .handles
+            .binary_search_by_key(&handle.id, |candidate| candidate.id)
+        {
+            self.handles.insert(slot, handle);
+        }
+    }
+
+    fn forget(&mut self, id: u32) {
+        if let Ok(slot) = self
+            .handles
+            .binary_search_by_key(&id, |candidate| candidate.id)
+        {
+            self.handles.remove(slot);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.handles.clear();
+    }
+}
+
 struct JointManifest {
     step: u64,
     dt: f32,
-    rows: Vec<ConstraintRow>,
+    watched: Vec<ConstraintRow>,
 }
 
 struct PublishedJoints {
     step: u64,
-    rows: Vec<ConstraintRow>,
-    states: Vec<JointState>,
-    forces: Vec<ConstraintForce>,
+    joints: Vec<(ConstraintHandle, JointState, ConstraintForce)>,
 }
 
 impl PublishedJoints {
     fn decode(manifest: JointManifest, bytes: &[u8]) -> Self {
-        let count = manifest.rows.len();
+        let count = manifest.watched.len();
         let (state_bytes, runtime_bytes) = bytes.split_at(count * size_of::<JointStateRecord>());
         let states = dynamis_abi::decode::<JointStateRecord>(state_bytes);
         let runtimes = dynamis_abi::decode::<ConstraintRuntimeRecord>(runtime_bytes);
-        let mut decoded = Vec::with_capacity(count);
-        let mut forces = Vec::with_capacity(count);
-        for (row, (state, runtime)) in manifest.rows.iter().zip(states.iter().zip(runtimes.iter()))
+        let mut joints = Vec::with_capacity(count);
+        for (row, (state, runtime)) in manifest
+            .watched
+            .iter()
+            .zip(states.iter().zip(runtimes.iter()))
         {
             assert_eq!(
                 (runtime.constraint_id, runtime.generation),
                 (row.handle.id, row.handle.generation),
-                "a constraint runtime must answer the row its publication declared"
+                "a constraint runtime must answer the joint its publication declared"
             );
             let reaction: ConstraintReactionRecord = runtime.reaction;
-            decoded.push(joint_state_of(row.kind, *state));
-            forces.push(constraint_force_of(
+            joints.push((
                 row.handle,
-                row.first,
-                row.second,
-                reaction,
-                manifest.dt,
+                joint_state_of(row.kind, *state),
+                constraint_force_of(row.handle, row.first, row.second, reaction, manifest.dt),
             ));
         }
         Self {
             step: manifest.step,
-            rows: manifest.rows,
-            states: decoded,
-            forces,
+            joints,
         }
     }
 
-    fn row_of(&self, handle: ConstraintHandle) -> Option<usize> {
-        self.rows.iter().position(|row| row.handle == handle)
+    fn slot(&self, handle: ConstraintHandle) -> Option<usize> {
+        self.joints
+            .binary_search_by_key(&handle.id, |(candidate, _, _)| candidate.id)
+            .ok()
+            .filter(|slot| self.joints[*slot].0 == handle)
     }
 }
 
-struct JointMirror {
-    enabled: bool,
-    ring: Ring,
-    pending: VecDeque<JointManifest>,
+pub(crate) struct JointMirror {
+    watch: JointWatch,
+    wrote: Vec<u32>,
+    publication: Publication<JointManifest>,
     published: Option<PublishedJoints>,
 }
 
 impl JointMirror {
     const fn new() -> Self {
         Self {
-            enabled: false,
-            ring: Ring::new("joint state observation", DEPTH),
-            pending: VecDeque::new(),
+            watch: JointWatch::new(),
+            wrote: Vec::new(),
+            publication: Publication::new("joint state observation", DEPTH),
             published: None,
         }
     }
 
-    fn reset(&mut self) {
-        self.enabled = false;
-        self.pending.clear();
-        self.published = None;
-        self.ring.clear();
+    pub(crate) fn demand(&self) -> u32 {
+        self.watch.handles.len().max(self.wrote.len()) as u32
     }
 
-    fn declare(
-        &mut self,
-        device: &Device,
-        encoder: &mut SubmissionEncoder,
-        streams: &super::backend::registry::Streams,
-        rows: Vec<ConstraintRow>,
-        step: u64,
-        dt: f32,
-    ) {
-        if rows.is_empty() {
-            self.published = Some(PublishedJoints {
-                step,
-                rows,
-                states: Vec::new(),
-                forces: Vec::new(),
-            });
+    pub(crate) fn watched(&self) -> u32 {
+        self.watch.handles.len() as u32
+    }
+
+    fn reset(&mut self) {
+        self.watch.clear();
+        self.wrote.clear();
+        self.published = None;
+        self.publication.clear();
+    }
+
+    fn watch(&mut self, handle: ConstraintHandle) {
+        self.watch.watch(handle);
+    }
+
+    pub(crate) fn watch_every(&mut self, constraints: &Constraints) {
+        for handle in &constraints.alive {
+            self.watch.watch(*handle);
+        }
+    }
+
+    pub(crate) fn forget(&mut self, handle: ConstraintHandle) {
+        self.watch.forget(handle.id);
+    }
+
+    fn stop(&mut self) {
+        self.watch.clear();
+        self.published = None;
+    }
+
+    fn declared(&self) -> Vec<u32> {
+        self.watch.handles.iter().map(|handle| handle.id).collect()
+    }
+
+    fn refresh(&mut self, queue: &Queue, stream: &Stream, declared: Vec<u32>) {
+        if declared.is_empty() {
+            self.wrote.clear();
             return;
         }
-        let states = &streams.rigid.joint_states;
-        let runtimes = &streams.state.constraint_runtime;
-        let count = rows.len() as u64;
-        let regions = [
-            (states.buffer(), 0, count * states.stride()),
-            (runtimes.buffer(), 0, count * runtimes.stride()),
-        ];
-        let capacity = states.size() + runtimes.size();
-        if let Some((sequence, bytes)) =
-            self.ring.publish(device, encoder, capacity, &regions, step)
-        {
-            self.accept(sequence, bytes);
+        if self.wrote == declared {
+            return;
         }
-        self.pending.push_back(JointManifest { step, dt, rows });
+        stream.write(queue, bytemuck::cast_slice(&declared));
+        self.wrote = declared;
     }
 
-    fn accept(&mut self, sequence: u64, bytes: Vec<u8>) {
-        let manifest = self
-            .pending
-            .pop_front()
-            .expect("an observation arrival retires the declaration it answers");
-        assert_eq!(
-            manifest.step, sequence,
-            "observation arrivals must retire in declaration order"
-        );
-        self.published = Some(PublishedJoints::decode(manifest, &bytes));
+    fn rows(&self, constraints: &Constraints, bodies: &IdSpace) -> Vec<ConstraintRow> {
+        self.wrote
+            .iter()
+            .map(|id| {
+                let index = constraints.index_of[*id as usize] as usize;
+                let record = constraints.records[index];
+                ConstraintRow {
+                    handle: ConstraintHandle {
+                        id: *id,
+                        generation: constraints.ids.generation(*id),
+                    },
+                    kind: record.constraint_kind(),
+                    first: BodyHandle {
+                        id: record.first_body_id,
+                        generation: bodies.generation(record.first_body_id),
+                    },
+                    second: BodyHandle {
+                        id: record.second_body_id,
+                        generation: bodies.generation(record.second_body_id),
+                    },
+                }
+            })
+            .collect()
     }
 
-    fn collect(&mut self) {
-        for (sequence, bytes) in self.ring.collect() {
-            self.accept(sequence, bytes);
-        }
+    fn accept(&mut self, bytes: &[u8], manifest: JointManifest) {
+        self.published = Some(PublishedJoints::decode(manifest, bytes));
     }
 
-    fn drain(&mut self) {
-        for (sequence, bytes) in self.ring.drain() {
-            self.accept(sequence, bytes);
-        }
+    fn published(&self) -> &PublishedJoints {
+        self.published
+            .as_ref()
+            .expect("a joint inspection publishes before it reads")
+    }
+
+    fn states(&self, constraints: &Constraints) -> Vec<(ConstraintHandle, JointState)> {
+        self.published()
+            .joints
+            .iter()
+            .filter(|(handle, _, _)| constraints.is_alive(*handle))
+            .map(|(handle, state, _)| (*handle, *state))
+            .collect()
+    }
+
+    fn state(&self, handle: ConstraintHandle) -> JointState {
+        self.published().joints[self.slot(handle)].1
+    }
+
+    fn forces(&self, constraints: &Constraints) -> Vec<ConstraintForce> {
+        self.published()
+            .joints
+            .iter()
+            .filter(|(handle, _, _)| constraints.is_alive(*handle))
+            .map(|(_, _, force)| *force)
+            .collect()
+    }
+
+    fn force(&self, handle: ConstraintHandle) -> ConstraintForce {
+        self.published().joints[self.slot(handle)].2
+    }
+
+    fn slot(&self, handle: ConstraintHandle) -> usize {
+        self.published().slot(handle).unwrap_or_else(|| {
+            panic!("constraint handle {handle:?} is missing from its publication")
+        })
     }
 }
 
@@ -358,8 +377,7 @@ struct SoftManifest {
 struct SoftMirror {
     watched: Vec<SoftBodyHandle>,
     slot_of: HashMap<u32, usize>,
-    ring: Ring,
-    pending: VecDeque<SoftManifest>,
+    publication: Publication<SoftManifest>,
     published: HashMap<u32, PublishedSoft>,
 }
 
@@ -368,8 +386,7 @@ impl SoftMirror {
         Self {
             watched: Vec::new(),
             slot_of: HashMap::new(),
-            ring: Ring::new("soft particle observation", SOFT_DEPTH),
-            pending: VecDeque::new(),
+            publication: Publication::new("soft particle observation", SOFT_DEPTH),
             published: HashMap::new(),
         }
     }
@@ -377,9 +394,8 @@ impl SoftMirror {
     fn reset(&mut self) {
         self.watched.clear();
         self.slot_of.clear();
-        self.pending.clear();
         self.published.clear();
-        self.ring.clear();
+        self.publication.clear();
     }
 
     fn watch(&mut self, handle: SoftBodyHandle) {
@@ -401,53 +417,11 @@ impl SoftMirror {
         }
     }
 
-    pub(crate) fn watched(&self) -> &[SoftBodyHandle] {
+    fn watched(&self) -> &[SoftBodyHandle] {
         &self.watched
     }
 
-    fn declare(
-        &mut self,
-        device: &Device,
-        encoder: &mut SubmissionEncoder,
-        streams: &super::backend::registry::Streams,
-        runs: Vec<(SoftBodyHandle, SoftRuns)>,
-        step: u64,
-    ) {
-        let mut regions = Vec::with_capacity(runs.len() * 2);
-        let particles = streams.soft.particles.buffer();
-        let elements = streams.soft.elements.buffer();
-        for (_, run) in &runs {
-            regions.push((
-                particles,
-                u64::from(run.particles.offset) * size_of::<SoftParticleRecord>() as u64,
-                u64::from(run.particles.len) * size_of::<SoftParticleRecord>() as u64,
-            ));
-            if run.elements.len > 0 {
-                regions.push((
-                    elements,
-                    u64::from(run.elements.offset) * size_of::<SoftElementRecord>() as u64,
-                    u64::from(run.elements.len) * size_of::<SoftElementRecord>() as u64,
-                ));
-            }
-        }
-        let capacity = streams.soft.particles.size() + streams.soft.elements.size();
-        if let Some((sequence, bytes)) =
-            self.ring.publish(device, encoder, capacity, &regions, step)
-        {
-            self.accept(sequence, bytes);
-        }
-        self.pending.push_back(SoftManifest { step, runs });
-    }
-
-    fn accept(&mut self, sequence: u64, bytes: Vec<u8>) {
-        let manifest = self
-            .pending
-            .pop_front()
-            .expect("an observation arrival retires the declaration it answers");
-        assert_eq!(
-            manifest.step, sequence,
-            "observation arrivals must retire in declaration order"
-        );
+    fn accept(&mut self, bytes: &[u8], manifest: SoftManifest) {
         let mut at = 0usize;
         for (handle, run) in manifest.runs {
             let particle_bytes = run.particles.len as usize * size_of::<SoftParticleRecord>();
@@ -488,18 +462,6 @@ impl SoftMirror {
             bytes.len(),
             "an observation decodes every byte it copies"
         );
-    }
-
-    fn collect(&mut self) {
-        for (sequence, bytes) in self.ring.collect() {
-            self.accept(sequence, bytes);
-        }
-    }
-
-    fn drain(&mut self) {
-        for (sequence, bytes) in self.ring.drain() {
-            self.accept(sequence, bytes);
-        }
     }
 
     fn observation(&self, handle: SoftBodyHandle) -> Option<&PublishedSoft> {
@@ -555,17 +517,14 @@ impl World {
     }
 
     pub fn try_joint_states(&mut self) -> Option<Observation<Vec<(ConstraintHandle, JointState)>>> {
-        self.observed.joints.enabled = true;
+        self.observed.joints.watch_every(&self.constraints);
         let published = self.observed.joints.published.as_ref()?;
         let step = published.step;
-        let states = self
-            .constraints
-            .alive
+        let states = published
+            .joints
             .iter()
-            .filter_map(|handle| {
-                let row = published.row_of(*handle)?;
-                Some((*handle, published.states[row]))
-            })
+            .filter(|(handle, _, _)| self.constraints.is_alive(*handle))
+            .map(|(handle, state, _)| (*handle, *state))
             .collect();
         Some(Observation {
             step,
@@ -575,26 +534,23 @@ impl World {
 
     pub fn try_joint_state(&mut self, handle: ConstraintHandle) -> Option<Observation<JointState>> {
         self.validate_constraint(handle);
-        self.observed.joints.enabled = true;
+        self.observed.joints.watch(handle);
         let published = self.observed.joints.published.as_ref()?;
-        let row = published.row_of(handle)?;
+        let slot = published.slot(handle)?;
         Some(Observation {
             step: published.step,
-            value: published.states[row],
+            value: published.joints[slot].1,
         })
     }
 
     pub fn try_constraint_forces(&mut self) -> Option<Observation<Vec<ConstraintForce>>> {
-        self.observed.joints.enabled = true;
+        self.observed.joints.watch_every(&self.constraints);
         let published = self.observed.joints.published.as_ref()?;
-        let forces = self
-            .constraints
-            .alive
+        let forces = published
+            .joints
             .iter()
-            .filter_map(|handle| {
-                let row = published.row_of(*handle)?;
-                Some(published.forces[row])
-            })
+            .filter(|(handle, _, _)| self.constraints.is_alive(*handle))
+            .map(|(_, _, force)| *force)
             .collect();
         Some(Observation {
             step: published.step,
@@ -607,18 +563,50 @@ impl World {
         handle: ConstraintHandle,
     ) -> Option<Observation<ConstraintForce>> {
         self.validate_constraint(handle);
-        self.observed.joints.enabled = true;
+        self.observed.joints.watch(handle);
         let published = self.observed.joints.published.as_ref()?;
-        let row = published.row_of(handle)?;
+        let slot = published.slot(handle)?;
         Some(Observation {
             step: published.step,
-            value: published.forces[row],
+            value: published.joints[slot].2,
         })
     }
 
     pub fn stop_observing_joints(&mut self) {
-        self.observed.joints.enabled = false;
-        self.observed.joints.published = None;
+        self.observed.joints.stop();
+    }
+
+    pub fn inspect_joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
+        self.observed.joints.watch_every(&self.constraints);
+        self.inspect_joints();
+        self.observed.joints.states(&self.constraints)
+    }
+
+    pub fn inspect_joint_state(&mut self, handle: ConstraintHandle) -> JointState {
+        self.validate_constraint(handle);
+        self.observed.joints.watch(handle);
+        self.inspect_joints();
+        self.observed.joints.state(handle)
+    }
+
+    pub fn inspect_constraint_forces(&mut self) -> Vec<ConstraintForce> {
+        self.observed.joints.watch_every(&self.constraints);
+        self.inspect_joints();
+        self.observed.joints.forces(&self.constraints)
+    }
+
+    pub fn inspect_constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
+        self.validate_constraint(handle);
+        self.observed.joints.watch(handle);
+        self.inspect_joints();
+        self.observed.joints.force(handle)
+    }
+
+    fn inspect_joints(&mut self) {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        self.execute(dynamis_pass::Run::Publish);
+        self.drain_readbacks();
     }
 
     pub fn try_soft_particles(
@@ -668,101 +656,149 @@ impl World {
     }
 
     pub(crate) fn flush_observed(&mut self) {
-        if !self.observed.bodies.take_dirty() {
-            return;
+        let queue = self.backend.gpu.queue().clone();
+        if self.observed.bodies.take_dirty() && !self.observed.bodies.ids().is_empty() {
+            self.backend
+                .streams
+                .state
+                .observed_ids
+                .write(&queue, bytemuck::cast_slice(self.observed.bodies.ids()));
         }
-        let ids = self.observed.bodies.ids();
-        if ids.is_empty() {
-            return;
-        }
-        self.backend
-            .streams
-            .state
-            .observed_ids
-            .write(self.backend.gpu.queue(), bytemuck::cast_slice(ids));
+        let declared = self.observed.joints.declared();
+        self.observed.joints.refresh(
+            &queue,
+            &self.backend.streams.state.observed_joint_ids,
+            declared,
+        );
     }
 
-    pub(crate) fn declare_observations(
-        &mut self,
-        encoder: &mut SubmissionEncoder,
-        step: u64,
-    ) -> Option<(u64, Vec<u8>)> {
+    pub(crate) fn declare_observations(&mut self, encoder: &mut SubmissionEncoder, step: u64) {
         let device = self.backend.gpu.device().clone();
-        if self.observed.joints.enabled {
-            let rows = self
-                .constraints
-                .alive
-                .iter()
-                .map(|handle| {
-                    let index = self.constraints.index_of[handle.id as usize] as usize;
-                    let record = self.constraints.records[index];
-                    ConstraintRow {
-                        handle: *handle,
-                        kind: record.constraint_kind(),
-                        first: BodyHandle {
-                            id: record.first_body_id,
-                            generation: self.bodies.ids.generation(record.first_body_id),
-                        },
-                        second: BodyHandle {
-                            id: record.second_body_id,
-                            generation: self.bodies.ids.generation(record.second_body_id),
-                        },
-                    }
-                })
-                .collect();
-            let dt = self.clock.sub_dt;
-            self.observed
-                .joints
-                .declare(&device, encoder, &self.backend.streams, rows, step, dt);
-        }
-        let watched = self.observed.soft.watched().to_vec();
-        if !watched.is_empty() {
-            let runs = watched
-                .iter()
-                .filter(|handle| self.soft.is_alive(**handle))
-                .map(|handle| (*handle, self.soft.runs_of(*handle)))
-                .collect();
-            self.observed
-                .soft
-                .declare(&device, encoder, &self.backend.streams, runs, step);
-        }
-        self.declare_body_observations(encoder, step)
+        let dt = self.clock.sub_dt;
+        self.declare_joints(&device, encoder, step, dt);
+        self.declare_soft(&device, encoder, step);
+        self.declare_bodies(&device, encoder, step);
     }
 
-    pub(crate) fn declare_body_observations(
+    fn declare_joints(
         &mut self,
+        device: &Device,
         encoder: &mut SubmissionEncoder,
         step: u64,
-    ) -> Option<(u64, Vec<u8>)> {
+        dt: f32,
+    ) {
+        if self.observed.joints.wrote.is_empty() {
+            return;
+        }
+        let watched = self
+            .observed
+            .joints
+            .rows(&self.constraints, &self.bodies.ids);
+        let states = &self.backend.streams.state.observed_joint_states;
+        let runtimes = &self.backend.streams.state.observed_joint_runtimes;
+        let count = watched.len() as u64;
+        let regions = [
+            (states.buffer(), 0, count * states.stride()),
+            (runtimes.buffer(), 0, count * runtimes.stride()),
+        ];
+        let budget = states.size() + runtimes.size();
+        self.observed.joints.publication.reserve(device, budget);
+        let manifest = JointManifest { step, dt, watched };
+        if let Some((manifest, bytes)) = self
+            .observed
+            .joints
+            .publication
+            .declare(encoder, &regions, step, manifest)
+        {
+            self.observed.joints.accept(&bytes, manifest);
+        }
+    }
+
+    fn declare_soft(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        let watched = self.observed.soft.watched().to_vec();
+        if watched.is_empty() {
+            return;
+        }
+        let runs = watched
+            .iter()
+            .filter(|handle| self.soft.is_alive(**handle))
+            .map(|handle| (*handle, self.soft.runs_of(*handle)))
+            .collect::<Vec<_>>();
+        let mut regions = Vec::with_capacity(runs.len() * 2);
+        let particles = self.backend.streams.soft.particles.buffer();
+        let elements = self.backend.streams.soft.elements.buffer();
+        for (_, run) in &runs {
+            regions.push((
+                particles,
+                u64::from(run.particles.offset) * size_of::<SoftParticleRecord>() as u64,
+                u64::from(run.particles.len) * size_of::<SoftParticleRecord>() as u64,
+            ));
+            if run.elements.len > 0 {
+                regions.push((
+                    elements,
+                    u64::from(run.elements.offset) * size_of::<SoftElementRecord>() as u64,
+                    u64::from(run.elements.len) * size_of::<SoftElementRecord>() as u64,
+                ));
+            }
+        }
+        let budget =
+            self.backend.streams.soft.particles.size() + self.backend.streams.soft.elements.size();
+        self.observed.soft.publication.reserve(device, budget);
+        let manifest = SoftManifest { step, runs };
+        if let Some((manifest, bytes)) = self
+            .observed
+            .soft
+            .publication
+            .declare(encoder, &regions, step, manifest)
+        {
+            self.observed.soft.accept(&bytes, manifest);
+        }
+    }
+
+    fn declare_bodies(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
         let count = self.observed.bodies.len();
         if count == 0 {
-            return None;
+            return;
         }
         let observed = &self.backend.streams.state.observed_states;
         let bytes = count as u64 * observed.stride();
-        self.observed.bodies.ring.publish(
-            &self.backend.gpu.device().clone(),
-            encoder,
-            observed.size(),
-            &[(observed.buffer(), 0, bytes)],
-            step,
-        )
+        let regions = [(observed.buffer(), 0, bytes)];
+        self.observed
+            .bodies
+            .publication
+            .reserve(device, observed.size());
+        if let Some((sequence, bytes)) = self
+            .observed
+            .bodies
+            .publication
+            .declare(encoder, &regions, step, step)
+        {
+            self.consume_observations(sequence, &bytes);
+        }
     }
 
     pub(crate) fn collect_observations(&mut self) {
-        for (sequence, bytes) in self.observed.bodies.ring.collect() {
+        for (sequence, bytes) in self.observed.bodies.publication.collect() {
             self.consume_observations(sequence, &bytes);
         }
-        self.observed.joints.collect();
-        self.observed.soft.collect();
+        for (manifest, bytes) in self.observed.joints.publication.collect() {
+            self.observed.joints.accept(&bytes, manifest);
+        }
+        for (manifest, bytes) in self.observed.soft.publication.collect() {
+            self.observed.soft.accept(&bytes, manifest);
+        }
     }
 
     pub(crate) fn drain_observations(&mut self) {
-        for (sequence, bytes) in self.observed.bodies.ring.drain() {
+        for (sequence, bytes) in self.observed.bodies.publication.drain() {
             self.consume_observations(sequence, &bytes);
         }
-        self.observed.joints.drain();
-        self.observed.soft.drain();
+        for (manifest, bytes) in self.observed.joints.publication.drain() {
+            self.observed.joints.accept(&bytes, manifest);
+        }
+        for (manifest, bytes) in self.observed.soft.publication.drain() {
+            self.observed.soft.accept(&bytes, manifest);
+        }
     }
 
     pub(crate) fn consume_observations(&mut self, sequence: u64, bytes: &[u8]) {

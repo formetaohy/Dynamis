@@ -21,6 +21,7 @@ pub struct Commands {
     constraint_rows: Stage,
     constraint_move_gather: Stage,
     constraint_move_scatter: Stage,
+    row_of_constraint: Stage,
     joint_filter: Stage,
     activity: Stage,
 }
@@ -192,6 +193,24 @@ impl Commands {
                 ],
                 &[],
             ),
+            row_of_constraint: Stage::build(
+                context,
+                "row_of_constraint",
+                rows(
+                    context,
+                    include_str!("../shaders/row_of_constraint.wgsl"),
+                    CORE,
+                    Count::ConstraintMoves.field(),
+                ),
+                streams,
+                &[
+                    ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
+                    ("row_moves", StateStream::ConstraintRowMoves.whole()),
+                    ("row_of_constraint", StateStream::ConstraintRowOfId.whole()),
+                    ("params", StateStream::Params.whole()),
+                ],
+                &[],
+            ),
             activity: Stage::build(
                 context,
                 "activity",
@@ -284,6 +303,11 @@ impl Commands {
             Count::ConstraintMoves.rows(&frame.params),
         );
         self.constraint_move_scatter.record_rows(
+            recorder,
+            streams,
+            Count::ConstraintMoves.rows(&frame.params),
+        );
+        self.row_of_constraint.record_rows(
             recorder,
             streams,
             Count::ConstraintMoves.rows(&frame.params),

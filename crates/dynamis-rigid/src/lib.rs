@@ -65,11 +65,12 @@ pub struct RigidFrame {
     pub shape: RigidShape,
     pub query_count: u32,
     pub observed_count: u32,
+    pub observed_joints: u32,
     pub ccd: bool,
 }
 
 use commands::Commands;
-use commit::Commit;
+use commit::{Commit, OBSERVED_JOINTS_EXECUTION};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{Execution, domain_passes};
 use dynamis_sort::RadixSort;
@@ -108,6 +109,7 @@ domain_passes!(
     sleep => Execution::AWAKE => &["reactions"],
     commit => Execution::STEP => &["sleep"],
     observe => Execution::PUBLISH => &["commit"],
+    observe_joints => OBSERVED_JOINTS_EXECUTION => &["observe"],
     resting_gather => Execution::AWAKE => &["commit"],
     resting_index => Execution::AWAKE => &["resting_gather"],
     query => Execution::GRAPH => &["broadphase", "commit"],
@@ -203,6 +205,9 @@ impl Rigid {
         } else if pass == self.resolution.observe {
             self.commit
                 .record_observe(recorder, streams, frame.observed_count);
+        } else if pass == self.resolution.observe_joints {
+            self.commit
+                .record_observe_joints(recorder, streams, frame.observed_joints);
         } else if pass == self.resolution.resting_gather {
             self.commit.record_gather(recorder, streams);
         } else if pass == self.resolution.resting_index {

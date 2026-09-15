@@ -339,3 +339,105 @@ fn every_joint_kind_reports_its_dof_layout() {
         }
     }
 }
+
+fn two_joint_world() -> (
+    World,
+    dynamis_model::ConstraintHandle,
+    dynamis_model::ConstraintHandle,
+) {
+    let (mut world, arm, hinge) = hinge_world();
+    let link = world.spawn(BodyDesc::sphere(0.2).position([2.0, 3.0, 0.0]));
+    let rope = world.add_constraint(arm, link, ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0));
+    (world, hinge, rope)
+}
+
+fn poll_joint(
+    world: &mut World,
+    handle: dynamis_model::ConstraintHandle,
+) -> dynamis_model::JointState {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        world.poll();
+        if let Some(observed) = world.try_joint_state(handle) {
+            return observed.value;
+        }
+        std::thread::yield_now();
+    }
+    panic!("a watched joint must reach the host without a sync");
+}
+
+#[test]
+fn a_single_joint_subscription_publishes_only_that_joint() {
+    let (mut world, hinge, _rope) = two_joint_world();
+    world.try_joint_state(hinge);
+    settle(&mut world, 4);
+    assert_eq!(
+        poll_joint(&mut world, hinge).kind(),
+        ConstraintKind::Revolute
+    );
+    assert_eq!(
+        world
+            .try_joint_states()
+            .expect("a single joint subscription must publish")
+            .value
+            .len(),
+        1,
+        "watching one joint must not publish the rest of the constraint set"
+    );
+    settle(&mut world, 4);
+    assert_eq!(
+        world
+            .try_joint_states()
+            .expect("a widened subscription must publish")
+            .value
+            .len(),
+        2,
+        "a broad subscription must publish every live joint"
+    );
+}
+
+#[test]
+fn a_single_joint_inspection_publishes_only_the_joint_it_names() {
+    let (mut world, hinge, _rope) = two_joint_world();
+    settle(&mut world, 2);
+    let state = world.inspect_joint_state(hinge);
+    assert_eq!(state.kind(), ConstraintKind::Revolute);
+    let observed = world
+        .try_joint_states()
+        .expect("an inspection must leave a publication behind");
+    assert_eq!(observed.value.len(), 1);
+    assert_eq!(observed.value[0].0, hinge);
+}
+
+#[test]
+fn a_watched_joint_keeps_its_identity_across_row_churn() {
+    let mut world = new_world(static_config());
+    let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.0]));
+    let second = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
+    let third = world.spawn(BodyDesc::sphere(0.2).position([0.0, 2.0, 0.0]));
+    let doomed = world.add_constraint(
+        first,
+        second,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+    );
+    let watched = world.add_constraint(
+        second,
+        third,
+        ConstraintDesc::revolute([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    );
+    world.try_joint_state(watched);
+    settle(&mut world, 4);
+    assert_eq!(
+        poll_joint(&mut world, watched).kind(),
+        ConstraintKind::Revolute
+    );
+    world.remove_constraint(doomed);
+    settle(&mut world, 4);
+    let observed = poll_joint(&mut world, watched);
+    assert_eq!(
+        observed.kind(),
+        ConstraintKind::Revolute,
+        "a watched joint must keep answering after its row moves"
+    );
+    assert_eq!(observed, world.inspect_joint_state(watched));
+}
