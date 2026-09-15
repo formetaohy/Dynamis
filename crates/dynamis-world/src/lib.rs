@@ -1,6 +1,7 @@
 mod arena;
 mod backend;
 mod body;
+mod character;
 mod clock;
 mod colliders;
 mod commands;
@@ -23,6 +24,7 @@ mod upload;
 
 use backend::Backend;
 use body::Bodies;
+use character::Characters;
 use clock::Clock;
 use colliders::ColliderPool;
 use commands::BodyCommand;
@@ -55,6 +57,7 @@ pub struct World {
     constraints: Constraints,
     shapes: Shapes,
     queries: Queries,
+    characters: Characters,
     events: Events,
     observed: Observations,
     soft: SoftBodies,
@@ -74,6 +77,7 @@ impl World {
             constraints: Constraints::new(),
             shapes,
             queries: Queries::new(),
+            characters: Characters::new(),
             events: Events::new(),
             observed: Observations::new(),
             soft: SoftBodies::new(),

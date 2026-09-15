@@ -157,6 +157,7 @@ impl World {
                 observed: self.observed.bodies.len(),
                 observed_joints: self.observed.joints.watched(),
                 ccd: self.ccd_active(),
+                characters: self.characters.slots(),
             },
             soft: dynamis_soft::SoftInputs {
                 particles,
@@ -181,6 +182,7 @@ impl World {
             rigid: dynamis_rigid::RigidWork {
                 body_commands: self.bodies.last_edits + self.bodies.last_moves,
                 constraint_commands: self.constraints.last_commands + self.constraints.last_moves,
+                character_inputs: self.characters.last_inputs > 0,
             },
             soft: dynamis_soft::SoftWork {
                 uploads: self.soft.uploaded,
@@ -201,6 +203,7 @@ impl World {
             elements: self.soft.used().1,
             attachments: self.soft.used().2,
             soft_bodies: self.soft.ids_len() as u32,
+            characters: self.characters.slots(),
         }
     }
 

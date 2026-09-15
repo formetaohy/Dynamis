@@ -49,6 +49,7 @@ impl World {
             self.upload_shapes(&queue);
         }
         self.soft.upload(&queue, &self.backend.streams.soft);
+        self.characters.upload(&queue, &self.backend.streams.rigid);
         self.bodies.dirty.sort_unstable();
         self.bodies.dirty.dedup();
         let dirty = std::mem::take(&mut self.bodies.dirty);

@@ -3,6 +3,7 @@ use dynamis_model::BodyDesc;
 
 const STEP: &[&str] = &[
     "commands",
+    "character",
     "prepare",
     "query_aabbs",
     "soft_bounds",
@@ -28,6 +29,7 @@ const STEP: &[&str] = &[
     "resting_gather",
     "resting_index",
     "query",
+    "character_sweeps",
 ];
 
 const IDLE: &[&str] = &["commands", "commit", "observe", "query"];

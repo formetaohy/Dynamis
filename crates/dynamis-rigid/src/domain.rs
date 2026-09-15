@@ -28,6 +28,7 @@ pub struct RigidDomainRuntime {
 pub struct RigidWork {
     pub body_commands: u32,
     pub constraint_commands: u32,
+    pub character_inputs: bool,
 }
 
 impl Domain for RigidDomain {
@@ -60,7 +61,7 @@ impl Domain for RigidDomain {
     }
 
     fn pending(work: &RigidWork) -> bool {
-        work.body_commands > 0 || work.constraint_commands > 0
+        work.body_commands > 0 || work.constraint_commands > 0 || work.character_inputs
     }
 
     fn active(measured: &Counters) -> bool {

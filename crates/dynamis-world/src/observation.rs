@@ -5,13 +5,13 @@ use super::ids::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
-    BodyStateRecord, ConstraintReactionRecord, ConstraintRuntimeRecord, JointStateRecord, NO_SLOT,
-    SoftElementRecord, SoftParticleRecord,
+    BodyStateRecord, CharacterStateRecord, ConstraintReactionRecord, ConstraintRuntimeRecord,
+    JointStateRecord, NO_SLOT, SoftElementRecord, SoftParticleRecord,
 };
 use dynamis_gpu::{Publication, Stream, SubmissionEncoder};
 use dynamis_model::{
-    BodyHandle, BodyState, ConstraintHandle, ConstraintKind, JointState, SoftBodyHandle,
-    SoftElementState,
+    BodyHandle, BodyState, CharacterHandle, CharacterState, ConstraintHandle, ConstraintKind,
+    JointState, SoftBodyHandle, SoftElementState,
 };
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -36,6 +36,7 @@ pub(crate) struct ConstraintRow {
 pub(crate) struct Observations {
     pub(crate) bodies: BodyMirror,
     pub(crate) joints: JointMirror,
+    pub(crate) characters: CharacterMirror,
     soft: SoftMirror,
 }
 
@@ -44,6 +45,7 @@ impl Observations {
         Self {
             bodies: BodyMirror::new(),
             joints: JointMirror::new(),
+            characters: CharacterMirror::new(),
             soft: SoftMirror::new(),
         }
     }
@@ -51,6 +53,7 @@ impl Observations {
     pub(crate) fn reset(&mut self) {
         self.bodies.reset();
         self.joints.reset();
+        self.characters.reset();
         self.soft.reset();
     }
 }
@@ -362,6 +365,96 @@ impl JointMirror {
     }
 }
 
+struct CharacterManifest {
+    step: u64,
+    handles: Vec<(CharacterHandle, u32)>,
+}
+
+struct PublishedCharacter {
+    handle: CharacterHandle,
+    step: u64,
+    state: CharacterState,
+}
+
+pub(crate) struct CharacterMirror {
+    watched: Vec<CharacterHandle>,
+    watched_slots: HashMap<u32, usize>,
+    publication: Publication<CharacterManifest>,
+    published: HashMap<u32, PublishedCharacter>,
+    sequence: Option<u64>,
+}
+
+impl CharacterMirror {
+    fn new() -> Self {
+        Self {
+            watched: Vec::new(),
+            watched_slots: HashMap::new(),
+            publication: Publication::new("character state observation", DEPTH),
+            published: HashMap::new(),
+            sequence: None,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.watched.clear();
+        self.watched_slots.clear();
+        self.publication.clear();
+        self.published.clear();
+        self.sequence = None;
+    }
+
+    fn watch(&mut self, handle: CharacterHandle) {
+        if self.watched_slots.contains_key(&handle.id) {
+            return;
+        }
+        self.watched_slots.insert(handle.id, self.watched.len());
+        self.watched.push(handle);
+    }
+
+    fn watched(&self) -> &[CharacterHandle] {
+        &self.watched
+    }
+
+    fn stop(&mut self) {
+        self.watched.clear();
+        self.watched_slots.clear();
+        self.published.clear();
+        self.sequence = None;
+    }
+
+    pub(crate) fn needs_publication(&self, step: u64) -> bool {
+        !self.watched.is_empty() && self.sequence != step.checked_sub(1)
+    }
+
+    fn accept(&mut self, bytes: &[u8], manifest: CharacterManifest) {
+        let records = dynamis_abi::decode::<CharacterStateRecord>(bytes);
+        for (handle, slot) in &manifest.handles {
+            let record = records
+                .get(*slot as usize)
+                .expect("a character observation must cover every live slot");
+            assert!(
+                record.owns(handle.id, handle.generation),
+                "a character observation must return only its own state"
+            );
+            self.published.insert(
+                handle.id,
+                PublishedCharacter {
+                    handle: *handle,
+                    step: manifest.step,
+                    state: record.state(),
+                },
+            );
+        }
+        self.sequence = Some(manifest.step);
+    }
+
+    fn observation(&self, handle: CharacterHandle) -> Option<&PublishedCharacter> {
+        self.published
+            .get(&handle.id)
+            .filter(|fact| fact.handle.generation == handle.generation)
+    }
+}
+
 struct PublishedSoft {
     handle: SoftBodyHandle,
     step: u64,
@@ -488,7 +581,8 @@ impl World {
             .filter(|handle| !self.body_current(handle.id))
             .map(|handle| handle.id)
             .collect::<Vec<_>>();
-        if !stale.is_empty() {
+        let characters = self.observed.characters.needs_publication(self.clock.step);
+        if !stale.is_empty() || characters {
             for id in stale {
                 self.observed.bodies.require(id);
             }
@@ -609,6 +703,49 @@ impl World {
         self.drain_readbacks();
     }
 
+    pub fn try_character_state(
+        &mut self,
+        handle: CharacterHandle,
+    ) -> Option<Observation<CharacterState>> {
+        self.characters.validate(handle);
+        self.observed.characters.watch(handle);
+        let published = self.observed.characters.observation(handle)?;
+        Some(Observation {
+            step: published.step,
+            value: published.state,
+        })
+    }
+
+    pub fn inspect_character_state(&mut self, handle: CharacterHandle) -> CharacterState {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        let live = self.live();
+        self.apply_plan(&live);
+        self.flush_rows();
+        let slot = self.characters.slot_of(handle);
+        let states = &self.backend.streams.rigid.character_states;
+        let stride = states.stride();
+        let buffer = states.buffer().clone();
+        let raw = self.read_regions(
+            "character state",
+            &[(&buffer, u64::from(slot) * stride, stride)],
+        );
+        let record = dynamis_abi::decode::<CharacterStateRecord>(&raw)
+            .first()
+            .copied()
+            .expect("a character readback retires exactly one state");
+        assert!(
+            record.owns(handle.id, handle.generation),
+            "a character readback must return its own state"
+        );
+        record.state()
+    }
+
+    pub fn stop_observing_character(&mut self, handle: CharacterHandle) {
+        self.characters.validate(handle);
+        self.observed.characters.stop();
+    }
+
     pub fn try_soft_particles(
         &mut self,
         handle: SoftBodyHandle,
@@ -677,7 +814,33 @@ impl World {
         let dt = self.clock.sub_dt;
         self.declare_joints(&device, encoder, step, dt);
         self.declare_soft(&device, encoder, step);
+        self.declare_characters(&device, encoder, step);
         self.declare_bodies(&device, encoder, step);
+    }
+
+    fn declare_characters(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        if self.observed.characters.watched().is_empty() || self.characters.count() == 0 {
+            return;
+        }
+        let states = &self.backend.streams.rigid.character_states;
+        let bytes = u64::from(self.characters.slots()) * states.stride();
+        let regions = [(states.buffer(), 0, bytes)];
+        self.observed
+            .characters
+            .publication
+            .reserve(device, states.size());
+        let manifest = CharacterManifest {
+            step,
+            handles: self.characters.live_slots(),
+        };
+        if let Some((manifest, bytes)) = self
+            .observed
+            .characters
+            .publication
+            .declare(encoder, &regions, step, manifest)
+        {
+            self.observed.characters.accept(&bytes, manifest);
+        }
     }
 
     fn declare_joints(
@@ -784,6 +947,9 @@ impl World {
         for (manifest, bytes) in self.observed.joints.publication.collect() {
             self.observed.joints.accept(&bytes, manifest);
         }
+        for (manifest, bytes) in self.observed.characters.publication.collect() {
+            self.observed.characters.accept(&bytes, manifest);
+        }
         for (manifest, bytes) in self.observed.soft.publication.collect() {
             self.observed.soft.accept(&bytes, manifest);
         }
@@ -795,6 +961,9 @@ impl World {
         }
         for (manifest, bytes) in self.observed.joints.publication.drain() {
             self.observed.joints.accept(&bytes, manifest);
+        }
+        for (manifest, bytes) in self.observed.characters.publication.drain() {
+            self.observed.characters.accept(&bytes, manifest);
         }
         for (manifest, bytes) in self.observed.soft.publication.drain() {
             self.observed.soft.accept(&bytes, manifest);

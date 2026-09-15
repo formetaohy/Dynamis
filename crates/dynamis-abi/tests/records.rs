@@ -260,6 +260,7 @@ fn step_params_record_maps_config() {
             elements: 19,
             attachments: 21,
             soft_bodies: 23,
+            characters: 2,
         },
         RowStreams {
             body_edit_runs: 5,

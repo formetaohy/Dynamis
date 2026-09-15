@@ -3,6 +3,7 @@ use super::backend::archive::StreamArchive;
 use super::backend::registry::Planning;
 use super::body::Bodies;
 use super::body::NEVER_REPORTED;
+use super::character::Characters;
 use super::clock::Clock;
 use super::colliders::ColliderPool;
 use super::constraint::Constraints;
@@ -19,6 +20,7 @@ struct Scene {
     constraints: Constraints,
     shapes: Shapes,
     soft: SoftBodies,
+    characters: Characters,
 }
 
 impl Scene {
@@ -29,6 +31,7 @@ impl Scene {
             constraints: world.constraints.clone(),
             shapes: world.shapes.clone(),
             soft: world.soft.clone(),
+            characters: world.characters.clone(),
         }
     }
 
@@ -38,6 +41,7 @@ impl Scene {
         world.constraints = self.constraints.clone();
         world.shapes = self.shapes.clone();
         world.soft = self.soft.clone();
+        world.characters = self.characters.clone();
     }
 }
 

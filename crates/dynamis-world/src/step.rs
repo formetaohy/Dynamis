@@ -42,6 +42,7 @@ impl World {
         if self.bodies.commands.is_empty()
             && self.constraints.commands.is_empty()
             && !self.soft.pending_uploads()
+            && !self.characters.pending()
         {
             self.clear_work();
             return;
@@ -62,6 +63,7 @@ impl World {
             self.bodies.commands.clear();
             self.constraints.commands.clear();
             self.soft.consume();
+            self.characters.consume();
         }
     }
 
@@ -72,6 +74,7 @@ impl World {
         self.constraints.last_moves = 0;
         self.soft.last_body_edits = 0;
         self.soft.last_edits = 0;
+        self.characters.clear_work();
     }
 
     pub fn rigid_shape(&self) -> RigidShape {

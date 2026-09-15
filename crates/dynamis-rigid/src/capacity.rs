@@ -26,6 +26,7 @@ pub struct RigidInputs {
     pub observed: u32,
     pub observed_joints: u32,
     pub ccd: bool,
+    pub characters: u32,
 }
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
@@ -124,6 +125,12 @@ impl Capacity {
             MIN_SLOTS,
         );
         let sort = RigidDemand::sort_slots(pairs, constraints).max(MIN_SLOTS);
+        let characters = settled(
+            idle,
+            current.characters.slots(),
+            inputs.characters,
+            MIN_SLOTS,
+        );
         RigidDemand {
             bodies,
             colliders,
@@ -133,6 +140,7 @@ impl Capacity {
             resting,
             events,
             sort,
+            characters,
         }
     }
 
@@ -146,6 +154,7 @@ impl Capacity {
             resting: dynamis_domain::STREAM_FLOOR,
             events: dynamis_domain::STREAM_FLOOR,
             sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
+            characters: MIN_SLOTS,
         }
     }
 }

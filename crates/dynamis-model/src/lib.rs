@@ -1,4 +1,5 @@
 mod body;
+mod character;
 mod collider;
 mod collision;
 mod config;
@@ -12,6 +13,7 @@ mod soft;
 mod surface;
 
 pub use body::{BodyDesc, BodyHandle, BodyState};
+pub use character::{CharacterDesc, CharacterHandle, CharacterInput, CharacterState};
 pub use collider::{ColliderDesc, ContactEventMode};
 pub use collision::CollisionFilter;
 pub use config::{MaterialCombine, PhysicsConfig};

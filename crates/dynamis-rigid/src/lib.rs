@@ -1,5 +1,6 @@
 mod capacity;
 mod ccd;
+mod character;
 mod commands;
 mod commit;
 mod domain;
@@ -69,6 +70,7 @@ pub struct RigidFrame {
     pub ccd: bool,
 }
 
+use character::Characters;
 use commands::Commands;
 use commit::{Commit, OBSERVED_JOINTS_EXECUTION};
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -92,7 +94,8 @@ pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity};
 domain_passes!(
     RigidPasses,
     commands => Execution::GRAPH => &[],
-    prepare => Execution::INDEXING.and(Execution::STEP) => &["commands"],
+    character => Execution::STEP.and(Execution::AWAKE) => &["commands"],
+    prepare => Execution::INDEXING.and(Execution::STEP) => &["commands", "character"],
     query_aabbs => Execution::QUERY => &["commands"],
     entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
     narrowphase => Execution::AWAKE => &["broadphase"],
@@ -113,12 +116,14 @@ domain_passes!(
     resting_gather => Execution::AWAKE => &["commit"],
     resting_index => Execution::AWAKE => &["resting_gather"],
     query => Execution::GRAPH => &["broadphase", "commit"],
+    character_sweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
 );
 
 pub struct Rigid {
     passes: RigidPasses,
     resolution: RigidResolutionPasses,
     commands: Commands,
+    characters: Characters,
     integrate: Integrate,
     entries: Entries,
     narrowphase: Narrowphase,
@@ -143,6 +148,7 @@ impl Rigid {
             passes,
             resolution,
             commands: Commands::build(context, streams),
+            characters: Characters::build(context, streams),
             integrate: Integrate::build(context, streams),
             entries: Entries::build(context, streams),
             narrowphase: Narrowphase::build(context, streams),
@@ -166,6 +172,8 @@ impl Rigid {
     ) -> bool {
         if pass == self.passes.commands {
             self.commands.record(recorder, streams, frame);
+        } else if pass == self.passes.character {
+            self.characters.record_step(recorder, streams, frame);
         } else if pass == self.passes.prepare {
             self.integrate
                 .record(recorder, streams, frame, &mut self.sort);
@@ -215,6 +223,8 @@ impl Rigid {
                 .record_index(recorder, streams, frame, &mut self.sort);
         } else if pass == self.resolution.query {
             self.queries.record(recorder, streams, frame);
+        } else if pass == self.resolution.character_sweeps {
+            self.characters.record_sweeps(recorder, streams, frame);
         } else {
             return false;
         }

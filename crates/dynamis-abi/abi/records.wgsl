@@ -3,6 +3,7 @@ const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16u;
 const ELEMENT_PARTICLES: u32 = 4u;
 const JOINT_DOF: u32 = 6u;
 const MAX_HITS_PER_QUERY: u32 = 16u;
+const CHARACTER_SWEEPS: u32 = 5u;
 
 struct StepParams {
     gravity: vec4f,
@@ -44,6 +45,7 @@ struct StepParams {
     soft_edit_count: u32,
     soft_body_edit_count: u32,
     observed_joint_count: u32,
+    character_count: u32,
 }
 
 struct SoftParticle {
@@ -433,4 +435,29 @@ struct ContactEvent {
     _pad0: f32,
     normal: vec3f,
     _pad1: f32,
+}
+
+struct Character {
+    body_id: u32,
+    generation: u32,
+    radius: f32,
+    half_height: f32,
+    step_height: f32,
+    cos_slope_limit: f32,
+    max_speed: f32,
+    jump_speed: f32,
+}
+
+struct CharacterInput {
+    direction: vec3f,
+    jump: u32,
+}
+
+struct CharacterState {
+    position: vec3f,
+    vertical: f32,
+    down_length: f32,
+    grounded: u32,
+    owner: u32,
+    generation: u32,
 }

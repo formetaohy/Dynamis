@@ -1,7 +1,9 @@
 use crate::RigidDomain;
 use dynamis_abi::{
-    AabbRecord, BodyStateRecord, CONTACT_MAX_POINTS, ConstraintRowsRecord, ConstraintRuntimeRecord,
-    ContactEventRecord, ContactRecord, NO_SLOT, SOLVER_BLOCK_CONSTRAINT,
+    AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
+    CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
+    ContactEventRecord, ContactRecord, NO_SLOT, QueryRecord, QueryResultRecord,
+    SOLVER_BLOCK_CONSTRAINT,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -26,6 +28,7 @@ streams! {
         resting: u32,
         events: u32,
         sort: u32,
+        characters: u32,
     }
     streams {
         collider_aabbs, ColliderAabbs: "broadphase aabbs", AabbRecord, 1, Contents::Scratch, demand.colliders;
@@ -69,10 +72,19 @@ streams! {
         sort_scratch_minor, SortScratchMinor: "sort scratch minor", u32, 1, Contents::Scratch, demand.sort;
         sort_scratch_payload, SortScratchPayload: "sort scratch payload", u32, 1, Contents::Scratch, demand.sort;
         sort_dummy_payload, SortDummyPayload: "sort dummy payload", u32, 1, Contents::Scratch, demand.sort;
+        characters, Characters: "characters", CharacterRecord, 1, Contents::Durable, demand.characters;
+        character_inputs, CharacterInputs: "character inputs", CharacterInputRecord, 1, Contents::Durable, demand.characters;
+        character_states, CharacterStates: "character states", CharacterStateRecord, 1, Contents::Durable, demand.characters;
+        character_sweeps, CharacterSweeps: "character sweeps", QueryRecord, 1, Contents::Durable, demand.character_sweeps();
+        character_hits, CharacterHits: "character sweep hits", QueryResultRecord, 1, Contents::Durable, demand.character_sweeps();
     }
 }
 
 impl RigidDemand {
+    pub fn character_sweeps(&self) -> u32 {
+        self.characters.saturating_mul(CHARACTER_SWEEPS)
+    }
+
     pub fn blocks(&self) -> u32 {
         self.contacts.saturating_add(self.constraints)
     }

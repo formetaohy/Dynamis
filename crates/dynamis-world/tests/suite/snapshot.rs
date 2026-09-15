@@ -2,7 +2,10 @@ use super::common::{DT, flat_mesh_floor, gravity_config, new_world};
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_RESTING,
 };
-use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, SoftBodyDesc, SoftBodyHandle};
+use dynamis_model::{
+    BodyDesc, BodyHandle, CharacterDesc, CharacterInput, ConstraintDesc, SoftBodyDesc,
+    SoftBodyHandle,
+};
 use dynamis_world::{Snapshot, World};
 
 const FRAMES: usize = 40;
@@ -276,5 +279,46 @@ fn a_restored_world_requires_a_fresh_observation() {
             .map(f32::to_bits),
         captured,
         "a fresh observation must report the captured frame"
+    );
+}
+
+#[test]
+fn a_snapshot_carries_the_characters_it_captured() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let character = world.add_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    for _ in 0..20 {
+        world.set_character_input(character, CharacterInput::moving([1.0, 0.0, 0.0]));
+        world.step(DT);
+    }
+    let snapshot = world.snapshot();
+    let captured = world.inspect_character_state(character);
+    for _ in 0..10 {
+        world.set_character_input(character, CharacterInput::moving([0.0, 0.0, 1.0]));
+        world.step(DT);
+    }
+    world.restore(&snapshot);
+    let restored = world.inspect_character_state(character);
+    assert_eq!(
+        restored.position.map(f32::to_bits),
+        captured.position.map(f32::to_bits),
+        "a snapshot must carry the character frames it captured"
+    );
+    assert!(restored.grounded, "a captured character must stay grounded");
+    for _ in 0..20 {
+        world.set_character_input(character, CharacterInput::moving([1.0, 0.0, 0.0]));
+        world.step(DT);
+    }
+    let walked = world.inspect_character_state(character);
+    assert!(walked.grounded, "a restored character must stay grounded");
+    assert!(
+        walked.position[0] > restored.position[0],
+        "a restored character must keep walking, {} -> {}",
+        restored.position[0],
+        walked.position[0]
     );
 }
