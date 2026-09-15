@@ -9,17 +9,18 @@ use dynamis_abi::{
     ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC,
     FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT,
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
-    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
-    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
-    SoftBodyEditRecord, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
-    StepParamsRecord, SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES,
+    QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord, SHAPE_CAPSULE, SHAPE_CUBOID,
+    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
+    SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE, SoftBodyEditRecord, SoftElementInit,
+    SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord,
+    TriangleRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_abi::{Census, ContactRecord, Count, QueryHitRecord};
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
-    MassProperties, PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState,
-    SurfaceDesc,
+    MassProperties, PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind,
+    SoftElementState, SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -348,9 +349,8 @@ fn query_record_encodes_kinds_and_filters() {
         ignore_sleeping: false,
         ignore_static: true,
         ignore_kinematic: true,
-        exclude: None,
-        include: None,
         max_hits: 3,
+        ..QueryFilter::default()
     };
     let ray = QueryRecord::ray([0.0, 1.0, 2.0], [0.0, 0.0, 1.0], 8.0, &filter);
     assert_eq!(ray.kind, QUERY_RAY);
@@ -358,11 +358,15 @@ fn query_record_encodes_kinds_and_filters() {
     assert_eq!(ray.direction, [0.0, 0.0, 1.0]);
     assert_eq!(ray.extent, 8.0);
     assert_eq!(
-        ray.filter_flags,
+        ray.filters.flags,
         FILTER_IGNORE_SENSORS | FILTER_IGNORE_STATIC | FILTER_IGNORE_KINEMATIC
     );
-    assert_eq!(ray.group, 5);
-    assert_eq!(ray.mask, 9);
+    assert_eq!(ray.filters.group, 5);
+    assert_eq!(ray.filters.mask, 9);
+    assert_eq!(
+        ray.filters.targets,
+        QUERY_TARGET_COLLIDERS | QUERY_TARGET_PARTICLES
+    );
     assert_eq!(ray.max_hits, 3);
 
     let sphere = QueryRecord::sphere([1.0; 3], 0.7, &QueryFilter::default());
@@ -390,13 +394,24 @@ fn query_record_encodes_kinds_and_filters() {
     assert_eq!(sweep.half_height, 1.0);
     assert_eq!(sweep.extent, 5.0);
 
+    let collider_only = QueryRecord::ray(
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        1.0,
+        &QueryFilter {
+            targets: QueryTargets::COLLIDERS,
+            ..QueryFilter::default()
+        },
+    );
+    assert_eq!(collider_only.filters.targets, QUERY_TARGET_COLLIDERS);
+
     let sleep_filter = QueryFilter {
         ignore_sleeping: true,
         ..QueryFilter::default()
     };
     let sleeping = QueryRecord::ray([0.0; 3], [0.0, 0.0, 1.0], 1.0, &sleep_filter);
     assert_eq!(
-        sleeping.filter_flags,
+        sleeping.filters.flags,
         FILTER_IGNORE_SENSORS | FILTER_IGNORE_SLEEPING,
         "default filters skip sensors too"
     );
@@ -798,7 +813,7 @@ fn query_hit_record_pins_the_hit_triangle_and_surface() {
         body_id: 1,
         body_generation: 2,
         distance: 3.0,
-        collider_index: 4,
+        scene_target: 4,
         point: [5.0, 6.0, 7.0],
         triangle: 8,
         normal: [9.0, 10.0, 11.0],

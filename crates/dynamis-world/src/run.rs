@@ -134,7 +134,7 @@ impl World {
             return None;
         }
         let id = self.queries.next_batch;
-        self.backend.streams.state.query_records.write(
+        self.backend.streams.scene.query_records.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&self.queries.pending),
         );
@@ -169,7 +169,7 @@ impl World {
         batch: Batch,
     ) -> Option<(u64, Vec<u8>)> {
         let regions = [(
-            self.backend.streams.state.query_results.buffer(),
+            self.backend.streams.scene.query_results.buffer(),
             0,
             batch.bytes,
         )];

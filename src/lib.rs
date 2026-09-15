@@ -26,11 +26,11 @@ pub use dynamis_model::{
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
     ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, FluidMaterial,
     ImpactEvent, JointDof, JointState, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter,
-    Shape, ShapeSourceHandle, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement,
-    SoftElementKind, SoftElementState, SoftMaterial, SoftParticleState, SurfaceDesc, SurfaceTable,
-    VehicleDesc, VehicleHandle, VehicleInput, VehicleState, WheelDesc,
+    QueryTargets, Shape, ShapeSourceHandle, SoftAttachment, SoftBodyDesc, SoftBodyHandle,
+    SoftElement, SoftElementKind, SoftElementState, SoftMaterial, SoftParticleState, SurfaceDesc,
+    SurfaceTable, VehicleDesc, VehicleHandle, VehicleInput, VehicleState, WheelDesc,
 };
 pub use dynamis_world::{
-    ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, RigidShape,
+    ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, QueryTarget, RigidShape,
     ShapeCapacity, Snapshot, SoftCapacity, StreamCapacity, World,
 };

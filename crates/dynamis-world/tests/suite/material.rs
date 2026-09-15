@@ -127,7 +127,7 @@ fn ray_hits_plane_and_reports_surface() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("ray must hit the plane");
-    assert_eq!(hit.body, plane);
+    assert_eq!(hit.body(), plane);
     assert!((hit.distance - 2.0).abs() < 1e-3);
     assert!((hit.point[1] - 0.0).abs() < 1e-3);
     assert!((hit.normal[1] - 1.0).abs() < 1e-3);
@@ -152,7 +152,7 @@ fn sweep_over_plane_stops_at_surface() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("sweep must hit the plane");
-    assert_eq!(hit.body, plane);
+    assert_eq!(hit.body(), plane);
     assert!(
         (hit.distance - 1.6).abs() < 1e-3,
         "sweep must stop at the plane surface, got {}",

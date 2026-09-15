@@ -71,7 +71,7 @@ fn add_collider_then_query_detects_it() {
     world.wait();
     let hit = world.query_hit(handle);
     assert_eq!(
-        hit.map(|hit| (hit.body, hit.collider)),
+        hit.map(|hit| (hit.body(), hit.collider())),
         Some((body, 1)),
         "runtime-added collider must be queryable at its slot"
     );

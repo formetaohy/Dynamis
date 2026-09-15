@@ -16,7 +16,7 @@ fn a_query_run_sees_a_body_spawned_since_the_last_step() {
     let hit = world
         .query_hit(query)
         .expect("a query run must upload every body the host spawned since the last step");
-    assert_eq!(hit.body, ball);
+    assert_eq!(hit.body(), ball);
 }
 
 #[test]

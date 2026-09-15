@@ -12,7 +12,6 @@ pub struct StateDomain;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StateWork {
-    pub queries: u32,
     pub shape_uploads: bool,
 }
 
@@ -41,7 +40,7 @@ impl Domain for StateDomain {
     }
 
     fn pending(work: &StateWork) -> bool {
-        work.queries > 0 || work.shape_uploads
+        work.shape_uploads
     }
 
     fn active(_: &Counters) -> bool {

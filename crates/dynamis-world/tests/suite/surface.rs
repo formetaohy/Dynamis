@@ -127,9 +127,9 @@ fn each_triangle_carries_its_own_surface() {
     let low = world
         .query_hit(low)
         .expect("the ray must hit the low patch");
-    assert_eq!(low.triangle, Some(0));
+    assert_eq!(low.triangle(), Some(0));
     assert_eq!(
-        low.surface
+        low.surface()
             .expect("the low patch carries a surface")
             .friction,
         ICE
@@ -137,9 +137,9 @@ fn each_triangle_carries_its_own_surface() {
     let high = world
         .query_hit(high)
         .expect("the ray must hit the high patch");
-    assert_eq!(high.triangle, Some(1));
+    assert_eq!(high.triangle(), Some(1));
     assert_eq!(
-        high.surface
+        high.surface()
             .expect("the high patch carries a surface")
             .friction,
         ROCK
@@ -256,7 +256,7 @@ fn a_convex_hit_reports_no_triangle() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("the ray must hit the sphere");
-    assert!(hit.surface.is_none() && hit.triangle.is_none());
+    assert!(hit.surface().is_none() && hit.triangle().is_none());
 }
 
 #[test]

@@ -79,6 +79,8 @@ declare_constants! {
     pub const ENTRY_PRIMARY: u32 = 1 << 31;
     pub const ENTRY_KIND_COLLIDER: u32 = 0;
     pub const ENTRY_KIND_PARTICLE: u32 = 1;
+    pub const QUERY_TARGET_COLLIDERS: u32 = 1 << ENTRY_KIND_COLLIDER;
+    pub const QUERY_TARGET_PARTICLES: u32 = 1 << ENTRY_KIND_PARTICLE;
     pub const LEVEL_KEY_SHIFT: u32 = 27;
     pub const CELL_HASH_MASK: u32 = 0x07FF_FFFF;
     pub const CONSTRAINT_BALL: u32 = 0;

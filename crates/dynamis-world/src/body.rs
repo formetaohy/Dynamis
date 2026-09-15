@@ -52,6 +52,16 @@ impl Bodies {
         }
     }
 
+    pub(crate) fn handle_of(&self, id: u32) -> Option<BodyHandle> {
+        if (id as usize) >= self.ids.len() || self.index_of[id as usize] == u32::MAX {
+            return None;
+        }
+        Some(BodyHandle {
+            id,
+            generation: self.ids.generation(id),
+        })
+    }
+
     fn grow_to(&mut self, id: u32) {
         let rows = id as usize + 1;
         if rows <= self.index_of.len() {

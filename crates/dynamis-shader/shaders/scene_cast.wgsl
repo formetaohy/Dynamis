@@ -2,10 +2,11 @@
 @group(0) @binding(5) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(6) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(7) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(8) var<storage, read> aabbs: array<Aabb>;
-@group(0) @binding(9) var<storage, read_write> query_results: array<QueryResult>;
-@group(0) @binding(10) var<uniform> params: StepParams;
-@group(0) @binding(11) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(8) var<storage, read_write> query_results: array<QueryResult>;
+@group(0) @binding(9) var<uniform> params: StepParams;
+@group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
+@group(0) @binding(11) var<storage, read> particles: array<SoftParticle>;
+@group(0) @binding(12) var<storage, read> soft_bodies: array<SoftBody>;
 
 const CANDIDATES_PER_QUERY: u32 = 4096u;
 
@@ -67,20 +68,33 @@ fn bitonic_sort(local_invocation: u32, width: u32) {
     }
 }
 
-fn query_collider(sorted: u32) -> u32 {
-    let info = entry_info(entry_node(sorted));
-    if (entry_kind(info) != ENTRY_KIND_COLLIDER) {
+fn scene_target(entry: u32) -> u32 {
+    let info = entry_info(entry_node(entry));
+    let kind = entry_kind(info);
+    if (kind != ENTRY_KIND_COLLIDER && kind != ENTRY_KIND_PARTICLE) {
         return NO_SLOT;
     }
-    return entry_index(info);
+    return (kind << ENTRY_KIND_SHIFT) | entry_index(info);
 }
 
-fn collect_entry(entry: u32, query_box: Aabb, whole: bool) {
-    let collider = query_collider(entry);
-    if (collider == NO_SLOT) {
+fn candidate_kind(candidate: u32) -> u32 {
+    return candidate >> ENTRY_KIND_SHIFT;
+}
+
+fn candidate_index(candidate: u32) -> u32 {
+    return candidate & ENTRY_INDEX_MASK;
+}
+
+fn candidate_passes(query: Query, candidate: u32) -> bool {
+    return (query.filters.targets & (1u << candidate_kind(candidate))) != 0u;
+}
+
+fn collect_entry(entry: u32, query_box: Aabb, whole: bool, query: Query) {
+    let candidate = scene_target(entry);
+    if (candidate == NO_SLOT || !candidate_passes(query, candidate)) {
         return;
     }
-    if (whole && !aabb_overlaps(aabbs[collider], query_box)) {
+    if (whole && !aabb_overlaps(entry_box(entry), query_box)) {
         return;
     }
     let slot = atomicAdd(&candidate_count, 1u);
@@ -88,32 +102,32 @@ fn collect_entry(entry: u32, query_box: Aabb, whole: bool) {
         atomicStore(&overflow_flag, 1u);
         return;
     }
-    candidates[slot] = collider;
+    candidates[slot] = candidate;
 }
 
-fn collect_whole_slice(slice: GridSlice, query_box: Aabb, invocation: u32) {
+fn collect_whole_slice(slice: GridSlice, query_box: Aabb, invocation: u32, query: Query) {
     var entry = slice.first + invocation;
     while (entry < slice.end && atomicLoad(&candidate_count) <= CANDIDATES_PER_QUERY) {
-        collect_entry(entry, query_box, true);
+        collect_entry(entry, query_box, true, query);
         entry = entry + WORKGROUP_SIZE;
     }
 }
 
-fn collect_cell_slice(slice: GridSlice, query_box: Aabb) {
+fn collect_cell_slice(slice: GridSlice, query_box: Aabb, query: Query) {
     for (var entry = slice.first; entry < slice.end; entry = entry + 1u) {
-        collect_entry(entry, query_box, false);
+        collect_entry(entry, query_box, false, query);
     }
 }
 
-fn collect_candidates(query_box: Aabb, invocation: u32) {
+fn collect_candidates(query_box: Aabb, invocation: u32, query: Query) {
     let whole = grid_whole_slices(query_box);
     for (var index = 0u; index < whole; index = index + 1u) {
-        collect_whole_slice(grid_whole_slice(query_box, index), query_box, invocation);
+        collect_whole_slice(grid_whole_slice(query_box, index), query_box, invocation, query);
     }
     let cells = grid_cell_slices(query_box);
     var index = invocation;
     while (index < cells) {
-        collect_cell_slice(grid_cell_slice(query_box, index), query_box);
+        collect_cell_slice(grid_cell_slice(query_box, index), query_box, query);
         index = index + WORKGROUP_SIZE;
     }
 }
@@ -251,22 +265,22 @@ fn overlap_world_geom(query: Query, body: Body, collider: Collider, out_normal: 
 }
 
 fn body_passes(body: Body, collider: Collider, query: Query) -> bool {
-    if (query.exclude_id != NO_BODY && body.state.body_id == query.exclude_id && body.state.generation == query.exclude_generation) {
+    if (query.filters.exclude_id != NO_BODY && body.state.body_id == query.filters.exclude_id && body.state.generation == query.filters.exclude_generation) {
         return false;
     }
-    if (query.include_id != NO_BODY && (body.state.body_id != query.include_id || body.state.generation != query.include_generation)) {
+    if (query.filters.include_id != NO_BODY && (body.state.body_id != query.filters.include_id || body.state.generation != query.filters.include_generation)) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_SENSORS) != 0u && (collider.flags & COLLIDER_SENSOR) != 0u) {
+    if ((query.filters.flags & FILTER_IGNORE_SENSORS) != 0u && (collider.flags & COLLIDER_SENSOR) != 0u) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_SLEEPING) != 0u && body.state.sleeping != 0u) {
+    if ((query.filters.flags & FILTER_IGNORE_SLEEPING) != 0u && body.state.sleeping != 0u) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_STATIC) != 0u && body_is_static(body)) {
+    if ((query.filters.flags & FILTER_IGNORE_STATIC) != 0u && body_is_static(body)) {
         return false;
     }
-    if ((query.filter_flags & FILTER_IGNORE_KINEMATIC) != 0u && body_is_kinematic(body)) {
+    if ((query.filters.flags & FILTER_IGNORE_KINEMATIC) != 0u && body_is_kinematic(body)) {
         return false;
     }
     if (!collider_filter_query(query, body, collider)) {
@@ -276,6 +290,134 @@ fn body_passes(body: Body, collider: Collider, query: Query) -> bool {
         return false;
     }
     return true;
+}
+
+struct SoftFilter {
+    sleeping: u32,
+    group: u32,
+    mask: u32,
+}
+
+fn soft_filter(owner: u32) -> SoftFilter {
+    return SoftFilter(
+        soft_bodies[owner].sleeping,
+        soft_bodies[owner].collision_group,
+        soft_bodies[owner].collision_mask,
+    );
+}
+
+fn soft_filter_query(query: Query, soft: SoftFilter) -> bool {
+    if (query.filters.group == 0u) {
+        return true;
+    }
+    return filters_intersect(
+        vec2u(query.filters.group, query.filters.mask),
+        vec2u(soft.group, soft.mask),
+    );
+}
+
+fn particle_passes(particle: SoftParticle, soft: SoftFilter, query: Query) -> bool {
+    if (query.filters.exclude_soft_id != NO_BODY
+        && particle.owner == query.filters.exclude_soft_id
+        && particle.generation == query.filters.exclude_soft_generation) {
+        return false;
+    }
+    if (query.filters.include_soft_id != NO_BODY
+        && (particle.owner != query.filters.include_soft_id || particle.generation != query.filters.include_soft_generation)) {
+        return false;
+    }
+    if ((query.filters.flags & FILTER_IGNORE_SLEEPING) != 0u && soft.sleeping != 0u) {
+        return false;
+    }
+    return soft_filter_query(query, soft);
+}
+
+fn particle_shape(center: vec3f, radius: f32) -> WorldShape {
+    var world: WorldShape;
+    world.kind = SHAPE_SPHERE;
+    world.radius = radius;
+    world.half_height = 0.0;
+    world.center = center;
+    world.half_extents = vec3f(0.0);
+    world.rotation = vec4f(0.0, 0.0, 0.0, 1.0);
+    world.source = 0u;
+    world.scale = vec3f(1.0);
+    return world;
+}
+
+fn ray_particle(query: Query, world: WorldShape) -> ShapeHit {
+    let direction = normalize(query.direction);
+    var hit = ray_scaled_shape(world, query.origin, direction, query.extent, 0.0);
+    if (hit.distance == NO_HIT) {
+        return hit;
+    }
+    if (dot(hit.normal, direction) > 0.0) {
+        hit.normal = -hit.normal;
+    }
+    return hit;
+}
+
+fn particle_hit(query: Query, center: vec3f, radius: f32, out_normal: ptr<function, vec3f>) -> ShapeHit {
+    let world = particle_shape(center, radius);
+    if (query.kind == QUERY_RAY) {
+        return ray_particle(query, world);
+    }
+    if (query.kind == QUERY_SWEEP) {
+        let distance = sweep_convex(query, world, out_normal);
+        if (distance < NO_HIT) {
+            return ShapeHit(distance, query.origin + normalize(query.direction) * distance, *out_normal, NO_TRIANGLE);
+        }
+        return no_hit();
+    }
+    var probe = query_shape_world(query, query.origin);
+    probe.radius = 0.0;
+    var simplex: array<SimplexPoint, 4>;
+    var count = 0u;
+    let closest = convex_closest(probe, world, &simplex, &count);
+    if (closest.penetrating) {
+        let hit = convex_hit(query_shape_world(query, query.origin), world);
+        *out_normal = -hit.normal;
+        return ShapeHit(-query.extent + max(hit.distance + query.extent, 0.0), center, *out_normal, NO_TRIANGLE);
+    }
+    if (closest.distance <= query.extent) {
+        *out_normal = -closest.normal;
+        return ShapeHit(closest.distance - query.extent, center, *out_normal, NO_TRIANGLE);
+    }
+    return no_hit();
+}
+
+fn resolve_candidate_hit(query: Query, candidate: u32, out_normal: ptr<function, vec3f>) -> ShapeHit {
+    if (candidate_kind(candidate) == ENTRY_KIND_PARTICLE) {
+        let particle = particles[candidate_index(candidate)];
+        return particle_hit(query, particle.position.xyz, particle.position.w, out_normal);
+    }
+    let body = load_body(collider_owners[candidate_index(candidate)]);
+    return resolve_hit(query, body, colliders[candidate_index(candidate)]);
+}
+
+fn candidate_passes_filters(query: Query, candidate: u32) -> bool {
+    if (candidate_kind(candidate) == ENTRY_KIND_PARTICLE) {
+        let particle = particles[candidate_index(candidate)];
+        return particle_passes(particle, soft_filter(particle.owner), query);
+    }
+    let body = load_body(collider_owners[candidate_index(candidate)]);
+    return body_passes(body, colliders[candidate_index(candidate)], query);
+}
+
+fn candidate_owner(candidate: u32) -> vec2u {
+    if (candidate_kind(candidate) == ENTRY_KIND_PARTICLE) {
+        let particle = particles[candidate_index(candidate)];
+        return vec2u(particle.owner, particle.generation);
+    }
+    let body = load_body(collider_owners[candidate_index(candidate)]);
+    return vec2u(body.state.body_id, body.state.generation);
+}
+
+fn candidate_surface(candidate: u32, triangle: u32) -> u32 {
+    if (candidate_kind(candidate) == ENTRY_KIND_PARTICLE) {
+        return NO_SURFACE;
+    }
+    return triangle_surface_index(colliders[candidate_index(candidate)], triangle);
 }
 
 fn query_world_aabb(query: Query) -> Aabb {
@@ -417,7 +559,7 @@ fn main(
     atomicStore(&overflow_flag, 0u);
     workgroupBarrier();
     let query_box = query_world_aabb(query);
-    collect_candidates(query_box, invocation_id.x);
+    collect_candidates(query_box, invocation_id.x, query);
     workgroupBarrier();
     if (invocation_id.x == 0u && atomicLoad(&overflow_flag) != 0u) {
         atomicStore(&query_results[batch].header.overflow, 1u);
@@ -439,17 +581,14 @@ fn main(
     var resolved = 0u;
     var candidate_index = invocation_id.x;
     while (candidate_index < candidate_total) {
-        let collider_slot = candidates[candidate_index];
-        let duplicate = candidate_index > 0u && collider_slot == candidates[candidate_index - 1u];
-        if (!duplicate) {
-            let body = load_body(collider_owners[collider_slot]);
-            let collider = colliders[collider_slot];
-            if (body_passes(body, collider, query)) {
-                let hit = resolve_hit(query, body, collider);
-                if (hit.distance < NO_HIT) {
-                    resolved = resolved + 1u;
-                    keep_nearest(&nearest_key, &nearest_slot, &stored, capacity, hit_key(hit.distance), collider_slot);
-                }
+        let candidate = candidates[candidate_index];
+        let duplicate = candidate_index > 0u && candidate == candidates[candidate_index - 1u];
+        if (!duplicate && candidate_passes_filters(query, candidate)) {
+            var normal = vec3f(0.0);
+            let hit = resolve_candidate_hit(query, candidate, &normal);
+            if (hit.distance < NO_HIT) {
+                resolved = resolved + 1u;
+                keep_nearest(&nearest_key, &nearest_slot, &stored, capacity, hit_key(hit.distance), candidate);
             }
         }
         candidate_index = candidate_index + WORKGROUP_SIZE;
@@ -487,10 +626,10 @@ fn main(
         workgroupBarrier();
         let chosen_slot = atomicLoad(&pick_slot);
         if (head_key == chosen_key && head_slot == chosen_slot) {
-            let body = load_body(collider_owners[chosen_slot]);
-            let collider = colliders[chosen_slot];
-            let hit = resolve_hit(query, body, collider);
-            query_results[batch].hits[round] = QueryHit(body.state.body_id, body.state.generation, hit.distance, collider.slot, hit.point, hit.triangle, hit.normal, triangle_surface_index(collider, hit.triangle));
+            var normal = vec3f(0.0);
+            let hit = resolve_candidate_hit(query, chosen_slot, &normal);
+            let owner = candidate_owner(chosen_slot);
+            query_results[batch].hits[round] = QueryHit(owner.x, owner.y, hit.distance, chosen_slot, hit.point, hit.triangle, hit.normal, candidate_surface(chosen_slot, hit.triangle));
             drop_nearest(&nearest_key, &nearest_slot, &stored);
         }
         round = round + 1u;

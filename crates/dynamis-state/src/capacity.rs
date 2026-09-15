@@ -24,7 +24,6 @@ pub struct StateInputs {
     pub constraint_ids: u32,
     pub body_commands: u32,
     pub constraint_commands: u32,
-    pub queries: u32,
     pub shapes: ShapeCapacity,
     pub observed: u32,
     pub observed_joints: u32,
@@ -51,7 +50,6 @@ pub fn floor() -> StateDemand {
         constraint_ids: MIN_SLOTS,
         body_commands: STREAM_FLOOR,
         constraint_commands: STREAM_FLOOR,
-        queries: STREAM_FLOOR,
         shapes: ShapeCapacity {
             sources: MIN_SLOTS,
             vertices: MIN_SLOTS,
@@ -98,12 +96,6 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         STREAM_FLOOR,
         release,
     );
-    let queries = settled(
-        current.query_records.slots(),
-        inputs.queries,
-        STREAM_FLOOR,
-        release,
-    );
     StateDemand {
         bodies,
         body_ids,
@@ -112,7 +104,6 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         constraint_ids,
         body_commands,
         constraint_commands,
-        queries,
         shapes: ShapeCapacity {
             sources: grown(
                 current.shape_sources.slots(),

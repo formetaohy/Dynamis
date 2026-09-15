@@ -139,6 +139,18 @@ impl SoftBodies {
         self.runs_of(handle).particles
     }
 
+    pub(crate) fn local_particle_of(&self, body: SoftBodyHandle, slot: u32) -> u32 {
+        if self.handle_of(body.id) != Some(body) {
+            return slot;
+        }
+        let run = self.runs[body.id as usize].particles;
+        slot.checked_sub(run.offset).unwrap_or_else(|| {
+            panic!(
+                "soft body {body:?} cannot hold the particle a query hit reported at slot {slot}"
+            )
+        })
+    }
+
     pub(crate) fn mass_of(&self, handle: SoftBodyHandle) -> f32 {
         self.validate(handle);
         self.masses[handle.id as usize]

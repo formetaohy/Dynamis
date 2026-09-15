@@ -6,9 +6,7 @@ mod streams;
 pub use capacity::{ShapeCapacity, StateCapacity, StateInputs, capacity, floor, plan};
 pub use domain::{StateDomain, StateWork};
 pub use passes::{StatePasses, StateRuntime};
-pub use streams::{
-    QUERY_RESULT_BYTES, StateDemand, StateStream, StateStreams, TRIANGLE_BYTES, VERTEX_BYTES,
-};
+pub use streams::{StateDemand, StateStream, StateStreams, TRIANGLE_BYTES, VERTEX_BYTES};
 
 use dynamis_abi::{COUNTER_DEVICE_COUNT, COUNTER_STRIDE};
 use dynamis_gpu::SlotRef;

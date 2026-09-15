@@ -13,7 +13,7 @@ pub(crate) struct ReadbackBuffers {
 }
 
 fn budgets(streams: &Streams) -> [u64; 2] {
-    [COUNTER_BYTES, streams.state.query_results.size()]
+    [COUNTER_BYTES, streams.scene.query_results.size()]
 }
 
 impl ReadbackBuffers {

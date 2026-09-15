@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub use reflection::{ShaderBinding, reflect};
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
+pub const SCENE_CAST: &str = include_str!("../shaders/scene_cast.wgsl");
 pub const COUNTER_ACCESS: &str = include_str!("../shaders/counters.wgsl");
 const GRID_INDEX_FRAGMENT: &str = include_str!("../shaders/grid_index.wgsl");
 const CONVEX_FRAGMENT: &str = include_str!("../shaders/convex.wgsl");

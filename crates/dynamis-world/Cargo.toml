@@ -22,6 +22,7 @@ dynamis-gpu = { workspace = true }
 dynamis-hull = { workspace = true }
 dynamis-model = { workspace = true }
 dynamis-rigid = { workspace = true }
+dynamis-shader = { workspace = true }
 dynamis-state = { workspace = true }
 dynamis-soft = { workspace = true }
 wgpu = { workspace = true }

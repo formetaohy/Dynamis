@@ -1,5 +1,8 @@
-use dynamis_abi::{MAX_HITS_PER_QUERY, QueryResultHeaderRecord, QueryResultRecord};
-use dynamis_model::{BodyHandle, SurfaceDesc};
+use dynamis_abi::{
+    ENTRY_INDEX_MASK, ENTRY_KIND_COLLIDER, ENTRY_KIND_PARTICLE, ENTRY_KIND_SHIFT,
+    MAX_HITS_PER_QUERY, NO_SURFACE, NO_TRIANGLE, QueryResultHeaderRecord, QueryResultRecord,
+};
+use dynamis_model::{BodyHandle, SoftBodyHandle, SurfaceDesc};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,15 +19,82 @@ pub enum QueryState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum QueryTarget {
+    Collider {
+        body: BodyHandle,
+        collider: u32,
+        triangle: Option<u32>,
+        surface: Option<SurfaceDesc>,
+    },
+    Particle {
+        body: SoftBodyHandle,
+        particle: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QueryHit {
-    pub body: BodyHandle,
-    pub collider: u32,
+    pub target: QueryTarget,
     pub distance: f32,
     pub point: [f32; 3],
     pub normal: [f32; 3],
-    pub triangle: Option<u32>,
-    pub surface: Option<SurfaceDesc>,
     pub step: u64,
+}
+
+impl QueryHit {
+    pub fn body(&self) -> BodyHandle {
+        match self.target {
+            QueryTarget::Collider { body, .. } => body,
+            QueryTarget::Particle { .. } => {
+                panic!("a query hit against a soft particle carries no rigid body")
+            }
+        }
+    }
+
+    pub fn collider(&self) -> u32 {
+        match self.target {
+            QueryTarget::Collider { collider, .. } => collider,
+            QueryTarget::Particle { .. } => {
+                panic!("a query hit against a soft particle carries no collider")
+            }
+        }
+    }
+
+    pub fn triangle(&self) -> Option<u32> {
+        match self.target {
+            QueryTarget::Collider { triangle, .. } => triangle,
+            QueryTarget::Particle { .. } => {
+                panic!("a query hit against a soft particle carries no triangle")
+            }
+        }
+    }
+
+    pub fn surface(&self) -> Option<SurfaceDesc> {
+        match self.target {
+            QueryTarget::Collider { surface, .. } => surface,
+            QueryTarget::Particle { .. } => {
+                panic!("a query hit against a soft particle carries no surface")
+            }
+        }
+    }
+
+    pub fn soft(&self) -> SoftBodyHandle {
+        match self.target {
+            QueryTarget::Particle { body, .. } => body,
+            QueryTarget::Collider { .. } => {
+                panic!("a query hit against a rigid collider carries no soft body")
+            }
+        }
+    }
+
+    pub fn particle(&self) -> u32 {
+        match self.target {
+            QueryTarget::Particle { particle, .. } => particle,
+            QueryTarget::Collider { .. } => {
+                panic!("a query hit against a rigid collider carries no particle")
+            }
+        }
+    }
 }
 
 pub(crate) struct QueryOutcome {
@@ -97,6 +167,8 @@ impl QueryPool {
         batch_id: u64,
         bytes: &[u8],
         surface: impl Fn(u32, u32) -> SurfaceDesc,
+        collider_of: impl Fn(BodyHandle, u32) -> u32,
+        particle_of: impl Fn(SoftBodyHandle, u32) -> u32,
     ) {
         let batch = self
             .batches
@@ -119,20 +191,15 @@ impl QueryPool {
             );
             hits[index] = result.hits[..count as usize]
                 .iter()
-                .map(|record| QueryHit {
-                    body: BodyHandle {
-                        id: record.body_id,
-                        generation: record.body_generation,
-                    },
-                    collider: record.collider_index,
-                    distance: record.distance,
-                    point: record.point,
-                    normal: record.normal,
-                    triangle: (record.triangle != dynamis_abi::NO_TRIANGLE)
-                        .then_some(record.triangle),
-                    surface: (record.surface != dynamis_abi::NO_SURFACE)
-                        .then(|| surface(record.collider_index, record.surface)),
-                    step,
+                .map(|record| {
+                    let target = query_target(record, &surface, &collider_of, &particle_of);
+                    QueryHit {
+                        target,
+                        distance: record.distance,
+                        point: record.point,
+                        normal: record.normal,
+                        step,
+                    }
                 })
                 .collect();
             overflow[index] = spilled != 0;
@@ -141,5 +208,39 @@ impl QueryPool {
         while self.batches.len() > dynamis_gpu::FACT_LAG {
             self.batches.pop_front();
         }
+    }
+}
+
+fn query_target(
+    record: &dynamis_abi::QueryHitRecord,
+    surface: impl Fn(u32, u32) -> SurfaceDesc,
+    collider_of: impl Fn(BodyHandle, u32) -> u32,
+    particle_of: impl Fn(SoftBodyHandle, u32) -> u32,
+) -> QueryTarget {
+    let slot = record.scene_target & ENTRY_INDEX_MASK;
+    match record.scene_target >> ENTRY_KIND_SHIFT {
+        ENTRY_KIND_COLLIDER => {
+            let body = BodyHandle {
+                id: record.body_id,
+                generation: record.body_generation,
+            };
+            QueryTarget::Collider {
+                body,
+                collider: collider_of(body, slot),
+                triangle: (record.triangle != NO_TRIANGLE).then_some(record.triangle),
+                surface: (record.surface != NO_SURFACE).then(|| surface(slot, record.surface)),
+            }
+        }
+        ENTRY_KIND_PARTICLE => {
+            let body = SoftBodyHandle {
+                id: record.body_id,
+                generation: record.body_generation,
+            };
+            QueryTarget::Particle {
+                body,
+                particle: particle_of(body, slot),
+            }
+        }
+        kind => panic!("a query hit reports an unknown scene target kind {kind}"),
     }
 }

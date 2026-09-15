@@ -257,10 +257,10 @@ fn collider_filter_intersects(
 }
 
 fn collider_filter_query(query: Query, body: Body, collider: Collider) -> bool {
-    if (query.group == 0u) {
+    if (query.filters.group == 0u) {
         return true;
     }
-    return filters_intersect(vec2u(query.group, query.mask), collider_filter(body, collider));
+    return filters_intersect(vec2u(query.filters.group, query.filters.mask), collider_filter(body, collider));
 }
 
 fn make_tangents(normal: vec3f) -> TangentBasis {

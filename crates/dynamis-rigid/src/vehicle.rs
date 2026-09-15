@@ -66,11 +66,7 @@ impl PassRuntime<RigidFrame> for VehicleSweeps {
             sweeps: Stage::build(
                 context,
                 "vehicle sweeps",
-                workgroups(
-                    context,
-                    include_str!("../shaders/queries.wgsl"),
-                    GEOMETRY_INDEX,
-                ),
+                workgroups(context, dynamis_shader::SCENE_CAST, GEOMETRY_INDEX),
                 streams,
                 &[
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
@@ -81,10 +77,11 @@ impl PassRuntime<RigidFrame> for VehicleSweeps {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("colliders", StateStream::Colliders.whole()),
-                    ("aabbs", RigidStream::ColliderAabbs.whole()),
                     ("query_results", RigidStream::VehicleHits.whole()),
                     ("params", StateStream::Params.whole()),
                     ("collider_owners", StateStream::ColliderOwners.whole()),
+                    ("particles", dynamis_soft::SoftStream::Particles.whole()),
+                    ("soft_bodies", dynamis_soft::SoftStream::BodyStates.whole()),
                 ],
                 &dynamis_state::shape_resources(),
             ),

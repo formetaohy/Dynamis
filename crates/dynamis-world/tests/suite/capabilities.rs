@@ -368,7 +368,7 @@ fn query_filter_excludes_own_body() {
     assert_eq!(
         world
             .query_hit(handle)
-            .map(|result| (result.body, result.collider)),
+            .map(|result| (result.body(), result.collider())),
         Some((hit, 0)),
         "inclusive query must hit the body and report its collider"
     );

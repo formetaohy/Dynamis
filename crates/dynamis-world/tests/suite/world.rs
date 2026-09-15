@@ -179,7 +179,7 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
                         &dynamis_model::QueryFilter::default(),
                     );
                     world.wait();
-                    assert_eq!(world.query_hit(query).unwrap().body, body);
+                    assert_eq!(world.query_hit(query).unwrap().body(), body);
                     world.drain_events();
                 }
             });

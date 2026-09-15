@@ -2,9 +2,8 @@ use crate::StateDomain;
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
-    ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord, QueryRecord,
-    QueryResultRecord, REACTION_WORDS, RowMoveRecord, RowStreamsRecord, ShapeSourceRecord,
-    StepParamsRecord, TriangleRecord,
+    ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord, REACTION_WORDS,
+    RowMoveRecord, RowStreamsRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -14,7 +13,6 @@ use std::mem::size_of;
 
 pub const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
 pub const TRIANGLE_BYTES: u64 = size_of::<TriangleRecord>() as u64;
-pub const QUERY_RESULT_BYTES: u64 = size_of::<QueryResultRecord>() as u64;
 
 streams! {
     StateStreams, StateStream, StateDemand, StateDomain::ID, demand,
@@ -26,7 +24,6 @@ streams! {
         constraint_ids: u32,
         body_commands: u32,
         constraint_commands: u32,
-        queries: u32,
         shapes: crate::ShapeCapacity,
         observed: u32,
         observed_joints: u32,
@@ -55,8 +52,6 @@ streams! {
         shape_vertices, ShapeVertices: "shape vertices", [f32; 4], 1, Contents::Durable, demand.shapes.vertices;
         shape_triangles, ShapeTriangles: "shape triangles", TriangleRecord, 1, Contents::Durable, demand.shapes.triangles;
         shape_nodes, ShapeNodes: "shape bvh nodes", BvhNodeRecord, 1, Contents::Durable, demand.shapes.nodes;
-        query_records, QueryRecords: "queries", QueryRecord, 1, Contents::Scratch, demand.queries;
-        query_results, QueryResults: "query results", QueryResultRecord, 1, Contents::Scratch, demand.queries;
         observed_ids, ObservedIds: "observed body ids", u32, 1, Contents::Durable, demand.observed;
         observed_states, ObservedStates: "observed body states", BodyStateRecord, 1, Contents::Scratch, demand.observed;
         observed_joint_ids, ObservedJointIds: "observed joint ids", u32, 1, Contents::Durable, demand.observed_joints;

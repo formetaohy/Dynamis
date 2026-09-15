@@ -1,7 +1,10 @@
 use super::common::{
     DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
 };
-use dynamis_model::{BodyDesc, ColliderDesc, CollisionFilter, QueryFilter, Shape};
+use dynamis_model::{
+    BodyDesc, ColliderDesc, CollisionFilter, QueryFilter, QueryTargets, Shape, SoftBodyDesc,
+    SurfaceDesc, SurfaceTable,
+};
 use dynamis_world::{QueryHit, QueryState, World};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -23,7 +26,7 @@ fn ray_hits_nearest_and_reports_surface() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("raycast must hit");
-    assert_eq!(hit.body, near);
+    assert_eq!(hit.body(), near);
     assert!((hit.distance - 1.5).abs() < 1e-3);
     assert!((hit.point[2] - 1.5).abs() < 1e-3);
     assert!(
@@ -77,7 +80,7 @@ fn ray_from_inside_body_returns_exit_distance() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("origin inside body must hit");
-    assert_eq!(hit.body, target);
+    assert_eq!(hit.body(), target);
     assert!(
         (hit.distance - 0.5).abs() < 1e-3,
         "inside ray must exit at the radius"
@@ -93,7 +96,7 @@ fn sphere_query_reports_penetration_and_miss() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(overlap).expect("overlap must hit");
-    assert_eq!(hit.body, target);
+    assert_eq!(hit.body(), target);
     assert!(
         (hit.distance - (-0.2)).abs() < 1e-3,
         "penetration depth must be -0.2, got {}",
@@ -138,7 +141,7 @@ fn sweep_query_stops_at_surface() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("sweep must hit the wall");
-    assert_eq!(hit.body, wall);
+    assert_eq!(hit.body(), wall);
     assert!(
         (hit.distance - 7.7).abs() < 0.05,
         "sweep must stop at the surface (7.7), got {}",
@@ -451,12 +454,12 @@ fn filters_skip_each_body_kind() {
         .expect("static must be hit by default");
     assert!((plain.distance - 1.5).abs() < 1e-3);
     let no_static = world.query_hit(no_static).expect("kinematic must be hit");
-    assert_eq!(no_static.body, kinematic);
+    assert_eq!(no_static.body(), kinematic);
     assert!((no_static.distance - 3.5).abs() < 1e-3);
     let no_static_kinematic = world
         .query_hit(no_static_kinematic)
         .expect("dynamic must be hit even while sleeping by default");
-    assert_eq!(no_static_kinematic.body, dynamic);
+    assert_eq!(no_static_kinematic.body(), dynamic);
     assert!((no_static_kinematic.distance - 7.5).abs() < 1e-3);
     assert_eq!(
         world.query_hit(also_no_sleeping),
@@ -466,7 +469,7 @@ fn filters_skip_each_body_kind() {
     let sensor_hit = world
         .query_hit(include_sensors)
         .expect("sensor must be hit when not ignored");
-    assert_eq!(sensor_hit.body, sensor);
+    assert_eq!(sensor_hit.body(), sensor);
     assert!((sensor_hit.distance - 5.5).abs() < 1e-3);
 }
 
@@ -516,9 +519,9 @@ fn group_and_mask_filters_select_bodies() {
     world.step(DT);
     world.wait();
     let one = world.query_hit(group_one).expect("group 1 must hit");
-    assert_eq!(one.body, a);
+    assert_eq!(one.body(), a);
     let two = world.query_hit(group_two).expect("group 2 must hit");
-    assert_eq!(two.body, b);
+    assert_eq!(two.body(), b);
     let excluded = world.query_hit(mask_excludes_a);
     assert_eq!(
         excluded, None,
@@ -580,8 +583,11 @@ fn batched_queries_resolve_in_submission_order() {
     );
     world.step(DT);
     world.wait();
-    assert_eq!(world.query_hit(first).expect("first must hit").body, near);
-    assert_eq!(world.query_hit(second).expect("second must hit").body, far);
+    assert_eq!(world.query_hit(first).expect("first must hit").body(), near);
+    assert_eq!(
+        world.query_hit(second).expect("second must hit").body(),
+        far
+    );
 }
 
 #[test]
@@ -597,7 +603,7 @@ fn results_persist_until_slot_reused() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("first must hit");
-    assert_eq!(hit.body, target);
+    assert_eq!(hit.body(), target);
     settle(&mut world, 5);
     assert_eq!(world.query_hit(query), Some(hit));
 }
@@ -615,7 +621,7 @@ fn an_observation_lapses_only_past_the_retention_window() {
     world.step(DT);
     world.wait();
     assert_eq!(
-        world.query_hit(first).map(|hit| hit.body),
+        world.query_hit(first).map(|hit| hit.body()),
         Some(target),
         "first must resolve"
     );
@@ -797,7 +803,7 @@ fn point_query_detects_inside_and_outside() {
     let inside = world.point_query([0.1, 0.0, 0.0], &QueryFilter::default());
     world.wait();
     let inside_hit = world.query_hit(inside);
-    assert_eq!(inside_hit.map(|hit| hit.body), Some(body));
+    assert_eq!(inside_hit.map(|hit| hit.body()), Some(body));
     let outside = world.point_query([5.0, 0.0, 0.0], &QueryFilter::default());
     world.wait();
     assert!(
@@ -831,7 +837,7 @@ fn overlap_query_accepts_any_convex_shape() {
     );
     world.wait();
     let hit = world.query_hit(handle);
-    assert_eq!(hit.map(|hit| (hit.body, hit.collider)), Some((body, 1)));
+    assert_eq!(hit.map(|hit| (hit.body(), hit.collider())), Some((body, 1)));
     let miss = world.overlap_query(
         &probe,
         [0.0, 0.0, 0.0, 1.0],
@@ -860,10 +866,10 @@ fn include_filter_limits_results_to_one_body() {
     let hits = world.query_hits(handle);
     assert!(!hits.is_empty(), "include query must not be empty");
     assert!(
-        hits.iter().all(|hit| hit.body == second),
+        hits.iter().all(|hit| hit.body() == second),
         "include filter must only return the target body"
     );
-    assert!(!hits.iter().any(|hit| hit.body == first));
+    assert!(!hits.iter().any(|hit| hit.body() == first));
 }
 
 #[test]
@@ -949,7 +955,7 @@ fn query_after_teleport_sees_the_new_position() {
     let hit = world
         .query_hit(query)
         .expect("ray must hit the teleported body");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     assert!((hit.distance - 1.5).abs() < 1e-3, "got {}", hit.distance);
     assert!(!world.query_overflow(query));
 
@@ -989,13 +995,13 @@ fn truncated_ray_query_keeps_the_closest_hits() {
     world.wait();
     let single = world.query_hits(single_handle);
     assert_eq!(single.len(), 1);
-    assert_eq!(single[0].body, nearest);
+    assert_eq!(single[0].body(), nearest);
     assert!((single[0].distance - 1.5).abs() < 1e-3);
     assert!(world.query_overflow(single_handle));
     let pair = world.query_hits(pair_handle);
     assert_eq!(pair.len(), 2);
-    assert_eq!(pair[0].body, nearest);
-    assert_eq!(pair[1].body, middle);
+    assert_eq!(pair[0].body(), nearest);
+    assert_eq!(pair[1].body(), middle);
     assert!((pair[1].distance - 3.5).abs() < 1e-3);
     assert!(world.query_overflow(pair_handle));
 }
@@ -1063,13 +1069,13 @@ fn exact_hit_count_reports_no_overflow_and_keeps_order() {
     world.wait();
     let hits = world.query_hits(exact);
     assert_eq!(
-        hits.iter().map(|hit| hit.body).collect::<Vec<_>>(),
+        hits.iter().map(|hit| hit.body()).collect::<Vec<_>>(),
         vec![near, middle, far]
     );
     assert!(!world.query_overflow(exact));
     let hits = world.query_hits(capped);
     assert_eq!(
-        hits.iter().map(|hit| hit.body).collect::<Vec<_>>(),
+        hits.iter().map(|hit| hit.body()).collect::<Vec<_>>(),
         vec![near, middle]
     );
     assert!(world.query_overflow(capped));
@@ -1093,7 +1099,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
     );
     world.wait();
     assert_eq!(
-        world.query_hit(first).map(|hit| hit.body),
+        world.query_hit(first).map(|hit| hit.body()),
         Some(first_target)
     );
     let second = world.ray_query(
@@ -1107,7 +1113,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
     );
     world.wait();
     assert_eq!(
-        world.query_hit(second).map(|hit| hit.body),
+        world.query_hit(second).map(|hit| hit.body()),
         Some(far_target),
         "a later query must not answer with an earlier query's candidates"
     );
@@ -1139,7 +1145,7 @@ fn a_query_batch_that_fills_the_stream_keeps_every_result() {
     assert!(
         handles
             .iter()
-            .all(|handle| world.query_hit(*handle).map(|hit| hit.body) == Some(target)),
+            .all(|handle| world.query_hit(*handle).map(|hit| hit.body()) == Some(target)),
         "every query of a full batch must report the body it hits"
     );
 }
@@ -1263,7 +1269,7 @@ fn a_patch_survives_both_a_query_run_and_a_step() {
     let hit = world
         .query_hit(query)
         .expect("the patched body must stay put");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     assert!((hit.distance - 1.5).abs() < 1e-3, "got {}", hit.distance);
 }
 
@@ -1281,7 +1287,7 @@ fn a_query_wider_than_the_walk_budget_still_finds_a_distant_body() {
     );
     let hits = world.query_hits(query);
     assert!(
-        hits.iter().any(|hit| hit.body == near) && hits.iter().any(|hit| hit.body == far),
+        hits.iter().any(|hit| hit.body() == near) && hits.iter().any(|hit| hit.body() == far),
         "a box spanning far more cells than the walk visits must fall back to its level and still find every body"
     );
 }
@@ -1313,4 +1319,241 @@ fn a_down_sweep_measures_the_same_gap_anywhere_on_a_large_floor() {
             hit.distance
         );
     }
+}
+
+fn two_particle_net(x: f32) -> SoftBodyDesc {
+    SoftBodyDesc::net(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], vec![[0, 1]])
+        .radius(0.25)
+        .position([x, 0.0, 0.0])
+}
+
+#[test]
+fn a_scene_query_reaches_the_particles_a_soft_body_owns() {
+    let mut world = new_world(static_config());
+    let _first = world.add_soft_body(two_particle_net(2.0));
+    let second = world.add_soft_body(two_particle_net(0.0));
+    world.step(DT);
+    world.wait();
+    let query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("a ray must reach the particles of a soft body");
+    assert_eq!(hit.soft(), second, "the nearest soft body owns the hit");
+    assert_eq!(
+        hit.particle(),
+        0,
+        "a hit reports the particle inside its own soft body"
+    );
+    assert!(
+        (hit.distance - 4.75).abs() < 1e-3,
+        "a particle must answer at its own radius, got {}",
+        hit.distance
+    );
+    assert!(
+        (hit.point[1] - 0.25).abs() < 1e-3,
+        "a particle must answer on its surface, got {:?}",
+        hit.point
+    );
+    assert!(
+        (hit.normal[1] - 1.0).abs() < 1e-3,
+        "a particle must answer along its own normal, got {:?}",
+        hit.normal
+    );
+}
+
+#[test]
+fn a_query_that_turns_particles_away_reports_only_colliders() {
+    let mut world = new_world(static_config());
+    let ball = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
+    let _cloth = world.add_soft_body(two_particle_net(0.0));
+    world.step(DT);
+    world.wait();
+    let query = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter {
+            targets: QueryTargets::COLLIDERS,
+            ..QueryFilter::default()
+        },
+    );
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("a collider-only query must still reach the ball");
+    assert_eq!(hit.body(), ball, "a collider-only query reports the ball");
+    let cloth_query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter {
+            targets: QueryTargets::COLLIDERS,
+            ..QueryFilter::default()
+        },
+    );
+    world.wait();
+    assert!(
+        world.query_hit(cloth_query).is_none(),
+        "a collider-only query must not answer a soft particle"
+    );
+    let particle_query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter {
+            targets: QueryTargets::PARTICLES,
+            ..QueryFilter::default()
+        },
+    );
+    world.wait();
+    let hit = world
+        .query_hit(particle_query)
+        .expect("a particle-only query must answer a soft particle");
+    assert_eq!(hit.soft(), _cloth);
+}
+
+#[test]
+fn a_soft_body_filter_addresses_its_own_particles() {
+    let mut world = new_world(static_config());
+    let first = world.add_soft_body(two_particle_net(0.0));
+    let second = world.add_soft_body(two_particle_net(0.5));
+    world.step(DT);
+    world.wait();
+    let excluded = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter {
+            exclude_soft: Some(first),
+            include_soft: Some(first),
+            ..QueryFilter::default()
+        },
+    );
+    world.wait();
+    assert!(
+        world.query_hit(excluded).is_none(),
+        "an excluded soft body must not answer its own query"
+    );
+    let neighbor = world.ray_query(
+        [0.5, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter {
+            include_soft: Some(second),
+            ..QueryFilter::default()
+        },
+    );
+    world.wait();
+    let hit = world
+        .query_hit(neighbor)
+        .expect("an included soft body must answer a query around its neighbor");
+    assert_eq!(hit.soft(), second);
+}
+
+#[test]
+fn a_sweep_query_stops_at_a_soft_particle() {
+    let mut world = new_world(static_config());
+    let cloth = world.add_soft_body(two_particle_net(0.0));
+    world.step(DT);
+    world.wait();
+    let query = world.sweep_query(
+        &Shape::sphere(0.2),
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("a sweep must stop on a soft particle");
+    assert_eq!(hit.soft(), cloth);
+    assert!(
+        (hit.distance - 4.55).abs() < 1e-2,
+        "a swept sphere must stop at the particle surface, got {}",
+        hit.distance
+    );
+}
+
+#[test]
+fn a_query_on_a_soft_body_alone_resolves_without_a_rigid_body() {
+    let mut world = new_world(static_config());
+    let cloth = world.add_soft_body(two_particle_net(0.0));
+    assert_eq!(world.count(), 0, "the scene holds no rigid body");
+    world.step(DT);
+    world.wait();
+    let query = world.ray_query(
+        [0.0, 5.0, 0.0],
+        [0.0, -1.0, 0.0],
+        10.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    assert_eq!(
+        world.query_hit(query).map(|hit| hit.soft()),
+        Some(cloth),
+        "the scene must answer a query with no rigid body in it"
+    );
+}
+
+#[test]
+fn a_query_hit_names_the_collider_its_own_body_owns() {
+    let mut world = new_world(static_config());
+    let vertices = vec![
+        [-3.0f32, 0.0, -4.0],
+        [3.0, 0.0, -4.0],
+        [3.0, 0.0, 4.0],
+        [-3.0, 0.0, 4.0],
+    ];
+    let triangles = vec![[0u32, 1, 2], [0, 2, 3]];
+    let far_palette = [SurfaceDesc::new().friction(0.25)];
+    let near_palette = [SurfaceDesc::new().friction(0.75)];
+    let far_mesh = world.add_mesh(
+        &vertices,
+        &triangles,
+        Some(SurfaceTable::new(&far_palette, &[0, 0])),
+    );
+    let near_mesh = world.add_mesh(
+        &vertices,
+        &triangles,
+        Some(SurfaceTable::new(&near_palette, &[0, 0])),
+    );
+    let _far = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::mesh(far_mesh)))
+            .mass(0.0)
+            .position([100.0, 0.0, 0.0]),
+    );
+    let near = world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::mesh(near_mesh)))
+            .mass(0.0)
+            .position([0.0, 0.0, 0.0]),
+    );
+    let query = world.ray_query(
+        [0.5, 5.0, -1.0],
+        [0.0, -1.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("the ray must hit the near floor");
+    assert_eq!(hit.body(), near, "the hit names the floor it struck");
+    assert_eq!(
+        hit.collider(),
+        0,
+        "a hit names the collider inside its own body, not its scene slot"
+    );
+    assert_eq!(
+        hit.surface().expect("the patch carries a surface").friction,
+        0.75,
+        "the surface must come from the collider the hit names"
+    );
 }

@@ -2,66 +2,65 @@ use crate::QueryRecord;
 use crate::constant::NO_BODY;
 use crate::constant::{
     FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HULL, SHAPE_SPHERE,
+    QUERY_CONVEX, QUERY_CUBOID, QUERY_POINT, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
+    QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER,
+    SHAPE_HULL, SHAPE_SPHERE,
 };
 use bytemuck::Zeroable;
-use dynamis_model::{QueryFilter, Shape};
+use dynamis_model::{QueryFilter, QueryTargets, Shape};
 
 pub fn inert_sweep() -> QueryRecord {
     let mut sweep = QueryRecord::zeroed();
     sweep.kind = QUERY_SWEEP;
     sweep.shape_kind = SHAPE_SPHERE;
-    sweep.filter_flags = FILTER_IGNORE_SENSORS;
-    sweep.mask = u32::MAX;
+    sweep.filters.flags = FILTER_IGNORE_SENSORS;
+    sweep.filters.targets = QUERY_TARGET_COLLIDERS;
+    sweep.filters.mask = u32::MAX;
     sweep.max_hits = 1;
-    sweep.exclude_id = NO_BODY;
+    sweep.filters.exclude_id = NO_BODY;
     sweep.direction = [0.0, 1.0, 0.0];
     sweep.orientation = [0.0, 0.0, 0.0, 1.0];
     sweep
 }
-struct FilterBasis {
-    flags: u32,
-    group: u32,
-    mask: u32,
-    exclude_id: u32,
-    exclude_generation: u32,
-    include_id: u32,
-    include_generation: u32,
-}
-
-impl FilterBasis {
-    fn of(filter: &QueryFilter) -> Self {
-        let exclude = filter
-            .exclude
-            .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
-        let include = filter
-            .include
-            .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
-        Self {
-            flags: filter_flags(filter),
-            group: filter.group,
-            mask: filter.mask,
-            exclude_id: exclude.0,
-            exclude_generation: exclude.1,
-            include_id: include.0,
-            include_generation: include.1,
-        }
+fn target_mask(targets: QueryTargets) -> u32 {
+    let mut mask = 0;
+    if targets.holds(QueryTargets::COLLIDERS) {
+        mask |= QUERY_TARGET_COLLIDERS;
     }
+    if targets.holds(QueryTargets::PARTICLES) {
+        mask |= QUERY_TARGET_PARTICLES;
+    }
+    mask
 }
 
 fn query_record(kind: u32, filter: &QueryFilter) -> QueryRecord {
-    let basis = FilterBasis::of(filter);
+    let exclude = filter
+        .exclude
+        .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
+    let include = filter
+        .include
+        .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
+    let exclude_soft = filter
+        .exclude_soft
+        .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
+    let include_soft = filter
+        .include_soft
+        .map_or((NO_BODY, 0), |handle| (handle.id, handle.generation));
     let mut record = QueryRecord::zeroed();
     record.kind = kind;
-    record.filter_flags = basis.flags;
-    record.group = basis.group;
-    record.mask = basis.mask;
+    record.filters.flags = filter_flags(filter);
+    record.filters.targets = target_mask(filter.targets);
+    record.filters.group = filter.group;
+    record.filters.mask = filter.mask;
     record.max_hits = filter.max_hits;
-    record.exclude_id = basis.exclude_id;
-    record.exclude_generation = basis.exclude_generation;
-    record.include_id = basis.include_id;
-    record.include_generation = basis.include_generation;
+    record.filters.exclude_id = exclude.0;
+    record.filters.exclude_generation = exclude.1;
+    record.filters.include_id = include.0;
+    record.filters.include_generation = include.1;
+    record.filters.exclude_soft_id = exclude_soft.0;
+    record.filters.exclude_soft_generation = exclude_soft.1;
+    record.filters.include_soft_id = include_soft.0;
+    record.filters.include_soft_generation = include_soft.1;
     record
 }
 

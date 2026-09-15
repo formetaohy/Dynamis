@@ -29,7 +29,7 @@ pub use mass::{
     MassProperties, MassSource, analytic_solid, compute_mass_properties, mass_properties_of_intent,
     shape_solid, solid_volume_of,
 };
-pub use query::QueryFilter;
+pub use query::{QueryFilter, QueryTargets};
 pub use shape::{Shape, ShapeSourceHandle, SolidGeometry};
 pub use soft::{
     FluidMaterial, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,

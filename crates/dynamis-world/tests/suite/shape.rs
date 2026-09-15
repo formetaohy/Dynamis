@@ -100,7 +100,7 @@ fn raycast_reaches_every_convex_shape_exactly() {
         world.step(DT);
         world.wait();
         let hit = world.query_hit(query).expect(case.name);
-        assert_eq!(hit.body, body, "{}", case.name);
+        assert_eq!(hit.body(), body, "{}", case.name);
         assert!(
             (hit.distance - expected).abs() < case.tolerance,
             "{}: expected {expected}, got {}",
@@ -291,7 +291,7 @@ fn collider_offset_shifts_hit_surface() {
     world.step(DT);
     world.wait();
     let hit = world.query_hit(query).expect("offset collider must be hit");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     assert!(
         (hit.distance - 4.0).abs() < 1e-3,
         "offset must move the surface to 4.0, got {}",
@@ -323,7 +323,7 @@ fn collider_rotation_reshapes_hit_geometry() {
     let hit = world
         .query_hit(query)
         .expect("rotated collider must be hit");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     let expected = 5.0 - 2.0 * 0.5 * half_sqrt_two;
     assert!(
         (hit.distance - expected).abs() < 2e-3,
@@ -350,7 +350,7 @@ fn set_collider_and_set_shape_replace_geometry() {
     let hit = world
         .query_hit(query)
         .expect("enlarged collider must be hit");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     assert!(
         (hit.distance - 1.1).abs() < 1e-3,
         "enlarged collider must be reachable at 1.1, got {}",

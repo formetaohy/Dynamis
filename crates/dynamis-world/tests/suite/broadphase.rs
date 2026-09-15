@@ -143,7 +143,7 @@ fn a_narrow_ray_reaches_a_coarse_static_collider() {
     let hit = world
         .query_hit(handle)
         .expect("the ray must reach the terrain");
-    assert_eq!(hit.body, terrain, "the ray must report the terrain body");
+    assert_eq!(hit.body(), terrain, "the ray must report the terrain body");
     assert!(
         (hit.point[1] - 0.0).abs() < 1e-3,
         "the ray must meet the terrain surface, got {}",
@@ -184,7 +184,7 @@ fn a_query_on_a_sleeping_world_still_reaches_a_coarse_collider() {
     let hit = world
         .query_hit(handle)
         .expect("a sleeping world must still answer queries");
-    assert_eq!(hit.body, terrain);
+    assert_eq!(hit.body(), terrain);
 }
 
 #[test]

@@ -384,19 +384,27 @@ struct ConstraintReaction {
     _pad_angular_second: f32,
 }
 
-struct Query {
-    kind: u32,
-    shape_kind: u32,
-    filter_flags: u32,
-    slot: u32,
+struct QueryFilter {
+    flags: u32,
+    targets: u32,
     group: u32,
     mask: u32,
-    source: u32,
-    max_hits: u32,
     exclude_id: u32,
     exclude_generation: u32,
     include_id: u32,
     include_generation: u32,
+    exclude_soft_id: u32,
+    exclude_soft_generation: u32,
+    include_soft_id: u32,
+    include_soft_generation: u32,
+}
+
+struct Query {
+    kind: u32,
+    shape_kind: u32,
+    source: u32,
+    max_hits: u32,
+    filters: QueryFilter,
     origin: vec3f,
     _pad0: f32,
     direction: vec3f,
@@ -419,7 +427,7 @@ struct QueryHit {
     body_id: u32,
     body_generation: u32,
     distance: f32,
-    collider_index: u32,
+    scene_target: u32,
     point: vec3f,
     triangle: u32,
     normal: vec3f,

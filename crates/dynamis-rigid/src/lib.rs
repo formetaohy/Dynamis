@@ -10,7 +10,6 @@ mod integrate;
 mod islands;
 mod live;
 mod narrowphase;
-mod queries;
 mod reactions;
 mod solver;
 mod sort;
@@ -74,7 +73,6 @@ pub struct RigidFrame {
     pub params: StepParamsRecord,
     pub rows: RowStreams,
     pub shape: RigidShape,
-    pub query_count: u32,
     pub observed_count: u32,
     pub observed_joints: u32,
     pub ccd: bool,
@@ -90,7 +88,6 @@ use integrate::{Prepare, QueryAabbs};
 use islands::{Islands, Sleep, Wake};
 use live::Live;
 use narrowphase::Narrowphase;
-use queries::Query;
 use reactions::Reactions;
 use solver::{SolverPrepare, Substeps};
 use vehicle::{Vehicle, VehicleSweeps};
@@ -129,7 +126,6 @@ domain_passes!(
     observe_joints: ObserveJoints => OBSERVED_JOINTS_EXECUTION => &["observe"],
     resting_gather: RestingGather => Execution::AWAKE => &["commit"],
     resting_index: RestingIndex => Execution::AWAKE => &["resting_gather"],
-    query: Query => Execution::GRAPH => &["broadphase", "commit"],
     character_sweeps: CharacterSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
     vehicle_sweeps: VehicleSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
 );

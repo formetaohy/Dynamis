@@ -153,9 +153,16 @@ impl World {
     pub(crate) fn collect_query_batch(&mut self, batch: u64, bytes: &[u8]) {
         let colliders = self.colliders.records();
         let shapes = &self.shapes.pool;
-        self.queries.pool.collect(batch, bytes, |collider, index| {
-            shapes.source_surface(colliders[collider as usize].source, index)
-        });
+        let bodies = &self.bodies;
+        let pool = &self.colliders;
+        let soft = &self.soft;
+        self.queries.pool.collect(
+            batch,
+            bytes,
+            |slot, index| shapes.source_surface(colliders[slot as usize].source, index),
+            |body, slot| crate::colliders::local_collider_of(bodies, pool, body, slot),
+            |body, slot| soft.local_particle_of(body, slot),
+        );
     }
 
     fn validate_query(&self, handle: QueryHandle) {

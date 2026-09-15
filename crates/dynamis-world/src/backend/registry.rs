@@ -14,6 +14,7 @@ dynamis_domain::domains! {
     broadphase: BroadphaseDomain,
     rigid: RigidDomain,
     soft: SoftDomain,
+    scene: crate::scene::SceneDomain,
     [rigid <-> soft]
 }
 
@@ -50,11 +51,13 @@ impl Plan {
         );
         let state = dynamis_state::plan(&live.state, &streams.state, release);
         let soft = dynamis_soft::plan(&live.soft, &streams.soft, release);
+        let scene = crate::scene::plan(&live.scene, &streams.scene, release);
         Self {
             state,
             broadphase,
             rigid,
             soft,
+            scene,
         }
     }
 }
@@ -159,7 +162,6 @@ impl World {
                 constraint_ids: census.constraint_ids,
                 body_commands: census.body_commands,
                 constraint_commands: census.constraint_commands,
-                queries: census.queries,
                 shapes: self.shapes.pool.used(),
                 observed: census.observed,
                 observed_joints: census.observed_joint_demand,
@@ -173,7 +175,6 @@ impl World {
                 colliders: census.live_colliders,
                 collider_pool: census.colliders,
                 constraints: census.constraints,
-                queries: census.queries,
                 observed: census.observed,
                 observed_joints: census.observed_joints,
                 ccd: self.ccd_active(),
@@ -191,13 +192,15 @@ impl World {
                 body_edits: census.pending_soft_body_edits,
                 material: self.soft.carries_strength(),
             },
+            scene: crate::scene::SceneInputs {
+                queries: census.queries,
+            },
         }
     }
 
     pub(crate) fn host_work(&self) -> HostWork {
         HostWork {
             state: dynamis_state::StateWork {
-                queries: self.queries.pending.len() as u32,
                 shape_uploads: self.shapes.uploaded,
             },
             broadphase: (),
@@ -211,6 +214,9 @@ impl World {
                 uploads: self.soft.uploaded,
                 body_edits: self.soft.last_body_edits,
                 edits: self.soft.last_edits,
+            },
+            scene: crate::scene::SceneWork {
+                queries: self.queries.pending.len() as u32,
             },
         }
     }

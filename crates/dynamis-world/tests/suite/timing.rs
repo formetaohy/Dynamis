@@ -3,6 +3,8 @@ use dynamis_model::{BodyDesc, ConstraintDesc, SoftBodyDesc};
 
 const QUERY_RUN: &[&str] = &["query_aabbs"];
 
+const SCENE_INDEX: &[&str] = &["soft_bounds", "soft_entries"];
+
 #[test]
 fn a_stepped_world_reports_one_duration_per_pass() {
     let mut world = new_world(gravity_config());
@@ -57,7 +59,8 @@ fn a_rigid_step_profiles_no_pass_of_an_absent_domain() {
     );
     for timing in timings {
         assert!(
-            !timing.label.starts_with("soft_") && !timing.label.starts_with("ccd_"),
+            (!timing.label.starts_with("soft_") || SCENE_INDEX.contains(&timing.label))
+                && !timing.label.starts_with("ccd_"),
             "pass {} ran while its domain holds no work",
             timing.label
         );

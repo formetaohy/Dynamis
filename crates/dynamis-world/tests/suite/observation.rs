@@ -251,7 +251,7 @@ fn an_observation_outlives_the_batch_that_follows_it() {
         "an observation must stay readable after a later batch retires"
     );
     assert_eq!(
-        world.query_hit(first).map(|hit| hit.body),
+        world.query_hit(first).map(|hit| hit.body()),
         Some(target),
         "a retained observation must keep its hits"
     );

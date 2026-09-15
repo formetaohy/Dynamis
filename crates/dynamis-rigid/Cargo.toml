@@ -13,6 +13,7 @@ dynamis-broadphase = { workspace = true }
 dynamis-pass = { workspace = true }
 dynamis-gpu = { workspace = true }
 dynamis-shader = { workspace = true }
+dynamis-soft = { workspace = true }
 dynamis-state = { workspace = true }
 dynamis-sort = { workspace = true }
 wgpu = { workspace = true }

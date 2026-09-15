@@ -137,7 +137,7 @@ fn a_sweep_query_respects_a_moved_mesh() {
     let hit = world
         .query_hit(query)
         .expect("the sweep must hit the moved mesh");
-    assert_eq!(hit.body, body);
+    assert_eq!(hit.body(), body);
     assert!(
         (hit.distance - 1.6).abs() < 1e-2,
         "the sweep must stop at the moved mesh surface (1.6), got {}",
@@ -207,7 +207,7 @@ fn a_scaled_height_field_lifts_its_surface() {
     let hit = world
         .query_hit(query)
         .expect("the sweep must reach the scaled field");
-    assert_eq!(hit.body, scaled);
+    assert_eq!(hit.body(), scaled);
     assert!(
         (hit.distance - 1.9).abs() < 2e-2,
         "the sweep must stop at the raised surface (1.9), got {}",

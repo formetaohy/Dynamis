@@ -1,5 +1,7 @@
 use super::arena::{Arena, Run, merged};
+use super::body::Bodies;
 use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK};
+use dynamis_model::BodyHandle;
 
 #[derive(Clone)]
 pub(crate) struct ColliderPool {
@@ -97,6 +99,21 @@ impl ColliderPool {
         self.cleared.push(run);
         self.live -= run.len;
     }
+}
+
+pub(crate) fn local_collider_of(
+    bodies: &Bodies,
+    pool: &ColliderPool,
+    body: BodyHandle,
+    slot: u32,
+) -> u32 {
+    if bodies.handle_of(body.id) != Some(body) {
+        return slot;
+    }
+    let run = pool.run_of(body.id).unwrap_or(Run::EMPTY);
+    slot.checked_sub(run.offset).unwrap_or_else(|| {
+        panic!("body {body:?} cannot hold the collider a query hit reported at slot {slot}")
+    })
 }
 
 fn armed(records: &[ColliderRecord]) -> u32 {
