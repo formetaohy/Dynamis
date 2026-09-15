@@ -155,7 +155,7 @@ impl World {
                 constraints,
                 queries,
                 observed: self.observed.bodies.len(),
-                observed_joints: self.observed.joints.watched(),
+                observed_joints: self.observed.joints.len(),
                 ccd: self.ccd_active(),
                 characters: self.characters.slots(),
                 vehicles: self.vehicles.slots(),
@@ -222,7 +222,7 @@ impl World {
                 body_moves: self.bodies.last_moves,
                 constraint_moves: self.constraints.last_moves,
                 observed: self.observed.bodies.len(),
-                observed_joints: self.observed.joints.watched(),
+                observed_joints: self.observed.joints.len(),
             },
             self.event_slot_of(self.clock.step),
         )

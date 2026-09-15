@@ -12,8 +12,6 @@ use dynamis_model::{
     MassProperties, Shape,
 };
 
-pub(crate) const NEVER_REPORTED: u64 = u64::MAX;
-
 #[derive(Clone)]
 pub(crate) struct Bodies {
     pub(crate) alive: Vec<BodyHandle>,
@@ -27,8 +25,6 @@ pub(crate) struct Bodies {
     pub(crate) dynamic_count: usize,
     pub(crate) kinematic: Vec<bool>,
     pub(crate) ccd_count: u32,
-    pub(crate) states: Vec<Option<BodyState>>,
-    pub(crate) covered: Vec<u64>,
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) dirty: Vec<u32>,
     pub(crate) last_moves: u32,
@@ -49,8 +45,6 @@ impl Bodies {
             dynamic_count: 0,
             kinematic: Vec::new(),
             ccd_count: 0,
-            states: Vec::new(),
-            covered: Vec::new(),
             commands: Vec::new(),
             dirty: Vec::new(),
             last_moves: 0,
@@ -71,8 +65,6 @@ impl Bodies {
         self.descriptors
             .resize(rows, BodyDescriptorRecord::zeroed());
         self.kinematic.resize(rows, false);
-        self.states.resize(rows, None);
-        self.covered.resize(rows, NEVER_REPORTED);
     }
 }
 
@@ -164,9 +156,7 @@ impl World {
             self.release_shape_ref(&collider.shape);
         }
         self.colliders.release(id as u32);
-        self.bodies.states[id] = None;
-        self.bodies.covered[id] = NEVER_REPORTED;
-        self.observed.bodies.forget(handle.id);
+        self.observed.bodies.stop_watching(handle.id);
         self.bodies.kinematic[id] = false;
         if self.bodies.descriptors[id].flags & BODY_CCD != 0 {
             self.bodies.ccd_count -= 1;
@@ -208,10 +198,10 @@ impl World {
                 mask: PATCH_VELOCITY,
                 state: BodyStateRecord::zeroed(),
             });
-            if let Some(state) = self.bodies.states[id].as_mut() {
+            self.observed.bodies.patch(id as u32, |state| {
                 state.velocity = [0.0; 3];
                 state.angular_velocity = [0.0; 3];
-            }
+            });
             self.bodies.dirty.push(tail);
         } else {
             let boundary = self.bodies.dynamic_count as u32;
@@ -229,11 +219,16 @@ impl World {
             self.body_current(handle.id),
             "a body state older than the last step requires wait() or an observation of that body"
         );
-        self.bodies.states[handle.id as usize].expect("body state is unavailable")
+        *self
+            .observed
+            .bodies
+            .get(handle.id)
+            .expect("body state is unavailable")
     }
 
     fn record_state(&mut self, id: usize, desc: &BodyDesc) {
-        self.bodies.states[id] = Some(BodyState {
+        let step = self.clock.step;
+        let state = BodyState {
             position: desc.position,
             prev_position: desc.position,
             orientation: desc.orientation,
@@ -242,9 +237,9 @@ impl World {
             inverse_mass: self.bodies.descriptors[id].inverse_mass,
             com: self.bodies.descriptors[id].com,
             sleeping: false,
-            step: self.clock.step,
-        });
-        self.bodies.covered[id] = self.clock.step;
+            step,
+        };
+        self.observed.bodies.insert(id as u32, step, state);
     }
 
     fn validate_world_geometry(&self, desc: &BodyDesc) {
@@ -287,10 +282,10 @@ impl World {
             (descriptor.flags & !BODY_KINEMATIC) | if kinematic { BODY_KINEMATIC } else { 0 };
         let row = *descriptor;
         self.bodies.dirty.push(self.bodies.index_of[id]);
-        if let Some(state) = self.bodies.states[id].as_mut() {
+        self.observed.bodies.patch(id as u32, |state| {
             state.inverse_mass = row.inverse_mass;
             state.com = row.com;
-        }
+        });
     }
 
     fn apply_mass(&mut self, handle: BodyHandle, mass: f32) {
@@ -314,10 +309,10 @@ impl World {
 
     pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
         self.validate(handle);
-        if let Some(state) = self.bodies.states[handle.id as usize].as_mut() {
+        self.observed.bodies.patch(handle.id, |state| {
             state.position = position;
             state.prev_position = position;
-        }
+        });
         let mut payload = BodyStateRecord::zeroed();
         payload.position = position;
         self.schedule_patch(handle, PATCH_POSITION, payload);
@@ -329,9 +324,9 @@ impl World {
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
         self.assert_unit(orientation);
         self.validate(handle);
-        if let Some(state) = self.bodies.states[handle.id as usize].as_mut() {
+        self.observed.bodies.patch(handle.id, |state| {
             state.orientation = orientation;
-        }
+        });
         let mut payload = BodyStateRecord::zeroed();
         payload.orientation = orientation;
         self.schedule_patch(handle, PATCH_ORIENTATION, payload);
@@ -342,9 +337,9 @@ impl World {
 
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
         self.validate(handle);
-        if let Some(state) = self.bodies.states[handle.id as usize].as_mut() {
+        self.observed.bodies.patch(handle.id, |state| {
             state.velocity = velocity;
-        }
+        });
         let mut payload = BodyStateRecord::zeroed();
         payload.velocity = velocity;
         self.schedule_patch(handle, PATCH_VELOCITY, payload);
@@ -352,9 +347,9 @@ impl World {
 
     pub fn set_angular_velocity(&mut self, handle: BodyHandle, angular_velocity: [f32; 3]) {
         self.validate(handle);
-        if let Some(state) = self.bodies.states[handle.id as usize].as_mut() {
+        self.observed.bodies.patch(handle.id, |state| {
             state.angular_velocity = angular_velocity;
-        }
+        });
         let mut payload = BodyStateRecord::zeroed();
         payload.angular_velocity = angular_velocity;
         self.schedule_patch(handle, PATCH_ANGULAR_VELOCITY, payload);

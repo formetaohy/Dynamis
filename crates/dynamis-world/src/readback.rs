@@ -84,11 +84,11 @@ impl World {
         let resting_live = self.backend.streams.rigid.resting_live.buffer().clone();
         let mut regions = Vec::with_capacity(3);
         if active > 0 {
-            regions.push((&active_buffer, 0, active as u64 * CONTACT_BYTES));
+            regions.push((active_buffer, 0, active as u64 * CONTACT_BYTES));
         }
         if resting > 0 {
-            regions.push((&resting_live, 0, resting as u64 * 4));
-            regions.push((&resting_buffer, 0, resting as u64 * CONTACT_BYTES));
+            regions.push((resting_live, 0, resting as u64 * 4));
+            regions.push((resting_buffer, 0, resting as u64 * CONTACT_BYTES));
         }
         let bytes = self.read_regions("world contact readback", &regions);
         let mut manifolds = Vec::with_capacity(active + resting);
@@ -120,7 +120,7 @@ impl World {
     pub(crate) fn read_regions(
         &mut self,
         label: &str,
-        regions: &[(&wgpu::Buffer, u64, u64)],
+        regions: &[(wgpu::Buffer, u64, u64)],
     ) -> Vec<u8> {
         let bytes: u64 = regions.iter().map(|region| region.2).sum();
         assert!(
@@ -132,9 +132,15 @@ impl World {
             Some(readback) if readback.size() >= bytes => readback,
             _ => dynamis_gpu::Readback::new(&device, "world inspection readback", bytes, 1),
         };
+        let borrowed = regions
+            .iter()
+            .map(|(buffer, offset, bytes)| (buffer, *offset, *bytes))
+            .collect::<Vec<_>>();
         let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, label);
         assert!(
-            readback.enqueue_regions(&mut encoder, regions, 0).is_none(),
+            readback
+                .enqueue_regions(&mut encoder, &borrowed, 0)
+                .is_none(),
             "an inspection read requires an idle readback"
         );
         self.submit(encoder);

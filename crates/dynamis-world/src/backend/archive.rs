@@ -50,10 +50,10 @@ impl StreamArchive {
 }
 
 impl Streams {
-    pub(crate) fn durable_regions(&self) -> Vec<(&Buffer, u64, u64)> {
+    pub(crate) fn durable_regions(&self) -> Vec<(Buffer, u64, u64)> {
         self.durable()
             .into_iter()
-            .map(|(_, stream)| (stream.gpu().buffer(), 0, stream.size()))
+            .map(|(_, stream)| (stream.gpu().buffer().clone(), 0, stream.size()))
             .collect()
     }
 

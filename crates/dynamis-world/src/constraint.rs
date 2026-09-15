@@ -376,7 +376,7 @@ impl World {
         self.constraints.index_of[id] = u32::MAX;
         self.constraints.ids.release(handle.id);
         self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
-        self.observed.joints.forget(handle);
+        self.observed.joints.forget(handle.id);
     }
 
     pub(crate) fn note_breaks_due(&mut self, step: u64) {

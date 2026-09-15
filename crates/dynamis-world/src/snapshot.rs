@@ -2,7 +2,6 @@ use super::World;
 use super::backend::archive::StreamArchive;
 use super::backend::registry::Planning;
 use super::body::Bodies;
-use super::body::NEVER_REPORTED;
 use super::character::Characters;
 use super::clock::Clock;
 use super::colliders::ColliderPool;
@@ -57,15 +56,10 @@ pub struct Snapshot {
 }
 
 impl World {
-    pub fn snapshot(&self) -> Snapshot {
+    pub fn snapshot(&mut self) -> Snapshot {
         self.backend.gpu.assert_alive();
         let regions = self.backend.streams.durable_regions();
-        let bytes = dynamis_gpu::read_regions(
-            self.backend.gpu.device(),
-            self.backend.gpu.queue(),
-            "dynamis snapshot",
-            &regions,
-        );
+        let bytes = self.read_regions("dynamis snapshot", &regions);
         Snapshot {
             config: self.config,
             clock: self.clock,
@@ -92,7 +86,6 @@ impl World {
 
     fn abandon_observations(&mut self) {
         self.observed.reset();
-        self.bodies.covered.fill(NEVER_REPORTED);
         self.events.contact.clear();
         self.events.due.clear();
         self.queries.pending.clear();

@@ -7,6 +7,7 @@ mod colliders;
 mod commands;
 mod constraint;
 mod event;
+mod facts;
 mod ids;
 mod journal;
 mod observation;

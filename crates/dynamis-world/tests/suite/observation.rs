@@ -1,5 +1,5 @@
 use super::common::{DT, gravity_config, new_world, settle, static_config};
-use dynamis_model::{BodyDesc, BodyHandle, BodyState, QueryFilter};
+use dynamis_model::{BodyDesc, BodyHandle, BodyState, ConstraintDesc, ConstraintKind, QueryFilter};
 use dynamis_world::QueryState;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -525,6 +525,29 @@ fn a_stopped_body_observation_forgets_its_state() {
         resumed.position[1],
         observed.position[1]
     );
+}
+
+#[test]
+fn a_strict_inspection_retires_its_own_publication() {
+    let mut world = new_world(static_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0).position([0.0, 3.0, 0.0]));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
+    let joint = world.add_constraint(
+        anchor,
+        arm,
+        ConstraintDesc::revolute([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    );
+    world.step(DT);
+    let state = world.inspect_joint_state(joint);
+    assert_eq!(state.kind(), ConstraintKind::Revolute);
+    world.step(DT);
+    let states = world.inspect_joint_states();
+    assert_eq!(
+        states.len(),
+        1,
+        "an inspection publishes every live joint once"
+    );
+    assert_eq!(states[0].0, joint);
 }
 
 #[test]

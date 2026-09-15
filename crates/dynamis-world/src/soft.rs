@@ -272,10 +272,14 @@ impl SoftBodies {
         self.runs[handle.id as usize]
     }
 
-    pub(crate) fn is_alive(&self, handle: SoftBodyHandle) -> bool {
-        (handle.id as usize) < self.ids.len()
-            && self.ids.generation(handle.id) == handle.generation
-            && self.index_of[handle.id as usize] != u32::MAX
+    pub(crate) fn handle_of(&self, id: u32) -> Option<SoftBodyHandle> {
+        if (id as usize) >= self.ids.len() || self.index_of[id as usize] == u32::MAX {
+            return None;
+        }
+        Some(SoftBodyHandle {
+            id,
+            generation: self.ids.generation(id),
+        })
     }
 
     pub(crate) fn validate(&self, handle: SoftBodyHandle) {
@@ -599,7 +603,7 @@ impl World {
         let buffer = self.backend.streams.soft.particles.buffer().clone();
         let raw = self.read_regions(
             "soft body particles",
-            &[(&buffer, run.offset as u64 * stride, bytes)],
+            &[(buffer, run.offset as u64 * stride, bytes)],
         );
         let records = dynamis_abi::decode::<SoftParticleRecord>(&raw);
         assert!(
@@ -629,7 +633,7 @@ impl World {
         let buffer = self.backend.streams.soft.elements.buffer().clone();
         let raw = self.read_regions(
             "soft body elements",
-            &[(&buffer, runs.elements.offset as u64 * stride, bytes)],
+            &[(buffer, runs.elements.offset as u64 * stride, bytes)],
         );
         let records = dynamis_abi::decode::<SoftElementRecord>(&raw);
         let states = records

@@ -1,21 +1,20 @@
 use super::World;
-use super::body::NEVER_REPORTED;
-use super::constraint::Constraints;
+use super::facts::{Facts, Kind};
 use super::ids::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
-    BodyStateRecord, CharacterStateRecord, ConstraintReactionRecord, ConstraintRuntimeRecord,
-    JointStateRecord, NO_SLOT, SoftElementRecord, SoftParticleRecord, VehicleStateRecord,
+    BodyDescriptorRecord, BodyStateRecord, CharacterStateRecord, ConstraintReactionRecord,
+    ConstraintRuntimeRecord, JointStateRecord, SoftElementRecord, SoftParticleRecord,
+    VehicleStateRecord,
 };
-use dynamis_gpu::{Publication, Stream, SubmissionEncoder};
+use dynamis_gpu::{Publication, SubmissionEncoder};
 use dynamis_model::{
     BodyHandle, BodyState, CharacterHandle, CharacterState, ConstraintHandle, ConstraintKind,
     JointState, SoftBodyHandle, SoftElementState, VehicleHandle, VehicleState,
 };
-use std::collections::HashMap;
 use std::mem::size_of;
-use wgpu::{Device, Queue};
+use wgpu::Device;
 
 pub struct Observation<T> {
     pub step: u64,
@@ -33,170 +32,86 @@ pub(crate) struct ConstraintRow {
     pub(crate) second: BodyHandle,
 }
 
-pub(crate) struct Observations {
-    pub(crate) bodies: BodyMirror,
-    pub(crate) joints: JointMirror,
-    pub(crate) characters: CharacterMirror,
-    pub(crate) vehicles: VehicleMirror,
-    soft: SoftMirror,
-}
+pub(crate) struct BodyFacts;
 
-impl Observations {
-    pub(crate) fn new() -> Self {
-        Self {
-            bodies: BodyMirror::new(),
-            joints: JointMirror::new(),
-            characters: CharacterMirror::new(),
-            vehicles: VehicleMirror::new(),
-            soft: SoftMirror::new(),
+impl Kind for BodyFacts {
+    type Manifest = u64;
+    type Context<'a> = (&'a IdSpace, &'a [BodyDescriptorRecord]);
+    type Value = BodyState;
+
+    fn step(manifest: &Self::Manifest) -> u64 {
+        *manifest
+    }
+
+    fn decode(
+        (ids, descriptors): Self::Context<'_>,
+        manifest: &Self::Manifest,
+        bytes: &[u8],
+    ) -> Vec<(u32, Self::Value)> {
+        let (records, remainder) = bytes.as_chunks::<{ size_of::<BodyStateRecord>() }>();
+        assert!(
+            remainder.is_empty(),
+            "an observation readback must be a whole number of records"
+        );
+        let mut states = Vec::with_capacity(records.len());
+        for chunk in records {
+            let record: BodyStateRecord = bytemuck::pod_read_unaligned(chunk);
+            let id = record.body_id as usize;
+            assert!(
+                id < ids.len(),
+                "a state readback returned an out-of-range body id"
+            );
+            if record.generation != ids.generation(record.body_id) {
+                continue;
+            }
+            let descriptor = descriptors[id];
+            states.push((
+                record.body_id,
+                BodyState {
+                    position: record.position,
+                    prev_position: record.prev_position,
+                    orientation: record.orientation,
+                    velocity: record.velocity,
+                    angular_velocity: record.angular_velocity,
+                    inverse_mass: descriptor.inverse_mass,
+                    com: descriptor.com,
+                    sleeping: record.sleeping != 0,
+                    step: *manifest,
+                },
+            ));
         }
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.bodies.reset();
-        self.joints.reset();
-        self.characters.reset();
-        self.vehicles.reset();
-        self.soft.reset();
-    }
-}
-
-pub(crate) struct BodyMirror {
-    observed: Vec<u32>,
-    slot_of: Vec<u32>,
-    required: Vec<u32>,
-    dirty: bool,
-    epoch: Option<u64>,
-    publication: Publication<u64>,
-}
-
-impl BodyMirror {
-    pub(crate) const fn new() -> Self {
-        Self {
-            observed: Vec::new(),
-            slot_of: Vec::new(),
-            required: Vec::new(),
-            dirty: false,
-            epoch: None,
-            publication: Publication::new("body state observation", DEPTH),
-        }
-    }
-
-    pub(crate) fn len(&self) -> u32 {
-        self.observed.len() as u32
-    }
-
-    pub(crate) fn ids(&self) -> &[u32] {
-        &self.observed
-    }
-
-    pub(crate) fn observe(&mut self, id: u32) {
-        self.insert(id);
-    }
-
-    pub(crate) fn require(&mut self, id: u32) {
-        if self.insert(id) {
-            self.required.push(id);
-        }
-    }
-
-    pub(crate) fn release_required(&mut self) {
-        for id in std::mem::take(&mut self.required) {
-            self.forget(id);
-        }
-    }
-
-    fn insert(&mut self, id: u32) -> bool {
-        if self.slot_of.len() <= id as usize {
-            self.slot_of.resize(id as usize + 1, NO_SLOT);
-        }
-        if self.slot_of[id as usize] != NO_SLOT {
-            return false;
-        }
-        self.slot_of[id as usize] = self.observed.len() as u32;
-        self.observed.push(id);
-        self.dirty = true;
-        true
-    }
-
-    pub(crate) fn forget(&mut self, id: u32) {
-        let Some(slot) = self
-            .slot_of
-            .get(id as usize)
-            .copied()
-            .filter(|slot| *slot != NO_SLOT)
-        else {
-            return;
-        };
-        self.slot_of[id as usize] = NO_SLOT;
-        self.observed.swap_remove(slot as usize);
-        if let Some(moved) = self.observed.get(slot as usize) {
-            self.slot_of[*moved as usize] = slot;
-        }
-        self.dirty = true;
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.observed.clear();
-        self.slot_of.clear();
-        self.required.clear();
-        self.dirty = false;
-        self.epoch = None;
-        self.publication.clear();
-    }
-
-    fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.dirty)
+        states
     }
 }
 
-struct JointWatch {
-    handles: Vec<ConstraintHandle>,
+pub(crate) struct JointFacts;
+
+pub(crate) struct JointManifest {
+    pub(crate) step: u64,
+    pub(crate) dt: f32,
+    pub(crate) watched: Vec<ConstraintRow>,
 }
 
-impl JointWatch {
-    const fn new() -> Self {
-        Self {
-            handles: Vec::new(),
-        }
-    }
-
-    fn watch(&mut self, handle: ConstraintHandle) {
-        if let Err(slot) = self
-            .handles
-            .binary_search_by_key(&handle.id, |candidate| candidate.id)
-        {
-            self.handles.insert(slot, handle);
-        }
-    }
-
-    fn forget(&mut self, id: u32) {
-        if let Ok(slot) = self
-            .handles
-            .binary_search_by_key(&id, |candidate| candidate.id)
-        {
-            self.handles.remove(slot);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.handles.clear();
-    }
+pub(crate) struct JointFact {
+    pub(crate) handle: ConstraintHandle,
+    pub(crate) state: JointState,
+    pub(crate) force: ConstraintForce,
 }
 
-struct JointManifest {
-    step: u64,
-    dt: f32,
-    watched: Vec<ConstraintRow>,
-}
+impl Kind for JointFacts {
+    type Manifest = JointManifest;
+    type Context<'a> = ();
+    type Value = JointFact;
 
-struct PublishedJoints {
-    step: u64,
-    joints: Vec<(ConstraintHandle, JointState, ConstraintForce)>,
-}
+    fn step(manifest: &Self::Manifest) -> u64 {
+        manifest.step
+    }
 
-impl PublishedJoints {
-    fn decode(manifest: JointManifest, bytes: &[u8]) -> Self {
+    fn decode(
+        (): Self::Context<'_>,
+        manifest: &Self::Manifest,
+        bytes: &[u8],
+    ) -> Vec<(u32, Self::Value)> {
         let count = manifest.watched.len();
         let (state_bytes, runtime_bytes) = bytes.split_at(count * size_of::<JointStateRecord>());
         let states = dynamis_abi::decode::<JointStateRecord>(state_bytes);
@@ -214,223 +129,52 @@ impl PublishedJoints {
             );
             let reaction: ConstraintReactionRecord = runtime.reaction;
             joints.push((
-                row.handle,
-                joint_state_of(row.kind, *state),
-                constraint_force_of(row.handle, row.first, row.second, reaction, manifest.dt),
+                row.handle.id,
+                JointFact {
+                    handle: row.handle,
+                    state: joint_state_of(row.kind, *state),
+                    force: constraint_force_of(
+                        row.handle,
+                        row.first,
+                        row.second,
+                        reaction,
+                        manifest.dt,
+                    ),
+                },
             ));
         }
-        Self {
-            step: manifest.step,
-            joints,
-        }
-    }
-
-    fn slot(&self, handle: ConstraintHandle) -> Option<usize> {
-        self.joints
-            .binary_search_by_key(&handle.id, |(candidate, _, _)| candidate.id)
-            .ok()
-            .filter(|slot| self.joints[*slot].0 == handle)
+        joints
     }
 }
 
-pub(crate) struct JointMirror {
-    watch: JointWatch,
-    wrote: Vec<u32>,
-    publication: Publication<JointManifest>,
-    published: Option<PublishedJoints>,
+pub(crate) struct CharacterFacts;
+
+pub(crate) struct CharacterManifest {
+    pub(crate) step: u64,
+    pub(crate) handles: Vec<(CharacterHandle, u32)>,
 }
 
-impl JointMirror {
-    const fn new() -> Self {
-        Self {
-            watch: JointWatch::new(),
-            wrote: Vec::new(),
-            publication: Publication::new("joint state observation", DEPTH),
-            published: None,
-        }
-    }
-
-    pub(crate) fn demand(&self) -> u32 {
-        self.watch.handles.len().max(self.wrote.len()) as u32
-    }
-
-    pub(crate) fn watched(&self) -> u32 {
-        self.watch.handles.len() as u32
-    }
-
-    fn reset(&mut self) {
-        self.watch.clear();
-        self.wrote.clear();
-        self.published = None;
-        self.publication.clear();
-    }
-
-    fn watch(&mut self, handle: ConstraintHandle) {
-        self.watch.watch(handle);
-    }
-
-    pub(crate) fn watch_every(&mut self, constraints: &Constraints) {
-        for handle in &constraints.alive {
-            self.watch.watch(*handle);
-        }
-    }
-
-    pub(crate) fn forget(&mut self, handle: ConstraintHandle) {
-        self.watch.forget(handle.id);
-    }
-
-    fn stop(&mut self) {
-        self.watch.clear();
-        self.published = None;
-    }
-
-    fn declared(&self) -> Vec<u32> {
-        self.watch.handles.iter().map(|handle| handle.id).collect()
-    }
-
-    fn refresh(&mut self, queue: &Queue, stream: &Stream, declared: Vec<u32>) {
-        if declared.is_empty() {
-            self.wrote.clear();
-            return;
-        }
-        if self.wrote == declared {
-            return;
-        }
-        stream.write(queue, bytemuck::cast_slice(&declared));
-        self.wrote = declared;
-    }
-
-    fn rows(&self, constraints: &Constraints, bodies: &IdSpace) -> Vec<ConstraintRow> {
-        self.wrote
-            .iter()
-            .map(|id| {
-                let index = constraints.index_of[*id as usize] as usize;
-                let record = constraints.records[index];
-                ConstraintRow {
-                    handle: ConstraintHandle {
-                        id: *id,
-                        generation: constraints.ids.generation(*id),
-                    },
-                    kind: record.constraint_kind(),
-                    first: BodyHandle {
-                        id: record.first_body_id,
-                        generation: bodies.generation(record.first_body_id),
-                    },
-                    second: BodyHandle {
-                        id: record.second_body_id,
-                        generation: bodies.generation(record.second_body_id),
-                    },
-                }
-            })
-            .collect()
-    }
-
-    fn accept(&mut self, bytes: &[u8], manifest: JointManifest) {
-        self.published = Some(PublishedJoints::decode(manifest, bytes));
-    }
-
-    fn published(&self) -> &PublishedJoints {
-        self.published
-            .as_ref()
-            .expect("a joint inspection publishes before it reads")
-    }
-
-    fn states(&self, constraints: &Constraints) -> Vec<(ConstraintHandle, JointState)> {
-        self.published()
-            .joints
-            .iter()
-            .filter(|(handle, _, _)| constraints.is_alive(*handle))
-            .map(|(handle, state, _)| (*handle, *state))
-            .collect()
-    }
-
-    fn state(&self, handle: ConstraintHandle) -> JointState {
-        self.published().joints[self.slot(handle)].1
-    }
-
-    fn forces(&self, constraints: &Constraints) -> Vec<ConstraintForce> {
-        self.published()
-            .joints
-            .iter()
-            .filter(|(handle, _, _)| constraints.is_alive(*handle))
-            .map(|(_, _, force)| *force)
-            .collect()
-    }
-
-    fn force(&self, handle: ConstraintHandle) -> ConstraintForce {
-        self.published().joints[self.slot(handle)].2
-    }
-
-    fn slot(&self, handle: ConstraintHandle) -> usize {
-        self.published().slot(handle).unwrap_or_else(|| {
-            panic!("constraint handle {handle:?} is missing from its publication")
-        })
-    }
+pub(crate) struct CharacterFact {
+    pub(crate) handle: CharacterHandle,
+    pub(crate) state: CharacterState,
 }
 
-struct CharacterManifest {
-    step: u64,
-    handles: Vec<(CharacterHandle, u32)>,
-}
+impl Kind for CharacterFacts {
+    type Manifest = CharacterManifest;
+    type Context<'a> = ();
+    type Value = CharacterFact;
 
-struct PublishedCharacter {
-    handle: CharacterHandle,
-    step: u64,
-    state: CharacterState,
-}
-
-pub(crate) struct CharacterMirror {
-    watched: Vec<CharacterHandle>,
-    watched_slots: HashMap<u32, usize>,
-    publication: Publication<CharacterManifest>,
-    published: HashMap<u32, PublishedCharacter>,
-    sequence: Option<u64>,
-}
-
-impl CharacterMirror {
-    fn new() -> Self {
-        Self {
-            watched: Vec::new(),
-            watched_slots: HashMap::new(),
-            publication: Publication::new("character state observation", DEPTH),
-            published: HashMap::new(),
-            sequence: None,
-        }
+    fn step(manifest: &Self::Manifest) -> u64 {
+        manifest.step
     }
 
-    fn reset(&mut self) {
-        self.watched.clear();
-        self.watched_slots.clear();
-        self.publication.clear();
-        self.published.clear();
-        self.sequence = None;
-    }
-
-    fn watch(&mut self, handle: CharacterHandle) {
-        if self.watched_slots.contains_key(&handle.id) {
-            return;
-        }
-        self.watched_slots.insert(handle.id, self.watched.len());
-        self.watched.push(handle);
-    }
-
-    fn watched(&self) -> &[CharacterHandle] {
-        &self.watched
-    }
-
-    fn stop(&mut self) {
-        self.watched.clear();
-        self.watched_slots.clear();
-        self.published.clear();
-        self.sequence = None;
-    }
-
-    pub(crate) fn needs_publication(&self, step: u64) -> bool {
-        !self.watched.is_empty() && self.sequence != step.checked_sub(1)
-    }
-
-    fn accept(&mut self, bytes: &[u8], manifest: CharacterManifest) {
+    fn decode(
+        (): Self::Context<'_>,
+        manifest: &Self::Manifest,
+        bytes: &[u8],
+    ) -> Vec<(u32, Self::Value)> {
         let records = dynamis_abi::decode::<CharacterStateRecord>(bytes);
+        let mut characters = Vec::with_capacity(manifest.handles.len());
         for (handle, slot) in &manifest.handles {
             let record = records
                 .get(*slot as usize)
@@ -439,88 +183,46 @@ impl CharacterMirror {
                 record.owns(handle.id, handle.generation),
                 "a character observation must return only its own state"
             );
-            self.published.insert(
+            characters.push((
                 handle.id,
-                PublishedCharacter {
+                CharacterFact {
                     handle: *handle,
-                    step: manifest.step,
                     state: record.state(),
                 },
-            );
+            ));
         }
-        self.sequence = Some(manifest.step);
-    }
-
-    fn observation(&self, handle: CharacterHandle) -> Option<&PublishedCharacter> {
-        self.published
-            .get(&handle.id)
-            .filter(|fact| fact.handle.generation == handle.generation)
+        characters
     }
 }
 
-struct VehicleManifest {
-    step: u64,
-    handles: Vec<(VehicleHandle, u32)>,
+pub(crate) struct VehicleFacts;
+
+pub(crate) struct VehicleManifest {
+    pub(crate) step: u64,
+    pub(crate) handles: Vec<(VehicleHandle, u32)>,
 }
 
-struct PublishedVehicle {
-    handle: VehicleHandle,
-    step: u64,
-    state: VehicleState,
+pub(crate) struct VehicleFact {
+    pub(crate) handle: VehicleHandle,
+    pub(crate) state: VehicleState,
 }
 
-pub(crate) struct VehicleMirror {
-    watched: Vec<VehicleHandle>,
-    watched_slots: HashMap<u32, usize>,
-    publication: Publication<VehicleManifest>,
-    published: HashMap<u32, PublishedVehicle>,
-    sequence: Option<u64>,
-}
+impl Kind for VehicleFacts {
+    type Manifest = VehicleManifest;
+    type Context<'a> = ();
+    type Value = VehicleFact;
 
-impl VehicleMirror {
-    fn new() -> Self {
-        Self {
-            watched: Vec::new(),
-            watched_slots: HashMap::new(),
-            publication: Publication::new("vehicle state observation", DEPTH),
-            published: HashMap::new(),
-            sequence: None,
-        }
+    fn step(manifest: &Self::Manifest) -> u64 {
+        manifest.step
     }
 
-    fn reset(&mut self) {
-        self.watched.clear();
-        self.watched_slots.clear();
-        self.publication.clear();
-        self.published.clear();
-        self.sequence = None;
-    }
-
-    fn watch(&mut self, handle: VehicleHandle) {
-        if self.watched_slots.contains_key(&handle.id) {
-            return;
-        }
-        self.watched_slots.insert(handle.id, self.watched.len());
-        self.watched.push(handle);
-    }
-
-    fn stop(&mut self, handle: VehicleHandle) {
-        let Some(slot) = self.watched_slots.remove(&handle.id) else {
-            return;
-        };
-        self.watched.swap_remove(slot);
-        if let Some(moved) = self.watched.get(slot) {
-            self.watched_slots.insert(moved.id, slot);
-        }
-        self.published.remove(&handle.id);
-    }
-
-    pub(crate) fn needs_publication(&self, step: u64) -> bool {
-        !self.watched.is_empty() && self.sequence != step.checked_sub(1)
-    }
-
-    fn accept(&mut self, bytes: &[u8], manifest: VehicleManifest) {
+    fn decode(
+        (): Self::Context<'_>,
+        manifest: &Self::Manifest,
+        bytes: &[u8],
+    ) -> Vec<(u32, Self::Value)> {
         let records = dynamis_abi::decode::<VehicleStateRecord>(bytes);
+        let mut vehicles = Vec::with_capacity(manifest.handles.len());
         for (handle, slot) in &manifest.handles {
             let record = records
                 .get(*slot as usize)
@@ -529,87 +231,48 @@ impl VehicleMirror {
                 record.owns(handle.id, handle.generation),
                 "a vehicle observation must return only its own state"
             );
-            self.published.insert(
+            vehicles.push((
                 handle.id,
-                PublishedVehicle {
+                VehicleFact {
                     handle: *handle,
-                    step: manifest.step,
                     state: record.state(),
                 },
-            );
+            ));
         }
-        self.sequence = Some(manifest.step);
-    }
-
-    fn observation(&self, handle: VehicleHandle) -> Option<&PublishedVehicle> {
-        self.published
-            .get(&handle.id)
-            .filter(|fact| fact.handle.generation == handle.generation)
+        vehicles
     }
 }
 
-struct PublishedSoft {
-    handle: SoftBodyHandle,
-    step: u64,
-    positions: Vec<[f32; 3]>,
-    elements: Vec<SoftElementState>,
+pub(crate) struct SoftFacts;
+
+pub(crate) struct SoftManifest {
+    pub(crate) step: u64,
+    pub(crate) runs: Vec<(SoftBodyHandle, SoftRuns)>,
 }
 
-struct SoftManifest {
-    step: u64,
-    runs: Vec<(SoftBodyHandle, SoftRuns)>,
+pub(crate) struct SoftFact {
+    pub(crate) handle: SoftBodyHandle,
+    pub(crate) positions: Vec<[f32; 3]>,
+    pub(crate) elements: Vec<SoftElementState>,
 }
 
-struct SoftMirror {
-    watched: Vec<SoftBodyHandle>,
-    slot_of: HashMap<u32, usize>,
-    publication: Publication<SoftManifest>,
-    published: HashMap<u32, PublishedSoft>,
-}
+impl Kind for SoftFacts {
+    type Manifest = SoftManifest;
+    type Context<'a> = ();
+    type Value = SoftFact;
 
-impl SoftMirror {
-    fn new() -> Self {
-        Self {
-            watched: Vec::new(),
-            slot_of: HashMap::new(),
-            publication: Publication::new("soft particle observation", SOFT_DEPTH),
-            published: HashMap::new(),
-        }
+    fn step(manifest: &Self::Manifest) -> u64 {
+        manifest.step
     }
 
-    fn reset(&mut self) {
-        self.watched.clear();
-        self.slot_of.clear();
-        self.published.clear();
-        self.publication.clear();
-    }
-
-    fn watch(&mut self, handle: SoftBodyHandle) {
-        if self.slot_of.contains_key(&handle.id) {
-            return;
-        }
-        self.slot_of.insert(handle.id, self.watched.len());
-        self.watched.push(handle);
-    }
-
-    fn stop(&mut self, handle: SoftBodyHandle) {
-        self.published.remove(&handle.id);
-        let Some(slot) = self.slot_of.remove(&handle.id) else {
-            return;
-        };
-        self.watched.swap_remove(slot);
-        if let Some(moved) = self.watched.get(slot) {
-            self.slot_of.insert(moved.id, slot);
-        }
-    }
-
-    fn watched(&self) -> &[SoftBodyHandle] {
-        &self.watched
-    }
-
-    fn accept(&mut self, bytes: &[u8], manifest: SoftManifest) {
+    fn decode(
+        (): Self::Context<'_>,
+        manifest: &Self::Manifest,
+        bytes: &[u8],
+    ) -> Vec<(u32, Self::Value)> {
         let mut at = 0usize;
-        for (handle, run) in manifest.runs {
+        let mut bodies = Vec::with_capacity(manifest.runs.len());
+        for (handle, run) in &manifest.runs {
             let particle_bytes = run.particles.len as usize * size_of::<SoftParticleRecord>();
             let records =
                 dynamis_abi::decode::<SoftParticleRecord>(&bytes[at..at + particle_bytes]);
@@ -633,27 +296,49 @@ impl SoftMirror {
                 at += element_bytes;
                 elements = records.iter().map(SoftElementRecord::state).collect();
             }
-            self.published.insert(
+            bodies.push((
                 handle.id,
-                PublishedSoft {
-                    handle,
-                    step: manifest.step,
+                SoftFact {
+                    handle: *handle,
                     positions,
                     elements,
                 },
-            );
+            ));
         }
         assert_eq!(
             at,
             bytes.len(),
             "an observation decodes every byte it copies"
         );
+        bodies
+    }
+}
+
+pub(crate) struct Observations {
+    pub(crate) bodies: Facts<BodyFacts>,
+    pub(crate) joints: Facts<JointFacts>,
+    pub(crate) characters: Facts<CharacterFacts>,
+    pub(crate) vehicles: Facts<VehicleFacts>,
+    pub(crate) soft: Facts<SoftFacts>,
+}
+
+impl Observations {
+    pub(crate) fn new() -> Self {
+        Self {
+            bodies: Facts::new("body state observation", DEPTH),
+            joints: Facts::new("joint state observation", DEPTH),
+            characters: Facts::new("character state observation", DEPTH),
+            vehicles: Facts::new("vehicle state observation", DEPTH),
+            soft: Facts::new("soft particle observation", SOFT_DEPTH),
+        }
     }
 
-    fn observation(&self, handle: SoftBodyHandle) -> Option<&PublishedSoft> {
-        self.published
-            .get(&handle.id)
-            .filter(|fact| fact.handle.generation == handle.generation)
+    pub(crate) fn reset(&mut self) {
+        self.bodies.reset();
+        self.joints.reset();
+        self.characters.reset();
+        self.vehicles.reset();
+        self.soft.reset();
     }
 }
 
@@ -677,12 +362,17 @@ impl World {
         let characters = self.observed.characters.needs_publication(self.clock.step);
         let vehicles = self.observed.vehicles.needs_publication(self.clock.step);
         if !stale.is_empty() || characters || vehicles {
+            let mut held = Vec::with_capacity(stale.len());
             for id in stale {
-                self.observed.bodies.require(id);
+                if self.observed.bodies.watch(id) {
+                    held.push(id);
+                }
             }
             self.execute(dynamis_pass::Run::Publish);
             self.drain_readbacks();
-            self.observed.bodies.release_required();
+            for id in held {
+                self.observed.bodies.forget(id);
+            }
         }
         assert!(
             self.states_current(),
@@ -692,27 +382,28 @@ impl World {
 
     pub fn try_state(&mut self, handle: BodyHandle) -> Option<BodyState> {
         self.validate(handle);
-        self.observed.bodies.observe(handle.id);
-        self.observed.bodies.epoch?;
-        self.bodies.states[handle.id as usize]
+        self.observed.bodies.watch(handle.id);
+        self.observed.bodies.age()?;
+        self.observed.bodies.get(handle.id).copied()
     }
 
     pub fn stop_observing_body(&mut self, handle: BodyHandle) {
         self.validate(handle);
-        self.observed.bodies.forget(handle.id);
-        self.bodies.states[handle.id as usize] = None;
-        self.bodies.covered[handle.id as usize] = NEVER_REPORTED;
+        self.observed.bodies.stop_watching(handle.id);
     }
 
     pub fn try_joint_states(&mut self) -> Option<Observation<Vec<(ConstraintHandle, JointState)>>> {
-        self.observed.joints.watch_every(&self.constraints);
-        let published = self.observed.joints.published.as_ref()?;
-        let step = published.step;
-        let states = published
+        let constraints = &self.constraints;
+        self.observed
             .joints
-            .iter()
-            .filter(|(handle, _, _)| self.constraints.is_alive(*handle))
-            .map(|(handle, state, _)| (*handle, *state))
+            .watch_all(constraints.alive.iter().map(|handle| handle.id));
+        let step = self.observed.joints.age()?;
+        let states = self
+            .observed
+            .joints
+            .entries()
+            .filter(|(_, fact)| constraints.is_alive(fact.handle))
+            .map(|(_, fact)| (fact.handle, fact.state))
             .collect();
         Some(Observation {
             step,
@@ -722,26 +413,27 @@ impl World {
 
     pub fn try_joint_state(&mut self, handle: ConstraintHandle) -> Option<Observation<JointState>> {
         self.validate_constraint(handle);
-        self.observed.joints.watch(handle);
-        let published = self.observed.joints.published.as_ref()?;
-        let slot = published.slot(handle)?;
-        Some(Observation {
-            step: published.step,
-            value: published.joints[slot].1,
-        })
+        self.observed.joints.watch(handle.id);
+        let step = self.observed.joints.age()?;
+        let state = self.joint_fact(handle).state;
+        Some(Observation { step, value: state })
     }
 
     pub fn try_constraint_forces(&mut self) -> Option<Observation<Vec<ConstraintForce>>> {
-        self.observed.joints.watch_every(&self.constraints);
-        let published = self.observed.joints.published.as_ref()?;
-        let forces = published
+        let constraints = &self.constraints;
+        self.observed
             .joints
-            .iter()
-            .filter(|(handle, _, _)| self.constraints.is_alive(*handle))
-            .map(|(_, _, force)| *force)
+            .watch_all(constraints.alive.iter().map(|handle| handle.id));
+        let step = self.observed.joints.age()?;
+        let forces = self
+            .observed
+            .joints
+            .entries()
+            .filter(|(_, fact)| constraints.is_alive(fact.handle))
+            .map(|(_, fact)| fact.force)
             .collect();
         Some(Observation {
-            step: published.step,
+            step,
             value: forces,
         })
     }
@@ -751,13 +443,10 @@ impl World {
         handle: ConstraintHandle,
     ) -> Option<Observation<ConstraintForce>> {
         self.validate_constraint(handle);
-        self.observed.joints.watch(handle);
-        let published = self.observed.joints.published.as_ref()?;
-        let slot = published.slot(handle)?;
-        Some(Observation {
-            step: published.step,
-            value: published.joints[slot].2,
-        })
+        self.observed.joints.watch(handle.id);
+        let step = self.observed.joints.age()?;
+        let force = self.joint_fact(handle).force;
+        Some(Observation { step, value: force })
     }
 
     pub fn stop_observing_joints(&mut self) {
@@ -765,36 +454,41 @@ impl World {
     }
 
     pub fn inspect_joint_states(&mut self) -> Vec<(ConstraintHandle, JointState)> {
-        self.observed.joints.watch_every(&self.constraints);
-        self.inspect_joints();
-        self.observed.joints.states(&self.constraints)
+        self.observe_every_joint();
+        self.inspect_facts();
+        let constraints = &self.constraints;
+        self.observed
+            .joints
+            .entries()
+            .filter(|(_, fact)| constraints.is_alive(fact.handle))
+            .map(|(_, fact)| (fact.handle, fact.state))
+            .collect()
     }
 
     pub fn inspect_joint_state(&mut self, handle: ConstraintHandle) -> JointState {
         self.validate_constraint(handle);
-        self.observed.joints.watch(handle);
-        self.inspect_joints();
-        self.observed.joints.state(handle)
+        self.observed.joints.watch(handle.id);
+        self.inspect_facts();
+        self.joint_fact(handle).state
     }
 
     pub fn inspect_constraint_forces(&mut self) -> Vec<ConstraintForce> {
-        self.observed.joints.watch_every(&self.constraints);
-        self.inspect_joints();
-        self.observed.joints.forces(&self.constraints)
+        self.observe_every_joint();
+        self.inspect_facts();
+        let constraints = &self.constraints;
+        self.observed
+            .joints
+            .entries()
+            .filter(|(_, fact)| constraints.is_alive(fact.handle))
+            .map(|(_, fact)| fact.force)
+            .collect()
     }
 
     pub fn inspect_constraint_force(&mut self, handle: ConstraintHandle) -> ConstraintForce {
         self.validate_constraint(handle);
-        self.observed.joints.watch(handle);
-        self.inspect_joints();
-        self.observed.joints.force(handle)
-    }
-
-    fn inspect_joints(&mut self) {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        self.execute(dynamis_pass::Run::Publish);
-        self.drain_readbacks();
+        self.observed.joints.watch(handle.id);
+        self.inspect_facts();
+        self.joint_fact(handle).force
     }
 
     pub fn try_character_state(
@@ -802,11 +496,12 @@ impl World {
         handle: CharacterHandle,
     ) -> Option<Observation<CharacterState>> {
         self.characters.validate(handle);
-        self.observed.characters.watch(handle);
-        let published = self.observed.characters.observation(handle)?;
+        self.observed.characters.watch(handle.id);
+        let step = self.observed.characters.age()?;
+        let fact = self.character_fact(handle)?;
         Some(Observation {
-            step: published.step,
-            value: published.state,
+            step,
+            value: fact.state,
         })
     }
 
@@ -822,7 +517,7 @@ impl World {
         let buffer = states.buffer().clone();
         let raw = self.read_regions(
             "character state",
-            &[(&buffer, u64::from(slot) * stride, stride)],
+            &[(buffer, u64::from(slot) * stride, stride)],
         );
         let record = dynamis_abi::decode::<CharacterStateRecord>(&raw)
             .first()
@@ -845,11 +540,12 @@ impl World {
         handle: VehicleHandle,
     ) -> Option<Observation<VehicleState>> {
         self.vehicles.validate(handle);
-        self.observed.vehicles.watch(handle);
-        let published = self.observed.vehicles.observation(handle)?;
+        self.observed.vehicles.watch(handle.id);
+        let step = self.observed.vehicles.age()?;
+        let fact = self.vehicle_fact(handle)?;
         Some(Observation {
-            step: published.step,
-            value: published.state,
+            step,
+            value: fact.state,
         })
     }
 
@@ -865,7 +561,7 @@ impl World {
         let buffer = states.buffer().clone();
         let raw = self.read_regions(
             "vehicle state",
-            &[(&buffer, u64::from(slot) * stride, stride)],
+            &[(buffer, u64::from(slot) * stride, stride)],
         );
         let record = dynamis_abi::decode::<VehicleStateRecord>(&raw)
             .first()
@@ -880,7 +576,7 @@ impl World {
 
     pub fn stop_observing_vehicle(&mut self, handle: VehicleHandle) {
         self.vehicles.validate(handle);
-        self.observed.vehicles.stop(handle);
+        self.observed.vehicles.stop_watching(handle.id);
     }
 
     pub fn try_soft_particles(
@@ -888,10 +584,11 @@ impl World {
         handle: SoftBodyHandle,
     ) -> Option<Observation<Vec<[f32; 3]>>> {
         self.soft.validate(handle);
-        self.observed.soft.watch(handle);
-        let fact = self.observed.soft.observation(handle)?;
+        self.observed.soft.watch(handle.id);
+        let step = self.observed.soft.age()?;
+        let fact = self.soft_fact(handle)?;
         Some(Observation {
-            step: fact.step,
+            step,
             value: fact.positions.clone(),
         })
     }
@@ -901,17 +598,69 @@ impl World {
         handle: SoftBodyHandle,
     ) -> Option<Observation<Vec<SoftElementState>>> {
         self.soft.validate(handle);
-        self.observed.soft.watch(handle);
-        let fact = self.observed.soft.observation(handle)?;
+        self.observed.soft.watch(handle.id);
+        let step = self.observed.soft.age()?;
+        let fact = self.soft_fact(handle)?;
         Some(Observation {
-            step: fact.step,
+            step,
             value: fact.elements.clone(),
         })
     }
 
     pub fn stop_observing_soft_body(&mut self, handle: SoftBodyHandle) {
         self.soft.validate(handle);
-        self.observed.soft.stop(handle);
+        self.observed.soft.stop_watching(handle.id);
+    }
+
+    fn joint_fact(&self, handle: ConstraintHandle) -> &JointFact {
+        self.observed
+            .joints
+            .get(handle.id)
+            .filter(|fact| fact.handle == handle)
+            .unwrap_or_else(|| {
+                panic!("constraint handle {handle:?} is missing from its publication")
+            })
+    }
+
+    fn character_fact(&self, handle: CharacterHandle) -> Option<&CharacterFact> {
+        self.observed
+            .characters
+            .get(handle.id)
+            .filter(|fact| fact.handle.generation == handle.generation)
+    }
+
+    fn vehicle_fact(&self, handle: VehicleHandle) -> Option<&VehicleFact> {
+        self.observed
+            .vehicles
+            .get(handle.id)
+            .filter(|fact| fact.handle.generation == handle.generation)
+    }
+
+    fn soft_fact(&self, handle: SoftBodyHandle) -> Option<&SoftFact> {
+        self.observed
+            .soft
+            .get(handle.id)
+            .filter(|fact| fact.handle.generation == handle.generation)
+    }
+
+    fn observe_every_joint(&mut self) {
+        let ids = self
+            .constraints
+            .alive
+            .iter()
+            .map(|handle| handle.id)
+            .collect::<Vec<_>>();
+        self.observed.joints.watch_all(ids);
+    }
+
+    fn inspect_facts(&mut self) {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        let live = self.live();
+        self.apply_plan(&live);
+        self.flush_rows();
+        self.execute(dynamis_pass::Run::Publish);
+        self.drain_readbacks();
     }
 
     pub(crate) fn states_current(&self) -> bool {
@@ -922,7 +671,7 @@ impl World {
     }
 
     pub(crate) fn body_current(&self, id: u32) -> bool {
-        self.bodies.covered[id as usize] == self.clock.step
+        self.observed.bodies.covered(id) == Some(self.clock.step)
     }
 
     pub(crate) fn completed_step(&self) -> Option<u64> {
@@ -931,19 +680,24 @@ impl World {
 
     pub(crate) fn flush_observed(&mut self) {
         let queue = self.backend.gpu.queue().clone();
-        if self.observed.bodies.take_dirty() && !self.observed.bodies.ids().is_empty() {
+        if self.observed.bodies.take_dirty() && !self.observed.bodies.is_empty() {
             self.backend
                 .streams
                 .state
                 .observed_ids
-                .write(&queue, bytemuck::cast_slice(self.observed.bodies.ids()));
+                .write(&queue, bytemuck::cast_slice(self.observed.bodies.keys()));
         }
-        let declared = self.observed.joints.declared();
-        self.observed.joints.refresh(
-            &queue,
-            &self.backend.streams.state.observed_joint_ids,
-            declared,
-        );
+        let declared = self.observed.joints.keys().to_vec();
+        if declared.is_empty() {
+            self.observed.joints.set_declared(Vec::new());
+        } else if declared.as_slice() != self.observed.joints.declared() {
+            self.backend
+                .streams
+                .state
+                .observed_joint_ids
+                .write(&queue, bytemuck::cast_slice(&declared));
+            self.observed.joints.set_declared(declared);
+        }
     }
 
     pub(crate) fn declare_observations(&mut self, encoder: &mut SubmissionEncoder, step: u64) {
@@ -956,54 +710,18 @@ impl World {
         self.declare_bodies(&device, encoder, step);
     }
 
-    fn declare_characters(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        if self.observed.characters.watched().is_empty() || self.characters.count() == 0 {
+    fn declare_bodies(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        let count = self.observed.bodies.len();
+        if count == 0 {
             return;
         }
-        let states = &self.backend.streams.rigid.character_states;
-        let bytes = u64::from(self.characters.slots()) * states.stride();
-        let regions = [(states.buffer(), 0, bytes)];
+        let observed = &self.backend.streams.state.observed_states;
+        let bytes = count as u64 * observed.stride();
+        let regions = [(observed.buffer(), 0, bytes)];
+        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
         self.observed
-            .characters
-            .publication
-            .reserve(device, states.size());
-        let manifest = CharacterManifest {
-            step,
-            handles: self.characters.live_slots(),
-        };
-        if let Some((manifest, bytes)) = self
-            .observed
-            .characters
-            .publication
-            .declare(encoder, &regions, step, manifest)
-        {
-            self.observed.characters.accept(&bytes, manifest);
-        }
-    }
-
-    fn declare_vehicles(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        if self.observed.vehicles.watched.is_empty() || self.vehicles.count() == 0 {
-            return;
-        }
-        let states = &self.backend.streams.rigid.vehicle_states;
-        let bytes = u64::from(self.vehicles.slots()) * states.stride();
-        let regions = [(states.buffer(), 0, bytes)];
-        self.observed
-            .vehicles
-            .publication
-            .reserve(device, states.size());
-        let manifest = VehicleManifest {
-            step,
-            handles: self.vehicles.live_slots(),
-        };
-        if let Some((manifest, bytes)) = self
-            .observed
-            .vehicles
-            .publication
-            .declare(encoder, &regions, step, manifest)
-        {
-            self.observed.vehicles.accept(&bytes, manifest);
-        }
+            .bodies
+            .publish(context, device, encoder, observed.size(), &regions, step);
     }
 
     fn declare_joints(
@@ -1013,13 +731,10 @@ impl World {
         step: u64,
         dt: f32,
     ) {
-        if self.observed.joints.wrote.is_empty() {
+        if self.observed.joints.declared().is_empty() {
             return;
         }
-        let watched = self
-            .observed
-            .joints
-            .rows(&self.constraints, &self.bodies.ids);
+        let watched = self.joint_rows();
         let states = &self.backend.streams.state.observed_joint_states;
         let runtimes = &self.backend.streams.state.observed_joint_runtimes;
         let count = watched.len() as u64;
@@ -1028,27 +743,55 @@ impl World {
             (runtimes.buffer(), 0, count * runtimes.stride()),
         ];
         let budget = states.size() + runtimes.size();
-        self.observed.joints.publication.reserve(device, budget);
         let manifest = JointManifest { step, dt, watched };
-        if let Some((manifest, bytes)) = self
-            .observed
+        self.observed
             .joints
-            .publication
-            .declare(encoder, &regions, step, manifest)
-        {
-            self.observed.joints.accept(&bytes, manifest);
+            .publish((), device, encoder, budget, &regions, manifest);
+    }
+
+    fn declare_characters(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        if self.observed.characters.is_empty() || self.characters.count() == 0 {
+            return;
         }
+        let states = &self.backend.streams.rigid.character_states;
+        let bytes = u64::from(self.characters.slots()) * states.stride();
+        let regions = [(states.buffer(), 0, bytes)];
+        let manifest = CharacterManifest {
+            step,
+            handles: self.characters.live_slots(),
+        };
+        self.observed
+            .characters
+            .publish((), device, encoder, states.size(), &regions, manifest);
+    }
+
+    fn declare_vehicles(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        if self.observed.vehicles.is_empty() || self.vehicles.count() == 0 {
+            return;
+        }
+        let states = &self.backend.streams.rigid.vehicle_states;
+        let bytes = u64::from(self.vehicles.slots()) * states.stride();
+        let regions = [(states.buffer(), 0, bytes)];
+        let manifest = VehicleManifest {
+            step,
+            handles: self.vehicles.live_slots(),
+        };
+        self.observed
+            .vehicles
+            .publish((), device, encoder, states.size(), &regions, manifest);
     }
 
     fn declare_soft(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        let watched = self.observed.soft.watched().to_vec();
-        if watched.is_empty() {
+        if self.observed.soft.is_empty() {
             return;
         }
-        let runs = watched
+        let runs = self
+            .observed
+            .soft
+            .keys()
             .iter()
-            .filter(|handle| self.soft.is_alive(**handle))
-            .map(|handle| (*handle, self.soft.runs_of(*handle)))
+            .filter_map(|id| self.soft.handle_of(*id))
+            .map(|handle| (handle, self.soft.runs_of(handle)))
             .collect::<Vec<_>>();
         let mut regions = Vec::with_capacity(runs.len() * 2);
         let particles = self.backend.streams.soft.particles.buffer();
@@ -1069,110 +812,54 @@ impl World {
         }
         let budget =
             self.backend.streams.soft.particles.size() + self.backend.streams.soft.elements.size();
-        self.observed.soft.publication.reserve(device, budget);
         let manifest = SoftManifest { step, runs };
-        if let Some((manifest, bytes)) = self
-            .observed
+        self.observed
             .soft
-            .publication
-            .declare(encoder, &regions, step, manifest)
-        {
-            self.observed.soft.accept(&bytes, manifest);
-        }
+            .publish((), device, encoder, budget, &regions, manifest);
     }
 
-    fn declare_bodies(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        let count = self.observed.bodies.len();
-        if count == 0 {
-            return;
-        }
-        let observed = &self.backend.streams.state.observed_states;
-        let bytes = count as u64 * observed.stride();
-        let regions = [(observed.buffer(), 0, bytes)];
+    fn joint_rows(&self) -> Vec<ConstraintRow> {
         self.observed
-            .bodies
-            .publication
-            .reserve(device, observed.size());
-        if let Some((sequence, bytes)) = self
-            .observed
-            .bodies
-            .publication
-            .declare(encoder, &regions, step, step)
-        {
-            self.consume_observations(sequence, &bytes);
-        }
+            .joints
+            .declared()
+            .iter()
+            .map(|id| {
+                let index = self.constraints.index_of[*id as usize] as usize;
+                let record = self.constraints.records[index];
+                ConstraintRow {
+                    handle: ConstraintHandle {
+                        id: *id,
+                        generation: self.constraints.ids.generation(*id),
+                    },
+                    kind: record.constraint_kind(),
+                    first: BodyHandle {
+                        id: record.first_body_id,
+                        generation: self.bodies.ids.generation(record.first_body_id),
+                    },
+                    second: BodyHandle {
+                        id: record.second_body_id,
+                        generation: self.bodies.ids.generation(record.second_body_id),
+                    },
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn collect_observations(&mut self) {
-        for (sequence, bytes) in self.observed.bodies.publication.collect() {
-            self.consume_observations(sequence, &bytes);
-        }
-        for (manifest, bytes) in self.observed.joints.publication.collect() {
-            self.observed.joints.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.characters.publication.collect() {
-            self.observed.characters.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.vehicles.publication.collect() {
-            self.observed.vehicles.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.soft.publication.collect() {
-            self.observed.soft.accept(&bytes, manifest);
-        }
+        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
+        self.observed.bodies.collect(context);
+        self.observed.joints.collect(());
+        self.observed.characters.collect(());
+        self.observed.vehicles.collect(());
+        self.observed.soft.collect(());
     }
 
     pub(crate) fn drain_observations(&mut self) {
-        for (sequence, bytes) in self.observed.bodies.publication.drain() {
-            self.consume_observations(sequence, &bytes);
-        }
-        for (manifest, bytes) in self.observed.joints.publication.drain() {
-            self.observed.joints.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.characters.publication.drain() {
-            self.observed.characters.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.vehicles.publication.drain() {
-            self.observed.vehicles.accept(&bytes, manifest);
-        }
-        for (manifest, bytes) in self.observed.soft.publication.drain() {
-            self.observed.soft.accept(&bytes, manifest);
-        }
-    }
-
-    pub(crate) fn consume_observations(&mut self, sequence: u64, bytes: &[u8]) {
-        let (records, remainder) = bytes.as_chunks::<{ size_of::<BodyStateRecord>() }>();
-        assert!(
-            remainder.is_empty(),
-            "an observation readback must be a whole number of records"
-        );
-        for chunk in records {
-            self.accept_body(sequence, bytemuck::pod_read_unaligned(chunk));
-        }
-        self.observed.bodies.epoch = Some(sequence);
-    }
-
-    fn accept_body(&mut self, sequence: u64, record: BodyStateRecord) {
-        let id = record.body_id as usize;
-        assert!(
-            id < self.bodies.ids.len(),
-            "a state readback returned an out-of-range body id"
-        );
-        if record.generation != self.bodies.ids.generation(record.body_id)
-            || self.bodies.index_of[id] == u32::MAX
-        {
-            return;
-        }
-        self.bodies.states[id] = Some(BodyState {
-            position: record.position,
-            prev_position: record.prev_position,
-            orientation: record.orientation,
-            velocity: record.velocity,
-            angular_velocity: record.angular_velocity,
-            inverse_mass: self.bodies.descriptors[id].inverse_mass,
-            com: self.bodies.descriptors[id].com,
-            sleeping: record.sleeping != 0,
-            step: sequence,
-        });
-        self.bodies.covered[id] = sequence + 1;
+        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
+        self.observed.bodies.drain(context);
+        self.observed.joints.drain(());
+        self.observed.characters.drain(());
+        self.observed.vehicles.drain(());
+        self.observed.soft.drain(());
     }
 }
