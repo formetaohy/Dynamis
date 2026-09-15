@@ -208,6 +208,77 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
 }
 
 #[test]
+fn a_kept_reservation_serves_a_whole_scene_without_a_second_allocation() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([6.0, 0.5, 6.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let ball = world.spawn(
+        BodyDesc::sphere(0.4)
+            .position([0.0, 0.4, 0.0])
+            .friction(0.8)
+            .sleep_thresholds(0.0, 0.0),
+    );
+    settle(&mut world, 60);
+    assert!(
+        !world.read_state(ball).sleeping,
+        "the scene must keep simulating while the reservation is held"
+    );
+
+    let settled = world.stream_capacity();
+    let submissions = world.submissions();
+    for _ in 0..120 {
+        world.step(DT);
+    }
+
+    assert_eq!(
+        world.stream_capacity(),
+        settled,
+        "a world whose demand stays within its reservation must keep its streams"
+    );
+    assert_eq!(
+        world.submissions() - submissions,
+        120,
+        "a kept reservation must let a step be exactly one submission"
+    );
+}
+
+#[test]
+fn a_widening_scene_reaches_its_reservation_by_doubling() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([9.0, 0.5, 9.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let floor = world.stream_capacity();
+    sphere_pile(&mut world);
+    settle(&mut world, 2);
+
+    let mut allocations = 0;
+    let mut previous = world.submissions();
+    for _ in 0..240 {
+        world.step(DT);
+        let submissions = world.submissions();
+        if submissions - previous != 1 {
+            allocations += 1;
+        }
+        previous = submissions;
+    }
+
+    assert!(
+        allocations <= 8,
+        "a scene that widens its demand by orders of magnitude must reach its reservation in doublings, not in {allocations} allocations"
+    );
+    assert!(
+        world.stream_capacity().broadphase.pairs > floor.broadphase.pairs,
+        "the explosion must widen the pair stream"
+    );
+}
+
+#[test]
 fn the_declared_collider_fact_counts_the_live_colliders_alone() {
     let mut world = new_world(static_config());
     world.step(DT);

@@ -1,5 +1,5 @@
-use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
-use crate::{BroadphaseDemand, BroadphaseInputs, BroadphasePasses, BroadphaseRuntime};
+use crate::{BroadphaseCapacity, BroadphaseDemand, BroadphaseInputs};
+use crate::{BroadphasePasses, BroadphaseRuntime, BroadphaseStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
@@ -20,14 +20,13 @@ impl Domain for BroadphaseDomain {
     type Inputs = BroadphaseInputs;
     type Work = ();
     type Streams = BroadphaseStreams;
-    type Planner = Capacity;
     type Passes = BroadphasePasses;
     type Runtime = BroadphaseRuntime;
     type Frame = ();
     type Capacity = BroadphaseCapacity;
 
     fn minimum() -> BroadphaseDemand {
-        Capacity::floor()
+        crate::floor()
     }
 
     fn occupied(inputs: &BroadphaseInputs) -> bool {

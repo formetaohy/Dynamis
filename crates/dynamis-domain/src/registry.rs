@@ -185,17 +185,6 @@ macro_rules! domains {
             }
         }
 
-        #[derive(Default)]
-        pub(crate) struct Planning {
-            $( pub(crate) $field: <$domain as $crate::Domain>::Planner, )*
-        }
-
-        impl Planning {
-            pub(crate) fn new() -> Self {
-                Self::default()
-            }
-        }
-
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct StreamCapacity {
             $( pub $field: <$domain as $crate::Domain>::Capacity, )*

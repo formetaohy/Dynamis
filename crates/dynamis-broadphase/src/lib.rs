@@ -3,7 +3,7 @@ mod domain;
 mod passes;
 mod streams;
 
-pub use capacity::{BroadphaseCapacity, BroadphaseInputs, Capacity};
+pub use capacity::{BroadphaseCapacity, BroadphaseInputs, floor, plan};
 pub use domain::BroadphaseDomain;
 pub use passes::{Broadphase, BroadphasePasses, BroadphaseRuntime};
 pub use streams::{

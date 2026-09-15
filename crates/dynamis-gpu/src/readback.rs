@@ -43,6 +43,10 @@ impl Slot {
             .is_some_and(|pending| pending.submission.get().is_some())
     }
 
+    fn size(&self) -> BufferAddress {
+        self.staging.size()
+    }
+
     fn record(
         &mut self,
         encoder: &mut SubmissionEncoder,
@@ -159,6 +163,7 @@ pub struct Readback {
     device: Device,
     label: String,
     size: BufferAddress,
+    deferred: Option<BufferAddress>,
     slots: VecDeque<Slot>,
     inflight: usize,
     last_sequence: Option<u64>,
@@ -177,6 +182,7 @@ impl Readback {
             device: device.clone(),
             label: label.to_owned(),
             size,
+            deferred: None,
             slots: (0..depth)
                 .map(|index| Slot::new(device, &format!("{label} slot {index}"), size))
                 .collect(),
@@ -187,6 +193,32 @@ impl Readback {
 
     pub fn size(&self) -> BufferAddress {
         self.size
+    }
+
+    pub fn reserve(&mut self, size: BufferAddress) -> bool {
+        assert!(
+            size > 0 && size.is_multiple_of(4),
+            "readback size must be positive and word aligned"
+        );
+        if size == self.size {
+            self.deferred = None;
+            return false;
+        }
+        if size > self.size || self.is_idle() {
+            self.install(size);
+            return true;
+        }
+        self.deferred = Some(size);
+        false
+    }
+
+    fn install(&mut self, size: BufferAddress) {
+        let label = self.label.clone();
+        for (index, slot) in self.slots.iter_mut().enumerate().skip(self.inflight) {
+            *slot = Slot::new(&self.device, &format!("{label} slot {index}"), size);
+        }
+        self.size = size;
+        self.deferred = None;
     }
 
     pub fn is_idle(&self) -> bool {
@@ -267,12 +299,23 @@ impl Readback {
     }
 
     fn retire(&mut self) {
-        let slot = self.slots.pop_front().expect("readback holds a slot");
-        self.slots.push_back(slot);
+        let mut slot = self.slots.pop_front().expect("readback holds a slot");
         self.inflight -= 1;
         if self.inflight == 0 {
             self.last_sequence = None;
+            if let Some(size) = self.deferred.take() {
+                self.install(size);
+            }
         }
+        if slot.size() < self.size {
+            let index = self.slots.len();
+            slot = Slot::new(
+                &self.device,
+                &format!("{} slot {index}", self.label),
+                self.size,
+            );
+        }
+        self.slots.push_back(slot);
     }
 }
 
@@ -310,12 +353,13 @@ impl<M> Publication<M> {
             "publication {:?} requires a positive word aligned budget",
             self.label
         );
-        if self.budget() == budget {
-            return false;
+        match &mut self.readback {
+            Some(readback) => readback.reserve(budget),
+            None => {
+                self.readback = Some(Readback::new(device, self.label, budget, self.depth));
+                true
+            }
         }
-        self.assert_drained("reallocate");
-        self.readback = Some(Readback::new(device, self.label, budget, self.depth));
-        true
     }
 
     pub fn clear(&mut self) {

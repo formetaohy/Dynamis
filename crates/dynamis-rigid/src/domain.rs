@@ -1,4 +1,3 @@
-use crate::capacity::Capacity;
 use crate::{
     CcdPasses, CcdRuntime, RigidCapacity, RigidDemand, RigidFrame, RigidInputs, RigidPasses,
     RigidResolutionPasses, RigidResolutionRuntime, RigidRuntime, RigidShape, RigidStreams,
@@ -41,14 +40,13 @@ impl Domain for RigidDomain {
     type Inputs = RigidInputs;
     type Work = RigidWork;
     type Streams = RigidStreams;
-    type Planner = Capacity;
     type Passes = RigidDomainPasses;
     type Runtime = RigidDomainRuntime;
     type Frame = RigidFrame;
     type Capacity = RigidCapacity;
 
     fn minimum() -> RigidDemand {
-        Capacity::floor(dynamis_domain::STREAM_FLOOR)
+        crate::capacity::floor(dynamis_domain::STREAM_FLOOR)
     }
 
     fn occupied(inputs: &RigidInputs) -> bool {

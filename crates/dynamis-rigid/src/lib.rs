@@ -95,7 +95,7 @@ use reactions::Reactions;
 use solver::{SolverPrepare, Substeps};
 use vehicle::{Vehicle, VehicleSweeps};
 
-pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
+pub use capacity::{RigidCapacity, RigidInputs, capacity, floor, plan};
 pub use ccd::{CcdApply, CcdPasses, CcdRuntime, CcdSweep};
 pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
 pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, impact_capacity};

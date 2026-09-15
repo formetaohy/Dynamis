@@ -39,21 +39,20 @@ impl Rest {
     }
 }
 
-impl Planning {
-    pub(crate) fn plan(&mut self, measured: &Counters, live: &Live, streams: &Streams) -> Plan {
-        let (broadphase, idle) =
-            self.broadphase
-                .plan(measured, &live.broadphase, &streams.broadphase);
-        let rigid = self.rigid.plan(
+impl Plan {
+    pub(crate) fn of(measured: &Counters, live: &Live, streams: &Streams, release: bool) -> Self {
+        let broadphase =
+            dynamis_broadphase::plan(measured, &live.broadphase, &streams.broadphase, release);
+        let rigid = dynamis_rigid::plan(
             measured,
             &live.rigid,
-            idle,
-            broadphase.pairs,
             &streams.rigid,
+            broadphase.pairs,
+            release,
         );
-        let state = dynamis_state::plan(&live.state, idle, &streams.state);
-        let soft = dynamis_soft::plan(&live.soft, idle, &streams.soft);
-        Plan {
+        let state = dynamis_state::plan(&live.state, &streams.state, release);
+        let soft = dynamis_soft::plan(&live.soft, &streams.soft, release);
+        Self {
             state,
             broadphase,
             rigid,
@@ -148,7 +147,6 @@ impl World {
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 colliders,
                 particles,
-                pending_commands: body_commands > 0 || constraint_commands > 0,
             },
             rigid: dynamis_rigid::RigidInputs {
                 bodies,

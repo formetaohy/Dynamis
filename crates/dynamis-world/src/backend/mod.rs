@@ -5,11 +5,12 @@ pub(crate) mod segments;
 
 pub use registry::StreamCapacity;
 
+use dynamis_domain::Settling;
 #[cfg(feature = "profile")]
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
-use registry::{Live, Plan, Planning, Rest, StepPasses, Streams};
+use registry::{Activity, Live, Plan, Rest, StepPasses, Streams};
 use segments::{Arrival, Segments};
 use wgpu::SubmissionIndex;
 
@@ -23,7 +24,7 @@ pub(crate) struct Backend {
     pub(crate) readback: ReadbackBuffers,
     pub(crate) segments: Segments,
     pub(crate) passes: StepPasses,
-    pub(crate) planning: Planning,
+    pub(crate) settling: Settling,
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) written_params: Option<dynamis_abi::StepParamsRecord>,
@@ -48,7 +49,7 @@ impl Backend {
             readback,
             segments,
             passes,
-            planning: Planning::new(),
+            settling: Settling::IDLE,
             measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,
             written_params: None,
@@ -73,14 +74,17 @@ impl World {
     }
 
     pub(crate) fn apply_plan(&mut self, live: &Live) {
-        let plan = self
+        let activity = Activity::of(&self.backend.measured, live, &self.host_work());
+        let release = self
             .backend
-            .planning
-            .plan(&self.backend.measured, live, &self.backend.streams);
+            .settling
+            .release(self.clock.step, activity.busy());
+        let plan = Plan::of(&self.backend.measured, live, &self.backend.streams, release);
         if self.backend.streams.matches(&plan) {
             return;
         }
-        self.retire_device_facts();
+        let arrivals = self.retire_pending_segments();
+        self.consume_segments(arrivals);
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");
         let streams = self.backend.streams.reserve(&device, &mut encoder, &plan);

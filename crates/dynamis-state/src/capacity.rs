@@ -63,7 +63,7 @@ pub fn floor() -> StateDemand {
     }
 }
 
-pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDemand {
+pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> StateDemand {
     let bodies = grown(current.body_states.slots(), inputs.bodies, MIN_SLOTS);
     let body_ids = current
         .body_row_of_id
@@ -76,10 +76,10 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
         .max(inputs.collider_pool)
         .max(MIN_SLOTS);
     let constraints = settled(
-        idle,
         current.constraint_runtime.slots(),
         inputs.constraints,
         MIN_SLOTS,
+        release,
     );
     let constraint_ids = current
         .constraint_row_of_id
@@ -87,22 +87,22 @@ pub fn plan(inputs: &StateInputs, idle: bool, current: &StateStreams) -> StateDe
         .max(inputs.constraint_ids)
         .max(MIN_SLOTS);
     let body_commands = settled(
-        idle,
         current.body_edits.slots(),
         inputs.body_commands,
         STREAM_FLOOR,
+        release,
     );
     let constraint_commands = settled(
-        idle,
         current.constraint_fresh_rows.slots(),
         inputs.constraint_commands,
         STREAM_FLOOR,
+        release,
     );
     let queries = settled(
-        idle,
         current.query_records.slots(),
         inputs.queries,
         STREAM_FLOOR,
+        release,
     );
     StateDemand {
         bodies,

@@ -36,29 +36,39 @@ pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
     }
 }
 
-pub fn plan(inputs: &SoftInputs, idle: bool, current: &SoftStreams) -> SoftDemand {
+pub fn plan(inputs: &SoftInputs, current: &SoftStreams, release: bool) -> SoftDemand {
     SoftDemand {
-        particles: settled(idle, current.particles.slots(), inputs.particles, MIN_SLOTS),
-        elements: settled(idle, current.elements.slots(), inputs.elements, MIN_SLOTS),
+        particles: settled(
+            current.particles.slots(),
+            inputs.particles,
+            MIN_SLOTS,
+            release,
+        ),
+        elements: settled(
+            current.elements.slots(),
+            inputs.elements,
+            MIN_SLOTS,
+            release,
+        ),
         attachments: settled(
-            idle,
             current.attachments.slots(),
             inputs.attachments,
             MIN_SLOTS,
+            release,
         ),
         adjacency: settled(
-            idle,
             current.adjacency.slots(),
             inputs.adjacency,
             STREAM_FLOOR,
+            release,
         ),
-        soft_bodies: settled(idle, current.bodies.slots(), inputs.bodies, MIN_SLOTS),
-        edits: settled(idle, current.edits.slots(), inputs.edits, MIN_SLOTS),
+        soft_bodies: settled(current.bodies.slots(), inputs.bodies, MIN_SLOTS, release),
+        edits: settled(current.edits.slots(), inputs.edits, MIN_SLOTS, release),
         body_edits: settled(
-            idle,
             current.body_edits.slots(),
             inputs.body_edits,
             MIN_SLOTS,
+            release,
         ),
     }
 }

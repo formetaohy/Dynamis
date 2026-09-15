@@ -1,6 +1,5 @@
 use super::World;
 use super::backend::archive::StreamArchive;
-use super::backend::registry::Planning;
 use super::body::Bodies;
 use super::character::Characters;
 use super::clock::Clock;
@@ -11,6 +10,7 @@ use super::shape::Shapes;
 use super::soft::SoftBodies;
 use super::vehicle::Vehicles;
 use dynamis_abi::COUNTER_COUNT;
+use dynamis_domain::Settling;
 use dynamis_model::PhysicsConfig;
 
 #[derive(Clone)]
@@ -96,7 +96,7 @@ impl World {
     fn restart_measures(&mut self) {
         self.backend.measured = [0; COUNTER_COUNT];
         self.backend.measured_step = None;
-        self.backend.planning = Planning::new();
+        self.backend.settling = Settling::IDLE;
         #[cfg(feature = "profile")]
         self.backend.pass_timings.clear();
     }

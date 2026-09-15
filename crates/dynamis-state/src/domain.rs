@@ -27,7 +27,6 @@ impl Domain for StateDomain {
     type Inputs = StateInputs;
     type Work = StateWork;
     type Streams = StateStreams;
-    type Planner = ();
     type Passes = StatePasses;
     type Runtime = StateRuntime;
     type Frame = ();

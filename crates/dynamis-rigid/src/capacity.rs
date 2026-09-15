@@ -1,9 +1,8 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{
-    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_REFUSED_CONTACTS,
-    COUNTER_REFUSED_EVENTS, COUNTER_REFUSED_IMPACTS, COUNTER_RESTING, Counters,
+    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_RESTING, Counters,
 };
-use dynamis_domain::{MIN_SLOTS, StreamWatch, product, settled, unreported};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled, unreported};
 
 const FRESH_EVENTS_PER_COLLIDER: u32 = 8;
 const FRESH_CONTACTS_PER_COLLIDER: u32 = 4;
@@ -43,152 +42,85 @@ pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
     }
 }
 
-pub struct Capacity {
-    events: StreamWatch,
-    impacts: StreamWatch,
-    contacts: StreamWatch,
-}
-
-impl Default for Capacity {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Capacity {
-    pub const fn new() -> Self {
-        Self {
-            events: StreamWatch::IDLE,
-            impacts: StreamWatch::IDLE,
-            contacts: StreamWatch::IDLE,
-        }
-    }
-
-    pub fn plan(
-        &mut self,
-        measured: &Counters,
-        inputs: &RigidInputs,
-        idle: bool,
-        pairs: u32,
-        current: &RigidStreams,
-    ) -> RigidDemand {
-        self.events.observe(
-            measured[COUNTER_EVENTS],
-            measured[COUNTER_REFUSED_EVENTS] > 0,
-            current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
-        );
-        if self.events.pressured() {
-            self.events.settle(false);
-        } else if idle {
-            self.events.settle(true);
-        }
-        let thawing = measured[COUNTER_RESTING];
-        let fresh = unreported(inputs.colliders, measured[COUNTER_COLLIDERS]);
-        let event_budget = product(fresh, FRESH_EVENTS_PER_COLLIDER, "event").max(thawing);
-        let events = if idle {
-            self.events.released(
-                current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
-                event_budget,
-            )
-        } else {
-            self.events.widened(
-                current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
-                event_budget,
-            )
-        };
-        self.impacts.observe(
-            measured[COUNTER_IMPACTS],
-            measured[COUNTER_REFUSED_IMPACTS] > 0,
-            current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
-        );
-        if self.impacts.pressured() {
-            self.impacts.settle(false);
-        } else if idle {
-            self.impacts.settle(true);
-        }
-        let impact_budget = product(fresh, FRESH_IMPACTS_PER_COLLIDER, "impact");
-        let impacts = if idle {
-            self.impacts.released(
-                current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
-                impact_budget,
-            )
-        } else {
-            self.impacts.widened(
-                current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
-                impact_budget,
-            )
-        };
-        self.contacts.observe(
-            measured[COUNTER_CONTACTS],
-            measured[COUNTER_REFUSED_CONTACTS] > 0,
-            current.contacts.slots(),
-        );
-        if self.contacts.pressured() {
-            self.contacts.settle(false);
-        } else if idle {
-            self.contacts.settle(true);
-        }
-        let contact_budget = product(fresh, FRESH_CONTACTS_PER_COLLIDER, "contact").max(thawing);
-        let contacts = if idle {
-            self.contacts
-                .released(current.contacts.slots(), contact_budget)
-        } else {
-            self.contacts
-                .doubled(current.contacts.slots(), contact_budget)
-        };
-        let resting = current
-            .resting_contacts
-            .slots()
-            .max(measured[COUNTER_RESTING])
-            .max(contacts);
-        let bodies = dynamis_domain::grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS);
-        let colliders = current
+pub fn plan(
+    measured: &Counters,
+    inputs: &RigidInputs,
+    current: &RigidStreams,
+    pairs: u32,
+    release: bool,
+) -> RigidDemand {
+    let fresh = unreported(inputs.colliders, measured[COUNTER_COLLIDERS]);
+    let frozen = measured[COUNTER_RESTING];
+    let contacts = settled(
+        current.contacts.slots(),
+        product(fresh, FRESH_CONTACTS_PER_COLLIDER, "contact")
+            .max(measured[COUNTER_CONTACTS])
+            .max(frozen),
+        STREAM_FLOOR,
+        release,
+    );
+    let events = settled(
+        current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
+        product(fresh, FRESH_EVENTS_PER_COLLIDER, "event")
+            .max(measured[COUNTER_EVENTS])
+            .max(frozen),
+        STREAM_FLOOR,
+        release,
+    );
+    let impacts = settled(
+        current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
+        product(fresh, FRESH_IMPACTS_PER_COLLIDER, "impact").max(measured[COUNTER_IMPACTS]),
+        STREAM_FLOOR,
+        release,
+    );
+    let resting = current.resting_contacts.slots().max(frozen).max(contacts);
+    let constraints = settled(
+        current.constraint_rows.slots(),
+        inputs.constraints,
+        MIN_SLOTS,
+        release,
+    );
+    RigidDemand {
+        bodies: grown(current.body_activity.slots(), inputs.bodies, MIN_SLOTS),
+        colliders: current
             .collider_aabbs
             .slots()
             .max(inputs.collider_pool)
-            .max(MIN_SLOTS);
-        let constraints = settled(
-            idle,
-            current.constraint_rows.slots(),
-            inputs.constraints,
-            MIN_SLOTS,
-        );
-        let sort = RigidDemand::sort_slots(pairs, constraints).max(MIN_SLOTS);
-        let characters = settled(
-            idle,
+            .max(MIN_SLOTS),
+        constraints,
+        pairs,
+        contacts,
+        resting,
+        events,
+        impacts,
+        sort: RigidDemand::sort_slots(pairs, constraints).max(MIN_SLOTS),
+        characters: settled(
             current.characters.slots(),
             inputs.characters,
             MIN_SLOTS,
-        );
-        let vehicles = settled(idle, current.vehicles.slots(), inputs.vehicles, MIN_SLOTS);
-        RigidDemand {
-            bodies,
-            colliders,
-            constraints,
-            pairs,
-            contacts,
-            resting,
-            events,
-            impacts,
-            sort,
-            characters,
-            vehicles,
-        }
+            release,
+        ),
+        vehicles: settled(
+            current.vehicles.slots(),
+            inputs.vehicles,
+            MIN_SLOTS,
+            release,
+        ),
     }
+}
 
-    pub fn floor(pairs: u32) -> RigidDemand {
-        RigidDemand {
-            bodies: MIN_SLOTS,
-            colliders: MIN_SLOTS,
-            constraints: MIN_SLOTS,
-            pairs,
-            contacts: dynamis_domain::STREAM_FLOOR,
-            resting: dynamis_domain::STREAM_FLOOR,
-            events: dynamis_domain::STREAM_FLOOR,
-            impacts: dynamis_domain::STREAM_FLOOR,
-            sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
-            characters: MIN_SLOTS,
-            vehicles: MIN_SLOTS,
-        }
+pub fn floor(pairs: u32) -> RigidDemand {
+    RigidDemand {
+        bodies: MIN_SLOTS,
+        colliders: MIN_SLOTS,
+        constraints: MIN_SLOTS,
+        pairs,
+        contacts: STREAM_FLOOR,
+        resting: STREAM_FLOOR,
+        events: STREAM_FLOOR,
+        impacts: STREAM_FLOOR,
+        sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
+        characters: MIN_SLOTS,
+        vehicles: MIN_SLOTS,
     }
 }

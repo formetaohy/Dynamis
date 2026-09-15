@@ -30,7 +30,6 @@ impl Domain for SoftDomain {
     type Inputs = SoftInputs;
     type Work = SoftWork;
     type Streams = SoftStreams;
-    type Planner = ();
     type Passes = SoftPasses;
     type Runtime = SoftRuntime;
     type Frame = SoftFrame;

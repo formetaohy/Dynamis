@@ -213,6 +213,74 @@ fn a_publication_retires_every_declaration_in_order() {
 }
 
 #[test]
+fn a_publication_widens_under_a_declaration_in_flight() {
+    let context = shared();
+    let source = source();
+    source.write(context.queue(), &[3u8; 32]);
+    let mut publication: dynamis_gpu::Publication<u32> = dynamis_gpu::Publication::new(
+        "widening publication",
+        dynamis_gpu::Publication::<u32>::DEPTH,
+    );
+    publication.reserve(context.device(), 4);
+    let mut first = SubmissionEncoder::new(context.device(), "narrow declaration");
+    assert!(
+        publication
+            .declare(&mut first, &[(source.buffer(), 0, 4)], 0, 1)
+            .is_none()
+    );
+    assert!(
+        publication.reserve(context.device(), 16),
+        "a wider publication must widen its ring"
+    );
+    let mut second = SubmissionEncoder::new(context.device(), "wide declaration");
+    assert!(
+        publication
+            .declare(&mut second, &[(source.buffer(), 0, 16)], 1, 2)
+            .is_none()
+    );
+    first.submit(context.queue());
+    second.submit(context.queue());
+    assert_eq!(
+        publication.drain(),
+        vec![(1, vec![3u8; 4]), (2, vec![3u8; 16])],
+        "a widened ring must still answer every declaration it carried in flight"
+    );
+}
+
+#[test]
+fn a_publication_releases_a_wider_ring_only_once_it_is_idle() {
+    let context = shared();
+    let source = source();
+    let mut publication: dynamis_gpu::Publication<u32> = dynamis_gpu::Publication::new(
+        "narrowing publication",
+        dynamis_gpu::Publication::<u32>::DEPTH,
+    );
+    publication.reserve(context.device(), 16);
+    let mut encoder = SubmissionEncoder::new(context.device(), "in flight declaration");
+    publication.declare(&mut encoder, &[(source.buffer(), 0, 16)], 0, 1);
+    assert!(
+        !publication.reserve(context.device(), 4),
+        "a narrower publication must wait for the facts in flight"
+    );
+    assert_eq!(
+        publication.budget(),
+        16,
+        "a narrowing must keep the ring that serves the in-flight facts"
+    );
+    encoder.submit(context.queue());
+    assert_eq!(publication.drain().len(), 1);
+    assert_eq!(
+        publication.budget(),
+        4,
+        "an idle ring must narrow to the budget it was asked for"
+    );
+    assert!(
+        !publication.reserve(context.device(), 4),
+        "an idle ring that already holds its budget must not move"
+    );
+}
+
+#[test]
 fn a_publication_refuses_a_declaration_that_outgrows_its_budget() {
     let context = shared();
     let source = source();
