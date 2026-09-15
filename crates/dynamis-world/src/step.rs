@@ -39,22 +39,29 @@ impl World {
     }
 
     pub(crate) fn apply_pending_commands(&mut self, consumption: Consumption) {
-        if self.bodies.commands.is_empty() && self.constraints.commands.is_empty() {
+        if self.bodies.commands.is_empty()
+            && self.constraints.commands.is_empty()
+            && !self.soft.pending_uploads()
+        {
             self.bodies.last_edits = 0;
             self.bodies.last_moves = 0;
             self.constraints.last_commands = 0;
             self.constraints.last_moves = 0;
+            self.soft.last_edits = 0;
             return;
         }
         let body_commands = self.compile_body_commands(consumption);
         let constraint_commands = self.compile_constraint_commands();
+        let soft_commands = self.compile_soft_commands(consumption);
         self.upload_body_commands(&body_commands);
         self.upload_constraint_commands(&constraint_commands);
+        self.upload_soft_commands(&soft_commands, consumption);
         self.bodies.last_edits = body_commands.runs.len() as u32;
         self.constraints.last_commands = self.constraints.commands.len() as u32;
         if consumption == Consumption::Step {
             self.bodies.commands.clear();
             self.constraints.commands.clear();
+            self.soft.consume();
         }
     }
 

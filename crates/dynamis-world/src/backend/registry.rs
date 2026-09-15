@@ -161,6 +161,7 @@ impl World {
                 attachments,
                 adjacency,
                 bodies: self.soft.ids_len() as u32,
+                edits: self.soft.pending_edits(),
                 material: self.soft.carries_strength(),
             },
         }
@@ -179,6 +180,8 @@ impl World {
             },
             soft: dynamis_soft::SoftWork {
                 uploads: self.soft.uploaded,
+                edits: self.soft.last_edits,
+                forces: self.soft.carries_forces(),
             },
         }
     }
@@ -203,7 +206,8 @@ impl World {
             dt,
             self.frame_counts(),
             RowStreams {
-                edit_runs: self.bodies.last_edits,
+                body_edit_runs: self.bodies.last_edits,
+                soft_edits: self.soft.last_edits,
                 body_moves: self.bodies.last_moves,
                 constraint_moves: self.constraints.last_moves,
                 observed: self.observed.bodies.len(),

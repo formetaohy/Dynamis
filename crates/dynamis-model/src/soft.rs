@@ -304,6 +304,48 @@ impl SoftElementState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoftParticleState {
+    inverse_mass: f32,
+    radius: f32,
+    friction: f32,
+}
+
+impl SoftParticleState {
+    pub fn new(inverse_mass: f32, radius: f32, friction: f32) -> Self {
+        assert!(
+            inverse_mass >= 0.0,
+            "a soft particle inverse mass must be non-negative"
+        );
+        assert!(radius >= 0.0, "a soft particle radius must be non-negative");
+        assert!(
+            friction >= 0.0,
+            "a soft particle friction must be non-negative"
+        );
+        Self {
+            inverse_mass,
+            radius,
+            friction,
+        }
+    }
+
+    pub const fn inverse_mass(&self) -> f32 {
+        self.inverse_mass
+    }
+
+    pub const fn radius(&self) -> f32 {
+        self.radius
+    }
+
+    pub const fn friction(&self) -> f32 {
+        self.friction
+    }
+
+    pub const fn pinned(&self) -> bool {
+        self.inverse_mass == 0.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FluidMaterial {
     spacing: f32,
     support: f32,

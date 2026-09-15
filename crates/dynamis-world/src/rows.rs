@@ -121,33 +121,3 @@ impl RowMap {
             .collect()
     }
 }
-
-pub(crate) struct RowJournal<T> {
-    buckets: Vec<(RowIdentity, Vec<T>)>,
-    index_of: HashMap<RowIdentity, usize>,
-}
-
-impl<T> RowJournal<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            buckets: Vec::new(),
-            index_of: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn push(&mut self, identity: RowIdentity, entry: T) {
-        match self.index_of.get(&identity) {
-            Some(index) => self.buckets[*index].1.push(entry),
-            None => {
-                self.index_of.insert(identity, self.buckets.len());
-                self.buckets.push((identity, vec![entry]));
-            }
-        }
-    }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (RowIdentity, &[T])> {
-        self.buckets
-            .iter()
-            .map(|(identity, entries)| (*identity, entries.as_slice()))
-    }
-}

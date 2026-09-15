@@ -261,7 +261,8 @@ fn step_params_record_maps_config() {
             soft_bodies: 23,
         },
         RowStreams {
-            edit_runs: 5,
+            body_edit_runs: 5,
+            soft_edits: 7,
             body_moves: 4,
             constraint_moves: 1,
             observed: 6,
@@ -276,7 +277,8 @@ fn step_params_record_maps_config() {
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);
     assert_eq!(record.collider_count, 13);
-    assert_eq!(record.edit_run_count, 5);
+    assert_eq!(record.body_edit_run_count, 5);
+    assert_eq!(record.soft_edit_count, 7);
     assert_eq!(record.body_move_count, 4);
     assert_eq!(record.constraint_move_count, 1);
     assert_eq!(record.observed_count, 6);

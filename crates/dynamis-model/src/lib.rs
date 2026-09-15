@@ -28,6 +28,6 @@ pub use query::QueryFilter;
 pub use shape::{Shape, ShapeSourceHandle, SolidGeometry};
 pub use soft::{
     FluidMaterial, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,
-    SoftElementState, SoftMaterial,
+    SoftElementState, SoftMaterial, SoftParticleState,
 };
 pub use surface::{SurfaceDesc, SurfaceTable};

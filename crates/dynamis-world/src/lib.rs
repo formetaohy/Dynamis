@@ -7,6 +7,7 @@ mod commands;
 mod constraint;
 mod event;
 mod ids;
+mod journal;
 mod observation;
 mod query;
 mod query_pool;

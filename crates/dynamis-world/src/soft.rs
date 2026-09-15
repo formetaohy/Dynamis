@@ -1,12 +1,17 @@
 use super::World;
 use super::arena::{Cleared, Mirror, Run};
+use super::commands::Consumption;
 use super::ids::IdSpace;
+use super::journal::EditJournal;
 use dynamis_abi::{
     ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftAttachmentInit, SoftAttachmentRecord,
-    SoftBodyRecord, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
+    SoftBodyRecord, SoftEditRecord, SoftElementInit, SoftElementRecord, SoftParticleInit,
+    SoftParticleRecord,
 };
-use dynamis_model::math::{add, quat_rotate};
-use dynamis_model::{BodyHandle, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState};
+use dynamis_model::math::{add, mul, quat_rotate};
+use dynamis_model::{
+    BodyHandle, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState, SoftParticleState,
+};
 use dynamis_soft::SoftStreams;
 
 #[derive(Clone, Copy)]
@@ -28,6 +33,13 @@ impl SoftRuns {
     };
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SoftCommand {
+    InverseMass(f32),
+    Radius(f32),
+    Friction(f32),
+}
+
 #[derive(Clone)]
 pub(crate) struct SoftBodies {
     alive: Vec<SoftBodyHandle>,
@@ -35,7 +47,12 @@ pub(crate) struct SoftBodies {
     index_of: Vec<u32>,
     runs: Vec<SoftRuns>,
     states: Vec<SoftBodyRecord>,
+    masses: Vec<f32>,
     dirty_states: Vec<u32>,
+    accelerating: Vec<u32>,
+    rewrite: Vec<u32>,
+    commands: EditJournal<u32, SoftCommand>,
+    pub(crate) last_edits: u32,
     particles: Mirror<SoftParticleRecord>,
     elements: Mirror<SoftElementRecord>,
     attachments: Mirror<SoftAttachmentRecord>,
@@ -61,14 +78,19 @@ impl Cleared for u32 {
 }
 
 impl SoftBodies {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             alive: Vec::new(),
             ids: IdSpace::new(),
             index_of: Vec::new(),
             runs: Vec::new(),
             states: Vec::new(),
+            masses: Vec::new(),
             dirty_states: Vec::new(),
+            accelerating: Vec::new(),
+            rewrite: Vec::new(),
+            commands: EditJournal::new(),
+            last_edits: 0,
             particles: Mirror::new(),
             elements: Mirror::new(),
             attachments: Mirror::new(),
@@ -113,6 +135,131 @@ impl SoftBodies {
         self.runs_of(handle).particles
     }
 
+    pub(crate) fn mass_of(&self, handle: SoftBodyHandle) -> f32 {
+        self.validate(handle);
+        self.masses[handle.id as usize]
+    }
+
+    pub(crate) fn particle_slot_of(&self, handle: SoftBodyHandle, particle: u32) -> u32 {
+        let run = self.run_of(handle);
+        assert!(
+            particle < run.len,
+            "soft particle {particle} is outside the {} particles of {handle:?}",
+            run.len,
+        );
+        run.offset + particle
+    }
+
+    pub(crate) fn particle_state(
+        &self,
+        handle: SoftBodyHandle,
+        particle: u32,
+    ) -> SoftParticleState {
+        let record = &self.particles.records()[self.particle_slot_of(handle, particle) as usize];
+        SoftParticleState::new(record.inverse_mass(), record.radius(), record.friction())
+    }
+
+    pub(crate) fn pending_edits(&self) -> u32 {
+        self.commands.len() as u32
+    }
+
+    pub(crate) fn pending_uploads(&self) -> bool {
+        !self.commands.is_empty() || !self.rewrite.is_empty() || !self.accelerating.is_empty()
+    }
+
+    pub(crate) fn carries_forces(&self) -> bool {
+        !self.accelerating.is_empty()
+    }
+
+    pub(crate) fn compile_commands(&self, consumption: Consumption) -> Vec<SoftEditRecord> {
+        if consumption != Consumption::Step {
+            return Vec::new();
+        }
+        self.commands
+            .iter()
+            .map(|(particle, commands)| {
+                commands
+                    .iter()
+                    .fold(
+                        SoftEditRecord::merged(particle),
+                        |edit, command| match *command {
+                            SoftCommand::InverseMass(inverse_mass) => {
+                                edit.inverse_mass(inverse_mass)
+                            }
+                            SoftCommand::Radius(radius) => edit.radius(radius),
+                            SoftCommand::Friction(friction) => edit.friction(friction),
+                        },
+                    )
+            })
+            .collect()
+    }
+
+    pub(crate) fn flush_inputs(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
+        if self.rewrite.is_empty() && self.accelerating.is_empty() {
+            return;
+        }
+        self.rewrite.sort_unstable();
+        self.rewrite.dedup();
+        let mut ids = std::mem::take(&mut self.accelerating);
+        ids.append(&mut self.rewrite);
+        ids.sort_unstable();
+        ids.dedup();
+        let stride = streams.bodies.stride();
+        let mut accelerating = Vec::new();
+        for id in ids {
+            let record = &mut self.states[id as usize];
+            let written = *record;
+            if written.acceleration() != [0.0; 3] {
+                accelerating.push(id);
+            }
+            record.release_acceleration();
+            streams
+                .bodies
+                .write_at(queue, u64::from(id) * stride, bytemuck::bytes_of(&written));
+        }
+        self.accelerating = accelerating;
+    }
+
+    pub(crate) fn accelerate(&mut self, handle: SoftBodyHandle, acceleration: [f32; 3]) {
+        self.validate(handle);
+        assert!(
+            acceleration.iter().all(|value| value.is_finite()),
+            "a soft body acceleration must be finite"
+        );
+        let id = handle.id as usize;
+        self.states[id].accelerate(acceleration);
+        self.states[id].wake();
+        self.rewrite.push(handle.id);
+    }
+
+    fn edit(&mut self, handle: SoftBodyHandle, particle: u32, command: SoftCommand) {
+        let slot = self.particle_slot_of(handle, particle);
+        let id = handle.id as usize;
+        match command {
+            SoftCommand::InverseMass(inverse_mass) => {
+                let record = &mut self.particles.records_mut()[slot as usize];
+                let previous = record.inverse_mass();
+                record.prev_position[3] = inverse_mass;
+                let mass = &mut self.masses[id];
+                if previous > 0.0 {
+                    *mass -= 1.0 / previous;
+                }
+                if inverse_mass > 0.0 {
+                    *mass += 1.0 / inverse_mass;
+                }
+            }
+            SoftCommand::Radius(radius) => {
+                self.particles.records_mut()[slot as usize].position[3] = radius;
+            }
+            SoftCommand::Friction(friction) => {
+                self.particles.records_mut()[slot as usize].velocity[3] = friction;
+            }
+        }
+        self.states[id].wake();
+        self.rewrite.push(handle.id);
+        self.commands.push(slot, command);
+    }
+
     pub(crate) fn wake_all(&mut self) {
         let states = &mut self.states;
         let dirty = &mut self.dirty_states;
@@ -152,6 +299,7 @@ impl SoftBodies {
         }
         self.index_of.resize(id as usize + 1, u32::MAX);
         self.runs.resize(id as usize + 1, SoftRuns::EMPTY);
+        self.masses.resize(id as usize + 1, 0.0);
     }
 
     fn hold_attachment(&mut self, body: BodyHandle) {
@@ -178,6 +326,12 @@ impl SoftBodies {
             .resize(self.ids.len(), SoftBodyRecord::cleared());
         self.states[id as usize] = SoftBodyRecord::awake(desc.filter);
         self.dirty_states.push(id);
+        self.masses[id as usize] = desc
+            .inverse_masses
+            .iter()
+            .filter(|inverse_mass| **inverse_mass > 0.0)
+            .map(|inverse_mass| 1.0 / inverse_mass)
+            .sum();
         let particles = self.particles.take(desc.particles.len() as u32);
         let elements = self.elements.take(desc.elements.len() as u32);
         let attachments = self.attachments.take(desc.attachments.len() as u32);
@@ -249,6 +403,15 @@ impl SoftBodies {
         self.validate(handle);
         let id = handle.id as usize;
         let runs = self.runs[id];
+        assert!(
+            self.commands
+                .iter()
+                .all(|(particle, _)| !runs.particles.span().contains(&(particle as usize))),
+            "soft body {handle:?} must consume its particle edits before it is removed"
+        );
+        self.rewrite.retain(|rewrite| *rewrite != handle.id);
+        self.accelerating
+            .retain(|accelerating| *accelerating != handle.id);
         self.states[id] = SoftBodyRecord::cleared();
         self.dirty_states.push(handle.id);
         for slot in runs.attachments.span() {
@@ -266,6 +429,10 @@ impl SoftBodies {
         }
         self.index_of[id] = u32::MAX;
         self.ids.release(handle.id);
+    }
+
+    pub(crate) fn consume(&mut self) {
+        self.commands.clear();
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
@@ -366,6 +533,61 @@ impl World {
         self.soft.remove(handle);
     }
 
+    pub fn apply_soft_force(&mut self, handle: SoftBodyHandle, force: [f32; 3]) {
+        assert!(
+            force.iter().all(|value| value.is_finite()),
+            "a soft body force must be finite"
+        );
+        let mass = self.soft.mass_of(handle);
+        assert!(
+            mass > 0.0,
+            "soft body {handle:?} carries no dynamic mass to accelerate"
+        );
+        self.soft.accelerate(handle, mul(force, 1.0 / mass));
+    }
+
+    pub fn apply_soft_acceleration(&mut self, handle: SoftBodyHandle, acceleration: [f32; 3]) {
+        self.soft.accelerate(handle, acceleration);
+    }
+
+    pub fn set_soft_particle_inverse_mass(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        inverse_mass: f32,
+    ) {
+        assert!(
+            inverse_mass >= 0.0,
+            "a soft particle inverse mass must be non-negative"
+        );
+        self.soft
+            .edit(handle, particle, SoftCommand::InverseMass(inverse_mass));
+    }
+
+    pub fn set_soft_particle_radius(&mut self, handle: SoftBodyHandle, particle: u32, radius: f32) {
+        assert!(radius >= 0.0, "a soft particle radius must be non-negative");
+        self.soft
+            .edit(handle, particle, SoftCommand::Radius(radius));
+    }
+
+    pub fn set_soft_particle_friction(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        friction: f32,
+    ) {
+        assert!(
+            friction >= 0.0,
+            "a soft particle friction must be non-negative"
+        );
+        self.soft
+            .edit(handle, particle, SoftCommand::Friction(friction));
+    }
+
+    pub fn soft_particle_state(&self, handle: SoftBodyHandle, particle: u32) -> SoftParticleState {
+        self.soft.particle_state(handle, particle)
+    }
+
     pub fn soft_bodies(&self) -> &[SoftBodyHandle] {
         self.soft.bodies()
     }
@@ -431,5 +653,36 @@ impl World {
             "a soft body readback must return only its own elements"
         );
         states
+    }
+}
+
+pub(crate) struct CompiledSoftCommands {
+    pub(crate) edits: Vec<SoftEditRecord>,
+}
+
+impl World {
+    pub(crate) fn compile_soft_commands(&self, consumption: Consumption) -> CompiledSoftCommands {
+        CompiledSoftCommands {
+            edits: self.soft.compile_commands(consumption),
+        }
+    }
+
+    pub(crate) fn upload_soft_commands(
+        &mut self,
+        compiled: &CompiledSoftCommands,
+        consumption: Consumption,
+    ) {
+        let queue = self.backend.gpu.queue().clone();
+        if !compiled.edits.is_empty() {
+            self.backend
+                .streams
+                .soft
+                .edits
+                .write(&queue, bytemuck::cast_slice(&compiled.edits));
+        }
+        if consumption == Consumption::Step {
+            self.soft.flush_inputs(&queue, &self.backend.streams.soft);
+        }
+        self.soft.last_edits = compiled.edits.len() as u32;
     }
 }

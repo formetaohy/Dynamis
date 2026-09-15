@@ -47,6 +47,9 @@ declare_constants! {
     pub const ELEMENT_VOLUME: u32 = 3;
     pub const ELEMENT_KIND_MASK: u32 = 3;
     pub const ELEMENT_BROKEN: u32 = 1 << 31;
+    pub const SOFT_EDIT_INVERSE_MASS: u32 = 1;
+    pub const SOFT_EDIT_RADIUS: u32 = 2;
+    pub const SOFT_EDIT_FRICTION: u32 = 4;
     pub const FEATURE_POINT: u32 = 0;
     pub const FEATURE_VERTEX: u32 = 1 << 28;
     pub const FEATURE_EDGE: u32 = 2 << 28;

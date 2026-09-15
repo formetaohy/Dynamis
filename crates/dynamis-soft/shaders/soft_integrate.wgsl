@@ -21,7 +21,8 @@ fn work(index: u32) {
         return;
     }
     let damping = 1.0 / (1.0 + params.damping * params.soft_substep_dt);
-    var velocity = (particle.velocity.xyz + params.gravity.xyz * params.soft_substep_dt) * damping;
+    let acceleration = params.gravity.xyz + bodies[particle.owner].acceleration;
+    var velocity = (particle.velocity.xyz + acceleration * params.soft_substep_dt) * damping;
     let speed = length(velocity);
     if (speed > params.max_velocity) {
         velocity = velocity * (params.max_velocity / speed);

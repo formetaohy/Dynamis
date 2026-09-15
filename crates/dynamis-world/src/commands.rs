@@ -1,5 +1,6 @@
 use super::World;
-use super::rows::{RowJournal, RowMap};
+use super::journal::EditJournal;
+use super::rows::{RowIdentity, RowMap};
 use dynamis_abi::{
     BodyEditRecord, BodyEditRunRecord, BodyStateRecord, ConstraintRuntimeRecord, RowMoveRecord,
 };
@@ -132,7 +133,7 @@ pub(crate) struct CompiledConstraintCommands {
 impl World {
     pub(crate) fn compile_body_commands(&self, consumption: Consumption) -> CompiledBodyCommands {
         let mut map = RowMap::new();
-        let mut journal: RowJournal<BodyCommand> = RowJournal::new();
+        let mut journal: EditJournal<RowIdentity, BodyCommand> = EditJournal::new();
         let mut fresh: Vec<BodyStateRecord> = Vec::new();
         for command in &self.bodies.commands {
             match command {

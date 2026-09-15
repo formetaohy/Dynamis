@@ -1,8 +1,11 @@
 use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
-    ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT,
+    ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT, SOFT_EDIT_FRICTION,
+    SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
 };
-use crate::{SoftAttachmentRecord, SoftBodyRecord, SoftElementRecord, SoftParticleRecord};
+use crate::{
+    SoftAttachmentRecord, SoftBodyRecord, SoftEditRecord, SoftElementRecord, SoftParticleRecord,
+};
 use dynamis_model::{CollisionFilter, SoftElement, SoftElementKind, SoftElementState};
 
 pub struct SoftParticleInit {
@@ -100,6 +103,9 @@ impl SoftBodyRecord {
             wake: 0,
             collision_group: filter.group(),
             collision_mask: filter.mask(),
+            _wgsl_pad0: [0; 8],
+            acceleration: [0.0; 3],
+            _pad0: 0.0,
         }
     }
 
@@ -113,6 +119,67 @@ impl SoftBodyRecord {
     pub fn wake(&mut self) {
         self.sleep_timer = 0.0;
         self.sleeping = 0;
+    }
+
+    pub fn accelerate(&mut self, acceleration: [f32; 3]) {
+        for (axis, value) in self.acceleration.iter_mut().zip(acceleration) {
+            *axis += value;
+        }
+    }
+
+    pub fn release_acceleration(&mut self) -> [f32; 3] {
+        std::mem::take(&mut self.acceleration)
+    }
+
+    pub const fn acceleration(&self) -> [f32; 3] {
+        self.acceleration
+    }
+}
+
+impl SoftEditRecord {
+    pub const fn merged(particle: u32) -> Self {
+        Self {
+            particle,
+            mask: 0,
+            inverse_mass: 0.0,
+            radius: 0.0,
+            friction: 0.0,
+        }
+    }
+
+    pub fn inverse_mass(mut self, inverse_mass: f32) -> Self {
+        assert!(
+            inverse_mass >= 0.0,
+            "a soft particle inverse mass must be non-negative"
+        );
+        self.mask |= SOFT_EDIT_INVERSE_MASS;
+        self.inverse_mass = inverse_mass;
+        self
+    }
+
+    pub fn radius(mut self, radius: f32) -> Self {
+        assert!(radius >= 0.0, "a soft particle radius must be non-negative");
+        self.mask |= SOFT_EDIT_RADIUS;
+        self.radius = radius;
+        self
+    }
+
+    pub fn friction(mut self, friction: f32) -> Self {
+        assert!(
+            friction >= 0.0,
+            "a soft particle friction must be non-negative"
+        );
+        self.mask |= SOFT_EDIT_FRICTION;
+        self.friction = friction;
+        self
+    }
+
+    pub const fn particle(&self) -> u32 {
+        self.particle
+    }
+
+    pub const fn carries(&self) -> bool {
+        self.mask != 0
     }
 }
 

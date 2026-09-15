@@ -1,5 +1,4 @@
 use crate::StepParamsRecord;
-use bytemuck::Zeroable;
 use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 impl StepParamsRecord {
@@ -47,7 +46,7 @@ impl StepParamsRecord {
             sleep_time: config.sleep_time,
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
-            edit_run_count: streams.edit_runs,
+            body_edit_run_count: streams.body_edit_runs,
             body_move_count: streams.body_moves,
             constraint_move_count: streams.constraint_moves,
             observed_count: streams.observed,
@@ -58,7 +57,7 @@ impl StepParamsRecord {
             soft_body_count: soft_bodies,
             attachment_count: attachments,
             settle_velocity: config.settle_velocity,
-            ..Self::zeroed()
+            soft_edit_count: streams.soft_edits,
         }
     }
 }
@@ -78,7 +77,8 @@ pub struct FrameCounts {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RowStreams {
-    pub edit_runs: u32,
+    pub body_edit_runs: u32,
+    pub soft_edits: u32,
     pub body_moves: u32,
     pub constraint_moves: u32,
     pub observed: u32,
@@ -94,7 +94,8 @@ pub enum Count {
     Elements,
     Attachments,
     SoftBodies,
-    EditRuns,
+    BodyEditRuns,
+    SoftEdits,
     BodyMoves,
     ConstraintMoves,
     Observed,
@@ -111,7 +112,8 @@ impl Count {
             Self::Elements => "element_count",
             Self::Attachments => "attachment_count",
             Self::SoftBodies => "soft_body_count",
-            Self::EditRuns => "edit_run_count",
+            Self::BodyEditRuns => "body_edit_run_count",
+            Self::SoftEdits => "soft_edit_count",
             Self::BodyMoves => "body_move_count",
             Self::ConstraintMoves => "constraint_move_count",
             Self::Observed => "observed_count",
@@ -128,7 +130,8 @@ impl Count {
             Self::Elements => params.element_count,
             Self::Attachments => params.attachment_count,
             Self::SoftBodies => params.soft_body_count,
-            Self::EditRuns => params.edit_run_count,
+            Self::BodyEditRuns => params.body_edit_run_count,
+            Self::SoftEdits => params.soft_edit_count,
             Self::BodyMoves => params.body_move_count,
             Self::ConstraintMoves => params.constraint_move_count,
             Self::Observed => params.observed_count,

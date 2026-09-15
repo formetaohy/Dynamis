@@ -18,6 +18,7 @@ const STEP: &[&str] = &[
     "ccd_sweep",
     "ccd_apply",
     "soft_settle",
+    "soft_inputs",
     "soft_substeps",
     "soft_apply",
     "sleep",

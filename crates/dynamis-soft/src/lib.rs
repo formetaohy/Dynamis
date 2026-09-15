@@ -59,7 +59,8 @@ domain_passes!(
     soft_bounds => Execution::AWAKE => &[],
     soft_entries => Execution::AWAKE => &["soft_bounds", "prepare"],
     soft_settle => Execution::AWAKE => &["ccd_apply"],
-    soft_substeps => Execution::AWAKE => &["soft_settle"],
+    soft_inputs => Execution::STEP.and(Execution::AWAKE) => &["soft_settle"],
+    soft_substeps => Execution::AWAKE => &["soft_inputs"],
     soft_apply => Execution::AWAKE => &["soft_substeps"],
 );
 
@@ -77,6 +78,7 @@ pub struct Soft {
     wake: Stage,
     attach_wake: Stage,
     rest: Stage,
+    edits: Stage,
     integrate: Stage,
     reset: Stage,
     elements: Stage,
@@ -213,6 +215,23 @@ impl Soft {
                     ("params", StateStream::Params.whole()),
                     ("bodies", bodies.whole()),
                     ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+            edits: Stage::build(
+                context,
+                "soft_inputs",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_edits.wgsl"),
+                    CORE,
+                    Count::SoftEdits.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("particles", particles.whole()),
+                    ("edits", SoftStream::Edits.whole()),
                 ],
                 &[],
             ),
@@ -469,6 +488,9 @@ impl Soft {
             self.wake.record_rows(recorder, streams, particles);
             self.attach_wake.record_rows(recorder, streams, attachments);
             self.rest.record_rows(recorder, streams, bodies);
+        } else if pass == self.passes.soft_inputs {
+            self.edits
+                .record_rows(recorder, streams, Count::SoftEdits.rows(&frame.params));
         } else if pass == self.passes.soft_substeps {
             for _ in 0..frame.params.soft_substeps {
                 self.reset.record_rows(recorder, streams, elements);

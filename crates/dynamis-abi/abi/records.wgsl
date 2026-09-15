@@ -25,7 +25,7 @@ struct StepParams {
     sleep_time: f32,
     friction_combine: u32,
     restitution_combine: u32,
-    edit_run_count: u32,
+    body_edit_run_count: u32,
     body_move_count: u32,
     constraint_move_count: u32,
     observed_count: u32,
@@ -41,6 +41,7 @@ struct StepParams {
     soft_body_count: u32,
     attachment_count: u32,
     settle_velocity: f32,
+    soft_edit_count: u32,
 }
 
 struct SoftParticle {
@@ -62,6 +63,16 @@ struct SoftBody {
     wake: atomic<u32>,
     collision_group: u32,
     collision_mask: u32,
+    acceleration: vec3f,
+    _pad0: f32,
+}
+
+struct SoftEdit {
+    particle: u32,
+    mask: u32,
+    inverse_mass: f32,
+    radius: f32,
+    friction: f32,
 }
 
 struct SoftAttachment {

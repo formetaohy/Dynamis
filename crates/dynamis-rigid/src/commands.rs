@@ -101,7 +101,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/body_edits.wgsl"),
                     CORE,
-                    Count::EditRuns.field(),
+                    Count::BodyEditRuns.field(),
                 ),
                 streams,
                 &[
@@ -297,6 +297,6 @@ impl Commands {
         frame: &RigidFrame,
     ) {
         self.body_edits
-            .record_rows(recorder, streams, Count::EditRuns.rows(&frame.params));
+            .record_rows(recorder, streams, Count::BodyEditRuns.rows(&frame.params));
     }
 }

@@ -13,6 +13,8 @@ pub struct SoftDomain;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftWork {
     pub uploads: bool,
+    pub edits: u32,
+    pub forces: bool,
 }
 
 impl Domain for SoftDomain {
@@ -41,7 +43,7 @@ impl Domain for SoftDomain {
     }
 
     fn pending(work: &SoftWork) -> bool {
-        work.uploads
+        work.uploads || work.edits > 0 || work.forces
     }
 
     fn active(measured: &Counters) -> bool {

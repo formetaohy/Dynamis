@@ -1,5 +1,6 @@
-use super::common::{DT, distance, gravity_config, new_world, settle};
-use dynamis_model::{BodyDesc, SoftBodyDesc, SoftElement, SoftMaterial};
+use super::common::{DT, distance, gravity_config, new_world, settle, static_config};
+use dynamis_abi::COUNTER_SOFT_ACTIVE;
+use dynamis_model::{BodyDesc, PhysicsConfig, SoftBodyDesc, SoftElement, SoftMaterial};
 
 fn chain() -> SoftBodyDesc {
     SoftBodyDesc::net(
@@ -918,4 +919,220 @@ fn a_fresh_soft_body_replaces_the_run_a_removed_one_retires() {
             "link {index} must hold its rest length, got {length}"
         );
     }
+}
+
+#[test]
+fn a_body_force_accelerates_a_soft_body_within_one_step_and_is_consumed() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
+    let force = [2.0, 0.0, 0.0];
+    let substeps = PhysicsConfig::default().soft_substeps as f32;
+    let substep = DT / substeps;
+    let acceleration = force[0];
+    let driven = acceleration * substep * substep * (1.0 + substeps) * substeps / 2.0;
+    world.apply_soft_force(handle, force);
+    world.step(DT);
+    world.wait();
+    let first = world.inspect_soft_particles(handle)[0][0];
+    assert!(
+        (first - driven).abs() < 1e-3,
+        "a body force must drive the body within one step, expected {driven}, got {first}"
+    );
+    world.step(DT);
+    world.wait();
+    let second = world.inspect_soft_particles(handle)[0][0] - first;
+    let coasted = acceleration * substeps * substep * DT;
+    assert!(
+        (second - coasted).abs() < 1e-3,
+        "a body force must be consumed by the step it drives, expected a coast of {coasted}, got {second}"
+    );
+}
+
+#[test]
+fn a_body_force_spreads_over_the_dynamic_mass_of_its_body() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(
+        SoftBodyDesc::new(vec![[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]], Vec::new())
+            .inverse_masses(vec![1.0, 0.5]),
+    );
+    world.apply_soft_force(handle, [6.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    let positions = world.inspect_soft_particles(handle);
+    assert!(
+        (positions[0][0] - positions[1][0]).abs() < 1e-4,
+        "one force must accelerate every particle of a body alike, got {:?}",
+        positions
+    );
+    let substeps = PhysicsConfig::default().soft_substeps as f32;
+    let substep = DT / substeps;
+    let driven = 2.0 * substep * substep * (1.0 + substeps) * substeps / 2.0;
+    assert!(
+        (positions[0][0] - driven).abs() < 1e-3,
+        "a force must spread over the mass it accelerates, expected {driven}, got {:.5}",
+        positions[0][0]
+    );
+}
+
+#[test]
+fn a_body_force_wakes_a_sleeping_soft_body() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
+    settle(&mut world, 60);
+    assert_eq!(
+        world.measured()[COUNTER_SOFT_ACTIVE],
+        0,
+        "an untouched soft body must fall asleep"
+    );
+    world.apply_soft_force(handle, [1.0, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.inspect_soft_particles(handle)[0][0] > 0.0,
+        "a force must wake the body it drives"
+    );
+}
+
+#[test]
+fn a_pinned_particle_holds_its_pose_until_it_is_released() {
+    let mut world = new_world(gravity_config());
+    let handle = world.add_soft_body(SoftBodyDesc::net(
+        vec![[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
+        vec![[0, 1]],
+    ));
+    let authored = world.soft_particle_state(handle, 0);
+    assert!(
+        !authored.pinned(),
+        "a spawned particle must carry the mass it was authored with"
+    );
+    world.set_soft_particle_inverse_mass(handle, 0, 0.0);
+    assert!(world.soft_particle_state(handle, 0).pinned());
+    settle(&mut world, 60);
+    assert_eq!(
+        world.measured()[COUNTER_SOFT_ACTIVE],
+        0,
+        "a held soft body must fall asleep"
+    );
+    let hanging = world.inspect_soft_particles(handle);
+    assert!(
+        (hanging[0][1] - 1.0).abs() < 1e-3,
+        "a pinned particle must hold its height, got {:?}",
+        hanging[0]
+    );
+    assert!(
+        hanging[1][1] < hanging[0][1],
+        "the released particle must hang from the pinned one, got {:?}",
+        hanging
+    );
+    world.set_soft_particle_inverse_mass(handle, 0, authored.inverse_mass());
+    settle(&mut world, 30);
+    let fallen = world.inspect_soft_particles(handle);
+    assert!(
+        fallen[0][1] < 0.5,
+        "restoring the authored mass must drop the particle, got {:?}",
+        fallen[0]
+    );
+}
+
+#[test]
+fn a_particle_radius_edit_reshapes_the_contacts_its_body_makes() {
+    let mut world = new_world(static_config());
+    let first = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
+    let second = world.add_soft_body(SoftBodyDesc::new(vec![[0.3, 0.0, 0.0]], Vec::new()));
+    settle(&mut world, 5);
+    let before = distance(
+        world.inspect_soft_particles(first)[0],
+        world.inspect_soft_particles(second)[0],
+    );
+    assert!(
+        (before - 0.3).abs() < 1e-3,
+        "narrow particles must keep their spacing, got {before}"
+    );
+    world.set_soft_particle_radius(first, 0, 0.001);
+    world.set_soft_particle_radius(first, 0, 0.25);
+    world.set_soft_particle_radius(second, 0, 0.25);
+    settle(&mut world, 10);
+    let after = distance(
+        world.inspect_soft_particles(first)[0],
+        world.inspect_soft_particles(second)[0],
+    );
+    assert!(
+        after > before + 0.05,
+        "overlapping particles must push apart, {before} -> {after}"
+    );
+}
+
+#[test]
+fn a_soft_body_refuses_removal_while_its_edits_are_pending() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
+    world.set_soft_particle_radius(handle, 0, 0.5);
+    let removed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        world.remove_soft_body(handle);
+    }));
+    assert!(
+        removed.is_err(),
+        "a body must consume its particle edits before it is removed"
+    );
+}
+
+#[test]
+fn a_wide_edit_burst_widens_the_soft_edit_stream() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(SoftBodyDesc::net(
+        (0..128).map(|row| [0.0, row as f32 * 0.2, 0.0]).collect(),
+        (0..127).map(|row| [row, row + 1]).collect(),
+    ));
+    let floor = world.stream_capacity().soft;
+    for particle in 0..128 {
+        world.set_soft_particle_radius(handle, particle, 0.1);
+    }
+    world.step(DT);
+    world.wait();
+    let planned = world.stream_capacity().soft;
+    assert!(
+        planned.edits > floor.edits,
+        "an edit burst must widen the edit stream, {floor:?} -> {planned:?}"
+    );
+}
+
+#[test]
+fn identical_input_streams_drive_identical_soft_bodies() {
+    let mut first = new_world(gravity_config());
+    let mut second = new_world(gravity_config());
+    let desc =
+        || SoftBodyDesc::net(vec![[0.0, 0.0, 0.0], [0.0, 0.5, 0.0]], vec![[0, 1]]).radius(0.1);
+    let first_body = first.add_soft_body(desc());
+    let second_body = second.add_soft_body(desc());
+    for frame in 0..30 {
+        let force = [2.0, if frame % 2 == 0 { 4.0 } else { -1.0 }, 0.0];
+        first.apply_soft_force(first_body, force);
+        second.apply_soft_force(second_body, force);
+        first.set_soft_particle_radius(first_body, frame % 2, 0.1 + frame as f32 * 0.001);
+        second.set_soft_particle_radius(second_body, frame % 2, 0.1 + frame as f32 * 0.001);
+        settle(&mut first, 1);
+        settle(&mut second, 1);
+    }
+    assert_eq!(
+        first.inspect_soft_particles(first_body),
+        second.inspect_soft_particles(second_body),
+        "identical inputs must drive identical soft bodies"
+    );
+}
+
+#[test]
+fn a_snapshot_replays_the_inputs_a_soft_body_was_driven_with() {
+    let mut world = new_world(static_config());
+    let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
+    world.apply_soft_force(handle, [2.0, 0.0, 0.0]);
+    let snapshot = world.snapshot();
+    let mut restored = new_world(static_config());
+    restored.restore(&snapshot);
+    settle(&mut world, 4);
+    settle(&mut restored, 4);
+    assert_eq!(
+        world.inspect_soft_particles(handle),
+        restored.inspect_soft_particles(handle),
+        "a snapshot must carry the inputs its soft bodies were driven with"
+    );
 }

@@ -8,6 +8,7 @@ pub struct SoftCapacity {
     pub attachments: u32,
     pub adjacency: u32,
     pub bodies: u32,
+    pub edits: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -17,6 +18,7 @@ pub struct SoftInputs {
     pub attachments: u32,
     pub adjacency: u32,
     pub bodies: u32,
+    pub edits: u32,
     pub material: bool,
 }
 
@@ -27,6 +29,7 @@ pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
         attachments: streams.attachments.slots(),
         adjacency: streams.adjacency.slots(),
         bodies: streams.bodies.slots(),
+        edits: streams.edits.slots(),
     }
 }
 
@@ -52,6 +55,7 @@ pub fn plan(
             STREAM_FLOOR,
         ),
         soft_bodies: settled(idle, current.bodies.slots(), inputs.bodies, MIN_SLOTS),
+        edits: settled(idle, current.edits.slots(), inputs.edits, MIN_SLOTS),
         rigid_bodies: settled(
             idle,
             current.reactions.slots() / REACTION_WORDS,
@@ -68,6 +72,7 @@ pub const fn floor() -> SoftDemand {
         attachments: MIN_SLOTS,
         adjacency: STREAM_FLOOR,
         soft_bodies: MIN_SLOTS,
+        edits: MIN_SLOTS,
         rigid_bodies: MIN_SLOTS,
     }
 }
