@@ -153,6 +153,7 @@ fn solve_contact_correction(contact_index: u32) {
 fn solve_constraint_correction(constraint_index: u32) {
     let constraint = constraint_descs[constraint_index];
     let rows = constraint_rows[constraint_index];
+    let reference = constraint_runtime[constraint_index].reference;
     var total = pair_zero();
     if (constraint_runtime[constraint_index].broken == 0u) {
         let first_loaded = load_body(rows.first_row);
@@ -179,7 +180,7 @@ fn solve_constraint_correction(constraint_index: u32) {
                 row(&first, &second, &total, local_point_row(local_a, local_b, orthogonal_axis(axis_index), 0.0, scale, first, second));
             }
             let local_hinge = normalize(constraint.axis_a);
-            let error_vector = constraint_relative_error(first, second, constraint.reference);
+            let error_vector = constraint_relative_error(first, second, reference);
             for (var axis_index = 0u; axis_index < 2u; axis_index = axis_index + 1u) {
                 let local_axis = constraint_dof_axis(constraint_local_frame(local_hinge), local_hinge, axis_index);
                 row(&first, &second, &total, local_row(local_axis, dot(error_vector, local_axis), scale, first, second));
@@ -187,6 +188,7 @@ fn solve_constraint_correction(constraint_index: u32) {
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
                 let angle = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     constraint_anchor(first, local_a),
@@ -207,7 +209,7 @@ fn solve_constraint_correction(constraint_index: u32) {
                 let local_axis = constraint_dof_axis(tangents, local_hinge, axis_index);
                 row(&first, &second, &total, local_point_row(local_a, local_b, quat_rotate(first.state.orientation, local_axis), 0.0, scale, first, second));
             }
-            let error_vector = constraint_relative_error(first, second, constraint.reference);
+            let error_vector = constraint_relative_error(first, second, reference);
             for (var axis_index = 0u; axis_index < 3u; axis_index = axis_index + 1u) {
                 let local_axis = constraint_dof_axis(tangents, local_hinge, axis_index);
                 row(&first, &second, &total, local_row(local_axis, dot(error_vector, local_axis), scale, first, second));
@@ -215,6 +217,7 @@ fn solve_constraint_correction(constraint_index: u32) {
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
                 let separation = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     constraint_anchor(first, local_a),
@@ -235,6 +238,7 @@ fn solve_constraint_correction(constraint_index: u32) {
             if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
                 let angle = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     constraint_anchor(first, local_a),
@@ -254,6 +258,7 @@ fn solve_constraint_correction(constraint_index: u32) {
                     let limit = select(constraint.swing_a, constraint.swing_b, axis_index == 1u);
                     let swing_angle = joint_coordinate(
                         constraint,
+                        reference,
                         first,
                         second,
                         constraint_anchor(first, local_a),
@@ -288,6 +293,7 @@ fn solve_constraint_correction(constraint_index: u32) {
             let direction = -limb;
             let angle = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 constraint_anchor(first, local_a),
@@ -304,6 +310,7 @@ fn solve_constraint_correction(constraint_index: u32) {
                 let local_axis = constraint_dof_axis(tangents, local_hinge, axis_index);
                 let current = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     constraint_anchor(first, local_a),
@@ -323,6 +330,7 @@ fn solve_constraint_correction(constraint_index: u32) {
                 }
                 let angular = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     constraint_anchor(first, local_a),
@@ -346,7 +354,7 @@ fn solve_constraint_correction(constraint_index: u32) {
             for (var axis_index = 0u; axis_index < 3u; axis_index = axis_index + 1u) {
                 row(&first, &second, &total, local_point_row(local_a, local_b, orthogonal_axis(axis_index), 0.0, scale, first, second));
             }
-            let error_vector = constraint_relative_error(first, second, constraint.reference);
+            let error_vector = constraint_relative_error(first, second, reference);
             for (var axis_index = 0u; axis_index < 3u; axis_index = axis_index + 1u) {
                 row(&first, &second, &total, local_row(orthogonal_axis(axis_index), dot(error_vector, orthogonal_axis(axis_index)), scale, first, second));
             }

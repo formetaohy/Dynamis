@@ -275,6 +275,7 @@ fn dof_limit_row(index: u32) -> u32 {
 fn solve_constraint_block(constraint_index: u32, slot: u32) {
     var runtime = constraint_runtime[constraint_index];
     let constraint = constraint_descs[constraint_index];
+    let reference = runtime.reference;
     let rows = constraint_rows[constraint_index];
     if ((constraint.flags & CONSTRAINT_WARM_START) == 0u) {
         for (var index = 0u; index < CONSTRAINT_ACCUMULATOR_SLOTS; index = index + 1u) {
@@ -315,6 +316,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             let damping = 2.0 * constraint.spring_damping_ratio * omega;
             let separation = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -356,6 +358,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
             let current = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -375,6 +378,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
             let angle = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -425,6 +429,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
             let current = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -444,6 +449,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
             let separation = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -485,6 +491,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
             let angle = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -511,6 +518,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
                 let limit = select(constraint.swing_a, constraint.swing_b, i == 1u);
                 let swing_angle = joint_coordinate(
                     constraint,
+                    reference,
                     first,
                     second,
                     anchor_a,
@@ -590,6 +598,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
         }
         let angle = joint_coordinate(
             constraint,
+            reference,
             first,
             second,
             anchor_a,
@@ -611,6 +620,7 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             let world_axis = joint_dof_axis(constraint, first, i);
             let current = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,
@@ -657,12 +667,13 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
             }
         }
         let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
-        let deviation = quat_mul(q_rel, quat_conjugate(constraint.reference));
+        let deviation = quat_mul(q_rel, quat_conjugate(reference));
         let error_vector = vec3f(2.0 * deviation.x, 2.0 * deviation.y, 2.0 * deviation.z);
         for (var i = 0u; i < 3u; i = i + 1u) {
             let world_axis = joint_dof_axis(constraint, first, 3u + i);
             let current = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,

@@ -17,6 +17,7 @@ fn joint_state(index: u32) -> JointState {
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     let runtime = constraint_runtime[index];
+    let reference = runtime.reference;
     let dofs = joint_dof_count(constraint.kind);
     var state: JointState;
     state.dof_count = dofs;
@@ -24,6 +25,7 @@ fn joint_state(index: u32) -> JointState {
         if (dof < dofs) {
             state.coordinates[dof] = joint_coordinate(
                 constraint,
+                reference,
                 first,
                 second,
                 anchor_a,

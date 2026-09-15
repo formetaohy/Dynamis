@@ -67,6 +67,7 @@ fn joint_axis(
 
 fn joint_coordinate(
     constraint: ConstraintDescriptor,
+    frame: vec4f,
     first: Body,
     second: Body,
     anchor_a: vec3f,
@@ -106,7 +107,7 @@ fn joint_coordinate(
         if (dof < 3u) {
             return dot(anchor_b - anchor_a, sign_normalize(quat_rotate(first.state.orientation, local_axis)));
         }
-        return dot(constraint_relative_error(first, second, constraint.reference), local_axis);
+        return dot(constraint_relative_error(first, second, frame), local_axis);
     }
     return 0.0;
 }

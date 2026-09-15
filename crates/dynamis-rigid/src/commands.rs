@@ -172,6 +172,12 @@ impl Commands {
                     ("row_moves", StateStream::ConstraintRowMoves.whole()),
                     ("fresh_rows", StateStream::ConstraintFreshRows.whole()),
                     ("params", StateStream::Params.whole()),
+                    (
+                        "constraint_descs",
+                        StateStream::ConstraintDescriptors.whole(),
+                    ),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("body_states", StateStream::BodyStates.whole()),
                 ],
                 &[],
             ),

@@ -113,16 +113,6 @@ impl World {
             panic!("constraint bodies must be distinct");
         }
         self.validate_constraint_desc(&desc);
-        let mut desc = desc;
-        if constrains_joint_frame(desc.kind)
-            && desc.reference == [0.0, 0.0, 0.0, 1.0]
-            && let (Some(state_a), Some(state_b)) = (
-                self.state_snapshot(first.id as usize),
-                self.state_snapshot(second.id as usize),
-            )
-        {
-            desc.reference = relative_reference(state_a.orientation, state_b.orientation);
-        }
         let (id, generation) = self.constraints.ids.acquire();
         self.constraints.grow_to(id);
         let handle = ConstraintHandle { id, generation };
@@ -144,10 +134,6 @@ impl World {
         self.validate_constraint_desc(&desc);
         let slot = self.constraints.index_of[handle.id as usize] as usize;
         let existing = self.constraints.records[slot];
-        let mut desc = desc;
-        if constrains_joint_frame(desc.kind) && desc.reference == [0.0, 0.0, 0.0, 1.0] {
-            desc.reference = existing.reference;
-        }
         let record = ConstraintDescriptorRecord::build(
             &desc,
             existing.first_body_id,
@@ -537,26 +523,6 @@ impl World {
             "body handle {handle:?} is referenced by a live constraint; remove it first"
         );
     }
-}
-
-fn constrains_joint_frame(kind: ConstraintKind) -> bool {
-    matches!(
-        kind,
-        ConstraintKind::Fixed
-            | ConstraintKind::Revolute
-            | ConstraintKind::Prismatic
-            | ConstraintKind::SixDof
-    )
-}
-
-fn relative_reference(orientation_a: [f32; 4], orientation_b: [f32; 4]) -> [f32; 4] {
-    let a = [
-        -orientation_a[0],
-        -orientation_a[1],
-        -orientation_a[2],
-        orientation_a[3],
-    ];
-    dynamis_model::math::quat_mul(a, orientation_b)
 }
 
 fn dof_limit_pair(record: &mut ConstraintDescriptorRecord, index: usize) -> (&mut f32, &mut f32) {

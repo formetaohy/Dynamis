@@ -184,7 +184,6 @@ pub struct ConstraintDesc {
     pub anchor_b: [f32; 3],
     pub axis_a: [f32; 3],
     pub axis_b: [f32; 3],
-    pub reference: [f32; 4],
     pub rest_length: f32,
     pub limit: Option<ConstraintLimit>,
     pub swing: Option<ConstraintSwing>,
@@ -208,7 +207,6 @@ impl ConstraintDesc {
             anchor_b: [0.0; 3],
             axis_a: [0.0, 1.0, 0.0],
             axis_b: [0.0, 1.0, 0.0],
-            reference: [0.0, 0.0, 0.0, 1.0],
             rest_length: 0.0,
             limit: None,
             swing: None,
@@ -352,21 +350,6 @@ impl ConstraintDesc {
     pub fn axis_b(mut self, axis_b: [f32; 3]) -> Self {
         assert!(axis_b != [0.0; 3], "constraint axis b must be non-zero");
         self.axis_b = axis_b;
-        self
-    }
-
-    pub fn reference(mut self, reference: [f32; 4]) -> Self {
-        assert!(
-            (reference[0] * reference[0]
-                + reference[1] * reference[1]
-                + reference[2] * reference[2]
-                + reference[3] * reference[3]
-                - 1.0)
-                .abs()
-                < 1e-4,
-            "reference must be a unit quaternion"
-        );
-        self.reference = reference;
         self
     }
 

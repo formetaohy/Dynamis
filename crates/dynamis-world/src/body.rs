@@ -665,14 +665,6 @@ impl World {
 }
 
 impl World {
-    pub(crate) fn state_snapshot(&self, id: usize) -> Option<BodyState> {
-        assert!(
-            self.body_current(id as u32),
-            "a constraint frame requires a current body state; call wait() or observe the body"
-        );
-        self.bodies.states[id]
-    }
-
     pub(crate) fn mass_properties_of(&self, id: usize) -> MassProperties {
         dynamis_model::mass_properties_of_intent(
             &self.bodies.collider_descs[id],

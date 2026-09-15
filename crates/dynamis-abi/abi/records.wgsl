@@ -311,7 +311,6 @@ struct ConstraintDescriptor {
     motor_stiffness: f32,
     motor_damping: f32,
     cone_angle: f32,
-    reference: vec4f,
     linear_limit_min: vec3f,
     _pad_lim_min: f32,
     linear_limit_max: vec3f,
@@ -340,6 +339,7 @@ struct ConstraintDescriptor {
 
 struct ConstraintRuntime {
     reaction: ConstraintReaction,
+    reference: vec4f,
     accumulated: array<f32, CONSTRAINT_ACCUMULATOR_SLOTS>,
     broken: u32,
     constraint_id: u32,

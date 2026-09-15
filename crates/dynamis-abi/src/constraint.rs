@@ -159,7 +159,6 @@ impl ConstraintDescriptorRecord {
             motor_stiffness,
             motor_damping,
             cone_angle: desc.cone_angle,
-            reference: desc.reference,
             linear_limit_min: linear_limits[0],
             _pad_lim_min: 0.0,
             linear_limit_max: linear_limits[1],
@@ -209,6 +208,7 @@ impl ConstraintRuntimeRecord {
     pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
             reaction: bytemuck::Zeroable::zeroed(),
+            reference: [0.0; 4],
             accumulated: [0.0; CONSTRAINT_ACCUMULATOR_SLOTS as usize],
             broken: 0,
             constraint_id,

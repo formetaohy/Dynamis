@@ -84,6 +84,24 @@ fn fixed_constraint_preserves_offset() {
     );
 }
 
+#[test]
+fn joint_frame_is_captured_where_the_device_stands() {
+    let mut world = new_world(static_config());
+    let anchor = world.spawn(BodyDesc::static_sphere(0.1));
+    let welded = world.spawn(BodyDesc::sphere(0.2).angular_velocity([4.0, 0.0, 0.0]));
+    for _ in 0..30 {
+        world.step(DT);
+    }
+    world.add_constraint(anchor, welded, ConstraintDesc::fixed([0.0; 3], [0.0; 3]));
+    settle(&mut world, 120);
+    let orientation = world.read_state(welded).orientation;
+    let angle = 2.0 * orientation[0].clamp(-1.0, 1.0).asin();
+    assert!(
+        (angle - 2.0).abs() < 0.1,
+        "a welded joint must hold the frame its bodies carried when it was born, got {angle} rad"
+    );
+}
+
 fn pendulum_world(
     limit: Option<(f32, f32)>,
     motor: Option<f32>,
