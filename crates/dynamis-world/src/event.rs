@@ -36,7 +36,6 @@ impl World {
     pub(crate) fn note_events_due(&mut self, step: u64) {
         let count = self.backend.measured[COUNTER_EVENTS];
         if count > 0 {
-            eprintln!("EVENT due step {step} count {count}");
             self.events.due.push_back((step, count));
         }
     }
@@ -52,10 +51,6 @@ impl World {
             let offset = (step % EVENT_SLOTS as u64) * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
             let regions = [(self.backend.streams.rigid.events.buffer(), offset, bytes)];
-            eprintln!(
-                "EVENT declare step {step} count {count} due {}",
-                self.events.due.len()
-            );
             let displaced = self
                 .backend
                 .readback
