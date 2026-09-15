@@ -542,6 +542,7 @@ dependencies = [
  "dynamis-domain",
  "dynamis-gpu",
  "dynamis-pass",
+ "dynamis-shader",
  "wgpu",
 ]
 

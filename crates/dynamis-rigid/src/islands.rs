@@ -55,6 +55,7 @@ impl Islands {
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -86,6 +87,7 @@ impl Islands {
                         "resting_index",
                         dynamis_state::counter(COUNTER_RESTING_INDEX),
                     ),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -96,7 +98,7 @@ impl Islands {
                     context,
                     include_str!("../shaders/island_init.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -134,7 +136,7 @@ impl Islands {
                     context,
                     include_str!("../shaders/island_link_constraints.wgsl"),
                     CONSTRAINT_LINK,
-                    Count::Constraints.field(),
+                    Count::Constraints.bound(),
                 ),
                 streams,
                 &[
@@ -176,7 +178,7 @@ impl Islands {
                     context,
                     include_str!("../shaders/island_jump.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -192,7 +194,7 @@ impl Islands {
                     context,
                     include_str!("../shaders/island_aggregate.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -211,7 +213,7 @@ impl Islands {
                     context,
                     include_str!("../shaders/island_wake.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -237,8 +239,8 @@ impl Islands {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        let dynamic = Count::Dynamic.rows(&frame.params);
-        let constraints = Count::Constraints.rows(&frame.params);
+        let dynamic = Count::Dynamic.rows(&frame.params, &frame.rows);
+        let constraints = Count::Constraints.rows(&frame.params, &frame.rows);
         self.contact_relay.record_stream(recorder, streams);
         self.contact_begin.record_stream(recorder, streams);
         self.island_init.record_rows(recorder, streams, dynamic);
@@ -259,8 +261,11 @@ impl Islands {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.island_wake
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.island_wake.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
     }
 }
 
@@ -274,7 +279,7 @@ impl Sleep {
                     context,
                     include_str!("../shaders/island_sleep.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -297,7 +302,10 @@ impl Sleep {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.island_sleep
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.island_sleep.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
     }
 }

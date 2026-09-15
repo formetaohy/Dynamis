@@ -84,12 +84,22 @@ impl World {
         RigidShape::of(&self.frame_counts())
     }
 
-    pub(crate) fn write_step_records(&self, params: StepParamsRecord) {
+    pub(crate) fn write_step_records(&mut self, params: StepParamsRecord) {
+        let queue = self.backend.gpu.queue();
+        if self.backend.written_params != Some(params) {
+            self.backend
+                .streams
+                .state
+                .params
+                .write(queue, bytemuck::cast_slice(&[params]));
+            self.backend.written_params = Some(params);
+        }
+        let rows: dynamis_abi::RowStreamsRecord = self.row_streams().into();
         self.backend
             .streams
             .state
-            .params
-            .write(self.backend.gpu.queue(), bytemuck::cast_slice(&[params]));
+            .row_streams
+            .write(queue, bytemuck::cast_slice(&[rows]));
     }
 
     fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {

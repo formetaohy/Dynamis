@@ -22,7 +22,7 @@ impl Entries {
                     context,
                     include_str!("../shaders/collider_entries.wgsl"),
                     GRID_INDEX,
-                    Count::Colliders.field(),
+                    Count::Colliders.bound(),
                 ),
                 streams,
                 &[
@@ -48,7 +48,10 @@ impl Entries {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.emit
-            .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
+        self.emit.record_rows(
+            recorder,
+            streams,
+            Count::Colliders.rows(&frame.params, &frame.rows),
+        );
     }
 }

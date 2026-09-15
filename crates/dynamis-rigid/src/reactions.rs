@@ -21,7 +21,7 @@ impl Reactions {
                     context,
                     include_str!("../shaders/body_reactions.wgsl"),
                     CORE,
-                    Count::Bodies.field(),
+                    Count::Bodies.bound(),
                 ),
                 streams,
                 &[
@@ -46,7 +46,10 @@ impl Reactions {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.apply
-            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        self.apply.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
     }
 }

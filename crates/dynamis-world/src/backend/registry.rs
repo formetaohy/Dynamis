@@ -1,5 +1,7 @@
 use crate::World;
-use dynamis_abi::{Counters, FrameCounts, RowStreams, StepParamsRecord};
+use dynamis_abi::{
+    Counters, DeclaredCounters, FrameCounts, RowStreams, StepParamsRecord, Subscriptions,
+};
 use dynamis_broadphase::BroadphaseDomain;
 use dynamis_domain::StepFacts;
 use dynamis_gpu::GpuContext;
@@ -211,21 +213,36 @@ impl World {
     }
 
     pub(crate) fn step_params(&self, dt: f32) -> StepParamsRecord {
-        StepParamsRecord::new(
-            &self.config,
-            dt,
-            self.frame_counts(),
-            RowStreams {
-                body_edit_runs: self.bodies.last_edits,
-                soft_edits: self.soft.last_edits,
-                soft_body_edits: self.soft.last_body_edits,
-                body_moves: self.bodies.last_moves,
-                constraint_moves: self.constraints.last_moves,
-                observed: self.observed.bodies.len(),
-                observed_joints: self.observed.joints.len(),
-            },
-            self.event_slot_of(self.clock.step),
-        )
+        StepParamsRecord::new(&self.config, dt, self.frame_counts(), self.subscriptions())
+    }
+
+    pub(crate) fn subscriptions(&self) -> Subscriptions {
+        Subscriptions {
+            observed: self.observed.bodies.len(),
+            observed_joints: self.observed.joints.len(),
+        }
+    }
+
+    pub(crate) fn row_streams(&self) -> RowStreams {
+        RowStreams {
+            body_edit_runs: self.bodies.last_edits,
+            body_moves: self.bodies.last_moves,
+            constraint_moves: self.constraints.last_moves,
+            soft_edits: self.soft.last_edits,
+            soft_body_edits: self.soft.last_body_edits,
+        }
+    }
+
+    pub(crate) fn declared_counters(&self) -> DeclaredCounters {
+        DeclaredCounters {
+            bodies: self.bodies.alive.len() as u32,
+            colliders: self.colliders.live(),
+            constraints: self.constraints.alive.len() as u32,
+            body_edits: self.bodies.last_edits,
+            body_moves: self.bodies.last_moves,
+            constraint_commands: self.constraints.last_commands,
+            constraint_moves: self.constraints.last_moves,
+        }
     }
 
     pub(crate) fn busy(&self, work: &HostWork) -> bool {
@@ -255,26 +272,26 @@ impl World {
         params: StepParamsRecord,
     ) -> StepFrames {
         let liveness = self.gated(live, work);
-        let facts = StepFacts {
-            params,
-            counts: self.frame_counts(),
-        };
+        let facts = self.step_facts(params);
         StepFrames::of(&facts, live, liveness)
     }
 
     pub(crate) fn query_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
-        let facts = StepFacts {
-            params,
-            counts: self.frame_counts(),
-        };
+        let facts = self.step_facts(params);
         StepFrames::queries(&facts, live)
     }
 
     pub(crate) fn publish_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
-        let facts = StepFacts {
+        let facts = self.step_facts(params);
+        StepFrames::publication(&facts, live)
+    }
+
+    fn step_facts(&self, params: StepParamsRecord) -> StepFacts {
+        StepFacts {
             params,
             counts: self.frame_counts(),
-        };
-        StepFrames::publication(&facts, live)
+            subscriptions: self.subscriptions(),
+            rows: self.row_streams(),
+        }
     }
 }

@@ -19,22 +19,6 @@ struct GridSlice {
     whole: bool,
 }
 
-fn counter_load(slot: u32) -> u32 {
-    return atomicLoad(&counters[slot * COUNTER_STRIDE_WORDS]);
-}
-
-fn counter_add(slot: u32, value: u32) -> u32 {
-    return atomicAdd(&counters[slot * COUNTER_STRIDE_WORDS], value);
-}
-
-fn counter_or(slot: u32, value: u32) {
-    atomicOr(&counters[slot * COUNTER_STRIDE_WORDS], value);
-}
-
-fn counter_max(slot: u32, value: u32) {
-    atomicMax(&counters[slot * COUNTER_STRIDE_WORDS], value);
-}
-
 fn cell_hash(coord: vec3i) -> u32 {
     let x = u32(coord.x) * 0x9E3779B9u;
     let y = u32(coord.y) * 0x85EBCA77u;

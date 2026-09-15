@@ -48,7 +48,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/clear_inputs.wgsl"),
                     CORE,
-                    Count::Bodies.field(),
+                    Count::Bodies.bound(),
                 ),
                 streams,
                 &[
@@ -64,7 +64,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/body_move_gather.wgsl"),
                     CORE,
-                    Count::BodyMoves.field(),
+                    Count::BodyMoves.bound(),
                 ),
                 streams,
                 &[
@@ -72,7 +72,7 @@ impl Commands {
                     ("state_scratch", RigidStream::BodyStateScratch.whole()),
                     ("row_moves", StateStream::BodyRowMoves.whole()),
                     ("fresh_rows", StateStream::BodyFreshRows.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                 ],
                 &[],
             ),
@@ -83,14 +83,14 @@ impl Commands {
                     context,
                     include_str!("../shaders/body_move_scatter.wgsl"),
                     CORE,
-                    Count::BodyMoves.field(),
+                    Count::BodyMoves.bound(),
                 ),
                 streams,
                 &[
                     ("body_states", StateStream::BodyStates.whole()),
                     ("state_scratch", RigidStream::BodyStateScratch.whole()),
                     ("row_moves", StateStream::BodyRowMoves.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
@@ -102,7 +102,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/body_edits.wgsl"),
                     CORE,
-                    Count::BodyEditRuns.field(),
+                    Count::BodyEditRuns.bound(),
                 ),
                 streams,
                 &[
@@ -111,7 +111,7 @@ impl Commands {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                     ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
                     ("woke_count", dynamis_state::counter(COUNTER_WOKE)),
                 ],
@@ -124,14 +124,14 @@ impl Commands {
                     context,
                     include_str!("../shaders/row_of_body.wgsl"),
                     CORE,
-                    Count::BodyMoves.field(),
+                    Count::BodyMoves.bound(),
                 ),
                 streams,
                 &[
                     ("body_states", StateStream::BodyStates.whole()),
                     ("row_moves", StateStream::BodyRowMoves.whole()),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                 ],
                 &[],
             ),
@@ -142,7 +142,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/constraint_rows.wgsl"),
                     CORE,
-                    Count::Constraints.field(),
+                    Count::Constraints.bound(),
                 ),
                 streams,
                 &[
@@ -163,7 +163,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/constraint_move_gather.wgsl"),
                     CORE,
-                    Count::ConstraintMoves.field(),
+                    Count::ConstraintMoves.bound(),
                 ),
                 streams,
                 &[
@@ -171,7 +171,7 @@ impl Commands {
                     ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
                     ("row_moves", StateStream::ConstraintRowMoves.whole()),
                     ("fresh_rows", StateStream::ConstraintFreshRows.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                     (
                         "constraint_descs",
                         StateStream::ConstraintDescriptors.whole(),
@@ -188,14 +188,14 @@ impl Commands {
                     context,
                     include_str!("../shaders/constraint_move_scatter.wgsl"),
                     CORE,
-                    Count::ConstraintMoves.field(),
+                    Count::ConstraintMoves.bound(),
                 ),
                 streams,
                 &[
                     ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("constraint_scratch", RigidStream::ConstraintScratch.whole()),
                     ("row_moves", StateStream::ConstraintRowMoves.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                 ],
                 &[],
             ),
@@ -206,14 +206,14 @@ impl Commands {
                     context,
                     include_str!("../shaders/row_of_constraint.wgsl"),
                     CORE,
-                    Count::ConstraintMoves.field(),
+                    Count::ConstraintMoves.bound(),
                 ),
                 streams,
                 &[
                     ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("row_moves", StateStream::ConstraintRowMoves.whole()),
                     ("row_of_constraint", StateStream::ConstraintRowOfId.whole()),
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                 ],
                 &[],
             ),
@@ -224,7 +224,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/activity.wgsl"),
                     CORE,
-                    Count::Bodies.field(),
+                    Count::Bodies.bound(),
                 ),
                 streams,
                 &[
@@ -244,7 +244,7 @@ impl Commands {
                     context,
                     include_str!("../shaders/joint_filter.wgsl"),
                     CORE,
-                    Count::Constraints.field(),
+                    Count::Constraints.bound(),
                 ),
                 streams,
                 &[
@@ -279,16 +279,28 @@ impl Commands {
         frame: &RigidFrame,
     ) {
         self.reset(recorder, streams);
-        self.clear_inputs
-            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        self.clear_inputs.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
         self.record_moves(recorder, streams, frame);
         self.record_edits(recorder, streams, frame);
-        self.constraint_rows
-            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
-        self.joint_filter
-            .record_rows(recorder, streams, Count::Constraints.rows(&frame.params));
-        self.activity
-            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        self.constraint_rows.record_rows(
+            recorder,
+            streams,
+            Count::Constraints.rows(&frame.params, &frame.rows),
+        );
+        self.joint_filter.record_rows(
+            recorder,
+            streams,
+            Count::Constraints.rows(&frame.params, &frame.rows),
+        );
+        self.activity.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
     }
 
     fn record_moves(
@@ -297,26 +309,35 @@ impl Commands {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.body_move_gather
-            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
-        self.body_move_scatter
-            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
-        self.row_of_body
-            .record_rows(recorder, streams, Count::BodyMoves.rows(&frame.params));
+        self.body_move_gather.record_rows(
+            recorder,
+            streams,
+            Count::BodyMoves.rows(&frame.params, &frame.rows),
+        );
+        self.body_move_scatter.record_rows(
+            recorder,
+            streams,
+            Count::BodyMoves.rows(&frame.params, &frame.rows),
+        );
+        self.row_of_body.record_rows(
+            recorder,
+            streams,
+            Count::BodyMoves.rows(&frame.params, &frame.rows),
+        );
         self.constraint_move_gather.record_rows(
             recorder,
             streams,
-            Count::ConstraintMoves.rows(&frame.params),
+            Count::ConstraintMoves.rows(&frame.params, &frame.rows),
         );
         self.constraint_move_scatter.record_rows(
             recorder,
             streams,
-            Count::ConstraintMoves.rows(&frame.params),
+            Count::ConstraintMoves.rows(&frame.params, &frame.rows),
         );
         self.row_of_constraint.record_rows(
             recorder,
             streams,
-            Count::ConstraintMoves.rows(&frame.params),
+            Count::ConstraintMoves.rows(&frame.params, &frame.rows),
         );
     }
 
@@ -326,7 +347,10 @@ impl Commands {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.body_edits
-            .record_rows(recorder, streams, Count::BodyEditRuns.rows(&frame.params));
+        self.body_edits.record_rows(
+            recorder,
+            streams,
+            Count::BodyEditRuns.rows(&frame.params, &frame.rows),
+        );
     }
 }

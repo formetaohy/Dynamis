@@ -6,7 +6,7 @@ pub use capacity::{SoftCapacity, SoftInputs, capacity, floor, plan};
 pub use domain::{SoftDomain, SoftWork};
 pub use streams::{SoftDemand, SoftStream, SoftStreams};
 
-use dynamis_abi::{Count, StepParamsRecord};
+use dynamis_abi::{Count, RowStreams, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -66,6 +66,7 @@ domain_passes!(
 #[derive(Clone, Copy, Debug)]
 pub struct SoftFrame {
     pub params: StepParamsRecord,
+    pub rows: RowStreams,
     pub material: bool,
 }
 
@@ -109,7 +110,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/particle_bounds.wgsl"),
                     PARTICLE_SHAPE,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -126,7 +127,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/particle_entries.wgsl"),
                     &index,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -146,7 +147,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_activity.wgsl"),
                     CORE,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -163,7 +164,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_wake.wgsl"),
                     &wake_fragments,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -187,7 +188,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_attach_wake.wgsl"),
                     SOFT_ANCHOR,
-                    Count::Attachments.field(),
+                    Count::Attachments.bound(),
                 ),
                 streams,
                 &[
@@ -208,7 +209,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_rest.wgsl"),
                     CORE,
-                    Count::SoftBodies.field(),
+                    Count::SoftBodies.bound(),
                 ),
                 streams,
                 &[
@@ -225,7 +226,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_input_clear.wgsl"),
                     CORE,
-                    Count::SoftBodies.field(),
+                    Count::SoftBodies.bound(),
                 ),
                 streams,
                 &[
@@ -241,11 +242,11 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_body_edits.wgsl"),
                     CORE,
-                    Count::SoftBodyEdits.field(),
+                    Count::SoftBodyEdits.bound(),
                 ),
                 streams,
                 &[
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                     ("bodies", bodies.whole()),
                     ("edits", SoftStream::BodyEdits.whole()),
                 ],
@@ -258,11 +259,11 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_edits.wgsl"),
                     CORE,
-                    Count::SoftEdits.field(),
+                    Count::SoftEdits.bound(),
                 ),
                 streams,
                 &[
-                    ("params", StateStream::Params.whole()),
+                    ("row_streams", StateStream::RowStreams.whole()),
                     ("particles", particles.whole()),
                     ("edits", SoftStream::Edits.whole()),
                 ],
@@ -275,7 +276,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_integrate.wgsl"),
                     CORE,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -292,7 +293,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_reset.wgsl"),
                     CORE,
-                    Count::Elements.field(),
+                    Count::Elements.bound(),
                 ),
                 streams,
                 &[
@@ -308,7 +309,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_elements.wgsl"),
                     ELEMENT_SAMPLE,
-                    Count::Elements.field(),
+                    Count::Elements.bound(),
                 ),
                 streams,
                 &[
@@ -327,7 +328,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_gather.wgsl"),
                     CORE,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -347,7 +348,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_attach.wgsl"),
                     SOFT_ATTACH,
-                    Count::Attachments.field(),
+                    Count::Attachments.bound(),
                 ),
                 streams,
                 &[
@@ -369,7 +370,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_density.wgsl"),
                     &reach,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -391,7 +392,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_pressure.wgsl"),
                     &reach,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -413,7 +414,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_collide_detect.wgsl"),
                     &collide,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -440,7 +441,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_collide_resolve.wgsl"),
                     SOFT_REACTION,
-                    Count::Particles.field(),
+                    Count::Particles.bound(),
                 ),
                 streams,
                 &[
@@ -461,7 +462,7 @@ impl Soft {
                     context,
                     include_str!("../shaders/soft_material.wgsl"),
                     ELEMENT_SAMPLE,
-                    Count::Elements.field(),
+                    Count::Elements.bound(),
                 ),
                 streams,
                 &[
@@ -482,10 +483,10 @@ impl Soft {
         streams: &impl Resources,
         frame: &SoftFrame,
     ) -> bool {
-        let particles = Count::Particles.rows(&frame.params);
-        let elements = Count::Elements.rows(&frame.params);
-        let bodies = Count::SoftBodies.rows(&frame.params);
-        let attachments = Count::Attachments.rows(&frame.params);
+        let particles = Count::Particles.rows(&frame.params, &frame.rows);
+        let elements = Count::Elements.rows(&frame.params, &frame.rows);
+        let bodies = Count::SoftBodies.rows(&frame.params, &frame.rows);
+        let attachments = Count::Attachments.rows(&frame.params, &frame.rows);
         if pass == self.passes.soft_bounds {
             self.bounds.record_rows(recorder, streams, particles);
         } else if pass == self.passes.soft_entries {
@@ -495,12 +496,12 @@ impl Soft {
             self.body_edits.record_rows(
                 recorder,
                 streams,
-                Count::SoftBodyEdits.rows(&frame.params),
+                Count::SoftBodyEdits.rows(&frame.params, &frame.rows),
             );
             self.particle_edits.record_rows(
                 recorder,
                 streams,
-                Count::SoftEdits.rows(&frame.params),
+                Count::SoftEdits.rows(&frame.params, &frame.rows),
             );
         } else if pass == self.passes.soft_settle {
             self.activity.record_rows(recorder, streams, particles);

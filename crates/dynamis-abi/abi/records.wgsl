@@ -27,11 +27,6 @@ struct StepParams {
     sleep_time: f32,
     friction_combine: u32,
     restitution_combine: u32,
-    body_edit_run_count: u32,
-    body_move_count: u32,
-    constraint_move_count: u32,
-    observed_count: u32,
-    event_slot: u32,
     position_iterations: u32,
     contact_margin: f32,
     collider_count: u32,
@@ -43,11 +38,18 @@ struct StepParams {
     soft_body_count: u32,
     attachment_count: u32,
     settle_velocity: f32,
-    soft_edit_count: u32,
-    soft_body_edit_count: u32,
+    observed_count: u32,
     observed_joint_count: u32,
     character_count: u32,
     vehicle_count: u32,
+}
+
+struct RowStreams {
+    body_edit_runs: u32,
+    body_moves: u32,
+    constraint_moves: u32,
+    soft_edits: u32,
+    soft_body_edits: u32,
 }
 
 struct SoftParticle {

@@ -1,13 +1,22 @@
 use crate::capacity::floor;
-use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
+use crate::{StateCapacity, StateDemand, StateInputs, StateStream, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline};
+use dynamis_pass::{Execution, PassGroup, Pipeline, Stage, domain_passes};
 
 pub struct StateDomain;
+
+domain_passes!(
+    StatePasses,
+    consume_streams => Execution::STEP => &["commit"],
+);
+
+pub struct StateRuntime {
+    consume_streams: Stage,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StateWork {
@@ -27,8 +36,8 @@ impl Domain for StateDomain {
     type Work = StateWork;
     type Streams = StateStreams;
     type Planner = ();
-    type Passes = ();
-    type Runtime = ();
+    type Passes = StatePasses;
+    type Runtime = StateRuntime;
     type Frame = ();
     type Capacity = StateCapacity;
 
@@ -49,12 +58,32 @@ impl Domain for StateDomain {
     }
 
     fn pass_groups() -> &'static [PassGroup] {
-        &[]
+        &[StatePasses::GROUP]
     }
 
-    fn resolve(_: &Pipeline) {}
+    fn resolve(pipeline: &Pipeline) -> StatePasses {
+        StatePasses::resolve(pipeline)
+    }
 
-    fn build(_: &GpuContext, _: &impl Resources, _: ()) {}
+    fn build(context: &GpuContext, streams: &impl Resources, _: StatePasses) -> StateRuntime {
+        StateRuntime {
+            consume_streams: Stage::build(
+                context,
+                "consume_streams",
+                dynamis_shader::workgroups(
+                    context,
+                    include_str!("../shaders/consume_streams.wgsl"),
+                    dynamis_shader::CORE,
+                ),
+                streams,
+                &[
+                    ("row_streams", StateStream::RowStreams.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+        }
+    }
 
     fn gates(_: &()) -> u16 {
         0
@@ -66,7 +95,16 @@ impl Domain for StateDomain {
         crate::capacity(streams)
     }
 
-    fn record(_: &mut (), _: u32, _: &mut ComputeRecorder<'_>, _: &impl Resources, _: &()) -> bool {
-        false
+    fn record(
+        runtime: &mut StateRuntime,
+        _: u32,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        _: &(),
+    ) -> bool {
+        runtime
+            .consume_streams
+            .record_workgroups(recorder, streams, 1);
+        true
     }
 }

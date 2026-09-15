@@ -37,7 +37,7 @@ impl World {
             .record(&mut encoder, &self.backend.streams, &frames, run);
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
-        let declarations = self.publish(&mut encoder, run, batch);
+        let declarations = self.publish(&mut encoder, run, batch, self.clock.step);
         self.copy_breaks(&mut encoder);
         self.submit(encoder);
         #[cfg(feature = "profile")]
@@ -101,10 +101,10 @@ impl World {
         encoder: &mut SubmissionEncoder,
         run: Run,
         batch: Option<Batch>,
+        step: u64,
     ) -> Declarations {
         match run {
             Run::Step => {
-                let step = self.clock.step;
                 self.declare_observations(encoder, step);
                 Declarations {
                     counters: self.enqueue_counters(encoder, step),
@@ -118,7 +118,7 @@ impl World {
             Run::Publish => {
                 let step = self
                     .completed_step()
-                    .expect("a body state publication requires a completed step");
+                    .expect("a publication requires a completed step");
                 self.declare_observations(encoder, step);
                 Declarations {
                     counters: None,
@@ -153,15 +153,7 @@ impl World {
         step: u64,
     ) -> Option<(u64, DeclaredCounters, Vec<u8>)> {
         let bytes = self.pack_step(encoder);
-        let declared = DeclaredCounters {
-            bodies: self.bodies.alive.len() as u32,
-            colliders: self.colliders.live(),
-            constraints: self.constraints.alive.len() as u32,
-            body_edits: self.bodies.last_edits,
-            body_moves: self.bodies.last_moves,
-            constraint_commands: self.constraints.last_commands,
-            constraint_moves: self.constraints.last_moves,
-        };
+        let declared = self.declared_counters();
         let regions = [(self.backend.readback.pack.buffer(), 0, bytes)];
         self.backend
             .readback

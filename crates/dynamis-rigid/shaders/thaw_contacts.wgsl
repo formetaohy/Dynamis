@@ -12,6 +12,7 @@
 @group(0) @binding(11) var<storage, read_write> event_count: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> spillover: array<atomic<u32>>;
 @group(0) @binding(13) var<uniform> params: StepParams;
+@group(0) @binding(14) var<storage, read_write> counters: array<atomic<u32>>;
 
 
 fn current_holds(contact: Contact) -> bool {

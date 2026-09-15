@@ -3,8 +3,8 @@ use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
     ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord, QueryRecord,
-    QueryResultRecord, REACTION_WORDS, RowMoveRecord, ShapeSourceRecord, StepParamsRecord,
-    TriangleRecord,
+    QueryResultRecord, REACTION_WORDS, RowMoveRecord, RowStreamsRecord, ShapeSourceRecord,
+    StepParamsRecord, TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -33,6 +33,7 @@ streams! {
     }
     streams {
         params, Params: "step params", StepParamsRecord, 1, Contents::Scratch, 1, dynamis_gpu::UNIFORM;
+        row_streams, RowStreams: "step row streams", RowStreamsRecord, 1, Contents::Scratch, 1;
         body_states, BodyStates: "body states", BodyStateRecord, 1, Contents::Durable, demand.bodies;
         body_row_of_id, BodyRowOfId: "body row of id", u32, 1, Contents::Durable, demand.body_ids;
         body_descriptors, BodyDescriptors: "body descriptors", BodyDescriptorRecord, 1, Contents::Durable, demand.bodies;

@@ -71,7 +71,7 @@ pub use counter::device::{
     COUNTER_PARTICLE_REACH, COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_EVENTS,
     COUNTER_REFUSED_PAIRS, COUNTER_REFUSED_RESTING, COUNTER_RESTING, COUNTER_RESTING_GATHER,
     COUNTER_RESTING_INDEX, COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_SOFT_ACTIVE,
-    COUNTER_SOFT_SLEPT, COUNTER_SOFT_WOKE, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
+    COUNTER_SOFT_SLEPT, COUNTER_SOFT_WOKE, COUNTER_STEP, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
 pub use counter::host::{
     COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_COLLIDERS,
@@ -79,7 +79,7 @@ pub use counter::host::{
 };
 pub use counter::{COUNTER_COUNT, COUNTER_STRIDE, Counters, DeclaredCounters};
 pub use decode::decode;
-pub use param::{Count, FrameCounts, RowStreams};
+pub use param::{Bound, Count, FrameCounts, RowStreams, Subscriptions};
 pub use query::inert_sweep;
 pub use records::*;
 pub use soft::{SoftAttachmentInit, SoftElementInit, SoftParticleInit};

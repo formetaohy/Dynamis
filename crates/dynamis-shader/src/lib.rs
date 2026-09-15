@@ -1,8 +1,9 @@
-use dynamis_abi::{COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
+use dynamis_abi::{Bound, COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
 use dynamis_gpu::{EVENT_SLOTS, GpuContext, ResourceId};
 use std::sync::Arc;
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
+pub const COUNTER_ACCESS: &str = include_str!("../shaders/counters.wgsl");
 const GRID_INDEX_FRAGMENT: &str = include_str!("../shaders/grid_index.wgsl");
 const CONVEX_FRAGMENT: &str = include_str!("../shaders/convex.wgsl");
 const SCENE_FRAGMENT: &str = include_str!("../shaders/scene.wgsl");
@@ -10,9 +11,15 @@ const SHAPES_FRAGMENT: &str = include_str!("../shaders/shapes.wgsl");
 const JOINTS_FRAGMENT: &str = include_str!("../shaders/joints.wgsl");
 
 pub const CORE: &[&str] = &[];
+pub const COUNTERS: &[&str] = &[COUNTER_ACCESS];
 pub const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];
-pub const GRID_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT];
-pub const GEOMETRY_INDEX: &[&str] = &[GRID_INDEX_FRAGMENT, CONVEX_FRAGMENT, SCENE_FRAGMENT];
+pub const GRID_INDEX: &[&str] = &[COUNTER_ACCESS, GRID_INDEX_FRAGMENT];
+pub const GEOMETRY_INDEX: &[&str] = &[
+    COUNTER_ACCESS,
+    GRID_INDEX_FRAGMENT,
+    CONVEX_FRAGMENT,
+    SCENE_FRAGMENT,
+];
 pub const JOINTS: &[&str] = &[JOINTS_FRAGMENT];
 
 pub const WORKGROUP_SIZE: u32 = 64;
@@ -21,13 +28,14 @@ pub fn workgroups_of(elements: u32) -> u32 {
     elements.div_ceil(WORKGROUP_SIZE)
 }
 
-pub fn entry_rows(field: &str) -> String {
+pub fn entry_rows(bound: Bound) -> String {
+    let bound = bound.expression();
     format!(
         "
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {{
     let index = global_index(gid);
-    if (index >= params.{field}) {{
+    if (index >= {bound}) {{
         return;
     }}
     work(index);
@@ -97,9 +105,9 @@ fn shader_constants(per_row: u32) -> String {
     source
 }
 
-pub fn rows(context: &GpuContext, body: &str, fragments: &[&str], field: &str) -> Program {
+pub fn rows(context: &GpuContext, body: &str, fragments: &[&str], bound: Bound) -> Program {
     let mut source = assemble(context, body, fragments);
-    source.push_str(&entry_rows(field));
+    source.push_str(&entry_rows(bound));
     Program {
         source: source.into(),
         dispatch: Dispatch::Rows,

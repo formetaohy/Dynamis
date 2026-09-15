@@ -113,6 +113,7 @@ impl Domain for RigidDomain {
     fn frame(facts: &StepFacts, inputs: &RigidInputs) -> RigidFrame {
         RigidFrame {
             params: facts.params,
+            rows: facts.rows,
             shape: RigidShape::of(&facts.counts),
             query_count: inputs.queries,
             observed_count: inputs.observed,

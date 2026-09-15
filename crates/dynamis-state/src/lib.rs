@@ -3,7 +3,7 @@ mod domain;
 mod streams;
 
 pub use capacity::{ShapeCapacity, StateCapacity, StateInputs, capacity, floor, plan};
-pub use domain::{StateDomain, StateWork};
+pub use domain::{StateDomain, StatePasses, StateRuntime, StateWork};
 pub use streams::{
     QUERY_RESULT_BYTES, StateDemand, StateStream, StateStreams, TRIANGLE_BYTES, VERTEX_BYTES,
 };

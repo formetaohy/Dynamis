@@ -47,7 +47,7 @@ impl Solver {
                 context,
                 include_str!("../shaders/solver_reset.wgsl"),
                 CORE,
-                Count::Bodies.field(),
+                Count::Bodies.bound(),
             ),
             streams,
             &[
@@ -220,8 +220,11 @@ impl Solver {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.reset
-            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        self.reset.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
         self.total.record_workgroups(recorder, streams, 1);
     }
 

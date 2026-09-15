@@ -10,6 +10,7 @@ repository.workspace = true
 dynamis-abi = { workspace = true }
 dynamis-domain = { workspace = true }
 dynamis-pass = { workspace = true }
+dynamis-shader = { workspace = true }
 dynamis-gpu = { workspace = true }
 wgpu = { workspace = true }
 

@@ -10,6 +10,7 @@
 @group(0) @binding(9) var<storage, read> row_of_body: array<u32>;
 @group(0) @binding(10) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(11) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(12) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn current_slot(contact: Contact) -> u32 {
     let count = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));

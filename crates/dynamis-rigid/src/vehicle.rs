@@ -22,7 +22,7 @@ impl Vehicles {
                     context,
                     include_str!("../shaders/vehicle.wgsl"),
                     &[],
-                    Count::Vehicles.field(),
+                    Count::Vehicles.bound(),
                 ),
                 streams,
                 &[
@@ -74,8 +74,11 @@ impl Vehicles {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.step
-            .record_rows(recorder, streams, Count::Vehicles.rows(&frame.params));
+        self.step.record_rows(
+            recorder,
+            streams,
+            Count::Vehicles.rows(&frame.params, &frame.rows),
+        );
     }
 
     pub fn record_sweeps(
@@ -85,7 +88,7 @@ impl Vehicles {
         frame: &RigidFrame,
     ) {
         let sweeps = Count::Vehicles
-            .rows(&frame.params)
+            .rows(&frame.params, &frame.rows)
             .saturating_mul(VEHICLE_WHEELS);
         self.sweeps.record_workgroups(recorder, streams, sweeps);
     }

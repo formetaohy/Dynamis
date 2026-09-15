@@ -16,18 +16,24 @@ mod sort;
 mod streams;
 mod vehicle;
 
-use dynamis_abi::{FrameCounts, StepParamsRecord};
+use dynamis_abi::{FrameCounts, RowStreams, StepParamsRecord};
 use dynamis_gpu::Resources;
 
 const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
 const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
+const COUNTERS_FRAGMENT: &str = dynamis_shader::COUNTER_ACCESS;
 const ISLAND_LINK_FRAGMENT: &str = include_str!("../shaders/island_link.wgsl");
 const JOINED_PAIRS_FRAGMENT: &str = include_str!("../shaders/joined_pairs.wgsl");
 const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
-const CONTACT: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
-const CONTACT_ROW: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT, BODY_ROW_FRAGMENT];
+const CONTACT: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
+const CONTACT_ROW: &[&str] = &[
+    COUNTERS_FRAGMENT,
+    IDENTITY_FRAGMENT,
+    EVENTS_FRAGMENT,
+    BODY_ROW_FRAGMENT,
+];
 const IDENTITY_LINK: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
 const IDENTITY_LINK_ROW: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT, BODY_ROW_FRAGMENT];
 const CONSTRAINT_LINK: &[&str] = &[ISLAND_LINK_FRAGMENT];
@@ -64,6 +70,7 @@ fn propagation_rounds(bodies: u32) -> u32 {
 #[derive(Clone, Copy, Debug)]
 pub struct RigidFrame {
     pub params: StepParamsRecord,
+    pub rows: RowStreams,
     pub shape: RigidShape,
     pub query_count: u32,
     pub observed_count: u32,

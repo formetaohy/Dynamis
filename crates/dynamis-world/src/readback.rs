@@ -66,6 +66,11 @@ impl World {
     pub(crate) fn consume_pack(&mut self, step: u64, declared: DeclaredCounters, bytes: &[u8]) {
         declared.write_into(&mut self.backend.measured);
         measured_counters(bytes, &mut self.backend.measured);
+        assert_eq!(
+            self.backend.measured[dynamis_abi::COUNTER_STEP],
+            step as u32 + 1,
+            "the device must close exactly the step the host declared"
+        );
         self.accept_measured(step);
     }
 

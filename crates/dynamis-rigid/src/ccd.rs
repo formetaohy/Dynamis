@@ -64,7 +64,7 @@ impl Ccd {
                     context,
                     include_str!("../shaders/ccd_apply.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -88,8 +88,11 @@ impl Ccd {
         if pass == self.passes.ccd_sweep {
             self.sweep.record_stream(recorder, streams);
         } else if pass == self.passes.ccd_apply {
-            self.apply
-                .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+            self.apply.record_rows(
+                recorder,
+                streams,
+                Count::Dynamic.rows(&frame.params, &frame.rows),
+            );
         } else {
             return false;
         }

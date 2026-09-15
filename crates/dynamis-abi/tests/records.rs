@@ -9,11 +9,11 @@ use dynamis_abi::{
     ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC,
     FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT,
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
-    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
-    SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE, SoftBodyEditRecord,
-    SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord,
-    SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
+    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
+    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
+    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
+    SoftBodyEditRecord, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
+    StepParamsRecord, SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_abi::{ContactRecord, QueryHitRecord};
 use dynamis_model::{
@@ -263,16 +263,10 @@ fn step_params_record_maps_config() {
             characters: 2,
             vehicles: 3,
         },
-        RowStreams {
-            body_edit_runs: 5,
-            soft_edits: 7,
-            soft_body_edits: 3,
-            body_moves: 4,
-            constraint_moves: 1,
+        dynamis_abi::Subscriptions {
             observed: 6,
             observed_joints: 8,
         },
-        3,
     );
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
@@ -282,14 +276,8 @@ fn step_params_record_maps_config() {
     assert_eq!(record.angular_damping, 0.25);
     assert_eq!(record.dynamic_count, 9);
     assert_eq!(record.collider_count, 13);
-    assert_eq!(record.body_edit_run_count, 5);
-    assert_eq!(record.soft_edit_count, 7);
-    assert_eq!(record.soft_body_edit_count, 3);
-    assert_eq!(record.body_move_count, 4);
-    assert_eq!(record.constraint_move_count, 1);
     assert_eq!(record.observed_count, 6);
     assert_eq!(record.observed_joint_count, 8);
-    assert_eq!(record.event_slot, 3);
     assert_eq!(record.body_count, 11);
     assert_eq!(record.constraint_count, 2);
     assert_eq!(record.particle_count, 17);
@@ -618,6 +606,34 @@ fn dof_flag_helpers_round_trip_every_index() {
     }
     let locked_mask = (0..6).fold(0, |mask, index| mask | (dynamis_abi::DOF_LOCKED << index));
     assert_eq!(flags & locked_mask, 0);
+}
+
+#[test]
+fn step_rows_mirror_the_host_stream_counts() {
+    let rows = RowStreams {
+        body_edit_runs: 5,
+        body_moves: 4,
+        constraint_moves: 1,
+        soft_edits: 7,
+        soft_body_edits: 3,
+    };
+    let record = RowStreamsRecord::from(rows);
+    assert_eq!(record.body_edit_runs, 5);
+    assert_eq!(record.body_moves, 4);
+    assert_eq!(record.constraint_moves, 1);
+    assert_eq!(record.soft_edits, 7);
+    assert_eq!(record.soft_body_edits, 3);
+    let empty = RowStreamsRecord::from(RowStreams::default());
+    assert_eq!(
+        (
+            empty.body_edit_runs,
+            empty.body_moves,
+            empty.constraint_moves,
+            empty.soft_edits,
+            empty.soft_body_edits,
+        ),
+        (0, 0, 0, 0, 0)
+    );
 }
 
 #[test]

@@ -11,6 +11,7 @@
 @group(0) @binding(10) var<storage, read> resting_minor: array<u32>;
 @group(0) @binding(11) var<storage, read> resting_slots: array<u32>;
 @group(0) @binding(12) var<storage, read_write> resting_index: array<atomic<u32>>;
+@group(0) @binding(13) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn resting_slot(contact: Contact) -> u32 {
     let count = min(atomicLoad(&resting_index[0]), arrayLength(&resting_slots));

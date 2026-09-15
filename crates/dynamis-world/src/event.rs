@@ -48,7 +48,7 @@ impl World {
                 self.clock.step
             );
             let segment = self.backend.streams.rigid.events.size() / EVENT_SLOTS as u64;
-            let offset = (step % EVENT_SLOTS as u64) * segment;
+            let offset = self.event_slot_of(step) as u64 * segment;
             let bytes = (count as u64 * size_of::<ContactEventRecord>() as u64).min(segment);
             let regions = [(self.backend.streams.rigid.events.buffer(), offset, bytes)];
             let displaced = self

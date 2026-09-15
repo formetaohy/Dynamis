@@ -63,6 +63,7 @@ impl Commit {
                     ("event_count", dynamis_state::counter(COUNTER_EVENTS)),
                     ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -159,15 +160,16 @@ impl Commit {
                 rows(
                     context,
                     include_str!("../shaders/constraint_breaks.wgsl"),
-                    CORE,
-                    Count::Constraints.field(),
+                    dynamis_shader::COUNTERS,
+                    Count::Constraints.bound(),
                 ),
                 streams,
                 &[
-                    ("params", StateStream::Params.whole()),
                     ("constraint_runtime", StateStream::ConstraintRuntime.whole()),
                     ("constraint_breaks", StateStream::ConstraintBreaks.whole()),
                     ("break_count", dynamis_state::counter(COUNTER_BREAKS)),
+                    ("counters", StateStream::Counters.whole()),
+                    ("params", StateStream::Params.whole()),
                 ],
                 &[],
             ),
@@ -194,7 +196,7 @@ impl Commit {
                     context,
                     include_str!("../shaders/static_wake_clear.wgsl"),
                     CORE,
-                    Count::Bodies.field(),
+                    Count::Bodies.bound(),
                 ),
                 streams,
                 &[
@@ -210,7 +212,7 @@ impl Commit {
                     context,
                     include_str!("../shaders/observe.wgsl"),
                     CORE,
-                    Count::Observed.field(),
+                    Count::Observed.bound(),
                 ),
                 streams,
                 &[
@@ -229,7 +231,7 @@ impl Commit {
                     context,
                     include_str!("../shaders/observe_joints.wgsl"),
                     JOINTS,
-                    Count::ObservedJoints.field(),
+                    Count::ObservedJoints.bound(),
                 ),
                 streams,
                 &[
@@ -286,13 +288,16 @@ impl Commit {
         self.contact_archive.record_stream(recorder, streams);
         self.archive_count_sync
             .record_workgroups(recorder, streams, 1);
-        self.static_wake_clear
-            .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        self.static_wake_clear.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
         self.freeze_contacts.record_stream(recorder, streams);
         self.constraint_breaks.record_rows(
             recorder,
             streams,
-            Count::Constraints.rows(&frame.params),
+            Count::Constraints.rows(&frame.params, &frame.rows),
         );
     }
 

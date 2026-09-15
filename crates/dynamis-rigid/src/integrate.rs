@@ -28,7 +28,7 @@ impl Integrate {
                     context,
                     include_str!("../shaders/begin_step.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -84,7 +84,7 @@ impl Integrate {
                     context,
                     include_str!("../shaders/broadphase_aabb.wgsl"),
                     CORE,
-                    Count::Colliders.field(),
+                    Count::Colliders.bound(),
                 ),
                 streams,
                 &[
@@ -107,8 +107,11 @@ impl Integrate {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.begin_step
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.begin_step.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
     }
 
     pub fn record_substep(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
@@ -129,8 +132,11 @@ impl Integrate {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.broadphase_aabb
-            .record_rows(recorder, streams, Count::Colliders.rows(&frame.params));
+        self.broadphase_aabb.record_rows(
+            recorder,
+            streams,
+            Count::Colliders.rows(&frame.params, &frame.rows),
+        );
     }
 
     pub fn record(

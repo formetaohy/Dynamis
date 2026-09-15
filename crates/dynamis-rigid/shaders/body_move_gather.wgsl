@@ -2,7 +2,7 @@
 @group(0) @binding(1) var<storage, read_write> state_scratch: array<BodyState>;
 @group(0) @binding(2) var<storage, read> row_moves: array<RowMove>;
 @group(0) @binding(3) var<storage, read> fresh_rows: array<BodyState>;
-@group(0) @binding(4) var<uniform> params: StepParams;
+@group(0) @binding(4) var<storage, read> row_streams: RowStreams;
 
 fn work(index: u32) {
     let entry = row_moves[index];

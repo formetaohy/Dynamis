@@ -25,6 +25,7 @@ const STEP: &[&str] = &[
     "reactions",
     "sleep",
     "commit",
+    "consume_streams",
     "observe",
     "observe_joints",
     "resting_gather",
@@ -34,7 +35,7 @@ const STEP: &[&str] = &[
     "vehicle_sweeps",
 ];
 
-const IDLE: &[&str] = &["commands", "commit", "observe", "query"];
+const IDLE: &[&str] = &["commands", "commit", "consume_streams", "observe", "query"];
 
 #[test]
 fn the_step_resolves_the_declared_domain_coupling() {

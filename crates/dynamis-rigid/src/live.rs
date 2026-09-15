@@ -21,7 +21,7 @@ impl Live {
                     context,
                     include_str!("../shaders/live.wgsl"),
                     CORE,
-                    Count::Dynamic.field(),
+                    Count::Dynamic.bound(),
                 ),
                 streams,
                 &[
@@ -43,7 +43,10 @@ impl Live {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.gather
-            .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        self.gather.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
     }
 }

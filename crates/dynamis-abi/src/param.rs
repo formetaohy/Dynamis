@@ -1,4 +1,4 @@
-use crate::StepParamsRecord;
+use crate::{RowStreamsRecord, StepParamsRecord};
 use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 impl StepParamsRecord {
@@ -6,8 +6,7 @@ impl StepParamsRecord {
         config: &PhysicsConfig,
         dt: f32,
         counts: FrameCounts,
-        streams: RowStreams,
-        event_slot: u32,
+        subscriptions: Subscriptions,
     ) -> Self {
         let FrameCounts {
             dynamic_bodies,
@@ -48,22 +47,17 @@ impl StepParamsRecord {
             sleep_time: config.sleep_time,
             friction_combine: combine_code(config.friction_combine),
             restitution_combine: combine_code(config.restitution_combine),
-            body_edit_run_count: streams.body_edit_runs,
-            body_move_count: streams.body_moves,
-            constraint_move_count: streams.constraint_moves,
-            observed_count: streams.observed,
-            event_slot,
+            observed_count: subscriptions.observed,
             particle_count: particles,
             element_count: elements,
             soft_substep_dt: dt / config.soft_substeps as f32,
             soft_body_count: soft_bodies,
             attachment_count: attachments,
             settle_velocity: config.settle_velocity,
-            soft_edit_count: streams.soft_edits,
-            soft_body_edit_count: streams.soft_body_edits,
-            observed_joint_count: streams.observed_joints,
+            observed_joint_count: subscriptions.observed_joints,
             character_count: characters,
             vehicle_count: vehicles,
+            _wgsl_pad0: [0; 8],
         }
     }
 }
@@ -84,14 +78,33 @@ pub struct FrameCounts {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RowStreams {
-    pub body_edit_runs: u32,
-    pub soft_edits: u32,
-    pub soft_body_edits: u32,
-    pub body_moves: u32,
-    pub constraint_moves: u32,
+pub struct Subscriptions {
     pub observed: u32,
     pub observed_joints: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RowStreams {
+    pub body_edit_runs: u32,
+    pub body_moves: u32,
+    pub constraint_moves: u32,
+    pub soft_edits: u32,
+    pub soft_body_edits: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bound {
+    Params(&'static str),
+    Rows(&'static str),
+}
+
+impl Bound {
+    pub fn expression(self) -> String {
+        match self {
+            Self::Params(field) => format!("params.{field}"),
+            Self::Rows(field) => format!("row_streams.{field}"),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -116,30 +129,35 @@ pub enum Count {
 }
 
 impl Count {
-    pub const fn field(self) -> &'static str {
+    pub const fn bound(self) -> Bound {
         match self {
-            Self::Bodies => "body_count",
-            Self::Dynamic => "dynamic_count",
-            Self::Colliders => "collider_count",
-            Self::Constraints => "constraint_count",
-            Self::Particles => "particle_count",
-            Self::Elements => "element_count",
-            Self::Attachments => "attachment_count",
-            Self::SoftBodies => "soft_body_count",
-            Self::BodyEditRuns => "body_edit_run_count",
-            Self::SoftEdits => "soft_edit_count",
-            Self::SoftBodyEdits => "soft_body_edit_count",
-            Self::BodyMoves => "body_move_count",
-            Self::ConstraintMoves => "constraint_move_count",
-            Self::Observed => "observed_count",
-            Self::ObservedJoints => "observed_joint_count",
-            Self::Characters => "character_count",
-            Self::Vehicles => "vehicle_count",
+            Self::BodyEditRuns => Bound::Rows("body_edit_runs"),
+            Self::BodyMoves => Bound::Rows("body_moves"),
+            Self::ConstraintMoves => Bound::Rows("constraint_moves"),
+            Self::SoftEdits => Bound::Rows("soft_edits"),
+            Self::SoftBodyEdits => Bound::Rows("soft_body_edits"),
+            Self::Bodies => Bound::Params("body_count"),
+            Self::Dynamic => Bound::Params("dynamic_count"),
+            Self::Colliders => Bound::Params("collider_count"),
+            Self::Constraints => Bound::Params("constraint_count"),
+            Self::Particles => Bound::Params("particle_count"),
+            Self::Elements => Bound::Params("element_count"),
+            Self::Attachments => Bound::Params("attachment_count"),
+            Self::SoftBodies => Bound::Params("soft_body_count"),
+            Self::Observed => Bound::Params("observed_count"),
+            Self::ObservedJoints => Bound::Params("observed_joint_count"),
+            Self::Characters => Bound::Params("character_count"),
+            Self::Vehicles => Bound::Params("vehicle_count"),
         }
     }
 
-    pub const fn rows(self, params: &StepParamsRecord) -> u32 {
+    pub const fn rows(self, params: &StepParamsRecord, rows: &RowStreams) -> u32 {
         match self {
+            Self::BodyEditRuns => rows.body_edit_runs,
+            Self::BodyMoves => rows.body_moves,
+            Self::ConstraintMoves => rows.constraint_moves,
+            Self::SoftEdits => rows.soft_edits,
+            Self::SoftBodyEdits => rows.soft_body_edits,
             Self::Bodies => params.body_count,
             Self::Dynamic => params.dynamic_count,
             Self::Colliders => params.collider_count,
@@ -148,15 +166,22 @@ impl Count {
             Self::Elements => params.element_count,
             Self::Attachments => params.attachment_count,
             Self::SoftBodies => params.soft_body_count,
-            Self::BodyEditRuns => params.body_edit_run_count,
-            Self::SoftEdits => params.soft_edit_count,
-            Self::SoftBodyEdits => params.soft_body_edit_count,
-            Self::BodyMoves => params.body_move_count,
-            Self::ConstraintMoves => params.constraint_move_count,
             Self::Observed => params.observed_count,
             Self::ObservedJoints => params.observed_joint_count,
             Self::Characters => params.character_count,
             Self::Vehicles => params.vehicle_count,
+        }
+    }
+}
+
+impl From<RowStreams> for RowStreamsRecord {
+    fn from(rows: RowStreams) -> Self {
+        Self {
+            body_edit_runs: rows.body_edit_runs,
+            body_moves: rows.body_moves,
+            constraint_moves: rows.constraint_moves,
+            soft_edits: rows.soft_edits,
+            soft_body_edits: rows.soft_body_edits,
         }
     }
 }

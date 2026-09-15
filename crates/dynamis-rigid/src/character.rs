@@ -22,7 +22,7 @@ impl Characters {
                     context,
                     include_str!("../shaders/character.wgsl"),
                     &[],
-                    Count::Characters.field(),
+                    Count::Characters.bound(),
                 ),
                 streams,
                 &[
@@ -72,8 +72,11 @@ impl Characters {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.step
-            .record_rows(recorder, streams, Count::Characters.rows(&frame.params));
+        self.step.record_rows(
+            recorder,
+            streams,
+            Count::Characters.rows(&frame.params, &frame.rows),
+        );
     }
 
     pub fn record_sweeps(
@@ -83,7 +86,7 @@ impl Characters {
         frame: &RigidFrame,
     ) {
         let sweeps = Count::Characters
-            .rows(&frame.params)
+            .rows(&frame.params, &frame.rows)
             .saturating_mul(CHARACTER_SWEEPS);
         self.sweeps.record_workgroups(recorder, streams, sweeps);
     }

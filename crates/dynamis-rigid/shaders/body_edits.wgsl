@@ -3,7 +3,7 @@
 @group(0) @binding(2) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(3) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(4) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(5) var<uniform> params: StepParams;
+@group(0) @binding(5) var<storage, read> row_streams: RowStreams;
 @group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
 
