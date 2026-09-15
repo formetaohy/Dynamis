@@ -58,9 +58,9 @@ domain_passes!(
     SoftPasses,
     soft_bounds => Execution::AWAKE => &[],
     soft_entries => Execution::AWAKE => &["soft_bounds", "prepare"],
-    soft_settle => Execution::AWAKE => &["ccd_apply"],
-    soft_inputs => Execution::STEP.and(Execution::AWAKE) => &["soft_settle"],
-    soft_substeps => Execution::AWAKE => &["soft_inputs"],
+    soft_inputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
+    soft_settle => Execution::AWAKE => &["soft_inputs"],
+    soft_substeps => Execution::AWAKE => &["soft_settle"],
     soft_apply => Execution::AWAKE => &["soft_substeps"],
 );
 
@@ -78,7 +78,9 @@ pub struct Soft {
     wake: Stage,
     attach_wake: Stage,
     rest: Stage,
-    edits: Stage,
+    input_clear: Stage,
+    body_edits: Stage,
+    particle_edits: Stage,
     integrate: Stage,
     reset: Stage,
     elements: Stage,
@@ -218,9 +220,42 @@ impl Soft {
                 ],
                 &[],
             ),
-            edits: Stage::build(
+            input_clear: Stage::build(
                 context,
-                "soft_inputs",
+                "soft_input_clear",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_input_clear.wgsl"),
+                    CORE,
+                    Count::SoftBodies.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("bodies", bodies.whole()),
+                ],
+                &[],
+            ),
+            body_edits: Stage::build(
+                context,
+                "soft_body_edits",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_body_edits.wgsl"),
+                    CORE,
+                    Count::SoftBodyEdits.field(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("bodies", bodies.whole()),
+                    ("edits", SoftStream::BodyEdits.whole()),
+                ],
+                &[],
+            ),
+            particle_edits: Stage::build(
+                context,
+                "soft_particle_edits",
                 rows(
                     context,
                     include_str!("../shaders/soft_edits.wgsl"),
@@ -483,14 +518,23 @@ impl Soft {
             self.bounds.record_rows(recorder, streams, particles);
         } else if pass == self.passes.soft_entries {
             self.entries.record_rows(recorder, streams, particles);
+        } else if pass == self.passes.soft_inputs {
+            self.input_clear.record_rows(recorder, streams, bodies);
+            self.body_edits.record_rows(
+                recorder,
+                streams,
+                Count::SoftBodyEdits.rows(&frame.params),
+            );
+            self.particle_edits.record_rows(
+                recorder,
+                streams,
+                Count::SoftEdits.rows(&frame.params),
+            );
         } else if pass == self.passes.soft_settle {
             self.activity.record_rows(recorder, streams, particles);
             self.wake.record_rows(recorder, streams, particles);
             self.attach_wake.record_rows(recorder, streams, attachments);
             self.rest.record_rows(recorder, streams, bodies);
-        } else if pass == self.passes.soft_inputs {
-            self.edits
-                .record_rows(recorder, streams, Count::SoftEdits.rows(&frame.params));
         } else if pass == self.passes.soft_substeps {
             for _ in 0..frame.params.soft_substeps {
                 self.reset.record_rows(recorder, streams, elements);

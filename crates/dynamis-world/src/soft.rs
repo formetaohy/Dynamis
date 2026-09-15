@@ -5,8 +5,8 @@ use super::ids::IdSpace;
 use super::journal::EditJournal;
 use dynamis_abi::{
     ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftAttachmentInit, SoftAttachmentRecord,
-    SoftBodyRecord, SoftEditRecord, SoftElementInit, SoftElementRecord, SoftParticleInit,
-    SoftParticleRecord,
+    SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementInit, SoftElementRecord,
+    SoftParticleInit, SoftParticleRecord,
 };
 use dynamis_model::math::{add, mul, quat_rotate};
 use dynamis_model::{
@@ -40,18 +40,23 @@ pub(crate) enum SoftCommand {
     Friction(f32),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SoftBodyCommand {
+    Accelerate([f32; 3]),
+    Wake,
+}
+
 #[derive(Clone)]
 pub(crate) struct SoftBodies {
     alive: Vec<SoftBodyHandle>,
     ids: IdSpace,
     index_of: Vec<u32>,
     runs: Vec<SoftRuns>,
-    states: Vec<SoftBodyRecord>,
     masses: Vec<f32>,
-    dirty_states: Vec<u32>,
-    accelerating: Vec<u32>,
-    rewrite: Vec<u32>,
+    created: Vec<(u32, SoftBodyRecord)>,
+    body_commands: EditJournal<u32, SoftBodyCommand>,
     commands: EditJournal<u32, SoftCommand>,
+    pub(crate) last_body_edits: u32,
     pub(crate) last_edits: u32,
     particles: Mirror<SoftParticleRecord>,
     elements: Mirror<SoftElementRecord>,
@@ -84,12 +89,11 @@ impl SoftBodies {
             ids: IdSpace::new(),
             index_of: Vec::new(),
             runs: Vec::new(),
-            states: Vec::new(),
             masses: Vec::new(),
-            dirty_states: Vec::new(),
-            accelerating: Vec::new(),
-            rewrite: Vec::new(),
+            created: Vec::new(),
+            body_commands: EditJournal::new(),
             commands: EditJournal::new(),
+            last_body_edits: 0,
             last_edits: 0,
             particles: Mirror::new(),
             elements: Mirror::new(),
@@ -163,12 +167,37 @@ impl SoftBodies {
         self.commands.len() as u32
     }
 
-    pub(crate) fn pending_uploads(&self) -> bool {
-        !self.commands.is_empty() || !self.rewrite.is_empty() || !self.accelerating.is_empty()
+    pub(crate) fn pending_body_edits(&self) -> u32 {
+        self.body_commands.len() as u32
     }
 
-    pub(crate) fn carries_forces(&self) -> bool {
-        !self.accelerating.is_empty()
+    pub(crate) fn pending_uploads(&self) -> bool {
+        !self.created.is_empty() || !self.body_commands.is_empty() || !self.commands.is_empty()
+    }
+
+    pub(crate) fn compile_body_commands(
+        &self,
+        consumption: Consumption,
+    ) -> Vec<SoftBodyEditRecord> {
+        if consumption != Consumption::Step {
+            return Vec::new();
+        }
+        self.body_commands
+            .iter()
+            .map(|(owner, commands)| {
+                commands
+                    .iter()
+                    .fold(
+                        SoftBodyEditRecord::merged(owner),
+                        |edit, command| match *command {
+                            SoftBodyCommand::Accelerate(acceleration) => {
+                                edit.accelerate(acceleration)
+                            }
+                            SoftBodyCommand::Wake => edit.wake(),
+                        },
+                    )
+            })
+            .collect()
     }
 
     pub(crate) fn compile_commands(&self, consumption: Consumption) -> Vec<SoftEditRecord> {
@@ -194,42 +223,15 @@ impl SoftBodies {
             .collect()
     }
 
-    pub(crate) fn flush_inputs(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
-        if self.rewrite.is_empty() && self.accelerating.is_empty() {
-            return;
-        }
-        self.rewrite.sort_unstable();
-        self.rewrite.dedup();
-        let mut ids = std::mem::take(&mut self.accelerating);
-        ids.append(&mut self.rewrite);
-        ids.sort_unstable();
-        ids.dedup();
-        let stride = streams.bodies.stride();
-        let mut accelerating = Vec::new();
-        for id in ids {
-            let record = &mut self.states[id as usize];
-            let written = *record;
-            if written.acceleration() != [0.0; 3] {
-                accelerating.push(id);
-            }
-            record.release_acceleration();
-            streams
-                .bodies
-                .write_at(queue, u64::from(id) * stride, bytemuck::bytes_of(&written));
-        }
-        self.accelerating = accelerating;
-    }
-
     pub(crate) fn accelerate(&mut self, handle: SoftBodyHandle, acceleration: [f32; 3]) {
         self.validate(handle);
         assert!(
             acceleration.iter().all(|value| value.is_finite()),
             "a soft body acceleration must be finite"
         );
-        let id = handle.id as usize;
-        self.states[id].accelerate(acceleration);
-        self.states[id].wake();
-        self.rewrite.push(handle.id);
+        self.body_commands
+            .push(handle.id, SoftBodyCommand::Accelerate(acceleration));
+        self.body_commands.push(handle.id, SoftBodyCommand::Wake);
     }
 
     fn edit(&mut self, handle: SoftBodyHandle, particle: u32, command: SoftCommand) {
@@ -255,17 +257,13 @@ impl SoftBodies {
                 self.particles.records_mut()[slot as usize].velocity[3] = friction;
             }
         }
-        self.states[id].wake();
-        self.rewrite.push(handle.id);
+        self.body_commands.push(handle.id, SoftBodyCommand::Wake);
         self.commands.push(slot, command);
     }
 
     pub(crate) fn wake_all(&mut self) {
-        let states = &mut self.states;
-        let dirty = &mut self.dirty_states;
         for handle in &self.alive {
-            states[handle.id as usize].wake();
-            dirty.push(handle.id);
+            self.body_commands.push(handle.id, SoftBodyCommand::Wake);
         }
     }
 
@@ -322,10 +320,7 @@ impl SoftBodies {
     pub(crate) fn spawn(&mut self, desc: &SoftBodyDesc) -> SoftBodyHandle {
         let (id, generation) = self.ids.acquire();
         self.grow_to(id);
-        self.states
-            .resize(self.ids.len(), SoftBodyRecord::cleared());
-        self.states[id as usize] = SoftBodyRecord::awake(desc.filter);
-        self.dirty_states.push(id);
+        self.created.push((id, SoftBodyRecord::awake(desc.filter)));
         self.masses[id as usize] = desc
             .inverse_masses
             .iter()
@@ -409,11 +404,8 @@ impl SoftBodies {
                 .all(|(particle, _)| !runs.particles.span().contains(&(particle as usize))),
             "soft body {handle:?} must consume its particle edits before it is removed"
         );
-        self.rewrite.retain(|rewrite| *rewrite != handle.id);
-        self.accelerating
-            .retain(|accelerating| *accelerating != handle.id);
-        self.states[id] = SoftBodyRecord::cleared();
-        self.dirty_states.push(handle.id);
+        self.body_commands.remove(handle.id);
+        self.created.push((handle.id, SoftBodyRecord::cleared()));
         for slot in runs.attachments.span() {
             self.release_attachment(self.attachments.records()[slot].body_id);
         }
@@ -432,19 +424,18 @@ impl SoftBodies {
     }
 
     pub(crate) fn consume(&mut self) {
+        self.body_commands.clear();
         self.commands.clear();
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
-        if !self.dirty_states.is_empty() {
+        if !self.created.is_empty() {
             self.uploaded = true;
             let stride = streams.bodies.stride();
-            for id in self.dirty_states.drain(..) {
-                streams.bodies.write_at(
-                    queue,
-                    u64::from(id) * stride,
-                    bytemuck::bytes_of(&self.states[id as usize]),
-                );
+            for (id, record) in self.created.drain(..) {
+                streams
+                    .bodies
+                    .write_at(queue, u64::from(id) * stride, bytemuck::bytes_of(&record));
             }
         }
         let particle_stride = streams.particles.stride();
@@ -657,22 +648,27 @@ impl World {
 }
 
 pub(crate) struct CompiledSoftCommands {
+    pub(crate) body_edits: Vec<SoftBodyEditRecord>,
     pub(crate) edits: Vec<SoftEditRecord>,
 }
 
 impl World {
     pub(crate) fn compile_soft_commands(&self, consumption: Consumption) -> CompiledSoftCommands {
         CompiledSoftCommands {
+            body_edits: self.soft.compile_body_commands(consumption),
             edits: self.soft.compile_commands(consumption),
         }
     }
 
-    pub(crate) fn upload_soft_commands(
-        &mut self,
-        compiled: &CompiledSoftCommands,
-        consumption: Consumption,
-    ) {
+    pub(crate) fn upload_soft_commands(&mut self, compiled: &CompiledSoftCommands) {
         let queue = self.backend.gpu.queue().clone();
+        if !compiled.body_edits.is_empty() {
+            self.backend
+                .streams
+                .soft
+                .body_edits
+                .write(&queue, bytemuck::cast_slice(&compiled.body_edits));
+        }
         if !compiled.edits.is_empty() {
             self.backend
                 .streams
@@ -680,9 +676,5 @@ impl World {
                 .edits
                 .write(&queue, bytemuck::cast_slice(&compiled.edits));
         }
-        if consumption == Consumption::Step {
-            self.soft.flush_inputs(&queue, &self.backend.streams.soft);
-        }
-        self.soft.last_edits = compiled.edits.len() as u32;
     }
 }

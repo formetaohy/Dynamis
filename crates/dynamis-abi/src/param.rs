@@ -58,6 +58,8 @@ impl StepParamsRecord {
             attachment_count: attachments,
             settle_velocity: config.settle_velocity,
             soft_edit_count: streams.soft_edits,
+            soft_body_edit_count: streams.soft_body_edits,
+            _wgsl_pad0: [0; 12],
         }
     }
 }
@@ -79,6 +81,7 @@ pub struct FrameCounts {
 pub struct RowStreams {
     pub body_edit_runs: u32,
     pub soft_edits: u32,
+    pub soft_body_edits: u32,
     pub body_moves: u32,
     pub constraint_moves: u32,
     pub observed: u32,
@@ -96,6 +99,7 @@ pub enum Count {
     SoftBodies,
     BodyEditRuns,
     SoftEdits,
+    SoftBodyEdits,
     BodyMoves,
     ConstraintMoves,
     Observed,
@@ -114,6 +118,7 @@ impl Count {
             Self::SoftBodies => "soft_body_count",
             Self::BodyEditRuns => "body_edit_run_count",
             Self::SoftEdits => "soft_edit_count",
+            Self::SoftBodyEdits => "soft_body_edit_count",
             Self::BodyMoves => "body_move_count",
             Self::ConstraintMoves => "constraint_move_count",
             Self::Observed => "observed_count",
@@ -132,6 +137,7 @@ impl Count {
             Self::SoftBodies => params.soft_body_count,
             Self::BodyEditRuns => params.body_edit_run_count,
             Self::SoftEdits => params.soft_edit_count,
+            Self::SoftBodyEdits => params.soft_body_edit_count,
             Self::BodyMoves => params.body_move_count,
             Self::ConstraintMoves => params.constraint_move_count,
             Self::Observed => params.observed_count,

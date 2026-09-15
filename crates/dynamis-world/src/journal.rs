@@ -31,6 +31,16 @@ impl<K: Copy + Eq + Hash, T> EditJournal<K, T> {
             .map(|(key, entries)| (*key, entries.as_slice()))
     }
 
+    pub(crate) fn remove(&mut self, key: K) {
+        let Some(index) = self.index_of.remove(&key) else {
+            return;
+        };
+        self.buckets.swap_remove(index);
+        if let Some((moved, _)) = self.buckets.get(index) {
+            self.index_of.insert(*moved, index);
+        }
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.buckets.len()
     }

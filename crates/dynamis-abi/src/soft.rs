@@ -1,10 +1,11 @@
 use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
-    ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT, SOFT_EDIT_FRICTION,
-    SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
+    ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT, SOFT_BODY_EDIT_ACCELERATION,
+    SOFT_BODY_EDIT_WAKE, SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
 };
 use crate::{
-    SoftAttachmentRecord, SoftBodyRecord, SoftEditRecord, SoftElementRecord, SoftParticleRecord,
+    SoftAttachmentRecord, SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementRecord,
+    SoftParticleRecord,
 };
 use dynamis_model::{CollisionFilter, SoftElement, SoftElementKind, SoftElementState};
 
@@ -115,24 +116,41 @@ impl SoftBodyRecord {
             ..Self::awake(CollisionFilter::DEFAULT)
         }
     }
+}
 
-    pub fn wake(&mut self) {
-        self.sleep_timer = 0.0;
-        self.sleeping = 0;
-    }
-
-    pub fn accelerate(&mut self, acceleration: [f32; 3]) {
-        for (axis, value) in self.acceleration.iter_mut().zip(acceleration) {
-            *axis += value;
+impl SoftBodyEditRecord {
+    pub const fn merged(owner: u32) -> Self {
+        Self {
+            acceleration: [0.0; 3],
+            mask: 0,
+            owner,
+            _wgsl_pad0: [0; 12],
         }
     }
 
-    pub fn release_acceleration(&mut self) -> [f32; 3] {
-        std::mem::take(&mut self.acceleration)
+    pub fn accelerate(mut self, acceleration: [f32; 3]) -> Self {
+        assert!(
+            acceleration.iter().all(|value| value.is_finite()),
+            "a soft body acceleration must be finite"
+        );
+        self.mask |= SOFT_BODY_EDIT_ACCELERATION;
+        for (axis, value) in self.acceleration.iter_mut().zip(acceleration) {
+            *axis += value;
+        }
+        self
     }
 
-    pub const fn acceleration(&self) -> [f32; 3] {
-        self.acceleration
+    pub fn wake(mut self) -> Self {
+        self.mask |= SOFT_BODY_EDIT_WAKE;
+        self
+    }
+
+    pub const fn owner(&self) -> u32 {
+        self.owner
+    }
+
+    pub const fn carries(&self) -> bool {
+        self.mask != 0
     }
 }
 

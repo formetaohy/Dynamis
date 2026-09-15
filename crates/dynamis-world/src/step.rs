@@ -43,26 +43,35 @@ impl World {
             && self.constraints.commands.is_empty()
             && !self.soft.pending_uploads()
         {
-            self.bodies.last_edits = 0;
-            self.bodies.last_moves = 0;
-            self.constraints.last_commands = 0;
-            self.constraints.last_moves = 0;
-            self.soft.last_edits = 0;
+            self.clear_work();
             return;
         }
         let body_commands = self.compile_body_commands(consumption);
         let constraint_commands = self.compile_constraint_commands();
         let soft_commands = self.compile_soft_commands(consumption);
+        self.bodies.last_moves = body_commands.moves.len() as u32;
+        self.bodies.last_edits = body_commands.runs.len() as u32;
+        self.constraints.last_moves = constraint_commands.moves.len() as u32;
+        self.constraints.last_commands = self.constraints.commands.len() as u32;
+        self.soft.last_body_edits = soft_commands.body_edits.len() as u32;
+        self.soft.last_edits = soft_commands.edits.len() as u32;
         self.upload_body_commands(&body_commands);
         self.upload_constraint_commands(&constraint_commands);
-        self.upload_soft_commands(&soft_commands, consumption);
-        self.bodies.last_edits = body_commands.runs.len() as u32;
-        self.constraints.last_commands = self.constraints.commands.len() as u32;
+        self.upload_soft_commands(&soft_commands);
         if consumption == Consumption::Step {
             self.bodies.commands.clear();
             self.constraints.commands.clear();
             self.soft.consume();
         }
+    }
+
+    fn clear_work(&mut self) {
+        self.bodies.last_edits = 0;
+        self.bodies.last_moves = 0;
+        self.constraints.last_commands = 0;
+        self.constraints.last_moves = 0;
+        self.soft.last_body_edits = 0;
+        self.soft.last_edits = 0;
     }
 
     pub fn rigid_shape(&self) -> RigidShape {
@@ -99,7 +108,6 @@ impl World {
             .state
             .body_edit_runs
             .write(queue, bytemuck::cast_slice(&compiled.runs));
-        self.bodies.last_moves = compiled.moves.len() as u32;
     }
 
     fn upload_constraint_commands(&mut self, compiled: &CompiledConstraintCommands) {
@@ -114,7 +122,6 @@ impl World {
             .state
             .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
-        self.constraints.last_moves = compiled.moves.len() as u32;
     }
 
     #[cfg(feature = "profile")]

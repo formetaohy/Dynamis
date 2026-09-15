@@ -1097,6 +1097,70 @@ fn a_wide_edit_burst_widens_the_soft_edit_stream() {
 }
 
 #[test]
+fn a_body_input_burst_widens_the_soft_body_edit_stream() {
+    let mut world = new_world(static_config());
+    let floor = world.stream_capacity().soft;
+    let bodies = (0..128)
+        .map(|_| world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new())))
+        .collect::<Vec<_>>();
+    for handle in bodies {
+        world.apply_soft_acceleration(handle, [0.0, 1.0, 0.0]);
+    }
+    world.step(DT);
+    world.wait();
+    let planned = world.stream_capacity().soft;
+    assert!(
+        planned.body_edits > floor.body_edits,
+        "a body input burst must widen the body edit stream, {floor:?} -> {planned:?}"
+    );
+}
+
+#[test]
+fn a_query_run_leaves_a_pending_body_input_for_the_step() {
+    let mut driven = new_world(static_config());
+    let queried = new_world(static_config());
+    let mut queried = queried;
+    let desc = || SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new());
+    let driven_body = driven.add_soft_body(desc());
+    let queried_body = queried.add_soft_body(desc());
+    let force = [2.0, 0.0, 0.0];
+    driven.apply_soft_force(driven_body, force);
+    queried.apply_soft_force(queried_body, force);
+    let filter = dynamis_model::QueryFilter::default();
+    let handle = queried.ray_query([0.0, 5.0, 0.0], [0.0, -1.0, 0.0], 10.0, &filter);
+    queried.resolve_queries();
+    queried.wait_query(handle);
+    settle(&mut driven, 1);
+    settle(&mut queried, 1);
+    assert_eq!(
+        driven.inspect_soft_particles(driven_body),
+        queried.inspect_soft_particles(queried_body),
+        "a preview run must leave a body input for the step that consumes it"
+    );
+}
+
+#[test]
+fn a_removed_soft_body_takes_its_pending_inputs_with_it() {
+    let mut world = new_world(static_config());
+    let desc = || SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new());
+    let first = world.add_soft_body(desc());
+    world.apply_soft_force(first, [4.0, 0.0, 0.0]);
+    world.remove_soft_body(first);
+    let second = world.add_soft_body(desc());
+    assert_eq!(
+        second.id, first.id,
+        "the reused id is what makes this regression meaningful"
+    );
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.inspect_soft_particles(second),
+        [[0.0, 0.0, 0.0]],
+        "a recycled id must not inherit the inputs of the body it replaced"
+    );
+}
+
+#[test]
 fn identical_input_streams_drive_identical_soft_bodies() {
     let mut first = new_world(gravity_config());
     let mut second = new_world(gravity_config());

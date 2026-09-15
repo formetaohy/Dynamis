@@ -11,8 +11,9 @@ use dynamis_abi::{
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
     QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QueryRecord, RowMoveRecord, RowStreams, SHAPE_CAPSULE,
     SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE,
-    SHAPE_SPHERE, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
-    StepParamsRecord, SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
+    SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE, SoftBodyEditRecord,
+    SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord,
+    SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
 };
 use dynamis_abi::{ContactRecord, QueryHitRecord};
 use dynamis_model::{
@@ -263,6 +264,7 @@ fn step_params_record_maps_config() {
         RowStreams {
             body_edit_runs: 5,
             soft_edits: 7,
+            soft_body_edits: 3,
             body_moves: 4,
             constraint_moves: 1,
             observed: 6,
@@ -279,6 +281,7 @@ fn step_params_record_maps_config() {
     assert_eq!(record.collider_count, 13);
     assert_eq!(record.body_edit_run_count, 5);
     assert_eq!(record.soft_edit_count, 7);
+    assert_eq!(record.soft_body_edit_count, 3);
     assert_eq!(record.body_move_count, 4);
     assert_eq!(record.constraint_move_count, 1);
     assert_eq!(record.observed_count, 6);
@@ -676,6 +679,38 @@ fn soft_particle_packs_its_scalar_lanes() {
         SoftElementRecord::cleared().particles,
         [NO_SLOT; ELEMENT_PARTICLES as usize]
     );
+}
+
+#[test]
+fn soft_body_edits_encode_their_masks() {
+    let idle = SoftBodyEditRecord::merged(7);
+    assert_eq!(idle.owner(), 7);
+    assert!(!idle.carries());
+
+    let driven = SoftBodyEditRecord::merged(7)
+        .accelerate([1.0, 2.0, 3.0])
+        .wake();
+    assert_eq!(driven.owner(), 7);
+    assert_eq!(
+        driven.mask,
+        SOFT_BODY_EDIT_ACCELERATION | SOFT_BODY_EDIT_WAKE
+    );
+    assert_eq!(driven.acceleration, [1.0, 2.0, 3.0]);
+    assert!(driven.carries());
+
+    let accumulated = SoftBodyEditRecord::merged(7)
+        .accelerate([1.0, 0.0, 0.0])
+        .accelerate([0.0, 2.0, 0.0])
+        .wake();
+    assert_eq!(accumulated.acceleration, [1.0, 2.0, 0.0]);
+    assert_eq!(
+        accumulated.mask,
+        SOFT_BODY_EDIT_ACCELERATION | SOFT_BODY_EDIT_WAKE
+    );
+
+    let woken = SoftBodyEditRecord::merged(2).wake();
+    assert_eq!(woken.mask, SOFT_BODY_EDIT_WAKE);
+    assert_eq!(woken.acceleration, [0.0; 3]);
 }
 
 #[test]

@@ -42,6 +42,7 @@ struct StepParams {
     attachment_count: u32,
     settle_velocity: f32,
     soft_edit_count: u32,
+    soft_body_edit_count: u32,
 }
 
 struct SoftParticle {
@@ -73,6 +74,12 @@ struct SoftEdit {
     inverse_mass: f32,
     radius: f32,
     friction: f32,
+}
+
+struct SoftBodyEdit {
+    acceleration: vec3f,
+    mask: u32,
+    owner: u32,
 }
 
 struct SoftAttachment {
