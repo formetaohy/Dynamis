@@ -3,7 +3,8 @@ use dynamis_abi::{
     AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
     CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, NO_SLOT, QueryRecord, QueryResultRecord,
-    SOLVER_BLOCK_CONSTRAINT,
+    SOLVER_BLOCK_CONSTRAINT, VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord,
+    VehicleWheelRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -29,6 +30,7 @@ streams! {
         events: u32,
         sort: u32,
         characters: u32,
+        vehicles: u32,
     }
     streams {
         collider_aabbs, ColliderAabbs: "broadphase aabbs", AabbRecord, 1, Contents::Scratch, demand.colliders;
@@ -77,12 +79,22 @@ streams! {
         character_states, CharacterStates: "character states", CharacterStateRecord, 1, Contents::Durable, demand.characters;
         character_sweeps, CharacterSweeps: "character sweeps", QueryRecord, 1, Contents::Durable, demand.character_sweeps();
         character_hits, CharacterHits: "character sweep hits", QueryResultRecord, 1, Contents::Durable, demand.character_sweeps();
+        vehicles, Vehicles: "vehicles", VehicleRecord, 1, Contents::Durable, demand.vehicles;
+        vehicle_wheels, VehicleWheels: "vehicle wheels", VehicleWheelRecord, 1, Contents::Durable, demand.vehicle_wheels();
+        vehicle_inputs, VehicleInputs: "vehicle inputs", VehicleInputRecord, 1, Contents::Durable, demand.vehicles;
+        vehicle_states, VehicleStates: "vehicle states", VehicleStateRecord, 1, Contents::Durable, demand.vehicles;
+        vehicle_sweeps, VehicleSweeps: "vehicle sweeps", QueryRecord, 1, Contents::Durable, demand.vehicle_wheels();
+        vehicle_hits, VehicleHits: "vehicle wheel hits", QueryResultRecord, 1, Contents::Durable, demand.vehicle_wheels();
     }
 }
 
 impl RigidDemand {
     pub fn character_sweeps(&self) -> u32 {
         self.characters.saturating_mul(CHARACTER_SWEEPS)
+    }
+
+    pub fn vehicle_wheels(&self) -> u32 {
+        self.vehicles.saturating_mul(VEHICLE_WHEELS)
     }
 
     pub fn blocks(&self) -> u32 {

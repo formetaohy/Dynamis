@@ -42,6 +42,17 @@ fn floor_like(normal: vec3f, up: vec3f) -> bool {
     return dot(normal, up) > 0.5;
 }
 
+fn forward_clearance(forward: CharacterSweep, forward_low: CharacterSweep, up: vec3f) -> f32 {
+    var clearance = NO_HIT;
+    if (forward.hit && !floor_like(forward.normal, up)) {
+        clearance = min(clearance, forward.distance);
+    }
+    if (forward_low.hit && !floor_like(forward_low.normal, up)) {
+        clearance = min(clearance, forward_low.distance);
+    }
+    return clearance;
+}
+
 fn forward_blocked(forward: CharacterSweep, forward_low: CharacterSweep, up: vec3f) -> bool {
     if (!forward.hit && !forward_low.hit) {
         return false;
@@ -127,7 +138,12 @@ fn work(index: u32) {
             grounded = false;
             vertical_after = vertical;
         } else {
-            horizontal_step = vec3f(0.0);
+            let clearance = forward_clearance(forward, forward_low, up);
+            let advance = min(
+                max(clearance - CHARACTER_SKIN * 0.5, 0.0),
+                horizontal_speed * params.dt,
+            );
+            horizontal_step = normalize(horizontal) * (advance / params.dt);
             press_dir = normalize(horizontal);
         }
     }
@@ -145,7 +161,7 @@ fn work(index: u32) {
     state.grounded = select(0u, 1u, grounded);
     character_states[index] = state;
     let row = row_of_body[character.body_id];
-    let pre_move = position + press_dir * (CHARACTER_SKIN * 0.5) - velocity * params.dt;
+    let pre_move = support + press_dir * (CHARACTER_SKIN * 0.5);
     var body = body_states[row];
     body.position = pre_move;
     body.prev_position = pre_move;

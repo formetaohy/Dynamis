@@ -1285,3 +1285,32 @@ fn a_query_wider_than_the_walk_budget_still_finds_a_distant_body() {
         "a box spanning far more cells than the walk visits must fall back to its level and still find every body"
     );
 }
+
+#[test]
+fn a_down_sweep_measures_the_same_gap_anywhere_on_a_large_floor() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::cuboid([60.0, 0.5, 60.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    for start in [
+        [0.0, 0.55, 0.0],
+        [0.8, 0.55, 1.2],
+        [20.0, 0.55, 20.0],
+        [-30.0, 0.55, 12.5],
+        [59.0, 0.55, -59.0],
+    ] {
+        let hit = down_sweep(&mut world, "large floor", &Shape::sphere(0.35), start, 0.4);
+        assert!(
+            (hit.normal[1] - 1.0).abs() < 1e-3,
+            "a large floor must report a floor normal from {start:?}, got {:?}",
+            hit.normal
+        );
+        assert!(
+            (hit.distance - 0.2).abs() < 1e-3,
+            "a large floor must report the same gap from {start:?}, got {}",
+            hit.distance
+        );
+    }
+}

@@ -10,6 +10,7 @@ use super::constraint::Constraints;
 use super::query_pool::QueryPool;
 use super::shape::Shapes;
 use super::soft::SoftBodies;
+use super::vehicle::Vehicles;
 use dynamis_abi::COUNTER_COUNT;
 use dynamis_model::PhysicsConfig;
 
@@ -21,6 +22,7 @@ struct Scene {
     shapes: Shapes,
     soft: SoftBodies,
     characters: Characters,
+    vehicles: Vehicles,
 }
 
 impl Scene {
@@ -32,6 +34,7 @@ impl Scene {
             shapes: world.shapes.clone(),
             soft: world.soft.clone(),
             characters: world.characters.clone(),
+            vehicles: world.vehicles.clone(),
         }
     }
 
@@ -42,6 +45,7 @@ impl Scene {
         world.shapes = self.shapes.clone();
         world.soft = self.soft.clone();
         world.characters = self.characters.clone();
+        world.vehicles = self.vehicles.clone();
     }
 }
 

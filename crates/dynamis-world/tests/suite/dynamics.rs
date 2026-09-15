@@ -663,3 +663,21 @@ fn a_leaning_tower_holds_through_friction() {
         );
     }
 }
+
+#[test]
+fn a_ball_rests_on_the_face_of_a_floor_far_wider_than_it_is_deep() {
+    let mut world = new_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([60.0, 0.5, 60.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let ball = world.spawn(BodyDesc::sphere(0.3).position([20.0, 1.0, 20.0]));
+    settle_until(&mut world, 240, |world| asleep(world));
+    let state = world.read_state(ball);
+    assert!(
+        (state.position[1] - 0.3).abs() < 0.05,
+        "a ball must rest on the face of a large floor, got {:?}",
+        state.position
+    );
+}

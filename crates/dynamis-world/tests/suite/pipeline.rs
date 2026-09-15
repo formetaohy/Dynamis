@@ -6,6 +6,7 @@ const STEP: &[&str] = &[
     "character",
     "prepare",
     "query_aabbs",
+    "vehicle",
     "soft_bounds",
     "entries",
     "soft_entries",
@@ -30,6 +31,7 @@ const STEP: &[&str] = &[
     "resting_index",
     "query",
     "character_sweeps",
+    "vehicle_sweeps",
 ];
 
 const IDLE: &[&str] = &["commands", "commit", "observe", "query"];

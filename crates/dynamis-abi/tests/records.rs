@@ -261,6 +261,7 @@ fn step_params_record_maps_config() {
             attachments: 21,
             soft_bodies: 23,
             characters: 2,
+            vehicles: 3,
         },
         RowStreams {
             body_edit_runs: 5,

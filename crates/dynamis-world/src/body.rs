@@ -126,6 +126,10 @@ impl World {
             self.soft.attachment_refs(handle.id) == 0,
             "body handle {handle:?} still anchors a soft attachment"
         );
+        assert!(
+            !self.vehicles.owns_body(handle.id),
+            "body handle {handle:?} is still the chassis of a vehicle"
+        );
         let id = handle.id as usize;
         let slot = self.bodies.index_of[id];
         if (slot as usize) < self.bodies.dynamic_count {

@@ -139,6 +139,10 @@ fn closest_on_triangle(origin: vec3f, a: vec3f, b: vec3f, c: vec3f, out_weights:
     return a + ab * v + ac * w;
 }
 
+fn face_span(a: vec3f, b: vec3f, c: vec3f) -> f32 {
+    return max(max(length(b - a), length(c - a)), length(c - b));
+}
+
 fn tetra_contains(tet: array<SimplexPoint, 4>, origin: vec3f) -> bool {
     for (var face = 0u; face < 4u; face = face + 1u) {
         var a: vec3f;
@@ -162,11 +166,53 @@ fn tetra_contains(tet: array<SimplexPoint, 4>, origin: vec3f) -> bool {
             c = tet[2].w;
         }
         let normal = cross(b - a, c - a);
+        let span = face_span(a, b, c);
+        if (length(normal) <= 1e-6 * span * span) {
+            return false;
+        }
         if (dot(normal, origin - a) > 0.0) {
             return false;
         }
     }
     return true;
+}
+
+fn simplex_holds(
+    simplex: array<SimplexPoint, 4>,
+    count: u32,
+    point: vec3f,
+    span: f32,
+) -> bool {
+    let tolerance = (1e-5 * span) * (1e-5 * span);
+    for (var i = 0u; i < count; i = i + 1u) {
+        let offset = simplex[i].w - point;
+        if (dot(offset, offset) <= tolerance) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn simplex_reduce(
+    simplex: ptr<function, array<SimplexPoint, 4>>,
+    lambdas: vec4f,
+) -> u32 {
+    var kept: array<SimplexPoint, 4>;
+    var count = 0u;
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        if (lambdas[i] > 1e-6) {
+            kept[count] = (*simplex)[i];
+            count = count + 1u;
+        }
+    }
+    if (count == 0u) {
+        kept[0] = (*simplex)[0];
+        count = 1u;
+    }
+    for (var i = 0u; i < count; i = i + 1u) {
+        (*simplex)[i] = kept[i];
+    }
+    return count;
 }
 
 fn simplex_closest(simplex: array<SimplexPoint, 4>, count: u32) -> SimplexResult {
@@ -455,7 +501,8 @@ fn convex_closest(first: WorldShape, second: WorldShape, out_simplex: ptr<functi
             }
             break;
         }
-        if (count == 4u) {
+        count = simplex_reduce(&simplex, closest.lambdas);
+        if (simplex_holds(simplex, count, sp.w, shape_scale(second))) {
             result.distance = length(closest.v);
             result.point_a = closest.point_a;
             result.point_b = closest.point_b;

@@ -14,6 +14,7 @@ mod reactions;
 mod solver;
 mod sort;
 mod streams;
+mod vehicle;
 
 use dynamis_abi::{FrameCounts, StepParamsRecord};
 use dynamis_gpu::Resources;
@@ -85,6 +86,7 @@ use narrowphase::Narrowphase;
 use queries::Queries;
 use reactions::Reactions;
 use solver::Solver;
+use vehicle::Vehicles;
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
@@ -97,6 +99,7 @@ domain_passes!(
     character => Execution::STEP.and(Execution::AWAKE) => &["commands"],
     prepare => Execution::INDEXING.and(Execution::STEP) => &["commands", "character"],
     query_aabbs => Execution::QUERY => &["commands"],
+    vehicle => Execution::STEP.and(Execution::AWAKE) => &["commands"],
     entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
     narrowphase => Execution::AWAKE => &["broadphase"],
     islands => Execution::AWAKE => &["narrowphase"],
@@ -117,6 +120,7 @@ domain_passes!(
     resting_index => Execution::AWAKE => &["resting_gather"],
     query => Execution::GRAPH => &["broadphase", "commit"],
     character_sweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
+    vehicle_sweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
 );
 
 pub struct Rigid {
@@ -124,6 +128,7 @@ pub struct Rigid {
     resolution: RigidResolutionPasses,
     commands: Commands,
     characters: Characters,
+    vehicles: Vehicles,
     integrate: Integrate,
     entries: Entries,
     narrowphase: Narrowphase,
@@ -149,6 +154,7 @@ impl Rigid {
             resolution,
             commands: Commands::build(context, streams),
             characters: Characters::build(context, streams),
+            vehicles: Vehicles::build(context, streams),
             integrate: Integrate::build(context, streams),
             entries: Entries::build(context, streams),
             narrowphase: Narrowphase::build(context, streams),
@@ -179,6 +185,8 @@ impl Rigid {
                 .record(recorder, streams, frame, &mut self.sort);
         } else if pass == self.passes.query_aabbs {
             self.integrate.record_broadphase(recorder, streams, frame);
+        } else if pass == self.passes.vehicle {
+            self.vehicles.record_step(recorder, streams, frame);
         } else if pass == self.passes.entries {
             self.entries.record(recorder, streams, frame);
         } else if pass == self.passes.narrowphase {
@@ -225,6 +233,8 @@ impl Rigid {
             self.queries.record(recorder, streams, frame);
         } else if pass == self.resolution.character_sweeps {
             self.characters.record_sweeps(recorder, streams, frame);
+        } else if pass == self.resolution.vehicle_sweeps {
+            self.vehicles.record_sweeps(recorder, streams, frame);
         } else {
             return false;
         }

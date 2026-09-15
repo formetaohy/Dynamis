@@ -4,6 +4,7 @@ const ELEMENT_PARTICLES: u32 = 4u;
 const JOINT_DOF: u32 = 6u;
 const MAX_HITS_PER_QUERY: u32 = 16u;
 const CHARACTER_SWEEPS: u32 = 5u;
+const VEHICLE_WHEELS: u32 = 4u;
 
 struct StepParams {
     gravity: vec4f,
@@ -46,6 +47,7 @@ struct StepParams {
     soft_body_edit_count: u32,
     observed_joint_count: u32,
     character_count: u32,
+    vehicle_count: u32,
 }
 
 struct SoftParticle {
@@ -460,4 +462,42 @@ struct CharacterState {
     grounded: u32,
     owner: u32,
     generation: u32,
+}
+
+struct VehicleWheel {
+    anchor: vec3f,
+    radius: f32,
+    travel: f32,
+    frequency: f32,
+    damping_ratio: f32,
+    friction: f32,
+    steering: u32,
+    driving: u32,
+}
+
+struct Vehicle {
+    body_id: u32,
+    generation: u32,
+    wheel_count: u32,
+    driving_count: u32,
+    max_steer: f32,
+    drive_force: f32,
+    brake_force: f32,
+    _pad0: f32,
+}
+
+struct VehicleInput {
+    throttle: f32,
+    steering: f32,
+    brake: f32,
+    _pad0: f32,
+}
+
+struct VehicleState {
+    position: vec3f,
+    forward_speed: f32,
+    ground_count: u32,
+    owner: u32,
+    generation: u32,
+    _pad0: u32,
 }

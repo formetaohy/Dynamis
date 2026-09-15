@@ -10,6 +10,7 @@ mod query;
 mod row;
 mod soft;
 mod surface;
+mod vehicle;
 
 mod records {
     include!(concat!(env!("OUT_DIR"), "/records.rs"));
@@ -34,7 +35,6 @@ impl StreamRecord for [f32; 4] {
     const WGSL: &'static str = "vec4f";
 }
 
-pub use character::inert_sweep;
 pub use constant::{
     BODY_CCD, BODY_KINEMATIC, CHARACTER_SWEEPS, COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST,
     COLLIDER_SENSOR, CONSTRAINT_ACCUMULATOR_SLOTS, CONSTRAINT_BALL, CONSTRAINT_CONE,
@@ -60,8 +60,8 @@ pub use constant::{
     SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE,
     SHAPE_SPHERE, SHAPE_TRIANGLE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
     SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS, SOLVER_BLOCK_CONSTRAINT,
-    SOLVER_BLOCK_CONTACT, SOLVER_DELTA_WORDS, dof_driven, dof_limited, dof_locked, set_dof_driven,
-    set_dof_limited, set_dof_locked,
+    SOLVER_BLOCK_CONTACT, SOLVER_DELTA_WORDS, VEHICLE_WHEELS, dof_driven, dof_limited, dof_locked,
+    set_dof_driven, set_dof_limited, set_dof_locked,
 };
 pub use counter::device::{
     COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_BLOCKS, COUNTER_BREAKS, COUNTER_COARSE_ACTIVE,
@@ -80,6 +80,7 @@ pub use counter::host::{
 pub use counter::{COUNTER_COUNT, COUNTER_STRIDE, Counters, DeclaredCounters};
 pub use decode::decode;
 pub use param::{Count, FrameCounts, RowStreams};
+pub use query::inert_sweep;
 pub use records::*;
 pub use soft::{SoftAttachmentInit, SoftElementInit, SoftParticleInit};
 pub use wgsl::constants_wgsl;

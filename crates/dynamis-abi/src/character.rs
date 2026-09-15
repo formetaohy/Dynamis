@@ -1,9 +1,7 @@
 use crate::CharacterInputRecord;
 use crate::CharacterRecord;
 use crate::CharacterStateRecord;
-use crate::QueryRecord;
-use crate::constant::{FILTER_IGNORE_SENSORS, NO_BODY, QUERY_SWEEP, SHAPE_SPHERE};
-use bytemuck::Zeroable;
+use crate::constant::NO_BODY;
 use dynamis_model::{CharacterDesc, CharacterState};
 
 impl CharacterRecord {
@@ -37,19 +35,6 @@ impl CharacterRecord {
     pub const fn is_live(&self) -> bool {
         self.body_id != NO_BODY
     }
-}
-
-pub fn inert_sweep() -> QueryRecord {
-    let mut sweep = QueryRecord::zeroed();
-    sweep.kind = QUERY_SWEEP;
-    sweep.shape_kind = SHAPE_SPHERE;
-    sweep.filter_flags = FILTER_IGNORE_SENSORS;
-    sweep.mask = u32::MAX;
-    sweep.max_hits = 1;
-    sweep.exclude_id = NO_BODY;
-    sweep.direction = [0.0, 1.0, 0.0];
-    sweep.orientation = [0.0, 0.0, 0.0, 1.0];
-    sweep
 }
 
 impl CharacterInputRecord {

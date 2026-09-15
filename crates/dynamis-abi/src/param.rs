@@ -20,6 +20,7 @@ impl StepParamsRecord {
             soft_bodies,
             attachments,
             characters,
+            vehicles,
         } = counts;
         Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
@@ -62,7 +63,7 @@ impl StepParamsRecord {
             soft_body_edit_count: streams.soft_body_edits,
             observed_joint_count: streams.observed_joints,
             character_count: characters,
-            _wgsl_pad0: [0; 4],
+            vehicle_count: vehicles,
         }
     }
 }
@@ -79,6 +80,7 @@ pub struct FrameCounts {
     pub attachments: u32,
     pub soft_bodies: u32,
     pub characters: u32,
+    pub vehicles: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -110,6 +112,7 @@ pub enum Count {
     Observed,
     ObservedJoints,
     Characters,
+    Vehicles,
 }
 
 impl Count {
@@ -131,6 +134,7 @@ impl Count {
             Self::Observed => "observed_count",
             Self::ObservedJoints => "observed_joint_count",
             Self::Characters => "character_count",
+            Self::Vehicles => "vehicle_count",
         }
     }
 
@@ -152,6 +156,7 @@ impl Count {
             Self::Observed => params.observed_count,
             Self::ObservedJoints => params.observed_joint_count,
             Self::Characters => params.character_count,
+            Self::Vehicles => params.vehicle_count,
         }
     }
 }

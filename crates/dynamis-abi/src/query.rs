@@ -7,6 +7,19 @@ use crate::constant::{
 };
 use bytemuck::Zeroable;
 use dynamis_model::{QueryFilter, Shape};
+
+pub fn inert_sweep() -> QueryRecord {
+    let mut sweep = QueryRecord::zeroed();
+    sweep.kind = QUERY_SWEEP;
+    sweep.shape_kind = SHAPE_SPHERE;
+    sweep.filter_flags = FILTER_IGNORE_SENSORS;
+    sweep.mask = u32::MAX;
+    sweep.max_hits = 1;
+    sweep.exclude_id = NO_BODY;
+    sweep.direction = [0.0, 1.0, 0.0];
+    sweep.orientation = [0.0, 0.0, 0.0, 1.0];
+    sweep
+}
 struct FilterBasis {
     flags: u32,
     group: u32,

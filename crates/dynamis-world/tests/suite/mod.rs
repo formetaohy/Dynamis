@@ -34,6 +34,7 @@ pub mod soft;
 pub mod surface;
 #[cfg(feature = "profile")]
 pub mod timing;
+pub mod vehicle;
 pub mod waking;
 pub mod warmup;
 pub mod world;

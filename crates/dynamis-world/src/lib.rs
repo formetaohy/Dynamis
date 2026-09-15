@@ -21,6 +21,7 @@ mod snapshot;
 mod soft;
 mod step;
 mod upload;
+mod vehicle;
 
 use backend::Backend;
 use body::Bodies;
@@ -37,6 +38,7 @@ use observation::Observations;
 use query::Queries;
 use shape::Shapes;
 use soft::SoftBodies;
+use vehicle::Vehicles;
 
 pub use backend::StreamCapacity;
 pub use dynamis_rigid::RigidShape;
@@ -61,6 +63,7 @@ pub struct World {
     events: Events,
     observed: Observations,
     soft: SoftBodies,
+    vehicles: Vehicles,
 }
 
 impl World {
@@ -81,6 +84,7 @@ impl World {
             events: Events::new(),
             observed: Observations::new(),
             soft: SoftBodies::new(),
+            vehicles: Vehicles::new(),
         }
     }
 

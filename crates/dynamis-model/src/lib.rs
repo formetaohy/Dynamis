@@ -11,6 +11,7 @@ mod query;
 mod shape;
 mod soft;
 mod surface;
+mod vehicle;
 
 pub use body::{BodyDesc, BodyHandle, BodyState};
 pub use character::{CharacterDesc, CharacterHandle, CharacterInput, CharacterState};
@@ -33,3 +34,4 @@ pub use soft::{
     SoftElementState, SoftMaterial, SoftParticleState,
 };
 pub use surface::{SurfaceDesc, SurfaceTable};
+pub use vehicle::{VehicleDesc, VehicleHandle, VehicleInput, VehicleState, WheelDesc};

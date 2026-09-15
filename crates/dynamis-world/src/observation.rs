@@ -6,12 +6,12 @@ use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
     BodyStateRecord, CharacterStateRecord, ConstraintReactionRecord, ConstraintRuntimeRecord,
-    JointStateRecord, NO_SLOT, SoftElementRecord, SoftParticleRecord,
+    JointStateRecord, NO_SLOT, SoftElementRecord, SoftParticleRecord, VehicleStateRecord,
 };
 use dynamis_gpu::{Publication, Stream, SubmissionEncoder};
 use dynamis_model::{
     BodyHandle, BodyState, CharacterHandle, CharacterState, ConstraintHandle, ConstraintKind,
-    JointState, SoftBodyHandle, SoftElementState,
+    JointState, SoftBodyHandle, SoftElementState, VehicleHandle, VehicleState,
 };
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -37,6 +37,7 @@ pub(crate) struct Observations {
     pub(crate) bodies: BodyMirror,
     pub(crate) joints: JointMirror,
     pub(crate) characters: CharacterMirror,
+    pub(crate) vehicles: VehicleMirror,
     soft: SoftMirror,
 }
 
@@ -46,6 +47,7 @@ impl Observations {
             bodies: BodyMirror::new(),
             joints: JointMirror::new(),
             characters: CharacterMirror::new(),
+            vehicles: VehicleMirror::new(),
             soft: SoftMirror::new(),
         }
     }
@@ -54,6 +56,7 @@ impl Observations {
         self.bodies.reset();
         self.joints.reset();
         self.characters.reset();
+        self.vehicles.reset();
         self.soft.reset();
     }
 }
@@ -455,6 +458,96 @@ impl CharacterMirror {
     }
 }
 
+struct VehicleManifest {
+    step: u64,
+    handles: Vec<(VehicleHandle, u32)>,
+}
+
+struct PublishedVehicle {
+    handle: VehicleHandle,
+    step: u64,
+    state: VehicleState,
+}
+
+pub(crate) struct VehicleMirror {
+    watched: Vec<VehicleHandle>,
+    watched_slots: HashMap<u32, usize>,
+    publication: Publication<VehicleManifest>,
+    published: HashMap<u32, PublishedVehicle>,
+    sequence: Option<u64>,
+}
+
+impl VehicleMirror {
+    fn new() -> Self {
+        Self {
+            watched: Vec::new(),
+            watched_slots: HashMap::new(),
+            publication: Publication::new("vehicle state observation", DEPTH),
+            published: HashMap::new(),
+            sequence: None,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.watched.clear();
+        self.watched_slots.clear();
+        self.publication.clear();
+        self.published.clear();
+        self.sequence = None;
+    }
+
+    fn watch(&mut self, handle: VehicleHandle) {
+        if self.watched_slots.contains_key(&handle.id) {
+            return;
+        }
+        self.watched_slots.insert(handle.id, self.watched.len());
+        self.watched.push(handle);
+    }
+
+    fn stop(&mut self, handle: VehicleHandle) {
+        let Some(slot) = self.watched_slots.remove(&handle.id) else {
+            return;
+        };
+        self.watched.swap_remove(slot);
+        if let Some(moved) = self.watched.get(slot) {
+            self.watched_slots.insert(moved.id, slot);
+        }
+        self.published.remove(&handle.id);
+    }
+
+    pub(crate) fn needs_publication(&self, step: u64) -> bool {
+        !self.watched.is_empty() && self.sequence != step.checked_sub(1)
+    }
+
+    fn accept(&mut self, bytes: &[u8], manifest: VehicleManifest) {
+        let records = dynamis_abi::decode::<VehicleStateRecord>(bytes);
+        for (handle, slot) in &manifest.handles {
+            let record = records
+                .get(*slot as usize)
+                .expect("a vehicle observation must cover every live slot");
+            assert!(
+                record.owns(handle.id, handle.generation),
+                "a vehicle observation must return only its own state"
+            );
+            self.published.insert(
+                handle.id,
+                PublishedVehicle {
+                    handle: *handle,
+                    step: manifest.step,
+                    state: record.state(),
+                },
+            );
+        }
+        self.sequence = Some(manifest.step);
+    }
+
+    fn observation(&self, handle: VehicleHandle) -> Option<&PublishedVehicle> {
+        self.published
+            .get(&handle.id)
+            .filter(|fact| fact.handle.generation == handle.generation)
+    }
+}
+
 struct PublishedSoft {
     handle: SoftBodyHandle,
     step: u64,
@@ -582,7 +675,8 @@ impl World {
             .map(|handle| handle.id)
             .collect::<Vec<_>>();
         let characters = self.observed.characters.needs_publication(self.clock.step);
-        if !stale.is_empty() || characters {
+        let vehicles = self.observed.vehicles.needs_publication(self.clock.step);
+        if !stale.is_empty() || characters || vehicles {
             for id in stale {
                 self.observed.bodies.require(id);
             }
@@ -746,6 +840,49 @@ impl World {
         self.observed.characters.stop();
     }
 
+    pub fn try_vehicle_state(
+        &mut self,
+        handle: VehicleHandle,
+    ) -> Option<Observation<VehicleState>> {
+        self.vehicles.validate(handle);
+        self.observed.vehicles.watch(handle);
+        let published = self.observed.vehicles.observation(handle)?;
+        Some(Observation {
+            step: published.step,
+            value: published.state,
+        })
+    }
+
+    pub fn inspect_vehicle_state(&mut self, handle: VehicleHandle) -> VehicleState {
+        self.backend.gpu.assert_alive();
+        self.collect_readbacks();
+        let live = self.live();
+        self.apply_plan(&live);
+        self.flush_rows();
+        let slot = self.vehicles.slot_of(handle);
+        let states = &self.backend.streams.rigid.vehicle_states;
+        let stride = states.stride();
+        let buffer = states.buffer().clone();
+        let raw = self.read_regions(
+            "vehicle state",
+            &[(&buffer, u64::from(slot) * stride, stride)],
+        );
+        let record = dynamis_abi::decode::<VehicleStateRecord>(&raw)
+            .first()
+            .copied()
+            .expect("a vehicle readback retires exactly one state");
+        assert!(
+            record.owns(handle.id, handle.generation),
+            "a vehicle readback must return its own state"
+        );
+        record.state()
+    }
+
+    pub fn stop_observing_vehicle(&mut self, handle: VehicleHandle) {
+        self.vehicles.validate(handle);
+        self.observed.vehicles.stop(handle);
+    }
+
     pub fn try_soft_particles(
         &mut self,
         handle: SoftBodyHandle,
@@ -815,6 +952,7 @@ impl World {
         self.declare_joints(&device, encoder, step, dt);
         self.declare_soft(&device, encoder, step);
         self.declare_characters(&device, encoder, step);
+        self.declare_vehicles(&device, encoder, step);
         self.declare_bodies(&device, encoder, step);
     }
 
@@ -840,6 +978,31 @@ impl World {
             .declare(encoder, &regions, step, manifest)
         {
             self.observed.characters.accept(&bytes, manifest);
+        }
+    }
+
+    fn declare_vehicles(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+        if self.observed.vehicles.watched.is_empty() || self.vehicles.count() == 0 {
+            return;
+        }
+        let states = &self.backend.streams.rigid.vehicle_states;
+        let bytes = u64::from(self.vehicles.slots()) * states.stride();
+        let regions = [(states.buffer(), 0, bytes)];
+        self.observed
+            .vehicles
+            .publication
+            .reserve(device, states.size());
+        let manifest = VehicleManifest {
+            step,
+            handles: self.vehicles.live_slots(),
+        };
+        if let Some((manifest, bytes)) = self
+            .observed
+            .vehicles
+            .publication
+            .declare(encoder, &regions, step, manifest)
+        {
+            self.observed.vehicles.accept(&bytes, manifest);
         }
     }
 
@@ -950,6 +1113,9 @@ impl World {
         for (manifest, bytes) in self.observed.characters.publication.collect() {
             self.observed.characters.accept(&bytes, manifest);
         }
+        for (manifest, bytes) in self.observed.vehicles.publication.collect() {
+            self.observed.vehicles.accept(&bytes, manifest);
+        }
         for (manifest, bytes) in self.observed.soft.publication.collect() {
             self.observed.soft.accept(&bytes, manifest);
         }
@@ -964,6 +1130,9 @@ impl World {
         }
         for (manifest, bytes) in self.observed.characters.publication.drain() {
             self.observed.characters.accept(&bytes, manifest);
+        }
+        for (manifest, bytes) in self.observed.vehicles.publication.drain() {
+            self.observed.vehicles.accept(&bytes, manifest);
         }
         for (manifest, bytes) in self.observed.soft.publication.drain() {
             self.observed.soft.accept(&bytes, manifest);
