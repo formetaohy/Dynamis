@@ -16,8 +16,9 @@ use dynamis_abi::{
 };
 use dynamis_abi::{ContactRecord, QueryHitRecord};
 use dynamis_model::{
-    BodyDesc, ColliderDesc, ConstraintDesc, ConstraintMotor, DofDesc, MassProperties,
-    PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState, SurfaceDesc,
+    BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
+    MassProperties, PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState,
+    SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -26,8 +27,7 @@ use std::panic::catch_unwind;
 fn body_descriptor_encodes_the_host_owned_half() {
     let desc = BodyDesc::sphere(0.5)
         .mass(2.0)
-        .collision_group(7)
-        .collision_mask(3)
+        .filter(CollisionFilter::new(7, 3))
         .kinematic(true)
         .ccd(true)
         .sleep_thresholds(0.1, 0.2);
@@ -145,8 +145,7 @@ fn collider_record_encodes_every_shape_kind() {
 
     let filtered = ColliderRecord::build(
         &ColliderDesc::new(Shape::sphere(0.5))
-            .collision_group(0x8)
-            .collision_mask(0x4)
+            .filter(CollisionFilter::new(0x8, 0x4))
             .rolling_friction(0.3)
             .spin_friction(0.6),
         0,

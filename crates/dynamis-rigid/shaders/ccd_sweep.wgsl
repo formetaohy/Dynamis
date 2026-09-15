@@ -8,6 +8,9 @@
 @group(0) @binding(7) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(8) var<storage, read_write> ccd_factor: array<atomic<u32>>;
 @group(0) @binding(9) var<storage, read_write> ccd_impact: array<vec4f>;
+@group(0) @binding(10) var<storage, read> joint_major: array<u32>;
+@group(0) @binding(11) var<storage, read> joint_minor: array<u32>;
+@group(0) @binding(12) var<storage, read_write> joint_count: array<atomic<u32>>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
@@ -99,6 +102,9 @@ fn work(index: u32) {
         return;
     }
     if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
+        return;
+    }
+    if (joined_by_joint(first_body_slot, second_body_slot)) {
         return;
     }
     retreat(first_body_slot, first, first_collider, second, second_collider);

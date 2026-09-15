@@ -13,6 +13,7 @@ pub mod decompose;
 pub mod determinism;
 pub mod dynamics;
 pub mod event;
+pub mod filter;
 pub mod fluid;
 pub mod interop;
 pub mod joint_precision;

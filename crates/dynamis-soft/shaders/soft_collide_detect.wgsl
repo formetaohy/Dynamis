@@ -95,6 +95,10 @@ fn directly_linked(first: u32, second: u32) -> bool {
     return false;
 }
 
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
+}
+
 fn visit_entry(
     node: u32,
     box: Aabb,
@@ -117,6 +121,10 @@ fn visit_entry(
         if (collider.kind == SHAPE_NONE || (collider.flags & COLLIDER_SENSOR) != 0u) {
             return;
         }
+        let body_slot = entry_group(node);
+        if (!filters_intersect(collider_filter(load_body(body_slot), collider), owner_filter(self_owner))) {
+            return;
+        }
         var triangle = NO_TRIANGLE;
         var contact = particle_contact(world_collider(body_states[entry_group(node)], collider), center, radius, &triangle);
         contact.kind = ENTRY_KIND_COLLIDER;
@@ -137,6 +145,9 @@ fn visit_entry(
         return;
     }
     if (other.owner == self_owner && directly_linked(self_index, other_index)) {
+        return;
+    }
+    if (!filters_intersect(owner_filter(other.owner), owner_filter(self_owner))) {
         return;
     }
     let delta = other.position.xyz - center;

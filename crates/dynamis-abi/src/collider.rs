@@ -4,7 +4,7 @@ use crate::constant::{
     SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
     SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
 };
-use dynamis_model::{ColliderDesc, ContactEventMode, Shape};
+use dynamis_model::{ColliderDesc, CollisionFilter, ContactEventMode, Shape};
 
 impl ColliderRecord {
     pub const fn cleared() -> Self {
@@ -81,9 +81,13 @@ impl ColliderRecord {
                 ],
                 _ => [0.0; 3],
             },
-            collision_group: collider.collision_group.unwrap_or(NO_COLLISION_FILTER),
+            collision_group: collider
+                .filter
+                .map_or(NO_COLLISION_FILTER, CollisionFilter::group),
             local_offset: collider.offset,
-            collision_mask: collider.collision_mask.unwrap_or(NO_COLLISION_FILTER),
+            collision_mask: collider
+                .filter
+                .map_or(NO_COLLISION_FILTER, CollisionFilter::mask),
             local_rotation: collider.rotation,
             friction: collider.friction,
             restitution: collider.restitution,

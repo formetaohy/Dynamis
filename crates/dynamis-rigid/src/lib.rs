@@ -19,6 +19,7 @@ use dynamis_gpu::Resources;
 const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
 const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
 const ISLAND_LINK_FRAGMENT: &str = include_str!("../shaders/island_link.wgsl");
+const JOINED_PAIRS_FRAGMENT: &str = include_str!("../shaders/joined_pairs.wgsl");
 const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
@@ -27,6 +28,12 @@ const CONTACT_ROW: &[&str] = &[IDENTITY_FRAGMENT, EVENTS_FRAGMENT, BODY_ROW_FRAG
 const IDENTITY_LINK: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
 const IDENTITY_LINK_ROW: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT, BODY_ROW_FRAGMENT];
 const CONSTRAINT_LINK: &[&str] = &[ISLAND_LINK_FRAGMENT];
+
+pub(crate) fn geometry_fragments() -> Vec<&'static str> {
+    let mut fragments = dynamis_shader::GEOMETRY.to_vec();
+    fragments.push(JOINED_PAIRS_FRAGMENT);
+    fragments
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RigidShape {

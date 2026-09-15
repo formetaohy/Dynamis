@@ -1,4 +1,5 @@
 use crate::collider::ColliderDesc;
+use crate::collision::CollisionFilter;
 use crate::shape::{Shape, ShapeSourceHandle, SolidGeometry};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,9 +21,6 @@ pub struct BodyState {
     pub step: u64,
 }
 
-const DEFAULT_COLLISION_GROUP: u32 = 0x0000_0001;
-const DEFAULT_COLLISION_MASK: u32 = 0xFFFF_FFFF;
-
 #[derive(Clone, Debug)]
 pub struct BodyDesc {
     pub colliders: Vec<ColliderDesc>,
@@ -34,8 +32,7 @@ pub struct BodyDesc {
     pub density: Option<f32>,
     pub com: Option<[f32; 3]>,
     pub inertia: Option<[f32; 6]>,
-    pub collision_group: u32,
-    pub collision_mask: u32,
+    pub filter: CollisionFilter,
     pub linear_damping: Option<f32>,
     pub angular_damping: Option<f32>,
     pub gravity_scale: f32,
@@ -57,8 +54,7 @@ impl BodyDesc {
             density: None,
             com: None,
             inertia: None,
-            collision_group: DEFAULT_COLLISION_GROUP,
-            collision_mask: DEFAULT_COLLISION_MASK,
+            filter: CollisionFilter::DEFAULT,
             linear_damping: None,
             angular_damping: None,
             gravity_scale: 1.0,
@@ -257,13 +253,8 @@ impl BodyDesc {
         }
     }
 
-    pub fn collision_group(mut self, group: u32) -> Self {
-        self.collision_group = group;
-        self
-    }
-
-    pub fn collision_mask(mut self, mask: u32) -> Self {
-        self.collision_mask = mask;
+    pub fn filter(mut self, filter: CollisionFilter) -> Self {
+        self.filter = filter;
         self
     }
 

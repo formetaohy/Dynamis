@@ -3,7 +3,7 @@ use crate::constant::{
     ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT,
 };
 use crate::{SoftAttachmentRecord, SoftBodyRecord, SoftElementRecord, SoftParticleRecord};
-use dynamis_model::{SoftElement, SoftElementKind, SoftElementState};
+use dynamis_model::{CollisionFilter, SoftElement, SoftElementKind, SoftElementState};
 
 pub struct SoftParticleInit {
     pub position: [f32; 3],
@@ -92,20 +92,27 @@ impl SoftParticleRecord {
 }
 
 impl SoftBodyRecord {
-    pub const fn awake() -> Self {
+    pub const fn awake(filter: CollisionFilter) -> Self {
         Self {
             sleep_timer: 0.0,
             sleeping: 0,
             moving: 0,
             wake: 0,
+            collision_group: filter.group(),
+            collision_mask: filter.mask(),
         }
     }
 
     pub const fn cleared() -> Self {
         Self {
             sleeping: 1,
-            ..Self::awake()
+            ..Self::awake(CollisionFilter::DEFAULT)
         }
+    }
+
+    pub fn wake(&mut self) {
+        self.sleep_timer = 0.0;
+        self.sleeping = 0;
     }
 }
 

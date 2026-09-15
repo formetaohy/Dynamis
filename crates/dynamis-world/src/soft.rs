@@ -117,7 +117,7 @@ impl SoftBodies {
         let states = &mut self.states;
         let dirty = &mut self.dirty_states;
         for handle in &self.alive {
-            states[handle.id as usize] = SoftBodyRecord::awake();
+            states[handle.id as usize].wake();
             dirty.push(handle.id);
         }
     }
@@ -176,7 +176,7 @@ impl SoftBodies {
         self.grow_to(id);
         self.states
             .resize(self.ids.len(), SoftBodyRecord::cleared());
-        self.states[id as usize] = SoftBodyRecord::awake();
+        self.states[id as usize] = SoftBodyRecord::awake(desc.filter);
         self.dirty_states.push(id);
         let particles = self.particles.take(desc.particles.len() as u32);
         let elements = self.elements.take(desc.elements.len() as u32);

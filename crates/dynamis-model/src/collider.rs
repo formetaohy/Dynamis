@@ -1,3 +1,4 @@
+use crate::collision::CollisionFilter;
 use crate::shape::Shape;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,8 +17,7 @@ pub struct ColliderDesc {
     pub restitution: f32,
     pub scale: [f32; 3],
     pub sensor: bool,
-    pub collision_group: Option<u32>,
-    pub collision_mask: Option<u32>,
+    pub filter: Option<CollisionFilter>,
     pub rolling_friction: f32,
     pub spin_friction: f32,
     pub events: ContactEventMode,
@@ -33,8 +33,7 @@ impl ColliderDesc {
             restitution: 0.0,
             scale: [1.0; 3],
             sensor: false,
-            collision_group: None,
-            collision_mask: None,
+            filter: None,
             rolling_friction: 0.0,
             spin_friction: 0.0,
             events: ContactEventMode::BeginEnd,
@@ -91,13 +90,8 @@ impl ColliderDesc {
         self
     }
 
-    pub fn collision_group(mut self, group: u32) -> Self {
-        self.collision_group = Some(group);
-        self
-    }
-
-    pub fn collision_mask(mut self, mask: u32) -> Self {
-        self.collision_mask = Some(mask);
+    pub fn filter(mut self, filter: CollisionFilter) -> Self {
+        self.filter = Some(filter);
         self
     }
 

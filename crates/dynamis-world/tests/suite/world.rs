@@ -1,7 +1,7 @@
 use super::common::distance;
 use super::common::{DT, gravity_config, new_world, static_config};
 use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
-use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, PhysicsConfig};
+use dynamis_model::{BodyDesc, BodyHandle, CollisionFilter, ConstraintDesc, PhysicsConfig};
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -673,14 +673,12 @@ fn reallocation_preserves_collision_filters() {
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
             .position([0.0, -0.5, 0.0])
-            .collision_group(0x2)
-            .collision_mask(0x8),
+            .filter(CollisionFilter::new(0x2, 0x8)),
     );
     let ball = world.spawn(
         BodyDesc::sphere(0.4)
             .position([0.0, 4.0, 0.0])
-            .collision_group(0x8)
-            .collision_mask(0x2),
+            .filter(CollisionFilter::new(0x8, 0x2)),
     );
     settle_frames(&mut world, 20);
     spawn_burst(&mut world, 160);

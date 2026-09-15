@@ -60,6 +60,8 @@ struct SoftBody {
     sleeping: u32,
     moving: atomic<u32>,
     wake: atomic<u32>,
+    collision_group: u32,
+    collision_mask: u32,
 }
 
 struct SoftAttachment {

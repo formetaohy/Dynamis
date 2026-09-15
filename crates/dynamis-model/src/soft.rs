@@ -1,4 +1,5 @@
 use crate::BodyHandle;
+use crate::collision::CollisionFilter;
 use std::collections::{BTreeMap, BTreeSet};
 
 const ELASTIC_STRAIN: f32 = f32::INFINITY;
@@ -342,6 +343,7 @@ pub struct SoftBodyDesc {
     pub position: [f32; 3],
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
+    pub filter: CollisionFilter,
 }
 
 impl SoftBodyDesc {
@@ -376,6 +378,7 @@ impl SoftBodyDesc {
             position: [0.0; 3],
             orientation: [0.0, 0.0, 0.0, 1.0],
             velocity: [0.0; 3],
+            filter: CollisionFilter::DEFAULT,
         }
     }
 

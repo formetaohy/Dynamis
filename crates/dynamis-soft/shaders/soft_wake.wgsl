@@ -20,35 +20,42 @@ fn collider_pushes(body: Body) -> bool {
     return true;
 }
 
-fn partner_pushes(node: u32) -> bool {
+fn partner_pushes(node: u32, owner: u32) -> bool {
     let info = entry_info(node);
     if (entry_kind(info) == ENTRY_KIND_COLLIDER) {
         let collider = colliders[entry_index(info)];
         if (collider.kind == SHAPE_NONE || (collider.flags & COLLIDER_SENSOR) != 0u) {
             return false;
         }
-        return collider_pushes(load_body(entry_group(node)));
+        let body_slot = entry_group(node);
+        if (!filters_intersect(collider_filter(load_body(body_slot), collider), owner_filter(owner))) {
+            return false;
+        }
+        return collider_pushes(load_body(body_slot));
     }
     let other = particles[entry_index(info)];
-    return other.owner != NO_BODY && bodies[other.owner].sleeping == 0u;
+    if (other.owner == NO_BODY || !filters_intersect(owner_filter(other.owner), owner_filter(owner))) {
+        return false;
+    }
+    return bodies[other.owner].sleeping == 0u;
 }
 
-fn visit_entry(node: u32, box: Aabb, cell_size: f32, held: ptr<function, bool>) {
+fn visit_entry(node: u32, box: Aabb, cell_size: f32, owner: u32, held: ptr<function, bool>) {
     if (*held || !aabb_overlaps(entry_box(node), box)) {
         return;
     }
     if (!reach_holds(node, box, cell_size)) {
         return;
     }
-    *held = partner_pushes(node);
+    *held = partner_pushes(node, owner);
 }
 
-fn scan_neighbours(box: Aabb, held: ptr<function, bool>) {
+fn scan_neighbours(box: Aabb, owner: u32, held: ptr<function, bool>) {
     let slices = grid_slices(box);
     for (var index = 0u; index < slices && !(*held); index = index + 1u) {
         let slice = grid_slice(box, index);
         for (var entry = slice.first; entry < grid_scan_end(slice) && !(*held); entry = entry + 1u) {
-            visit_entry(entry_node(entry), box, slice.cell_size, held);
+            visit_entry(entry_node(entry), box, slice.cell_size, owner, held);
         }
     }
 }
@@ -64,7 +71,7 @@ fn work(index: u32) {
     }
     let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
     var held = false;
-    scan_neighbours(reach_box(particle.position.xyz, radius + reach), &held);
+    scan_neighbours(reach_box(particle.position.xyz, radius + reach), particle.owner, &held);
     if (held) {
         atomicStore(&bodies[particle.owner].wake, 1u);
     }

@@ -1,7 +1,7 @@
 use super::common::{
     DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
 };
-use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
+use dynamis_model::{BodyDesc, ColliderDesc, CollisionFilter, QueryFilter, Shape};
 use dynamis_world::{QueryHit, QueryState, World};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -476,14 +476,12 @@ fn group_and_mask_filters_select_bodies() {
     let a = world.spawn(
         BodyDesc::static_sphere(0.5)
             .position([0.0, 0.0, 2.0])
-            .collision_group(1)
-            .collision_mask(1),
+            .filter(CollisionFilter::new(1, 1)),
     );
     let b = world.spawn(
         BodyDesc::static_sphere(0.5)
             .position([0.0, 0.0, 4.0])
-            .collision_group(2)
-            .collision_mask(2),
+            .filter(CollisionFilter::new(2, 2)),
     );
     let group_one = world.ray_query(
         [0.0, 0.0, 0.0],

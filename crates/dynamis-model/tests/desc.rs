@@ -1,7 +1,7 @@
 use dynamis_model::{
-    BodyDesc, BodyHandle, ColliderDesc, ConstraintDesc, FluidMaterial, MaterialCombine,
-    PhysicsConfig, Shape, SoftAttachment, SoftBodyDesc, SoftElement, SoftElementKind,
-    SoftElementState, SoftMaterial,
+    BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, FluidMaterial,
+    MaterialCombine, PhysicsConfig, Shape, SoftAttachment, SoftBodyDesc, SoftElement,
+    SoftElementKind, SoftElementState, SoftMaterial,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -27,8 +27,9 @@ fn body_descs_validate_inputs() {
     });
     assert_eq!(compound.colliders.len(), 65);
     let default = BodyDesc::sphere(0.5);
-    assert_eq!(default.collision_group, 1);
-    assert_eq!(default.collision_mask, u32::MAX);
+    assert_eq!(default.filter.group(), 1);
+    assert_eq!(default.filter.mask(), u32::MAX);
+    assert_eq!(default.filter, CollisionFilter::DEFAULT);
     assert_eq!(default.mass, 1.0);
 }
 

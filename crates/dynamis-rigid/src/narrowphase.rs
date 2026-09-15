@@ -7,7 +7,7 @@ use dynamis_broadphase::{BroadphaseStream, pair_capacity};
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
-use dynamis_shader::{CORE, GEOMETRY, stream, workgroups};
+use dynamis_shader::{CORE, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
@@ -27,7 +27,7 @@ impl Narrowphase {
                 stream(
                     context,
                     include_str!("../shaders/narrowphase.wgsl"),
-                    GEOMETRY,
+                    &crate::geometry_fragments(),
                     "work",
                     BroadphaseStream::PairMajor,
                 ),

@@ -4,9 +4,9 @@ use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
 use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
 
-use dynamis_abi::{COUNTER_PAIRS, Count};
+use dynamis_abi::{COUNTER_JOINTS, COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
-use dynamis_shader::{CORE, GEOMETRY, rows, stream};
+use dynamis_shader::{CORE, rows, stream};
 use dynamis_state::StateStream;
 
 pub const CCD_GATE: u32 = 0;
@@ -35,7 +35,7 @@ impl Ccd {
                 stream(
                     context,
                     include_str!("../shaders/ccd_sweep.wgsl"),
-                    GEOMETRY,
+                    &crate::geometry_fragments(),
                     "work",
                     BroadphaseStream::PairMajor,
                 ),
@@ -51,6 +51,9 @@ impl Ccd {
                     ("collider_owners", StateStream::ColliderOwners.whole()),
                     ("ccd_factor", RigidStream::CcdFactor.whole()),
                     ("ccd_impact", RigidStream::CcdImpact.whole()),
+                    ("joint_major", RigidStream::JointFilterMajor.whole()),
+                    ("joint_minor", RigidStream::JointFilterMinor.whole()),
+                    ("joint_count", dynamis_state::counter(COUNTER_JOINTS)),
                 ],
                 &dynamis_state::shape_resources(),
             ),

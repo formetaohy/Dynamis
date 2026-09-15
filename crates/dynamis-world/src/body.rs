@@ -8,7 +8,8 @@ use dynamis_abi::{
     PATCH_POSITION, PATCH_VELOCITY,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ContactEventMode, MassProperties, Shape,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
+    MassProperties, Shape,
 };
 
 pub(crate) const NEVER_REPORTED: u64 = u64::MAX;
@@ -421,12 +422,11 @@ impl World {
         });
     }
 
-    pub fn set_collision_group(&mut self, handle: BodyHandle, group: u32) {
-        self.patch_descriptor(handle, |row| row.collision_group = group);
-    }
-
-    pub fn set_collision_mask(&mut self, handle: BodyHandle, mask: u32) {
-        self.patch_descriptor(handle, |row| row.collision_mask = mask);
+    pub fn set_collision_filter(&mut self, handle: BodyHandle, filter: CollisionFilter) {
+        self.patch_descriptor(handle, |row| {
+            row.collision_group = filter.group();
+            row.collision_mask = filter.mask();
+        });
     }
 
     pub fn set_ccd(&mut self, handle: BodyHandle, ccd: bool) {

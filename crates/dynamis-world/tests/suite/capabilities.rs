@@ -2,7 +2,9 @@ use super::common::{
     DT, asleep, gravity_config, new_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
-use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, PhysicsConfig, QueryFilter, Shape};
+use dynamis_model::{
+    BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, PhysicsConfig, QueryFilter, Shape,
+};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
@@ -191,24 +193,14 @@ fn constraint_break_emits_handle_event() {
 fn collider_level_filter_controls_collisions() {
     let mut world = new_world(static_config());
     let first = world.spawn(
-        BodyDesc::new(
-            ColliderDesc::new(Shape::sphere(0.5))
-                .collision_group(0x2)
-                .collision_mask(0x2),
-        )
-        .position([0.0, -0.4, 0.0])
-        .collision_group(0xFFFF_FFFF)
-        .collision_mask(0xFFFF_FFFF),
+        BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).filter(CollisionFilter::new(0x2, 0x2)))
+            .position([0.0, -0.4, 0.0])
+            .filter(CollisionFilter::new(0xFFFF_FFFF, 0xFFFF_FFFF)),
     );
     let second = world.spawn(
-        BodyDesc::new(
-            ColliderDesc::new(Shape::sphere(0.5))
-                .collision_group(0x1)
-                .collision_mask(0x1),
-        )
-        .position([0.0, 0.4, 0.0])
-        .collision_group(0xFFFF_FFFF)
-        .collision_mask(0xFFFF_FFFF),
+        BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).filter(CollisionFilter::new(0x1, 0x1)))
+            .position([0.0, 0.4, 0.0])
+            .filter(CollisionFilter::new(0xFFFF_FFFF, 0xFFFF_FFFF)),
     );
     settle(&mut world, 16);
     let separation = world.read_state(second).position[1] - world.read_state(first).position[1];

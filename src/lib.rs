@@ -20,12 +20,12 @@ pub use dynamis_gpu::{
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
 pub use dynamis_hull::DecomposeSettings;
 pub use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, ConstraintBreak, ConstraintDesc,
-    ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
-    ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, FluidMaterial,
-    JointDof, JointState, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter, Shape,
-    ShapeSourceHandle, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,
-    SoftElementState, SoftMaterial, SurfaceDesc, SurfaceTable,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ConstraintBreak,
+    ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor,
+    ConstraintSpring, ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc,
+    FluidMaterial, JointDof, JointState, MassProperties, MaterialCombine, PhysicsConfig,
+    QueryFilter, Shape, ShapeSourceHandle, SoftAttachment, SoftBodyDesc, SoftBodyHandle,
+    SoftElement, SoftElementKind, SoftElementState, SoftMaterial, SurfaceDesc, SurfaceTable,
 };
 pub use dynamis_world::{
     ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, RigidShape,

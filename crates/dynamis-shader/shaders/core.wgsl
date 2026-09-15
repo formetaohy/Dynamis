@@ -226,21 +226,31 @@ fn collider_is_sensor(collider: Collider) -> bool {
     return (collider.flags & COLLIDER_SENSOR) != 0u;
 }
 
+fn filters_intersect(first: vec2u, second: vec2u) -> bool {
+    return (first.x & second.y) != 0u && (second.x & first.y) != 0u;
+}
+
+fn collider_filter(body: Body, collider: Collider) -> vec2u {
+    let group = select(body.desc.collision_group, collider.collision_group, collider.collision_group != NO_COLLISION_FILTER);
+    let mask = select(body.desc.collision_mask, collider.collision_mask, collider.collision_mask != NO_COLLISION_FILTER);
+    return vec2u(group, mask);
+}
+
 fn collider_filter_intersects(
     first_body: Body, first_collider: Collider,
     second_body: Body, second_collider: Collider,
 ) -> bool {
-    let first_group = select(first_body.desc.collision_group, first_collider.collision_group, first_collider.collision_group != NO_COLLISION_FILTER);
-    let first_mask = select(first_body.desc.collision_mask, first_collider.collision_mask, first_collider.collision_mask != NO_COLLISION_FILTER);
-    let second_group = select(second_body.desc.collision_group, second_collider.collision_group, second_collider.collision_group != NO_COLLISION_FILTER);
-    let second_mask = select(second_body.desc.collision_mask, second_collider.collision_mask, second_collider.collision_mask != NO_COLLISION_FILTER);
-    return (first_group & second_mask) != 0u && (second_group & first_mask) != 0u;
+    return filters_intersect(
+        collider_filter(first_body, first_collider),
+        collider_filter(second_body, second_collider),
+    );
 }
 
 fn collider_filter_query(query: Query, body: Body, collider: Collider) -> bool {
-    let group = select(body.desc.collision_group, collider.collision_group, collider.collision_group != NO_COLLISION_FILTER);
-    let mask = select(body.desc.collision_mask, collider.collision_mask, collider.collision_mask != NO_COLLISION_FILTER);
-    return query.group == 0u || ((group & query.mask) != 0u && (query.group & mask) != 0u);
+    if (query.group == 0u) {
+        return true;
+    }
+    return filters_intersect(vec2u(query.group, query.mask), collider_filter(body, collider));
 }
 
 fn make_tangents(normal: vec3f) -> TangentBasis {

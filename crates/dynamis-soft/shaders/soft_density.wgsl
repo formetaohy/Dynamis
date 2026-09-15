@@ -50,6 +50,9 @@ fn visit(
     if (other.owner == NO_BODY || other.support <= 0.0 || other.prev_position.w <= 0.0) {
         return;
     }
+    if (!filters_intersect(owner_filter(other.owner), owner_filter(particles[self_index].owner))) {
+        return;
+    }
     let offset = other.position.xyz - center;
     let r2 = dot(offset, offset);
     if (r2 >= h2 || r2 <= 0.0) {

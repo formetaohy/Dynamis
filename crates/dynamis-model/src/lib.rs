@@ -1,5 +1,6 @@
 mod body;
 mod collider;
+mod collision;
 mod config;
 mod constraint;
 mod event;
@@ -12,6 +13,7 @@ mod surface;
 
 pub use body::{BodyDesc, BodyHandle, BodyState};
 pub use collider::{ColliderDesc, ContactEventMode};
+pub use collision::CollisionFilter;
 pub use config::{MaterialCombine, PhysicsConfig};
 pub use constraint::{
     ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,

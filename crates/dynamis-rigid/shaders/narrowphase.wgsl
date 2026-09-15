@@ -21,26 +21,6 @@ fn manifold_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).normal = normal;
 }
 
-fn pair_joined(first_body: u32, second_body: u32) -> bool {
-    let count = min(atomicLoad(&joint_count[0]), arrayLength(&joint_major));
-    if (count == 0u) {
-        return false;
-    }
-    let a = min(first_body, second_body);
-    let b = max(first_body, second_body);
-    var lo = 0u;
-    var hi = count;
-    while (lo < hi) {
-        let mid = (lo + hi) / 2u;
-        if (joint_major[mid] < a || (joint_major[mid] == a && joint_minor[mid] < b)) {
-            lo = mid + 1u;
-        } else {
-            hi = mid;
-        }
-    }
-    return lo < count && joint_major[lo] == a && joint_minor[lo] == b;
-}
-
 fn pair_margin(first: Body, second: Body) -> f32 {
     if (!body_has_ccd(first) && !body_has_ccd(second)) {
         return params.contact_margin;
@@ -637,7 +617,7 @@ fn work(index: u32) {
     if (!collider_filter_intersects(first, first_collider, second, second_collider)) {
         return;
     }
-    if (pair_joined(first_body_slot, second_body_slot)) {
+    if (joined_by_joint(first_body_slot, second_body_slot)) {
         return;
     }
     var contact: Contact;
