@@ -50,7 +50,7 @@ impl Planning {
             &streams.rigid,
         );
         let state = dynamis_state::plan(&live.state, idle, &streams.state);
-        let soft = dynamis_soft::plan(&live.soft, idle, state.bodies, &streams.soft);
+        let soft = dynamis_soft::plan(&live.soft, idle, &streams.soft);
         Plan {
             state,
             broadphase,

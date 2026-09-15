@@ -1,4 +1,4 @@
-use super::streams::{REACTION_WORDS, SoftDemand, SoftStreams};
+use super::streams::{SoftDemand, SoftStreams};
 use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, settled};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,12 +36,7 @@ pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
     }
 }
 
-pub fn plan(
-    inputs: &SoftInputs,
-    idle: bool,
-    rigid_bodies: u32,
-    current: &SoftStreams,
-) -> SoftDemand {
+pub fn plan(inputs: &SoftInputs, idle: bool, current: &SoftStreams) -> SoftDemand {
     SoftDemand {
         particles: settled(idle, current.particles.slots(), inputs.particles, MIN_SLOTS),
         elements: settled(idle, current.elements.slots(), inputs.elements, MIN_SLOTS),
@@ -65,12 +60,6 @@ pub fn plan(
             inputs.body_edits,
             MIN_SLOTS,
         ),
-        rigid_bodies: settled(
-            idle,
-            current.reactions.slots() / REACTION_WORDS,
-            rigid_bodies,
-            MIN_SLOTS,
-        ),
     }
 }
 
@@ -83,6 +72,5 @@ pub const fn floor() -> SoftDemand {
         soft_bodies: MIN_SLOTS,
         edits: MIN_SLOTS,
         body_edits: MIN_SLOTS,
-        rigid_bodies: MIN_SLOTS,
     }
 }

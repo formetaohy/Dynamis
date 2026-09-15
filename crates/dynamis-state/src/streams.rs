@@ -3,7 +3,7 @@ use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
     ConstraintDescriptorRecord, ConstraintRuntimeRecord, QueryRecord, QueryResultRecord,
-    RowMoveRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
+    REACTION_WORDS, RowMoveRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -42,6 +42,7 @@ streams! {
         constraint_descriptors, ConstraintDescriptors: "constraint descriptors", ConstraintDescriptorRecord, 1, Contents::Durable, demand.constraints;
         constraint_runtime, ConstraintRuntime: "constraint runtime", ConstraintRuntimeRecord, 1, Contents::Durable, demand.constraints;
         wake_flags, WakeFlags: "body wake flags", u32, 1, Contents::Scratch, demand.bodies;
+        body_reactions, BodyReactions: "body reactions", u32, REACTION_WORDS, Contents::Scratch, demand.body_reactions();
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", RowMoveRecord, 1, Contents::Scratch, demand.constraint_moves();
         constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", ConstraintRuntimeRecord, 1, Contents::Scratch, demand.constraint_commands;
         constraint_breaks, ConstraintBreaks: "constraint breaks", BrokenConstraintRecord, 1, Contents::Scratch, demand.constraints.saturating_mul(EVENT_SLOTS);
@@ -66,5 +67,9 @@ impl StateDemand {
     pub fn constraint_moves(&self) -> u32 {
         self.constraint_commands
             .saturating_mul(crate::MOVE_ENTRIES_PER_COMMAND)
+    }
+
+    pub fn body_reactions(&self) -> u32 {
+        self.bodies.saturating_mul(REACTION_WORDS)
     }
 }

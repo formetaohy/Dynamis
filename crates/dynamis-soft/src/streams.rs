@@ -7,8 +7,6 @@ use dynamis_domain::Domain;
 use dynamis_domain::streams;
 use dynamis_gpu::Contents;
 
-pub const REACTION_WORDS: u32 = 8;
-
 streams! {
     SoftStreams, SoftStream, SoftDemand, SoftDomain::ID, demand,
     demand {
@@ -19,7 +17,6 @@ streams! {
         soft_bodies: u32,
         edits: u32,
         body_edits: u32,
-        rigid_bodies: u32,
     }
     streams {
         particles, Particles: "soft particles", SoftParticleRecord, 1, Contents::Durable, demand.particles;
@@ -32,15 +29,10 @@ streams! {
         contributions, Contributions: "soft element contributions", [f32; 4], 1, Contents::Scratch, demand.element_contributions();
         contacts, Contacts: "soft particle contacts", SoftContactRecord, 1, Contents::Scratch, demand.particles;
         pressure, Pressure: "soft particle pressure", [f32; 4], 1, Contents::Scratch, demand.particles;
-        reactions, Reactions: "soft reactions", u32, 1, Contents::Durable, demand.reaction_words();
     }
 }
 
 impl SoftDemand {
-    pub const fn reaction_words(&self) -> u32 {
-        self.rigid_bodies * REACTION_WORDS
-    }
-
     pub const fn element_contributions(&self) -> u32 {
         self.elements * ELEMENT_PARTICLES
     }

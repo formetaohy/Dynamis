@@ -24,6 +24,7 @@ declare_constants! {
     pub const SOLVER_BLOCK_CONTACT: u32 = 0;
     pub const SOLVER_BLOCK_CONSTRAINT: u32 = 1;
     pub const SOLVER_DELTA_WORDS: u32 = 8;
+    pub const REACTION_WORDS: u32 = 6;
     pub const SHAPE_NONE: u32 = 0;
     pub const SHAPE_SPHERE: u32 = 1;
     pub const SHAPE_CUBOID: u32 = 2;

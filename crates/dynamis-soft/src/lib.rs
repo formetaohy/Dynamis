@@ -61,7 +61,6 @@ domain_passes!(
     soft_inputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
     soft_settle => Execution::AWAKE => &["soft_inputs"],
     soft_substeps => Execution::AWAKE => &["soft_settle"],
-    soft_apply => Execution::AWAKE => &["soft_substeps"],
 );
 
 #[derive(Clone, Copy, Debug)]
@@ -91,7 +90,6 @@ pub struct Soft {
     detect: Stage,
     resolve: Stage,
     material: Stage,
-    apply: Stage,
 }
 
 impl Soft {
@@ -359,7 +357,7 @@ impl Soft {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
-                    ("reactions", SoftStream::Reactions.whole()),
+                    ("reactions", StateStream::BodyReactions.whole()),
                     ("bodies", bodies.whole()),
                 ],
                 &[],
@@ -451,7 +449,7 @@ impl Soft {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("contacts", SoftStream::Contacts.whole()),
-                    ("reactions", SoftStream::Reactions.whole()),
+                    ("reactions", StateStream::BodyReactions.whole()),
                     ("bodies", bodies.whole()),
                 ],
                 &[],
@@ -471,32 +469,6 @@ impl Soft {
                     ("particles", particles.whole()),
                     ("elements", SoftStream::Elements.whole()),
                     ("bodies", bodies.whole()),
-                ],
-                &[],
-            ),
-            apply: Stage::build(
-                context,
-                "soft_apply",
-                rows(
-                    context,
-                    include_str!("../shaders/soft_apply.wgsl"),
-                    CORE,
-                    Count::Bodies.field(),
-                ),
-                streams,
-                &[
-                    ("params", StateStream::Params.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("reactions", SoftStream::Reactions.whole()),
-                    ("wake_flags", StateStream::WakeFlags.whole()),
-                    (
-                        "woke_count",
-                        dynamis_state::counter(dynamis_abi::COUNTER_WOKE),
-                    ),
-                    (
-                        "deferred_woke_count",
-                        dynamis_state::counter(dynamis_abi::COUNTER_WOKE_DEFERRED),
-                    ),
                 ],
                 &[],
             ),
@@ -552,9 +524,6 @@ impl Soft {
                     self.material.record_rows(recorder, streams, elements);
                 }
             }
-        } else if pass == self.passes.soft_apply {
-            self.apply
-                .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
         } else {
             return false;
         }

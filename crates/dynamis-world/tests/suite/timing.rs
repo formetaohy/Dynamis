@@ -98,6 +98,7 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
                     | "substeps"
                     | "ccd_sweep"
                     | "ccd_apply"
+                    | "reactions"
                     | "sleep"
                     | "resting_gather"
                     | "resting_index"

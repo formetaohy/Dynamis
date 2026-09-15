@@ -5,26 +5,16 @@
 @group(0) @binding(4) var<storage, read_write> woke_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> deferred_woke_count: array<atomic<u32>>;
 
-const REACTION_SCALE: f32 = 65536.0;
-const REACTION_WORDS: u32 = 8u;
-
-fn word_value(word: u32) -> f32 {
-    return f32(i32(word)) / REACTION_SCALE;
+fn take(row: u32, word: u32) -> f32 {
+    return reaction_value(atomicExchange(&reactions[row * REACTION_WORDS + word], 0u));
 }
 
 fn work(index: u32) {
-    let base = index * REACTION_WORDS;
-    let shift_x = atomicExchange(&reactions[base], 0u);
-    let shift_y = atomicExchange(&reactions[base + 1u], 0u);
-    let shift_z = atomicExchange(&reactions[base + 2u], 0u);
-    let spin_x = atomicExchange(&reactions[base + 4u], 0u);
-    let spin_y = atomicExchange(&reactions[base + 5u], 0u);
-    let spin_z = atomicExchange(&reactions[base + 6u], 0u);
-    if (shift_x == 0u && shift_y == 0u && shift_z == 0u && spin_x == 0u && spin_y == 0u && spin_z == 0u) {
+    let shift = vec3f(take(index, 0u), take(index, 1u), take(index, 2u));
+    let spin = vec3f(take(index, 3u), take(index, 4u), take(index, 5u));
+    if (all(shift == vec3f(0.0)) && all(spin == vec3f(0.0))) {
         return;
     }
-    let shift = vec3f(word_value(shift_x), word_value(shift_y), word_value(shift_z));
-    let spin = vec3f(word_value(spin_x), word_value(spin_y), word_value(spin_z));
     var state = body_states[index];
     if (state.sleeping != 0u) {
         atomicAdd(&woke_count[0], 1u);

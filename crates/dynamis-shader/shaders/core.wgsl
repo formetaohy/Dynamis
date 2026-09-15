@@ -14,6 +14,16 @@ fn solver_value(word: u32, scale: f32) -> f32 {
     return f32(i32(word)) / scale;
 }
 
+const REACTION_SCALE: f32 = 65536.0;
+
+fn reaction_word(value: f32) -> u32 {
+    return u32(i32(clamp(value * REACTION_SCALE, -2.0e9, 2.0e9)));
+}
+
+fn reaction_value(word: u32) -> f32 {
+    return f32(i32(word)) / REACTION_SCALE;
+}
+
 struct TangentBasis {
     first: vec3f,
     second: vec3f,

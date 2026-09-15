@@ -175,6 +175,43 @@ fn a_soft_body_wakes_the_sleeping_body_it_pushes() {
 }
 
 #[test]
+fn a_soft_body_wakes_the_sleeping_island_it_pushes() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let lower = world.spawn(
+        BodyDesc::cuboid([0.3; 3])
+            .position([0.0, 0.3, 0.0])
+            .friction(0.6),
+    );
+    let upper = world.spawn(
+        BodyDesc::cuboid([0.3; 3])
+            .position([0.0, 0.9, 0.0])
+            .friction(0.6),
+    );
+    sleep_until_quiet(&mut world);
+    assert!(
+        world.read_state(lower).sleeping && world.read_state(upper).sleeping,
+        "a quiet stack must sleep before the soft impact"
+    );
+
+    world.add_soft_body(
+        SoftBodyDesc::lattice([3, 3, 3], 0.25, SoftMaterial::rigid())
+            .radius(0.12)
+            .position([-1.5, 0.9, 0.0])
+            .velocity([4.0, 0.0, 0.0]),
+    );
+    assert!(
+        woken_bodies_over(&mut world, 90) >= 2,
+        "a soft body must wake every member of the sleeping island it pushes"
+    );
+    assert!(
+        world.read_state(upper).position[0] > 0.05,
+        "the awakened island must move along the impact direction, got {:?}",
+        world.read_state(upper).position
+    );
+}
+
+#[test]
 fn a_resting_island_keeps_every_member_asleep_together() {
     let mut world = new_world(gravity_config());
     ground(&mut world);

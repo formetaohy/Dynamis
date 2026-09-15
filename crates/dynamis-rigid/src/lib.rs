@@ -9,6 +9,7 @@ mod islands;
 mod live;
 mod narrowphase;
 mod queries;
+mod reactions;
 mod solver;
 mod sort;
 mod streams;
@@ -79,6 +80,7 @@ use islands::Sleep;
 use live::Live;
 use narrowphase::Narrowphase;
 use queries::Queries;
+use reactions::Reactions;
 use solver::Solver;
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
@@ -98,11 +100,12 @@ domain_passes!(
     live => Execution::AWAKE => &["wake"],
     solver_prepare => Execution::AWAKE => &["live"],
     substeps => Execution::AWAKE => &["solver_prepare"],
+    reactions => Execution::AWAKE => &["soft_substeps"],
 );
 
 domain_passes!(
     RigidResolutionPasses,
-    sleep => Execution::AWAKE => &["soft_apply"],
+    sleep => Execution::AWAKE => &["reactions"],
     commit => Execution::STEP => &["sleep"],
     observe => Execution::PUBLISH => &["commit"],
     resting_gather => Execution::AWAKE => &["commit"],
@@ -120,6 +123,7 @@ pub struct Rigid {
     queries: Queries,
     islands: Islands,
     sleep: Sleep,
+    reactions: Reactions,
     live: Live,
     solver: Solver,
     commit: Commit,
@@ -143,6 +147,7 @@ impl Rigid {
             queries: Queries::build(context, streams),
             islands: Islands::build(context, streams),
             sleep: Sleep::build(context, streams),
+            reactions: Reactions::build(context, streams),
             live: Live::build(context, streams),
             solver: Solver::build(context, streams),
             commit: Commit::build(context, streams),
@@ -189,6 +194,8 @@ impl Rigid {
                 self.solver
                     .record_position_iterations(recorder, streams, frame);
             }
+        } else if pass == self.passes.reactions {
+            self.reactions.record(recorder, streams, frame);
         } else if pass == self.resolution.sleep {
             self.sleep.record(recorder, streams, frame);
         } else if pass == self.resolution.commit {
