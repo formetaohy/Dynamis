@@ -1,6 +1,5 @@
 use dynamis_gpu::{
-    BindingKind, BindingSpec, ComputeProgram, ComputeRecorder, GpuContext, GpuRequest,
-    WarmupBudget, WarmupProgress,
+    BindingKind, BindingSpec, ComputeProgram, GpuContext, GpuRequest, WarmupBudget, WarmupProgress,
 };
 use std::time::Duration;
 
@@ -64,15 +63,35 @@ fn a_zero_budget_compiles_one_pipeline_per_call() {
 }
 
 #[test]
-#[should_panic(expected = "must be warmed")]
-fn recording_a_cold_pipeline_fails_fast() {
+fn resolving_a_cold_pipeline_compiles_it_once() {
     let context = isolated();
-    let handle = context.declare(program("cold"));
-    let mut encoder = context
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("cold"),
-        });
-    let mut recorder = ComputeRecorder::begin(&mut encoder, "cold", context.workgroups_per_row());
-    recorder.record(handle.pipeline(), &[], 1);
+    let first = context.declare(program("demanded"));
+    assert!(!first.is_warmed(), "declaration must not compile");
+    let compiled = first.pipeline();
+    assert!(
+        std::ptr::eq(compiled, first.pipeline()),
+        "a demanded kernel compiles exactly once"
+    );
+    assert!(first.is_warmed());
+    assert!(context.is_warm());
+
+    let shared = context.declare(program("demanded"));
+    assert!(
+        shared.is_warmed(),
+        "a declared kernel answers the same slot"
+    );
+}
+
+#[test]
+fn a_warmed_kernel_leaves_no_warmup_work() {
+    let context = isolated();
+    let first = context.declare(program("first"));
+    let second = context.declare(program("second"));
+    first.pipeline();
+    assert_eq!(
+        context.warmup(WarmupBudget::Within(Duration::ZERO)),
+        WarmupProgress { ready: 2, total: 2 },
+        "an already demanded kernel must not be compiled again"
+    );
+    assert!(second.is_warmed());
 }

@@ -131,3 +131,46 @@ fn a_stage_follows_the_storage_it_replaces() {
     record(context, &mut stage, &slots, 2);
     assert_filled(context, &slots, 128);
 }
+
+#[test]
+fn an_empty_dispatch_resolves_no_kernel() {
+    let context = pollster::block_on(GpuContext::new());
+    let device = context.device().clone();
+    let queue = context.queue().clone();
+    let slots = Slots {
+        storage: Stream::new(
+            &device,
+            &queue,
+            StreamDesc {
+                label: "stage out",
+                slots: 64,
+                element: ELEMENT,
+                elements_per_slot: 1,
+                usage: STREAM,
+                contents: Contents::Durable,
+            },
+        ),
+    };
+    let mut stage = Stage::build(
+        &context,
+        "stage",
+        Program {
+            source: SOURCE.into(),
+            dispatch: Dispatch::Workgroups,
+            warm: false,
+        },
+        &slots,
+        &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
+        &[],
+    );
+    record(&context, &mut stage, &slots, 0);
+    assert!(
+        !context.is_warm(),
+        "an empty dispatch must not compile the kernel it would have run"
+    );
+    record(&context, &mut stage, &slots, 1);
+    assert!(
+        context.is_warm(),
+        "a dispatched stage compiles the kernel it runs"
+    );
+}

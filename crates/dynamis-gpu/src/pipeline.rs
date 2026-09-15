@@ -145,6 +145,7 @@ impl ComputePipeline {
 }
 
 struct PipelineSlot {
+    device: Device,
     program: Arc<ComputeProgram>,
     layout: ComputeLayout,
     compiled: OnceLock<ComputePipeline>,
@@ -156,9 +157,14 @@ pub struct PipelineHandle {
 }
 
 impl PipelineHandle {
-    pub(crate) fn new(program: Arc<ComputeProgram>, layout: ComputeLayout) -> Self {
+    pub(crate) fn new(
+        device: &Device,
+        program: Arc<ComputeProgram>,
+        layout: ComputeLayout,
+    ) -> Self {
         Self {
             slot: Arc::new(PipelineSlot {
+                device: device.clone(),
                 program,
                 layout,
                 compiled: OnceLock::new(),
@@ -175,12 +181,9 @@ impl PipelineHandle {
     }
 
     pub fn pipeline(&self) -> &ComputePipeline {
-        self.slot.compiled.get().unwrap_or_else(|| {
-            panic!(
-                "pipeline {:?} must be warmed before it is recorded",
-                self.slot.program.label()
-            )
-        })
+        let slot = &self.slot;
+        slot.compiled
+            .get_or_init(|| ComputePipeline::compile(&slot.device, &slot.program, &slot.layout))
     }
 
     pub fn create_bind_group(
@@ -190,14 +193,5 @@ impl PipelineHandle {
         entries: &[BindGroupEntry<'_>],
     ) -> BindGroup {
         self.slot.layout.create_bind_group(device, group, entries)
-    }
-
-    pub(crate) fn compile(&self, device: &Device) {
-        let pipeline = ComputePipeline::compile(device, &self.slot.program, &self.slot.layout);
-        assert!(
-            self.slot.compiled.set(pipeline).is_ok(),
-            "pipeline {:?} compiled twice",
-            self.slot.program.label()
-        );
     }
 }

@@ -40,18 +40,34 @@ impl PipelineLibrary {
         if let Some(handle) = self.entries.get(&program) {
             return handle.clone();
         }
-        let handle = PipelineHandle::new(program.clone(), ComputeLayout::new(device, &program));
+        let handle = PipelineHandle::new(
+            device,
+            program.clone(),
+            ComputeLayout::new(device, &program),
+        );
         self.entries.insert(program, handle.clone());
         self.pending.push_back(handle.clone());
         handle
     }
 
     pub(crate) fn drain_pending(&mut self) -> Vec<PipelineHandle> {
+        while self
+            .pending
+            .front()
+            .is_some_and(|handle| handle.is_warmed())
+        {
+            self.pending.pop_front();
+        }
         self.pending.drain(..).collect()
     }
 
     pub(crate) fn take_pending(&mut self) -> Option<PipelineHandle> {
-        self.pending.pop_front()
+        while let Some(handle) = self.pending.pop_front() {
+            if !handle.is_warmed() {
+                return Some(handle);
+            }
+        }
+        None
     }
 
     pub(crate) fn progress(&self) -> WarmupProgress {

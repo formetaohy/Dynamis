@@ -356,7 +356,7 @@ impl GpuContext {
                     let Some(pending) = self.pipelines.lock().unwrap().take_pending() else {
                         break;
                     };
-                    pending.compile(&self.device);
+                    pending.pipeline();
                     if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                         break;
                     }
@@ -384,7 +384,7 @@ impl GpuContext {
                         let Some(pipeline) = pending.get(index) else {
                             break;
                         };
-                        pipeline.compile(&self.device);
+                        pipeline.pipeline();
                     }
                 });
             }

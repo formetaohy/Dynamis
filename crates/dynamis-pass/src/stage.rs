@@ -172,6 +172,9 @@ impl Stage {
         entry: Entry,
         workgroups: u32,
     ) {
+        if workgroups == 0 {
+            return;
+        }
         let Stage {
             device,
             pipeline: main,
