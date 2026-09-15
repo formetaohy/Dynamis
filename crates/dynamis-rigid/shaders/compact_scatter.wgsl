@@ -22,7 +22,10 @@ fn work(index: u32) {
         atomicAdd(&refused[0], 1u);
         return;
     }
-    contacts[dest] = contacts_raw[index];
+    var compacted = contacts_raw[index];
+    compacted.carried_normal = 0.0;
+    compacted.carried_tangent = 0.0;
+    contacts[dest] = compacted;
     contact_matched[dest] = 0u;
 }
 

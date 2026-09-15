@@ -89,6 +89,7 @@ impl World {
         match run {
             Run::Step => {
                 self.copy_events(encoder);
+                self.copy_impacts(encoder);
                 self.register_queries()
             }
             Run::Query => self.register_queries(),

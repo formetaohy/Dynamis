@@ -2,7 +2,7 @@ use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{
-    COUNTER_ACTIVE, COUNTER_DEVICE_COUNT, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_WOKE,
+    COUNTER_ACTIVE, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_STEP_RESET_SLOTS, COUNTER_WOKE,
 };
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -28,6 +28,8 @@ pub struct Commands {
 
 impl Commands {
     pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        let reset = dynamis_abi::step_reset_wgsl();
+        let reset_fragments = [reset.as_str()];
         Self {
             reset_counters: Stage::build(
                 context,
@@ -35,7 +37,7 @@ impl Commands {
                 workgroups(
                     context,
                     include_str!("../shaders/reset_counters.wgsl"),
-                    CORE,
+                    &reset_fragments,
                 ),
                 streams,
                 &[("counters", StateStream::Counters.whole())],
@@ -268,7 +270,7 @@ impl Commands {
         self.reset_counters.record_workgroups(
             recorder,
             streams,
-            workgroups_of(COUNTER_DEVICE_COUNT as u32),
+            workgroups_of(COUNTER_STEP_RESET_SLOTS.len() as u32),
         );
     }
 

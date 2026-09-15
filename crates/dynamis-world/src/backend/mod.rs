@@ -76,6 +76,7 @@ impl World {
             return;
         }
         self.sync_events();
+        self.sync_impacts();
         self.drain_readbacks();
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");

@@ -9,6 +9,7 @@ mod constraint;
 mod event;
 mod facts;
 mod ids;
+mod impact;
 mod journal;
 mod observation;
 mod query;
@@ -35,6 +36,7 @@ use dynamis_gpu::EVENT_SLOTS;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
+use impact::Impacts;
 use observation::Observations;
 use query::Queries;
 use shape::Shapes;
@@ -62,6 +64,7 @@ pub struct World {
     queries: Queries,
     characters: Characters,
     events: Events,
+    impacts: Impacts,
     observed: Observations,
     soft: SoftBodies,
     vehicles: Vehicles,
@@ -83,6 +86,7 @@ impl World {
             queries: Queries::new(),
             characters: Characters::new(),
             events: Events::new(),
+            impacts: Impacts::new(),
             observed: Observations::new(),
             soft: SoftBodies::new(),
             vehicles: Vehicles::new(),

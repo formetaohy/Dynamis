@@ -1,3 +1,4 @@
+use super::impacts::Impacts;
 use super::streams::RigidStream;
 use super::{CONTACT_ROW, IDENTITY};
 use crate::RigidFrame;
@@ -22,6 +23,7 @@ pub const OBSERVED_JOINTS_EXECUTION: Execution =
     Execution::PUBLISH.and(Execution::gate(OBSERVED_JOINTS_GATE));
 
 pub struct Commit {
+    impacts: Impacts,
     thaw_contacts: Stage,
     freeze_contacts: Stage,
     resting_gather: Stage,
@@ -37,6 +39,7 @@ pub struct Commit {
 impl Commit {
     pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
+            impacts: Impacts::build(context, streams),
             thaw_contacts: Stage::build(
                 context,
                 "thaw_contacts",
@@ -284,6 +287,7 @@ impl Commit {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
+        self.impacts.record(recorder, streams, frame);
         self.thaw_contacts.record_stream(recorder, streams);
         self.contact_archive.record_stream(recorder, streams);
         self.archive_count_sync

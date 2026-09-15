@@ -166,6 +166,9 @@ impl World {
         for (count, bytes) in self.backend.readback.events.collect() {
             self.consume_events(count, &bytes);
         }
+        for (manifest, bytes) in self.backend.readback.impacts.collect() {
+            self.consume_impacts(manifest, &bytes);
+        }
         for (count, bytes) in self.backend.readback.breaks.collect() {
             self.consume_breaks(count, &bytes);
         }
@@ -186,6 +189,9 @@ impl World {
         for (count, bytes) in self.backend.readback.events.drain() {
             self.consume_events(count, &bytes);
         }
+        for (manifest, bytes) in self.backend.readback.impacts.drain() {
+            self.consume_impacts(manifest, &bytes);
+        }
         for (count, bytes) in self.backend.readback.breaks.drain() {
             self.consume_breaks(count, &bytes);
         }
@@ -202,6 +208,7 @@ impl World {
         self.assert_no_device_faults();
         self.backend.measured_step = Some(step);
         self.note_events_due(step);
+        self.note_impacts_due(step);
         self.note_breaks_due(step);
     }
 

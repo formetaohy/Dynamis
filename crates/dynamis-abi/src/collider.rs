@@ -14,7 +14,8 @@ impl ColliderRecord {
             flags: 0,
             radius: 0.0,
             half_height: 0.0,
-            _wgsl_pad0: [0; 12],
+            impact_force: f32::INFINITY,
+            _wgsl_pad0: [0; 8],
             half_extents: [0.0; 3],
             collision_group: NO_COLLISION_FILTER,
             local_offset: [0.0; 3],
@@ -72,7 +73,8 @@ impl ColliderRecord {
                 }
                 _ => 0.0,
             },
-            _wgsl_pad0: [0; 12],
+            impact_force: collider.impact_force.unwrap_or(f32::INFINITY),
+            _wgsl_pad0: [0; 8],
             half_extents: match collider.shape {
                 Shape::Cuboid { half_extents } => [
                     half_extents[0] * collider.scale[0],

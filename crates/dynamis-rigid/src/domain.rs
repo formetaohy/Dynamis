@@ -119,6 +119,7 @@ impl Domain for RigidDomain {
             observed_count: inputs.observed,
             observed_joints: inputs.observed_joints,
             ccd: inputs.ccd,
+            impacts: inputs.impacts,
         }
     }
 

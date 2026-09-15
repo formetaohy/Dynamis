@@ -21,6 +21,7 @@ pub struct ColliderDesc {
     pub rolling_friction: f32,
     pub spin_friction: f32,
     pub events: ContactEventMode,
+    pub impact_force: Option<f32>,
 }
 
 impl ColliderDesc {
@@ -37,7 +38,17 @@ impl ColliderDesc {
             rolling_friction: 0.0,
             spin_friction: 0.0,
             events: ContactEventMode::BeginEnd,
+            impact_force: None,
         }
+    }
+
+    pub fn impact(mut self, force: f32) -> Self {
+        assert!(
+            force >= 0.0 && force.is_finite(),
+            "an impact force threshold must be finite and non-negative"
+        );
+        self.impact_force = Some(force);
+        self
     }
 
     pub fn events(mut self, events: ContactEventMode) -> Self {

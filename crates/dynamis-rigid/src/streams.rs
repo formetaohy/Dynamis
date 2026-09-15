@@ -2,7 +2,7 @@ use crate::RigidDomain;
 use dynamis_abi::{
     AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
     CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
-    ContactEventRecord, ContactRecord, NO_SLOT, QueryRecord, QueryResultRecord,
+    ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryRecord, QueryResultRecord,
     SOLVER_BLOCK_CONSTRAINT, VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord,
     VehicleWheelRecord,
 };
@@ -28,6 +28,7 @@ streams! {
         contacts: u32,
         resting: u32,
         events: u32,
+        impacts: u32,
         sort: u32,
         characters: u32,
         vehicles: u32,
@@ -70,6 +71,7 @@ streams! {
         island_parents, IslandParents: "island parents", u32, 1, Contents::Scratch, demand.bodies;
         island_state, IslandState: "island state", u32, 1, Contents::Scratch, demand.bodies;
         events, Events: "contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(EVENT_SLOTS);
+        impacts, Impacts: "impact events", ImpactEventRecord, 1, Contents::Scratch, demand.impacts.saturating_mul(EVENT_SLOTS);
         sort_scratch_major, SortScratchMajor: "sort scratch major", u32, 1, Contents::Scratch, demand.sort;
         sort_scratch_minor, SortScratchMinor: "sort scratch minor", u32, 1, Contents::Scratch, demand.sort;
         sort_scratch_payload, SortScratchPayload: "sort scratch payload", u32, 1, Contents::Scratch, demand.sort;
@@ -120,4 +122,8 @@ impl RigidDemand {
 
 pub fn event_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
+}
+
+pub fn impact_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
+    resources.slots(RigidStream::Impacts.into()) / EVENT_SLOTS
 }

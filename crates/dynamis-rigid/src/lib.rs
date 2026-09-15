@@ -5,6 +5,7 @@ mod commands;
 mod commit;
 mod domain;
 mod entries;
+mod impacts;
 mod integrate;
 mod islands;
 mod live;
@@ -28,6 +29,7 @@ const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
 const CONTACT: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
+const CONTACT_COUNTERS: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT];
 const CONTACT_ROW: &[&str] = &[
     COUNTERS_FRAGMENT,
     IDENTITY_FRAGMENT,
@@ -76,6 +78,7 @@ pub struct RigidFrame {
     pub observed_count: u32,
     pub observed_joints: u32,
     pub ccd: bool,
+    pub impacts: bool,
 }
 
 use character::Characters;
@@ -98,7 +101,7 @@ use vehicle::Vehicles;
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
 pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
-pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity};
+pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, impact_capacity};
 
 domain_passes!(
     RigidPasses,

@@ -162,6 +162,45 @@ fn collider_record_encodes_every_shape_kind() {
 }
 
 #[test]
+fn collider_record_fills_its_alignment_room_with_the_impact_threshold() {
+    assert_eq!(offset_of!(ColliderRecord, impact_force), 20);
+    assert_eq!(offset_of!(ColliderRecord, half_extents), 32);
+    assert_eq!(size_of::<ColliderRecord>(), 112);
+
+    let silent = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0, 0);
+    assert!(
+        !silent.impact_force.is_finite(),
+        "a collider that arms no impact must stay silent"
+    );
+    let armed = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)).impact(250.0), 0, 0);
+    assert_eq!(armed.impact_force, 250.0);
+}
+
+#[test]
+fn contact_record_fills_its_alignment_room_with_the_carried_impulse() {
+    assert_eq!(offset_of!(ContactRecord, carried_normal), 68);
+    assert_eq!(offset_of!(ContactRecord, carried_tangent), 72);
+    assert_eq!(offset_of!(ContactRecord, points), 80);
+    assert_eq!(size_of::<ContactRecord>(), 336);
+}
+
+#[test]
+fn the_step_reset_names_every_counter_it_clears_once() {
+    let slots = dynamis_abi::COUNTER_STEP_RESET_SLOTS;
+    assert!(slots.contains(&(dynamis_abi::COUNTER_IMPACTS as u32)));
+    assert!(slots.contains(&(dynamis_abi::COUNTER_REFUSED_IMPACTS as u32)));
+    assert!(!slots.contains(&(dynamis_abi::COUNTER_STEP as u32)));
+    let source = dynamis_abi::step_reset_wgsl();
+    assert!(source.contains("const STEP_RESET_COUNT: u32 = 29u;"));
+    for slot in slots {
+        assert!(
+            source.contains(&format!("{slot}u,")),
+            "the emitted reset table must name slot {slot}"
+        );
+    }
+}
+
+#[test]
 fn constraint_record_encodes_kinds_and_options() {
     let ball = ConstraintDescriptorRecord::build(
         &ConstraintDesc::ball([1.0, 0.0, 0.0], [0.0, 2.0, 0.0]),

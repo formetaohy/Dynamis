@@ -41,6 +41,40 @@ fn contact_carries_over(held: Contact, current: Contact) -> bool {
     return contact_same_pair(held, current);
 }
 
+fn contact_normal_impulse(contact: Contact) -> f32 {
+    var total = 0.0;
+    for (var index = 0u; index < contact.point_count; index = index + 1u) {
+        total = total + max(contact.points[index].accumulated_normal, 0.0);
+    }
+    return total;
+}
+
+fn contact_tangent_impulse(contact: Contact) -> f32 {
+    var total = 0.0;
+    for (var index = 0u; index < contact.point_count; index = index + 1u) {
+        let point = contact.points[index];
+        total = total + sqrt(
+            point.accumulated_tangent_1 * point.accumulated_tangent_1
+                + point.accumulated_tangent_2 * point.accumulated_tangent_2,
+        );
+    }
+    return total;
+}
+
+fn contact_carried(contact: Contact) -> Contact {
+    var carried = contact;
+    carried.carried_normal = contact_normal_impulse(contact);
+    carried.carried_tangent = contact_tangent_impulse(contact);
+    return carried;
+}
+
+fn contact_impact(contact: Contact) -> vec2f {
+    return vec2f(
+        max(contact_normal_impulse(contact) - contact.carried_normal, 0.0),
+        max(contact_tangent_impulse(contact) - contact.carried_tangent, 0.0),
+    );
+}
+
 fn feature_carries_over(held: u32, current: u32) -> bool {
     return held == current || held == feature_mirror(current);
 }

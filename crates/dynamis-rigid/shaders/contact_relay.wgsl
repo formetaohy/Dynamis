@@ -52,7 +52,7 @@ fn work(index: u32) {
                         if (contact_touches(current, params.slop)) {
                             announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
                         }
-                        relayed = contact_relay_impulses(current, held);
+                        relayed = contact_carried(contact_relay_impulses(current, held));
                         relayed.events = relayed.events | CONTACT_ANNOUNCED;
                     }
                     contacts[slot] = relayed;

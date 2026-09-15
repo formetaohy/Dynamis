@@ -1,12 +1,13 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{
-    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS,
-    COUNTER_REFUSED_EVENTS, COUNTER_RESTING, Counters,
+    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_REFUSED_CONTACTS,
+    COUNTER_REFUSED_EVENTS, COUNTER_REFUSED_IMPACTS, COUNTER_RESTING, Counters,
 };
 use dynamis_domain::{MIN_SLOTS, StreamWatch, product, settled, unreported};
 
 const FRESH_EVENTS_PER_COLLIDER: u32 = 8;
 const FRESH_CONTACTS_PER_COLLIDER: u32 = 4;
+const FRESH_IMPACTS_PER_COLLIDER: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidCapacity {
@@ -14,6 +15,7 @@ pub struct RigidCapacity {
     pub contacts: u32,
     pub resting: u32,
     pub events: u32,
+    pub impacts: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +28,7 @@ pub struct RigidInputs {
     pub observed: u32,
     pub observed_joints: u32,
     pub ccd: bool,
+    pub impacts: bool,
     pub characters: u32,
     pub vehicles: u32,
 }
@@ -36,11 +39,13 @@ pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
         contacts: streams.contacts.slots(),
         resting: streams.resting_contacts.slots(),
         events: streams.events.slots() / dynamis_gpu::EVENT_SLOTS,
+        impacts: streams.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
     }
 }
 
 pub struct Capacity {
     events: StreamWatch,
+    impacts: StreamWatch,
     contacts: StreamWatch,
 }
 
@@ -54,6 +59,7 @@ impl Capacity {
     pub const fn new() -> Self {
         Self {
             events: StreamWatch::IDLE,
+            impacts: StreamWatch::IDLE,
             contacts: StreamWatch::IDLE,
         }
     }
@@ -88,6 +94,28 @@ impl Capacity {
             self.events.widened(
                 current.events.slots() / dynamis_gpu::EVENT_SLOTS,
                 event_budget,
+            )
+        };
+        self.impacts.observe(
+            measured[COUNTER_IMPACTS],
+            measured[COUNTER_REFUSED_IMPACTS] > 0,
+            current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+        );
+        if self.impacts.pressured() {
+            self.impacts.settle(false);
+        } else if idle {
+            self.impacts.settle(true);
+        }
+        let impact_budget = product(fresh, FRESH_IMPACTS_PER_COLLIDER, "impact");
+        let impacts = if idle {
+            self.impacts.released(
+                current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+                impact_budget,
+            )
+        } else {
+            self.impacts.widened(
+                current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+                impact_budget,
             )
         };
         self.contacts.observe(
@@ -141,6 +169,7 @@ impl Capacity {
             contacts,
             resting,
             events,
+            impacts,
             sort,
             characters,
             vehicles,
@@ -156,6 +185,7 @@ impl Capacity {
             contacts: dynamis_domain::STREAM_FLOOR,
             resting: dynamis_domain::STREAM_FLOOR,
             events: dynamis_domain::STREAM_FLOOR,
+            impacts: dynamis_domain::STREAM_FLOOR,
             sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
             characters: MIN_SLOTS,
             vehicles: MIN_SLOTS,

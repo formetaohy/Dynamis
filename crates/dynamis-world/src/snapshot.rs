@@ -88,6 +88,8 @@ impl World {
         self.observed.reset();
         self.events.contact.clear();
         self.events.due.clear();
+        self.impacts.impact.clear();
+        self.impacts.due.clear();
         self.queries.pending.clear();
         self.queries.pool = QueryPool::new();
         self.constraints.broken.clear();

@@ -35,8 +35,65 @@ pub mod device {
         pub const COUNTER_SOFT_WOKE: usize = 30;
         pub const COUNTER_REFUSED_CONTACTS: usize = 31;
         pub const COUNTER_STEP: usize = 32;
-        pub const COUNTER_DEVICE_COUNT: usize = 33;
+        pub const COUNTER_IMPACTS: usize = 33;
+        pub const COUNTER_REFUSED_IMPACTS: usize = 34;
+        pub const COUNTER_DEVICE_COUNT: usize = 35;
     }
+
+    pub const STEP_RESET: [u32; 29] = [
+        COUNTER_ENTRIES as u32,
+        COUNTER_PAIRS as u32,
+        COUNTER_GRID_LEVELS as u32,
+        COUNTER_CONTACTS as u32,
+        COUNTER_JOINTS as u32,
+        COUNTER_EVENTS as u32,
+        COUNTER_REFUSED_PAIRS as u32,
+        COUNTER_REFUSED_CONTACTS as u32,
+        COUNTER_REFUSED_EVENTS as u32,
+        COUNTER_REFUSED_IMPACTS as u32,
+        COUNTER_ENTRY_FAULTS as u32,
+        COUNTER_REFUSED_RESTING as u32,
+        COUNTER_ACTIVE as u32,
+        COUNTER_SLEPT as u32,
+        COUNTER_WOKE as u32,
+        COUNTER_WOKE_DEFERRED as u32,
+        COUNTER_RESTING_GATHER as u32,
+        COUNTER_COARSE_ACTIVE as u32,
+        COUNTER_GRID_SCALE as u32,
+        COUNTER_GRID_EXTENT as u32,
+        COUNTER_PARTICLE_REACH as u32,
+        COUNTER_COARSE_NEIGHBOURS as u32,
+        COUNTER_LIVE as u32,
+        COUNTER_LIVE_FAULTS as u32,
+        COUNTER_SOFT_ACTIVE as u32,
+        COUNTER_SOFT_SLEPT as u32,
+        COUNTER_SOFT_WOKE as u32,
+        COUNTER_IMPACTS as u32,
+        COUNTER_BREAKS as u32,
+    ];
+
+    const _: () = {
+        assert!(
+            STEP_RESET.len() <= COUNTER_DEVICE_COUNT,
+            "a step may not reset more counters than the device declares",
+        );
+        let mut index = 0;
+        while index < STEP_RESET.len() {
+            assert!(
+                (STEP_RESET[index] as usize) < COUNTER_DEVICE_COUNT,
+                "a step reset names a slot outside the device counters",
+            );
+            let mut other = index + 1;
+            while other < STEP_RESET.len() {
+                assert!(
+                    STEP_RESET[index] != STEP_RESET[other],
+                    "a step reset names one counter twice",
+                );
+                other += 1;
+            }
+            index += 1;
+        }
+    };
 }
 
 pub mod host {
@@ -54,6 +111,7 @@ pub mod host {
 }
 
 pub use device::COUNTER_DEVICE_COUNT;
+pub use device::STEP_RESET as COUNTER_STEP_RESET_SLOTS;
 
 pub const COUNTER_COUNT: usize = COUNTER_DEVICE_COUNT + host::COUNT;
 

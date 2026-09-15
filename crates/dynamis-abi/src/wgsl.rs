@@ -35,3 +35,22 @@ pub fn constants_wgsl() -> String {
     out.push_str(DOF_PREDICATES);
     out
 }
+
+pub fn step_reset_wgsl() -> String {
+    let slots = counter::device::STEP_RESET;
+    let mut out = String::new();
+    out.push_str(&format!(
+        "const STEP_RESET_COUNT: u32 = {}u;\n",
+        slots.len()
+    ));
+    out.push_str(&format!(
+        "const STEP_RESET_SLOTS: array<u32, {}> = array<u32, {}>(",
+        slots.len(),
+        slots.len(),
+    ));
+    for slot in slots {
+        out.push_str(&format!("{slot}u,"));
+    }
+    out.push_str(");\n");
+    out
+}

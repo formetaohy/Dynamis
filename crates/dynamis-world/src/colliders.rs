@@ -8,6 +8,7 @@ pub(crate) struct ColliderPool {
     runs: Vec<Run>,
     cleared: Vec<Run>,
     live: u32,
+    armed: u32,
 }
 
 impl ColliderPool {
@@ -18,6 +19,7 @@ impl ColliderPool {
             runs: Vec::new(),
             cleared: Vec::new(),
             live: 0,
+            armed: 0,
         }
     }
 
@@ -27,6 +29,10 @@ impl ColliderPool {
 
     pub(crate) fn live(&self) -> u32 {
         self.live
+    }
+
+    pub(crate) fn impact_armed(&self) -> u32 {
+        self.armed
     }
 
     pub(crate) fn records(&self) -> &[ColliderRecord] {
@@ -56,9 +62,12 @@ impl ColliderPool {
             self.runs[id as usize] = run;
         }
         let run = self.runs[id as usize];
+        let span = run.span();
+        self.armed -= armed(&self.records[span.clone()]);
         for (slot, record) in records.iter().enumerate() {
             self.records[run.offset as usize + slot] = *record;
         }
+        self.armed += armed(records);
     }
 
     fn take(&mut self, len: u32) -> Run {
@@ -77,6 +86,8 @@ impl ColliderPool {
         let Some(run) = self.run_of(id) else {
             return;
         };
+        let released = armed(&self.records[run.span()]);
+        self.armed -= released;
         self.runs[id as usize] = Run::EMPTY;
         for index in run.span() {
             self.records[index] = ColliderRecord::cleared();
@@ -86,4 +97,11 @@ impl ColliderPool {
         self.cleared.push(run);
         self.live -= run.len;
     }
+}
+
+fn armed(records: &[ColliderRecord]) -> u32 {
+    records
+        .iter()
+        .filter(|record| record.impact_force.is_finite())
+        .count() as u32
 }

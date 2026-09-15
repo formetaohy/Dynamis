@@ -56,7 +56,7 @@ fn work(index: u32) {
                 announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
             }
             if (contact_carries_over(resting[slot], contact)) {
-                revived = contact_relay_impulses(revived, resting[slot]);
+                revived = contact_carried(contact_relay_impulses(revived, resting[slot]));
                 revived.events = revived.events | CONTACT_ANNOUNCED;
             }
         } else if (contact_touches(contact, params.slop)) {

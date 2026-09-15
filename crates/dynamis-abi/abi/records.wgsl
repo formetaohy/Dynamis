@@ -186,6 +186,7 @@ struct Collider {
     flags: u32,
     radius: f32,
     half_height: f32,
+    impact_force: f32,
     half_extents: vec3f,
     collision_group: u32,
     local_offset: vec3f,
@@ -281,6 +282,8 @@ struct Contact {
     restitution: f32,
     rolling_friction: f32,
     spin_friction: f32,
+    carried_normal: f32,
+    carried_tangent: f32,
     points: array<ManifoldPoint, CONTACT_MAX_POINTS>,
 }
 
@@ -439,6 +442,17 @@ struct ContactEvent {
     _pad0: f32,
     normal: vec3f,
     _pad1: f32,
+}
+
+struct ImpactEvent {
+    first_id: u32,
+    first_generation: u32,
+    second_id: u32,
+    second_generation: u32,
+    point: vec3f,
+    impulse: f32,
+    normal: vec3f,
+    friction_impulse: f32,
 }
 
 struct Character {

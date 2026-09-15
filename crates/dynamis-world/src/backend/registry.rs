@@ -159,6 +159,7 @@ impl World {
                 observed: self.observed.bodies.len(),
                 observed_joints: self.observed.joints.len(),
                 ccd: self.ccd_active(),
+                impacts: self.colliders.impact_armed() > 0,
                 characters: self.characters.slots(),
                 vehicles: self.vehicles.slots(),
             },
