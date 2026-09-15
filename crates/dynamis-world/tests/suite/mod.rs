@@ -25,6 +25,7 @@ pub mod query;
 pub mod reaction;
 pub mod rest;
 pub mod rotation;
+pub mod run;
 pub mod shape;
 pub mod shareability;
 pub mod snapshot;

@@ -1,4 +1,4 @@
-use crate::{Pass, Pipeline};
+use crate::{Pass, Pipeline, Run};
 #[cfg(feature = "profile")]
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
@@ -78,19 +78,11 @@ impl Schedule {
             .collect()
     }
 
-    pub fn begin_step(&mut self) {
-        self.begin(true, true);
+    pub fn begin(&mut self, run: Run) {
+        self.reset(run.graphs(), run.timed());
     }
 
-    pub fn begin_query(&mut self) {
-        self.begin(true, false);
-    }
-
-    pub fn begin_publish(&mut self) {
-        self.begin(false, false);
-    }
-
-    fn begin(&mut self, graph: bool, timed: bool) {
+    fn reset(&mut self, graph: bool, timed: bool) {
         self.opened.fill(false);
         self.last = None;
         self.graph = graph;
@@ -143,6 +135,9 @@ impl Schedule {
         &mut self,
         encoder: &mut SubmissionEncoder,
     ) -> Option<Vec<dynamis_gpu::GpuPassTiming>> {
+        if !self.timed {
+            return None;
+        }
         let ran = self.opened.clone();
         self.timer
             .as_mut()

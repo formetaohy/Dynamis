@@ -1,9 +1,7 @@
 use super::World;
-use crate::commands::Consumption;
 use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
 use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
 use dynamis_model::{QueryFilter, Shape};
-use std::mem::size_of;
 
 pub(crate) struct Queries {
     pub(crate) pending: Vec<QueryRecord>,
@@ -138,50 +136,7 @@ impl World {
         if self.queries.pending.is_empty() {
             return;
         }
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let live = self.live();
-        self.apply_plan(&live);
-        self.flush_rows();
-        self.apply_pending_commands(Consumption::Preview);
-        let step = self.clock.step;
-        let queue = self.backend.gpu.queue().clone();
-        let device = self.backend.gpu.device().clone();
-        self.backend
-            .streams
-            .state
-            .query_records
-            .write(&queue, bytemuck::cast_slice(&self.queries.pending));
-        let count = self.queries.pending.len();
-        let params = self.step_params(self.clock.sub_dt);
-        let frames = self.query_frames(&live, params);
-        self.backend
-            .streams
-            .state
-            .params
-            .write(&queue, bytemuck::cast_slice(&[params]));
-        let batch = self.queries.next_batch;
-        self.queries.pool.submit(batch, step, count);
-        self.queries.next_batch += 1;
-        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis query resolve");
-        self.backend
-            .passes
-            .record_queries(&mut encoder, &self.backend.streams, &frames);
-        let bytes = count as u64 * size_of::<dynamis_abi::QueryResultRecord>() as u64;
-        let arrived = self.backend.readback.queries.enqueue(
-            &mut encoder,
-            self.backend.streams.state.query_results.buffer(),
-            0,
-            bytes,
-            batch,
-        );
-        self.submit(encoder);
-        if let Some((batch, bytes)) = arrived {
-            self.collect_query_batch(batch, &bytes);
-        }
-        self.queries.pending.clear();
-        let live = self.live();
-        self.apply_plan(&live);
+        self.execute(dynamis_pass::Run::Query);
     }
 
     pub fn wait_query(&mut self, handle: QueryHandle) {

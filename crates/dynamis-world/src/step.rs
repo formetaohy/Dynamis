@@ -1,10 +1,7 @@
 use super::World;
-use crate::backend::StepFrames;
 use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
-use dynamis_abi::QueryResultRecord;
 use dynamis_abi::StepParamsRecord;
 use dynamis_rigid::RigidShape;
-use std::mem::size_of;
 
 impl World {
     pub fn set_time_scale(&mut self, time_scale: f32) {
@@ -37,24 +34,7 @@ impl World {
         assert!(dt > 0.0, "timestep must be strictly positive");
         self.backend.gpu.assert_alive();
         self.clock.sub_dt = dt;
-        let step = self.clock.step;
-        self.collect_readbacks();
-        let live = self.live();
-        self.apply_plan(&live);
-        self.flush_rows();
-        self.apply_pending_commands(Consumption::Step);
-        let work = self.host_work();
-        let query_count = work.state.queries;
-        self.backend.published = work.pending();
-        let params = self.step_params(dt);
-        let frames = self.frames(&live, &work, params);
-        self.shapes.uploaded = false;
-        self.soft.uploaded = false;
-        self.write_step_records(params);
-        self.declare_step(step);
-        let batch = self.submit_queries(step, query_count);
-        self.encode_step(&frames, batch, step);
-        self.queries.pending.clear();
+        self.execute(dynamis_pass::Run::Step);
         self.clock.step += 1;
     }
 
@@ -128,63 +108,6 @@ impl World {
             .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
         self.constraints.last_moves = compiled.moves.len() as u32;
-    }
-
-    fn submit_queries(&mut self, step: u64, query_count: u32) -> Option<u64> {
-        if query_count == 0 {
-            return None;
-        }
-        self.backend.streams.state.query_records.write(
-            self.backend.gpu.queue(),
-            bytemuck::cast_slice(&self.queries.pending),
-        );
-        let batch = self.queries.next_batch;
-        self.queries.pool.submit(batch, step, query_count as usize);
-        self.queries.next_batch += 1;
-        Some(batch)
-    }
-
-    fn encode_step(&mut self, frames: &StepFrames, batch: Option<u64>, step: u64) {
-        let device = self.backend.gpu.device().clone();
-        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis step");
-
-        self.copy_events(&mut encoder);
-        self.copy_breaks(&mut encoder);
-        self.backend
-            .passes
-            .record(&mut encoder, &self.backend.streams, frames);
-        #[cfg(feature = "profile")]
-        let timings = self.backend.passes.capture_timings(&mut encoder);
-        let pack_bytes = self.pack_step(&mut encoder);
-        self.declare_observations(&mut encoder, step);
-        let pack = self.backend.readback.step.enqueue(
-            &mut encoder,
-            self.backend.readback.pack.buffer(),
-            0,
-            pack_bytes,
-            step,
-        );
-        let queries = match batch {
-            Some(batch) => self.backend.readback.queries.enqueue(
-                &mut encoder,
-                self.backend.streams.state.query_results.buffer(),
-                0,
-                self.queries.pending.len() as u64 * size_of::<QueryResultRecord>() as u64,
-                batch,
-            ),
-            None => None,
-        };
-        self.submit(encoder);
-        #[cfg(feature = "profile")]
-        if let Some(timings) = timings {
-            self.backend.pass_timings = timings;
-        }
-        if let Some((step, bytes)) = pack {
-            self.consume_pack(step, &bytes);
-        }
-        if let Some((batch, bytes)) = queries {
-            self.collect_query_batch(batch, &bytes);
-        }
     }
 
     #[cfg(feature = "profile")]

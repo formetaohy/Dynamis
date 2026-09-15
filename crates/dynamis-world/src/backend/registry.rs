@@ -3,7 +3,7 @@ use dynamis_abi::{Counters, FrameCounts, RowStreams, StepParamsRecord};
 use dynamis_broadphase::BroadphaseDomain;
 use dynamis_domain::StepFacts;
 use dynamis_gpu::GpuContext;
-use dynamis_pass::{Pass, PipelineBuilder, Schedule};
+use dynamis_pass::{Pass, PipelineBuilder, Run, Schedule};
 use dynamis_rigid::RigidDomain;
 use dynamis_soft::SoftDomain;
 use dynamis_state::StateDomain;
@@ -87,28 +87,9 @@ impl StepPasses {
         encoder: &mut CommandEncoder,
         streams: &Streams,
         frames: &StepFrames,
+        run: Run,
     ) {
-        self.schedule.begin_step();
-        self.run(encoder, streams, frames);
-    }
-
-    pub(crate) fn record_queries(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        streams: &Streams,
-        frames: &StepFrames,
-    ) {
-        self.schedule.begin_query();
-        self.run(encoder, streams, frames);
-    }
-
-    pub(crate) fn record_publish(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        streams: &Streams,
-        frames: &StepFrames,
-    ) {
-        self.schedule.begin_publish();
+        self.schedule.begin(run);
         self.run(encoder, streams, frames);
     }
 

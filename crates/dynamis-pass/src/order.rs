@@ -25,6 +25,22 @@ impl Run {
             Self::Publish => Execution::PUBLISH.0,
         }
     }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Step => "dynamis step",
+            Self::Query => "dynamis query resolve",
+            Self::Publish => "dynamis observation",
+        }
+    }
+
+    pub(crate) const fn graphs(self) -> bool {
+        !matches!(self, Self::Publish)
+    }
+
+    pub(crate) const fn timed(self) -> bool {
+        matches!(self, Self::Step)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

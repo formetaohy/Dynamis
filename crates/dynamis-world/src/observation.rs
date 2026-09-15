@@ -530,7 +530,7 @@ impl World {
             for id in stale {
                 self.observed.bodies.require(id);
             }
-            self.publish_observations();
+            self.execute(dynamis_pass::Run::Publish);
             self.drain_readbacks();
             self.observed.bodies.release_required();
         }
@@ -663,7 +663,7 @@ impl World {
         self.bodies.covered[id as usize] == self.clock.step
     }
 
-    fn completed_step(&self) -> Option<u64> {
+    pub(crate) fn completed_step(&self) -> Option<u64> {
         self.clock.step.checked_sub(1)
     }
 
@@ -682,7 +682,11 @@ impl World {
             .write(self.backend.gpu.queue(), bytemuck::cast_slice(ids));
     }
 
-    pub(crate) fn declare_observations(&mut self, encoder: &mut SubmissionEncoder, step: u64) {
+    pub(crate) fn declare_observations(
+        &mut self,
+        encoder: &mut SubmissionEncoder,
+        step: u64,
+    ) -> Option<(u64, Vec<u8>)> {
         let device = self.backend.gpu.device().clone();
         if self.observed.joints.enabled {
             let rows = self
@@ -722,26 +726,27 @@ impl World {
                 .soft
                 .declare(&device, encoder, &self.backend.streams, runs, step);
         }
-        self.declare_body_observations(encoder, step);
+        self.declare_body_observations(encoder, step)
     }
 
-    fn declare_body_observations(&mut self, encoder: &mut SubmissionEncoder, step: u64) {
+    pub(crate) fn declare_body_observations(
+        &mut self,
+        encoder: &mut SubmissionEncoder,
+        step: u64,
+    ) -> Option<(u64, Vec<u8>)> {
         let count = self.observed.bodies.len();
         if count == 0 {
-            return;
+            return None;
         }
         let observed = &self.backend.streams.state.observed_states;
         let bytes = count as u64 * observed.stride();
-        let displaced = self.observed.bodies.ring.publish(
+        self.observed.bodies.ring.publish(
             &self.backend.gpu.device().clone(),
             encoder,
             observed.size(),
             &[(observed.buffer(), 0, bytes)],
             step,
-        );
-        if let Some((sequence, bytes)) = displaced {
-            self.consume_observations(sequence, &bytes);
-        }
+        )
     }
 
     pub(crate) fn collect_observations(&mut self) {
@@ -770,25 +775,6 @@ impl World {
             self.accept_body(sequence, bytemuck::pod_read_unaligned(chunk));
         }
         self.observed.bodies.epoch = Some(sequence);
-    }
-
-    fn publish_observations(&mut self) {
-        let live = self.live();
-        self.apply_plan(&live);
-        self.flush_observed();
-        let params = self.step_params(self.clock.sub_dt);
-        self.write_step_records(params);
-        let frames = self.publish_frames(&live, params);
-        let device = self.backend.gpu.device().clone();
-        let mut encoder = SubmissionEncoder::new(&device, "dynamis observation");
-        self.backend
-            .passes
-            .record_publish(&mut encoder, &self.backend.streams, &frames);
-        let step = self
-            .completed_step()
-            .expect("a body state publication requires a completed step");
-        self.declare_body_observations(&mut encoder, step);
-        self.submit(encoder);
     }
 
     fn accept_body(&mut self, sequence: u64, record: BodyStateRecord) {
