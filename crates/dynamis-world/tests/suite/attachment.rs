@@ -173,7 +173,7 @@ fn removing_a_soft_body_releases_its_anchors() {
 }
 
 #[test]
-#[should_panic(expected = "still anchors a soft attachment")]
+#[should_panic(expected = "anchors a soft attachment")]
 fn a_body_that_still_anchors_a_soft_body_refuses_removal() {
     let mut world = new_world(gravity_config());
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);

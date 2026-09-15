@@ -69,6 +69,14 @@ impl Characters {
         self.ids.len() as u32
     }
 
+    pub(crate) fn owns_body(&self, id: u32) -> bool {
+        self.live.iter().any(|handle| {
+            self.slots[handle.id as usize]
+                .body
+                .is_some_and(|body| body.id == id)
+        })
+    }
+
     pub(crate) fn pending(&self) -> bool {
         self.pending_inputs > 0
     }
@@ -238,6 +246,7 @@ impl World {
     pub fn remove_character(&mut self, handle: CharacterHandle) {
         let body = self.characters.body_of(handle);
         self.characters.retire(handle);
+        self.observed.characters.stop_watching(handle.id);
         self.remove(body);
     }
 

@@ -532,7 +532,7 @@ impl World {
 
     pub fn stop_observing_character(&mut self, handle: CharacterHandle) {
         self.characters.validate(handle);
-        self.observed.characters.stop();
+        self.observed.characters.stop_watching(handle.id);
     }
 
     pub fn try_vehicle_state(

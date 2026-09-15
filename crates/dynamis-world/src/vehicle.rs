@@ -271,6 +271,7 @@ impl World {
     pub fn remove_vehicle(&mut self, handle: VehicleHandle) {
         let body = self.vehicles.body_of(handle);
         self.vehicles.retire(handle);
+        self.observed.vehicles.stop_watching(handle.id);
         self.remove(body);
     }
 

@@ -526,6 +526,7 @@ impl World {
 
     pub fn remove_soft_body(&mut self, handle: SoftBodyHandle) {
         self.soft.remove(handle);
+        self.observed.soft.stop_watching(handle.id);
     }
 
     pub fn apply_soft_force(&mut self, handle: SoftBodyHandle, force: [f32; 3]) {

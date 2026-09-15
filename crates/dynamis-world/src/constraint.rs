@@ -370,7 +370,7 @@ impl World {
         self.constraints.index_of[id] = u32::MAX;
         self.constraints.ids.release(handle.id);
         self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
-        self.observed.joints.forget(handle.id);
+        self.observed.joints.stop_watching(handle.id);
     }
 
     pub(crate) fn consume_breaks(&mut self, count: u32, bytes: &[u8]) {
@@ -458,13 +458,6 @@ impl World {
                 }
             }
         }
-    }
-
-    pub(super) fn assert_no_constraints(&self, handle: BodyHandle) {
-        assert!(
-            self.constraints.attached_to(handle.id).is_empty(),
-            "body handle {handle:?} is referenced by a live constraint; remove it first"
-        );
     }
 }
 

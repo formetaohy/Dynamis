@@ -113,15 +113,7 @@ impl World {
 
     pub fn remove(&mut self, handle: BodyHandle) {
         self.validate(handle);
-        self.assert_no_constraints(handle);
-        assert!(
-            self.soft.attachment_refs(handle.id) == 0,
-            "body handle {handle:?} still anchors a soft attachment"
-        );
-        assert!(
-            !self.vehicles.owns_body(handle.id),
-            "body handle {handle:?} is still the chassis of a vehicle"
-        );
+        self.assert_unreferenced(handle);
         let id = handle.id as usize;
         let slot = self.bodies.index_of[id];
         if (slot as usize) < self.bodies.dynamic_count {
@@ -252,6 +244,26 @@ impl World {
 
     fn is_static_id(&self, id: usize) -> bool {
         self.bodies.masses[id] <= 0.0 && !self.bodies.kinematic[id]
+    }
+
+    fn assert_unreferenced(&self, handle: BodyHandle) {
+        let id = handle.id;
+        assert!(
+            self.constraints.attached_to(id).is_empty(),
+            "body handle {handle:?} is referenced by a live constraint"
+        );
+        assert!(
+            self.soft.attachment_refs(id) == 0,
+            "body handle {handle:?} anchors a soft attachment"
+        );
+        assert!(
+            !self.vehicles.owns_body(id),
+            "body handle {handle:?} is the chassis of a vehicle"
+        );
+        assert!(
+            !self.characters.owns_body(id),
+            "body handle {handle:?} is the body of a character"
+        );
     }
 
     fn patch_descriptor(

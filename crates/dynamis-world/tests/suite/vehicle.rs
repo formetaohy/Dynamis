@@ -246,7 +246,7 @@ fn vehicle_removal_frees_its_chassis() {
 }
 
 #[test]
-#[should_panic(expected = "is still the chassis of a vehicle")]
+#[should_panic(expected = "is the chassis of a vehicle")]
 fn removing_a_vehicles_chassis_directly_panics() {
     let mut world = new_world(gravity_config());
     ground(&mut world);
