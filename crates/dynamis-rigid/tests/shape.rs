@@ -1,13 +1,13 @@
-use dynamis_abi::FrameCounts;
+use dynamis_abi::Census;
 use dynamis_rigid::RigidShape;
 
-fn counts(bodies: u32, colliders: u32) -> FrameCounts {
-    FrameCounts {
+fn counts(bodies: u32, colliders: u32) -> Census {
+    Census {
         dynamic_bodies: bodies,
         bodies,
         body_ids: bodies,
         colliders,
-        ..FrameCounts::default()
+        ..Census::default()
     }
 }
 
@@ -57,7 +57,7 @@ fn key_words_cover_the_row_and_slot_spaces_a_step_sorts() {
 #[test]
 fn key_words_cover_the_body_id_space_a_resting_index_sorts() {
     for ids in [1u32, 255, 256, 257, 65_535, 65_536, 16_777_215] {
-        let shape = RigidShape::of(&FrameCounts {
+        let shape = RigidShape::of(&Census {
             body_ids: ids,
             ..counts(1, 1)
         });
@@ -71,7 +71,7 @@ fn key_words_cover_the_body_id_space_a_resting_index_sorts() {
 
 #[test]
 fn the_id_key_space_outgrows_the_row_key_space_it_no_longer_holds() {
-    let shape = RigidShape::of(&FrameCounts {
+    let shape = RigidShape::of(&Census {
         body_ids: 257,
         ..counts(2, 2)
     });
@@ -91,11 +91,11 @@ fn the_shape_ignores_every_count_it_does_not_schedule() {
     let scheduled = counts(9, 5);
     let shape = RigidShape::of(&scheduled);
     for irrelevant in [
-        FrameCounts {
+        Census {
             constraints: 4096,
             ..scheduled
         },
-        FrameCounts {
+        Census {
             particles: 65_536,
             elements: 4096,
             ..scheduled

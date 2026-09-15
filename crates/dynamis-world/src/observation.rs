@@ -4,7 +4,7 @@ use super::ids::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
-    BodyDescriptorRecord, BodyStateRecord, CharacterStateRecord, ConstraintReactionRecord,
+    BodyDescriptorRecord, BodyStateRecord, Census, CharacterStateRecord, ConstraintReactionRecord,
     ConstraintRuntimeRecord, JointStateRecord, SoftElementRecord, SoftParticleRecord,
     VehicleStateRecord,
 };
@@ -508,7 +508,8 @@ impl World {
     pub fn inspect_character_state(&mut self, handle: CharacterHandle) -> CharacterState {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_rows();
         let slot = self.characters.slot_of(handle);
@@ -552,7 +553,8 @@ impl World {
     pub fn inspect_vehicle_state(&mut self, handle: VehicleHandle) -> VehicleState {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_rows();
         let slot = self.vehicles.slot_of(handle);
@@ -656,7 +658,8 @@ impl World {
     fn inspect_facts(&mut self) {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_rows();
         self.execute(dynamis_pass::Run::Publish);
@@ -700,18 +703,29 @@ impl World {
         }
     }
 
-    pub(crate) fn declare_observations(&mut self, encoder: &mut SubmissionEncoder, step: u64) {
+    pub(crate) fn declare_observations(
+        &mut self,
+        encoder: &mut SubmissionEncoder,
+        census: &Census,
+        step: u64,
+    ) {
         let device = self.backend.gpu.device().clone();
         let dt = self.clock.sub_dt;
         self.declare_joints(&device, encoder, step, dt);
         self.declare_soft(&device, encoder, step);
-        self.declare_characters(&device, encoder, step);
-        self.declare_vehicles(&device, encoder, step);
-        self.declare_bodies(&device, encoder, step);
+        self.declare_characters(&device, encoder, census, step);
+        self.declare_vehicles(&device, encoder, census, step);
+        self.declare_bodies(&device, encoder, census, step);
     }
 
-    fn declare_bodies(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        let count = self.observed.bodies.len();
+    fn declare_bodies(
+        &mut self,
+        device: &Device,
+        encoder: &mut SubmissionEncoder,
+        census: &Census,
+        step: u64,
+    ) {
+        let count = census.observed;
         if count == 0 {
             return;
         }
@@ -749,12 +763,18 @@ impl World {
             .publish((), device, encoder, budget, &regions, manifest);
     }
 
-    fn declare_characters(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        if self.observed.characters.is_empty() || self.characters.count() == 0 {
+    fn declare_characters(
+        &mut self,
+        device: &Device,
+        encoder: &mut SubmissionEncoder,
+        census: &Census,
+        step: u64,
+    ) {
+        if self.observed.characters.is_empty() || census.live_characters == 0 {
             return;
         }
         let states = &self.backend.streams.rigid.character_states;
-        let bytes = u64::from(self.characters.slots()) * states.stride();
+        let bytes = u64::from(census.characters) * states.stride();
         let regions = [(states.buffer(), 0, bytes)];
         let manifest = CharacterManifest {
             step,
@@ -765,12 +785,18 @@ impl World {
             .publish((), device, encoder, states.size(), &regions, manifest);
     }
 
-    fn declare_vehicles(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
-        if self.observed.vehicles.is_empty() || self.vehicles.count() == 0 {
+    fn declare_vehicles(
+        &mut self,
+        device: &Device,
+        encoder: &mut SubmissionEncoder,
+        census: &Census,
+        step: u64,
+    ) {
+        if self.observed.vehicles.is_empty() || census.live_vehicles == 0 {
             return;
         }
         let states = &self.backend.streams.rigid.vehicle_states;
-        let bytes = u64::from(self.vehicles.slots()) * states.stride();
+        let bytes = u64::from(census.vehicles) * states.stride();
         let regions = [(states.buffer(), 0, bytes)];
         let manifest = VehicleManifest {
             step,

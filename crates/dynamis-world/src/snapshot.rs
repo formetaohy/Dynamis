@@ -76,7 +76,8 @@ impl World {
         snapshot.scene.restore(self);
         self.abandon_observations();
         self.restart_measures();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.reserve_streams(&snapshot.streams);
         self.backend

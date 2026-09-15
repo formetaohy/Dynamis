@@ -81,7 +81,7 @@ impl World {
     }
 
     pub fn rigid_shape(&self) -> RigidShape {
-        RigidShape::of(&self.frame_counts())
+        RigidShape::of(&self.census())
     }
 
     pub(crate) fn write_step_records(&mut self, params: StepParamsRecord) {

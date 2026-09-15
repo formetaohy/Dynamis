@@ -595,7 +595,8 @@ impl World {
     pub fn inspect_soft_particles(&mut self, handle: SoftBodyHandle) -> Vec<[f32; 3]> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_rows();
         let run = self.soft.run_of(handle);
@@ -622,7 +623,8 @@ impl World {
     pub fn inspect_soft_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_rows();
         let runs = self.soft.runs_of(handle);

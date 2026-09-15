@@ -3,6 +3,7 @@ use crate::backend::registry::HostWork;
 use crate::commands::Consumption;
 use dynamis_abi::DeclaredCounters;
 use dynamis_abi::QueryResultRecord;
+use dynamis_domain::StepFacts;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_pass::Run;
 use std::mem::size_of;
@@ -22,13 +23,14 @@ impl World {
     pub(crate) fn execute(&mut self, run: Run) {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
-        let live = self.live();
+        let census = self.census();
+        let live = self.live(&census);
         self.apply_plan(&live);
         self.flush_observed();
         let work = self.prepare(run);
-        let params = self.step_params(self.clock.sub_dt);
-        self.write_step_records(params);
-        let frames = self.frames_of(&live, work.as_ref(), params, run);
+        let facts = StepFacts::of(&self.config, self.clock.sub_dt, census, self.row_streams());
+        self.write_step_records(facts.params);
+        let frames = self.frames_of(&live, work.as_ref(), &facts, run);
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, run.label());
         let segments = self.copy_segments(&mut encoder);
@@ -38,7 +40,7 @@ impl World {
             .record(&mut encoder, &self.backend.streams, &frames, run);
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
-        let declarations = self.publish(&mut encoder, run, batch, self.clock.step);
+        let declarations = self.publish(&mut encoder, run, batch, &census, self.clock.step);
         self.submit(encoder);
         #[cfg(feature = "profile")]
         if let Some(timings) = timings {
@@ -73,16 +75,16 @@ impl World {
         &mut self,
         live: &crate::backend::registry::Live,
         work: Option<&HostWork>,
-        params: dynamis_abi::StepParamsRecord,
+        facts: &StepFacts,
         run: Run,
     ) -> crate::backend::StepFrames {
         match run {
             Run::Step => {
                 let work = work.expect("a step frames its graph from the host work it prepared");
-                self.frames(live, work, params)
+                self.frames(live, work, facts)
             }
-            Run::Query => self.query_frames(live, params),
-            Run::Publish => self.publish_frames(live, params),
+            Run::Query => self.query_frames(live, facts),
+            Run::Publish => self.publish_frames(live, facts),
         }
     }
 
@@ -98,13 +100,14 @@ impl World {
         encoder: &mut SubmissionEncoder,
         run: Run,
         batch: Option<Batch>,
+        census: &dynamis_abi::Census,
         step: u64,
     ) -> Declarations {
         match run {
             Run::Step => {
-                self.declare_observations(encoder, step);
+                self.declare_observations(encoder, census, step);
                 Declarations {
-                    counters: self.enqueue_counters(encoder, step),
+                    counters: self.enqueue_counters(encoder, census, step),
                     queries: batch.and_then(|batch| self.enqueue_queries(encoder, batch)),
                 }
             }
@@ -116,7 +119,7 @@ impl World {
                 let step = self
                     .completed_step()
                     .expect("a publication requires a completed step");
-                self.declare_observations(encoder, step);
+                self.declare_observations(encoder, census, step);
                 Declarations {
                     counters: None,
                     queries: None,
@@ -147,10 +150,11 @@ impl World {
     fn enqueue_counters(
         &mut self,
         encoder: &mut SubmissionEncoder,
+        census: &dynamis_abi::Census,
         step: u64,
     ) -> Option<(u64, DeclaredCounters, Vec<u8>)> {
         let bytes = self.pack_step(encoder);
-        let declared = self.declared_counters();
+        let declared = self.declared_counters(census, &self.row_streams());
         let regions = [(self.backend.readback.pack.buffer(), 0, bytes)];
         self.backend
             .readback
@@ -186,7 +190,8 @@ impl World {
 
     fn finish(&mut self, run: Run) {
         if run == Run::Query {
-            let live = self.live();
+            let census = self.census();
+            let live = self.live(&census);
             self.apply_plan(&live);
         }
     }

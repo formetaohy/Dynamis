@@ -18,7 +18,7 @@ mod streams;
 mod vehicle;
 
 use commit::OBSERVED_JOINTS_EXECUTION;
-use dynamis_abi::{FrameCounts, RowStreams, StepParamsRecord};
+use dynamis_abi::{Census, RowStreams, StepParamsRecord};
 
 const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
 const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
@@ -55,12 +55,12 @@ pub struct RigidShape {
 }
 
 impl RigidShape {
-    pub fn of(counts: &FrameCounts) -> Self {
+    pub fn of(census: &Census) -> Self {
         Self {
-            island_rounds: propagation_rounds(counts.dynamic_bodies),
-            body_row_words: dynamis_sort::key_words(counts.bodies.max(1)),
-            body_id_words: dynamis_sort::key_words(counts.body_ids.max(1)),
-            collider_slot_words: dynamis_sort::key_words(counts.colliders.max(1)),
+            island_rounds: propagation_rounds(census.dynamic_bodies),
+            body_row_words: dynamis_sort::key_words(census.bodies.max(1)),
+            body_id_words: dynamis_sort::key_words(census.body_ids.max(1)),
+            collider_slot_words: dynamis_sort::key_words(census.colliders.max(1)),
         }
     }
 }

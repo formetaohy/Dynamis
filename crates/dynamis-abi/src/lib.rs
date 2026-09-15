@@ -82,7 +82,7 @@ pub use counter::{
     COUNTER_COUNT, COUNTER_STEP_RESET_SLOTS, COUNTER_STRIDE, Counters, DeclaredCounters,
 };
 pub use decode::decode;
-pub use param::{Bound, Count, FrameCounts, RowStreams, Subscriptions};
+pub use param::{Bound, Census, Count, RowStreams};
 pub use query::inert_sweep;
 pub use records::*;
 pub use soft::{SoftAttachmentInit, SoftElementInit, SoftParticleInit};

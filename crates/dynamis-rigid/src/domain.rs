@@ -95,7 +95,7 @@ impl Domain for RigidDomain {
         RigidFrame {
             params: facts.params,
             rows: facts.rows,
-            shape: RigidShape::of(&facts.counts),
+            shape: RigidShape::of(&facts.census),
             query_count: inputs.queries,
             observed_count: inputs.observed,
             observed_joints: inputs.observed_joints,

@@ -15,7 +15,7 @@ use dynamis_abi::{
     SoftBodyEditRecord, SoftElementInit, SoftElementRecord, SoftParticleInit, SoftParticleRecord,
     StepParamsRecord, SurfaceRecord, TriangleRecord, dof_driven, dof_limited, dof_locked,
 };
-use dynamis_abi::{ContactRecord, QueryHitRecord};
+use dynamis_abi::{Census, ContactRecord, Count, QueryHitRecord};
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
     MassProperties, PhysicsConfig, QueryFilter, Shape, SoftElementKind, SoftElementState,
@@ -289,7 +289,7 @@ fn step_params_record_maps_config() {
     let record = StepParamsRecord::new(
         &config,
         1.0 / 60.0,
-        dynamis_abi::FrameCounts {
+        Census {
             dynamic_bodies: 9,
             bodies: 11,
             body_ids: 12,
@@ -299,12 +299,11 @@ fn step_params_record_maps_config() {
             elements: 19,
             attachments: 21,
             soft_bodies: 23,
-            characters: 2,
-            vehicles: 3,
-        },
-        dynamis_abi::Subscriptions {
             observed: 6,
             observed_joints: 8,
+            characters: 2,
+            vehicles: 3,
+            ..Census::default()
         },
     );
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
@@ -817,4 +816,50 @@ fn contact_record_pins_the_manifold_surface() {
     assert_eq!(offset_of!(ContactRecord, surface), 48);
     assert_eq!(offset_of!(ContactRecord, friction), 52);
     assert_eq!(offset_of!(ContactRecord, points), 80);
+}
+
+#[test]
+fn every_declared_count_bounds_its_own_step_field() {
+    let census = Census {
+        bodies: 1,
+        dynamic_bodies: 2,
+        colliders: 3,
+        constraints: 4,
+        particles: 5,
+        elements: 6,
+        attachments: 7,
+        soft_bodies: 8,
+        observed: 9,
+        observed_joints: 10,
+        characters: 11,
+        vehicles: 12,
+        ..Census::default()
+    };
+    let rows = RowStreams {
+        body_edit_runs: 21,
+        body_moves: 22,
+        constraint_moves: 23,
+        soft_edits: 24,
+        soft_body_edits: 25,
+    };
+    let params = StepParamsRecord::new(&PhysicsConfig::default(), 1.0 / 60.0, census);
+    let declared = Count::ALL
+        .iter()
+        .map(|count| (count.bound().expression(), count.rows(&params, &rows)))
+        .collect::<Vec<_>>();
+    let mut fields = declared.clone();
+    fields.sort_unstable();
+    fields.dedup();
+    assert_eq!(
+        fields.len(),
+        Count::ALL.len(),
+        "every declared count must bound its own step field, got {declared:?}"
+    );
+    let mut values = declared.iter().map(|(_, value)| *value).collect::<Vec<_>>();
+    values.sort_unstable();
+    assert_eq!(
+        values,
+        (1..=12).chain(21..=25).collect::<Vec<_>>(),
+        "every declared count must resolve to the census field it was declared from, got {declared:?}"
+    );
 }

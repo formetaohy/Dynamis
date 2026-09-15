@@ -1,7 +1,5 @@
 use crate::World;
-use dynamis_abi::{
-    Counters, DeclaredCounters, FrameCounts, RowStreams, StepParamsRecord, Subscriptions,
-};
+use dynamis_abi::{Census, Counters, DeclaredCounters, RowStreams};
 use dynamis_broadphase::BroadphaseDomain;
 use dynamis_domain::StepFacts;
 use dynamis_gpu::GpuContext;
@@ -121,54 +119,76 @@ impl StepPasses {
 }
 
 impl World {
-    pub(crate) fn live(&self) -> Live {
+    pub(crate) fn census(&self) -> Census {
         let (particles, elements, attachments, adjacency) = self.soft.used();
-        let bodies = self.bodies.alive.len() as u32;
-        let colliders = self.colliders.live();
-        let collider_pool = self.colliders.used();
-        let constraints = self.constraints.alive.len() as u32;
-        let body_commands = self.bodies.commands.len() as u32;
-        let constraint_commands = self.constraints.commands.len() as u32;
-        let queries = self.queries.pending.len() as u32;
+        Census {
+            bodies: self.bodies.alive.len() as u32,
+            dynamic_bodies: self.bodies.dynamic_count as u32,
+            body_ids: self.bodies.ids.len() as u32,
+            colliders: self.colliders.used(),
+            live_colliders: self.colliders.live(),
+            constraints: self.constraints.alive.len() as u32,
+            constraint_ids: self.constraints.ids.len() as u32,
+            particles,
+            elements,
+            attachments,
+            adjacency,
+            soft_bodies: self.soft.ids_len() as u32,
+            characters: self.characters.slots(),
+            live_characters: self.characters.count(),
+            vehicles: self.vehicles.slots(),
+            live_vehicles: self.vehicles.count(),
+            observed: self.observed.bodies.len(),
+            observed_joints: self.observed.joints.len(),
+            observed_joint_demand: self.observed.joints.demand(),
+            queries: self.queries.pending.len() as u32,
+            body_commands: self.bodies.commands.len() as u32,
+            constraint_commands: self.constraints.commands.len() as u32,
+            pending_soft_edits: self.soft.pending_edits(),
+            pending_soft_body_edits: self.soft.pending_body_edits(),
+        }
+    }
+
+    pub(crate) fn live(&self, census: &Census) -> Live {
         Live {
             state: dynamis_state::StateInputs {
-                bodies,
-                body_ids: self.bodies.ids.len() as u32,
-                collider_pool,
-                constraints,
-                constraint_ids: self.constraints.ids.len() as u32,
-                body_commands,
-                constraint_commands,
-                queries,
+                bodies: census.bodies,
+                body_ids: census.body_ids,
+                collider_pool: census.colliders,
+                constraints: census.constraints,
+                constraint_ids: census.constraint_ids,
+                body_commands: census.body_commands,
+                constraint_commands: census.constraint_commands,
+                queries: census.queries,
                 shapes: self.shapes.pool.used(),
-                observed: self.observed.bodies.len(),
-                observed_joints: self.observed.joints.demand(),
+                observed: census.observed,
+                observed_joints: census.observed_joint_demand,
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
-                colliders,
-                particles,
+                colliders: census.live_colliders,
+                particles: census.particles,
             },
             rigid: dynamis_rigid::RigidInputs {
-                bodies,
-                colliders,
-                collider_pool,
-                constraints,
-                queries,
-                observed: self.observed.bodies.len(),
-                observed_joints: self.observed.joints.len(),
+                bodies: census.bodies,
+                colliders: census.live_colliders,
+                collider_pool: census.colliders,
+                constraints: census.constraints,
+                queries: census.queries,
+                observed: census.observed,
+                observed_joints: census.observed_joints,
                 ccd: self.ccd_active(),
                 impacts: self.colliders.impact_armed() > 0,
-                characters: self.characters.slots(),
-                vehicles: self.vehicles.slots(),
+                characters: census.characters,
+                vehicles: census.vehicles,
             },
             soft: dynamis_soft::SoftInputs {
-                particles,
-                elements,
-                attachments,
-                adjacency,
-                bodies: self.soft.ids_len() as u32,
-                edits: self.soft.pending_edits(),
-                body_edits: self.soft.pending_body_edits(),
+                particles: census.particles,
+                elements: census.elements,
+                attachments: census.attachments,
+                adjacency: census.adjacency,
+                bodies: census.soft_bodies,
+                edits: census.pending_soft_edits,
+                body_edits: census.pending_soft_body_edits,
                 material: self.soft.carries_strength(),
             },
         }
@@ -195,33 +215,6 @@ impl World {
         }
     }
 
-    pub(crate) fn frame_counts(&self) -> FrameCounts {
-        FrameCounts {
-            dynamic_bodies: self.bodies.dynamic_count as u32,
-            bodies: self.bodies.alive.len() as u32,
-            body_ids: self.bodies.ids.len() as u32,
-            colliders: self.colliders.used(),
-            constraints: self.constraints.alive.len() as u32,
-            particles: self.soft.used().0,
-            elements: self.soft.used().1,
-            attachments: self.soft.used().2,
-            soft_bodies: self.soft.ids_len() as u32,
-            characters: self.characters.slots(),
-            vehicles: self.vehicles.slots(),
-        }
-    }
-
-    pub(crate) fn step_params(&self, dt: f32) -> StepParamsRecord {
-        StepParamsRecord::new(&self.config, dt, self.frame_counts(), self.subscriptions())
-    }
-
-    pub(crate) fn subscriptions(&self) -> Subscriptions {
-        Subscriptions {
-            observed: self.observed.bodies.len(),
-            observed_joints: self.observed.joints.len(),
-        }
-    }
-
     pub(crate) fn row_streams(&self) -> RowStreams {
         RowStreams {
             body_edit_runs: self.bodies.last_edits,
@@ -232,20 +225,21 @@ impl World {
         }
     }
 
-    pub(crate) fn declared_counters(&self) -> DeclaredCounters {
+    pub(crate) fn declared_counters(&self, census: &Census, rows: &RowStreams) -> DeclaredCounters {
         DeclaredCounters {
-            bodies: self.bodies.alive.len() as u32,
-            colliders: self.colliders.live(),
-            constraints: self.constraints.alive.len() as u32,
-            body_edits: self.bodies.last_edits,
-            body_moves: self.bodies.last_moves,
+            bodies: census.bodies,
+            colliders: census.live_colliders,
+            constraints: census.constraints,
+            body_edits: rows.body_edit_runs,
+            body_moves: rows.body_moves,
             constraint_commands: self.constraints.last_commands,
-            constraint_moves: self.constraints.last_moves,
+            constraint_moves: rows.constraint_moves,
         }
     }
 
     pub(crate) fn busy(&self, work: &HostWork) -> bool {
-        self.observed(&self.live(), work).busy()
+        let census = self.census();
+        self.observed(&self.live(&census), work).busy()
     }
 
     fn observed(&self, live: &Live, work: &HostWork) -> Activity {
@@ -264,33 +258,16 @@ impl World {
         liveness.held(hold)
     }
 
-    pub(crate) fn frames(
-        &mut self,
-        live: &Live,
-        work: &HostWork,
-        params: StepParamsRecord,
-    ) -> StepFrames {
+    pub(crate) fn frames(&mut self, live: &Live, work: &HostWork, facts: &StepFacts) -> StepFrames {
         let liveness = self.gated(live, work);
-        let facts = self.step_facts(params);
-        StepFrames::of(&facts, live, liveness)
+        StepFrames::of(facts, live, liveness)
     }
 
-    pub(crate) fn query_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
-        let facts = self.step_facts(params);
-        StepFrames::queries(&facts, live)
+    pub(crate) fn query_frames(&self, live: &Live, facts: &StepFacts) -> StepFrames {
+        StepFrames::queries(facts, live)
     }
 
-    pub(crate) fn publish_frames(&self, live: &Live, params: StepParamsRecord) -> StepFrames {
-        let facts = self.step_facts(params);
-        StepFrames::publication(&facts, live)
-    }
-
-    fn step_facts(&self, params: StepParamsRecord) -> StepFacts {
-        StepFacts {
-            params,
-            counts: self.frame_counts(),
-            subscriptions: self.subscriptions(),
-            rows: self.row_streams(),
-        }
+    pub(crate) fn publish_frames(&self, live: &Live, facts: &StepFacts) -> StepFrames {
+        StepFrames::publication(facts, live)
     }
 }
