@@ -91,12 +91,8 @@ impl Stage {
         slots: &[(&'static str, SlotRef)],
         shapes: &[(&'static str, SlotRef)],
     ) -> Self {
-        let Program {
-            source,
-            dispatch,
-            warm,
-        } = program;
-        let bindings = Bindings::parse(&source);
+        let (source, declarations, dispatch, warm) = program.into_parts();
+        let bindings = Bindings::new(declarations);
         let storage = bindings.table(label, 0, slots);
         let shapes = if shapes.is_empty() {
             Vec::new()

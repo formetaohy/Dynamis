@@ -1,6 +1,10 @@
+mod reflection;
+
 use dynamis_abi::{Bound, COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
 use dynamis_gpu::{GpuContext, ResourceId, SEGMENT_COUNT};
 use std::sync::Arc;
+
+pub use reflection::{ShaderBinding, reflect};
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
 pub const COUNTER_ACCESS: &str = include_str!("../shaders/counters.wgsl");
@@ -71,9 +75,25 @@ pub enum Dispatch {
 }
 
 pub struct Program {
-    pub source: Arc<str>,
-    pub dispatch: Dispatch,
-    pub warm: bool,
+    source: Arc<str>,
+    bindings: Vec<ShaderBinding>,
+    dispatch: Dispatch,
+    warm: bool,
+}
+
+impl Program {
+    pub fn new(source: String, dispatch: Dispatch, warm: bool) -> Self {
+        Self {
+            bindings: reflect(&source),
+            source: source.into(),
+            dispatch,
+            warm,
+        }
+    }
+
+    pub fn into_parts(self) -> (Arc<str>, Vec<ShaderBinding>, Dispatch, bool) {
+        (self.source, self.bindings, self.dispatch, self.warm)
+    }
 }
 
 pub fn assemble(context: &GpuContext, body: &str, fragments: &[&str]) -> String {
@@ -108,11 +128,7 @@ fn shader_constants(per_row: u32) -> String {
 pub fn rows(context: &GpuContext, body: &str, fragments: &[&str], bound: Bound) -> Program {
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_rows(bound));
-    Program {
-        source: source.into(),
-        dispatch: Dispatch::Rows,
-        warm: false,
-    }
+    Program::new(source, Dispatch::Rows, false)
 }
 
 pub fn stream(
@@ -124,11 +140,7 @@ pub fn stream(
 ) -> Program {
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_stream("main", kernel));
-    Program {
-        source: source.into(),
-        dispatch: Dispatch::Stream(extent.into()),
-        warm: false,
-    }
+    Program::new(source, Dispatch::Stream(extent.into()), false)
 }
 
 pub fn stream_warm(
@@ -141,17 +153,13 @@ pub fn stream_warm(
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_stream("main", kernel));
     source.push_str(&entry_stream("warm", "warm_start"));
-    Program {
-        source: source.into(),
-        dispatch: Dispatch::Stream(extent.into()),
-        warm: true,
-    }
+    Program::new(source, Dispatch::Stream(extent.into()), true)
 }
 
 pub fn workgroups(context: &GpuContext, body: &str, fragments: &[&str]) -> Program {
-    Program {
-        source: assemble(context, body, fragments).into(),
-        dispatch: Dispatch::Workgroups,
-        warm: false,
-    }
+    Program::new(
+        assemble(context, body, fragments),
+        Dispatch::Workgroups,
+        false,
+    )
 }

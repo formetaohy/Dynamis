@@ -507,6 +507,7 @@ version = "0.7.0"
 dependencies = [
  "dynamis-abi",
  "dynamis-gpu",
+ "naga",
 ]
 
 [[package]]
@@ -530,6 +531,7 @@ dependencies = [
  "bytemuck",
  "dynamis-gpu",
  "dynamis-pass",
+ "dynamis-shader",
  "pollster",
  "wgpu",
 ]

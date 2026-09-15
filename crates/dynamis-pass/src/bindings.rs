@@ -1,8 +1,8 @@
-use dynamis_gpu::SlotRef;
 use dynamis_gpu::{
-    BindingKind, BindingSpec, PipelineHandle, Resources, ShaderBinding, StorageId, StreamElement,
-    TypedSlot, assert_binding_element, parse_bindings,
+    BindingKind, BindingSpec, PipelineHandle, Resources, SlotRef, StorageId, StreamElement,
+    TypedSlot,
 };
+use dynamis_shader::ShaderBinding;
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 #[derive(Clone, Copy)]
@@ -22,10 +22,8 @@ pub struct Bindings {
 }
 
 impl Bindings {
-    pub fn parse(source: &str) -> Self {
-        Self {
-            declarations: parse_bindings(source),
-        }
+    pub fn new(declarations: Vec<ShaderBinding>) -> Self {
+        Self { declarations }
     }
 
     pub fn specs(&self, group: u32) -> Vec<BindingSpec> {
@@ -107,7 +105,14 @@ impl Bindings {
                     .unwrap_or_else(|| {
                         panic!("{label:?} declares no binding {:?}", declaration.name)
                     });
-                assert_binding_element(label, &declaration.name, declaration, element(&slot.1));
+                let bound = element(&slot.1);
+                assert!(
+                    declaration.element == bound.wgsl(),
+                    "stage {label:?} binds {:?} to the {} stream while its shader declares {:?}",
+                    declaration.name,
+                    bound.wgsl(),
+                    declaration.element,
+                );
                 (declaration, &slot.1)
             })
             .collect()

@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 dynamis-gpu = { workspace = true }
 dynamis-pass = { workspace = true }
+dynamis-shader = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]

@@ -1,4 +1,3 @@
-mod bindings;
 mod buffer;
 mod context;
 mod library;
@@ -13,7 +12,6 @@ mod submission;
 #[cfg(feature = "profile")]
 mod timing;
 
-pub use bindings::{ShaderBinding, assert_binding_element, parse_bindings};
 pub use buffer::{GpuBuffer, GpuSlot, StorageId};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
 pub use library::{WarmupBudget, WarmupProgress};

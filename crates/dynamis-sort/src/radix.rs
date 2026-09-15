@@ -3,6 +3,7 @@ use dynamis_gpu::{
     PipelineHandle, StorageId, StreamElement, TypedSlot,
 };
 use dynamis_pass::Bindings;
+use dynamis_shader::reflect;
 use std::collections::BTreeMap;
 use wgpu::{BindGroup, Device};
 
@@ -39,7 +40,7 @@ struct Declared {
 
 impl Declared {
     fn declare(context: &GpuContext, label: String, source: String, entry: &str) -> Self {
-        let bindings = Bindings::parse(&source);
+        let bindings = Bindings::new(reflect(&source));
         let specs = bindings.specs(0);
         let handle = context.declare(ComputeProgram::new(&label, source, entry, &[&specs]));
         Self {

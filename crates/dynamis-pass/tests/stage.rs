@@ -106,11 +106,7 @@ fn a_stage_follows_the_storage_it_replaces() {
     let mut stage = Stage::build(
         context,
         "stage",
-        Program {
-            source: SOURCE.into(),
-            dispatch: Dispatch::Workgroups,
-            warm: false,
-        },
+        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, false),
         &slots,
         &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
         &[],
@@ -154,11 +150,7 @@ fn an_empty_dispatch_resolves_no_kernel() {
     let mut stage = Stage::build(
         &context,
         "stage",
-        Program {
-            source: SOURCE.into(),
-            dispatch: Dispatch::Workgroups,
-            warm: false,
-        },
+        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, false),
         &slots,
         &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
         &[],
