@@ -123,7 +123,7 @@ fn run_sort(
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let channels = Channels::new(context, major, minor, payload);
-    let mut sort = RadixSort::new(context, "test sort", major.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort");
     context.warmup(WarmupBudget::All);
     sort_once(context, &mut sort, &channels, major_words, minor_words);
     (
@@ -157,6 +157,43 @@ fn sort_orders_the_key_and_carries_the_payload_stably() {
         carried,
         expected.iter().map(|&(_, at)| at).collect::<Vec<_>>(),
         "the payload must follow its key"
+    );
+}
+
+fn scattered_keys(len: usize, salt: u32) -> Vec<u32> {
+    let mut state = 0x9e37_79b9u32 ^ salt;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        })
+        .collect()
+}
+
+#[test]
+fn a_wide_sort_spans_units_and_tiles_without_losing_a_payload() {
+    let context = shared();
+    let len = 300_000usize;
+    let major = scattered_keys(len, 1);
+    let minor = scattered_keys(len, 2);
+    let payload = counting_payload(len);
+    let (sorted, _, carried) = run_sort(context, &major, &minor, &payload, 4, 4);
+    let mut expected: Vec<(u32, u32, u32)> = (0..len as u32)
+        .map(|at| (major[at as usize], minor[at as usize], at))
+        .collect();
+    expected.sort_by_key(|&(major, minor, _)| (major, minor));
+    let divergence =
+        (0..len).find(|&at| sorted[at] != expected[at].0 || carried[at] != expected[at].2);
+    assert!(
+        divergence.is_none(),
+        "a sort wider than one unit diverges at {:?}: it holds key {} payload {} where key {} payload {} belongs",
+        divergence,
+        divergence.map(|at| sorted[at]).unwrap_or_default(),
+        divergence.map(|at| carried[at]).unwrap_or_default(),
+        divergence.map(|at| expected[at].0).unwrap_or_default(),
+        divergence.map(|at| expected[at].2).unwrap_or_default(),
     );
 }
 
@@ -258,7 +295,7 @@ fn windows_prefers_dx12_when_vulkan_available() {
 fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let mut sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort");
     context.warmup(WarmupBudget::All);
     let first = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     sort_once(context, &mut sort, &first, 1, 0);
@@ -279,7 +316,7 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
 fn reusing_the_channels_reuses_their_bindings() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let mut sort = RadixSort::new(context, "test sort", keys.len() as u32);
+    let mut sort = RadixSort::new(context, "test sort");
     context.warmup(WarmupBudget::All);
     let channels = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     for _ in 0..3 {

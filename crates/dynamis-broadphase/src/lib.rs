@@ -6,7 +6,6 @@ pub use capacity::{BroadphaseCapacity, BroadphaseInputs, Capacity};
 pub use domain::BroadphaseDomain;
 pub use streams::{
     BroadphaseDemand, BroadphaseStream, BroadphaseStreams, entry_capacity, pair_capacity,
-    sort_capacity,
 };
 
 use dynamis_abi::COUNTER_ENTRIES;
@@ -37,7 +36,7 @@ impl Broadphase {
     pub fn new(context: &GpuContext, streams: &impl Resources, passes: BroadphasePasses) -> Self {
         Self {
             passes,
-            sort: RadixSort::new(context, "grid sort", sort_capacity(streams)),
+            sort: RadixSort::new(context, "grid sort"),
             cell_pairs: Stage::build(
                 context,
                 "cell_pairs",

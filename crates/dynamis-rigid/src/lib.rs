@@ -84,7 +84,7 @@ use solver::Solver;
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
 pub use ccd::{Ccd, CcdPasses};
 pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
-pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, sort_capacity};
+pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity};
 
 domain_passes!(
     RigidPasses,
@@ -146,7 +146,7 @@ impl Rigid {
             live: Live::build(context, streams),
             solver: Solver::build(context, streams),
             commit: Commit::build(context, streams),
-            sort: RadixSort::new(context, "rigid sort", sort_capacity(streams)),
+            sort: RadixSort::new(context, "rigid sort"),
         }
     }
 

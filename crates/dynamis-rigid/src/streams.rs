@@ -98,7 +98,3 @@ impl RigidDemand {
 pub fn event_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
 }
-
-pub fn sort_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
-    resources.slots(RigidStream::SortScratchMajor.into())
-}

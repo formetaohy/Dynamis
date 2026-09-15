@@ -31,7 +31,3 @@ pub fn entry_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
 pub fn pair_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
     resources.slots(BroadphaseStream::PairMajor.into())
 }
-
-pub fn sort_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
-    resources.slots(BroadphaseStream::SortScratchMajor.into())
-}
