@@ -2,10 +2,10 @@ mod common;
 
 use crate::common::shared;
 use dynamis_gpu::{
-    AdapterInfo, Backend, GpuBuffer, GpuContext, GpuRequest, GpuRuntime, GpuUnavailable,
-    LimitsPolicy, PowerPreference,
+    AdapterInfo, Backend, ExperimentalFeatures, Features, GpuBuffer, GpuContext, GpuRequest,
+    GpuRuntime, GpuUnavailable, LimitsPolicy, PowerPreference,
 };
-use wgpu::{BufferUsages, Device, Features, Queue};
+use wgpu::{BufferUsages, Device, Queue};
 
 fn host_device() -> (Device, Queue, AdapterInfo) {
     let runtime = pollster::block_on(GpuRuntime::shared());
@@ -45,6 +45,7 @@ fn default_request_targets_only_native_backends() {
     assert_eq!(request.limits, LimitsPolicy::Adapter);
     assert_eq!(request.power_preference, PowerPreference::HighPerformance);
     assert_eq!(request.optional_features, GpuRequest::PROFILING_FEATURES);
+    assert!(!request.experimental_features.is_enabled());
 }
 
 #[test]
@@ -87,20 +88,15 @@ fn unknown_device_name_lists_what_exists() {
 
 #[test]
 fn missing_required_features_are_rejected() {
-    let available = shared().features();
-    let candidates = [
-        Features::EXPERIMENTAL_RAY_TRACING_PIPELINES,
-        Features::EXPERIMENTAL_COOPERATIVE_MATRIX,
-        Features::EXPERIMENTAL_MESH_SHADER,
-        Features::TEXTURE_ATOMIC,
-        Features::SUBGROUP_VERTEX,
-        Features::MULTIVIEW,
-    ];
-    let unavailable = candidates
-        .iter()
-        .copied()
-        .find(|feature| !available.contains(*feature))
-        .expect("this adapter offers every experimental feature, so no rejection case exists");
+    let adapter = pollster::block_on(GpuRequest::default().adapter())
+        .expect("this machine must expose a native adapter");
+    let unavailable = Features::all()
+        .difference(Features::all_experimental_mask())
+        .difference(adapter.features());
+    assert!(
+        !unavailable.is_empty(),
+        "an adapter cannot expose every non-experimental feature wgpu defines"
+    );
     let request = GpuRequest {
         required_features: unavailable,
         ..GpuRequest::default()
@@ -111,7 +107,60 @@ fn missing_required_features_are_rejected() {
     let GpuUnavailable::MissingFeatures { missing, .. } = error else {
         panic!("expected MissingFeatures, got {error:?}");
     };
-    assert!(missing.contains(unavailable));
+    assert_eq!(missing, unavailable);
+}
+
+#[test]
+fn experimental_features_need_explicit_consent() {
+    let experimental = Features::all_experimental_mask();
+    assert!(
+        !experimental.is_empty(),
+        "wgpu 30 must define experimental features"
+    );
+    let request = GpuRequest {
+        required_features: experimental,
+        ..GpuRequest::default()
+    };
+    let error = pollster::block_on(GpuContext::open(&request))
+        .err()
+        .expect("experimental features must never be requested by default");
+    let GpuUnavailable::ExperimentalFeaturesNotEnabled { features } = error else {
+        panic!("expected ExperimentalFeaturesNotEnabled, got {error:?}");
+    };
+    assert_eq!(features, experimental);
+}
+
+#[test]
+fn optional_experimental_features_stay_disabled_without_consent() {
+    let request = GpuRequest {
+        optional_features: GpuRequest::PROFILING_FEATURES | Features::all_experimental_mask(),
+        ..GpuRequest::default()
+    };
+    let context = pollster::block_on(GpuContext::open(&request))
+        .expect("optional features must never fail a request");
+    assert!(
+        !context
+            .features()
+            .intersects(Features::all_experimental_mask())
+    );
+}
+
+#[test]
+fn consent_clears_the_experimental_gate_for_supported_features() {
+    let adapter = pollster::block_on(GpuRequest::default().adapter())
+        .expect("this machine must expose a native adapter");
+    let supported = adapter
+        .features()
+        .intersection(Features::all_experimental_mask());
+    if supported.is_empty() {
+        return;
+    }
+    let request = GpuRequest {
+        required_features: supported,
+        experimental_features: unsafe { ExperimentalFeatures::enabled() },
+        ..GpuRequest::default()
+    };
+    assert!(pollster::block_on(request.adapter()).is_ok());
 }
 
 #[test]
@@ -123,6 +172,18 @@ fn rejection_messages_name_what_was_asked_and_what_exists() {
     .to_string();
     assert!(message.contains("rtx-9"), "{message}");
     assert!(message.contains("Adapter B"), "{message}");
+    let message = GpuUnavailable::ExperimentalFeaturesNotEnabled {
+        features: Features::EXPERIMENTAL_RAY_TRACING_PIPELINES,
+    }
+    .to_string();
+    assert!(
+        message.contains("EXPERIMENTAL_RAY_TRACING_PIPELINES"),
+        "{message}"
+    );
+    assert!(
+        message.contains("ExperimentalFeatures::enabled()"),
+        "{message}"
+    );
 }
 
 #[test]

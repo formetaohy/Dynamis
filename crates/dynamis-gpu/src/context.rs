@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use wgpu::{
-    Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType, Features,
-    Limits, PowerPreference, Queue,
+    Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType,
+    ExperimentalFeatures, Features, Limits, PowerPreference, Queue,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +26,8 @@ pub struct GpuRequest {
     pub required_features: Features,
 
     pub optional_features: Features,
+
+    pub experimental_features: ExperimentalFeatures,
     pub limits: LimitsPolicy,
 }
 
@@ -37,6 +39,7 @@ impl Default for GpuRequest {
             device_name: None,
             required_features: Features::empty(),
             optional_features: GpuRequest::PROFILING_FEATURES,
+            experimental_features: ExperimentalFeatures::disabled(),
             limits: LimitsPolicy::Adapter,
         }
     }
@@ -68,6 +71,16 @@ impl GpuRequest {
     }
 
     pub async fn adapter(&self) -> Result<Adapter, GpuUnavailable> {
+        if !self.experimental_features.is_enabled() {
+            let experimental = self
+                .required_features
+                .intersection(Features::all_experimental_mask());
+            if !experimental.is_empty() {
+                return Err(GpuUnavailable::ExperimentalFeaturesNotEnabled {
+                    features: experimental,
+                });
+            }
+        }
         let adapter = select_adapter(self).await?;
         let available = adapter.features();
         let missing = self.required_features.difference(available);
@@ -80,6 +93,16 @@ impl GpuRequest {
             });
         }
         Ok(adapter)
+    }
+
+    fn enabled_features(&self, available: Features) -> Features {
+        let optional = if self.experimental_features.is_enabled() {
+            self.optional_features
+        } else {
+            self.optional_features
+                .difference(Features::all_experimental_mask())
+        };
+        self.required_features | (optional & available)
     }
 }
 
@@ -95,6 +118,9 @@ pub enum GpuUnavailable {
     MissingFeatures {
         missing: Features,
         available: Features,
+    },
+    ExperimentalFeaturesNotEnabled {
+        features: Features,
     },
     DeviceRejected {
         message: String,
@@ -123,6 +149,10 @@ impl Display for GpuUnavailable {
             Self::MissingFeatures { missing, available } => write!(
                 out,
                 "adapter lacks required features {missing:?} (offers {available:?})"
+            ),
+            Self::ExperimentalFeaturesNotEnabled { features } => write!(
+                out,
+                "required experimental features {features:?} need ExperimentalFeatures::enabled() in the device request"
             ),
             Self::DeviceRejected { message } => write!(out, "device request rejected: {message}"),
             Self::InsufficientLimits { adapter } => write!(
@@ -179,8 +209,7 @@ impl GpuContext {
 
     pub async fn open(request: &GpuRequest) -> Result<Self, GpuUnavailable> {
         let adapter = request.adapter().await?;
-        let available = adapter.features();
-        let features = request.required_features | (request.optional_features & available);
+        let features = request.enabled_features(adapter.features());
         let limits = match request.limits {
             LimitsPolicy::Adapter => adapter.limits(),
             LimitsPolicy::Minimum => Self::MINIMUM_LIMITS,
@@ -190,6 +219,7 @@ impl GpuContext {
                 label: Some("dynamis device"),
                 required_features: features,
                 required_limits: limits.clone(),
+                experimental_features: request.experimental_features,
                 memory_hints: wgpu::MemoryHints::Performance,
                 ..Default::default()
             })

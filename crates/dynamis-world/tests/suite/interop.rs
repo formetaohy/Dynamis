@@ -1,4 +1,4 @@
-use super::common::{DT, gpu, gravity_config, host};
+use super::common::{DT, gpu, gravity_config};
 use dynamis_abi::BodyStateRecord;
 use dynamis_gpu::WarmupBudget;
 use dynamis_model::BodyDesc;
@@ -7,16 +7,16 @@ use std::mem::size_of;
 
 #[test]
 fn a_host_pipeline_reads_the_engine_state_on_its_own_device() {
-    let host = host();
-    let mut world = World::new(gpu(), gravity_config());
+    let context = gpu();
+    let mut world = World::new(context.clone(), gravity_config());
     world.warmup(WarmupBudget::All);
     let body = world.spawn(BodyDesc::sphere(0.5).position([0.0, 10.0, 0.0]));
     for _ in 0..30 {
         world.step(DT);
     }
     let bytes = dynamis_gpu::read_regions(
-        &host.device,
-        &host.queue,
+        context.device(),
+        context.queue(),
         "host state read",
         &[(
             world.state_buffer().buffer(),

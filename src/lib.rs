@@ -11,10 +11,10 @@ pub use dynamis_abi::{
 pub use dynamis_character::{Character, CharacterDesc};
 pub use dynamis_gpu::{
     Adapter, AdapterInfo, Backend, Backends, BindingKind, BindingSpec, ComputePipeline,
-    ComputeProgram, ComputeRecorder, Device, DeviceLost, DeviceType, Features, GpuBuffer,
-    GpuContext, GpuRequest, GpuRuntime, GpuSlot, GpuUnavailable, Limits, LimitsPolicy,
-    PipelineHandle, PowerPreference, Queue, Readback, SubmissionEncoder, WarmupBudget,
-    WarmupProgress,
+    ComputeProgram, ComputeRecorder, Device, DeviceLost, DeviceType, ExperimentalFeatures,
+    Features, GpuBuffer, GpuContext, GpuRequest, GpuRuntime, GpuSlot, GpuUnavailable, Limits,
+    LimitsPolicy, PipelineHandle, PowerPreference, Queue, Readback, SubmissionEncoder,
+    WarmupBudget, WarmupProgress,
 };
 #[cfg(feature = "profile")]
 pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
