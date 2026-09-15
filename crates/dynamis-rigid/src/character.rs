@@ -3,17 +3,20 @@ use crate::RigidFrame;
 use dynamis_abi::{CHARACTER_SWEEPS, Count};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{GEOMETRY_INDEX, rows, workgroups};
 use dynamis_state::StateStream;
 
-pub struct Characters {
+pub struct Character {
     step: Stage,
+}
+
+pub struct CharacterSweeps {
     sweeps: Stage,
 }
 
-impl Characters {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Character {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             step: Stage::build(
                 context,
@@ -38,6 +41,26 @@ impl Characters {
                 ],
                 &[],
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.step.record_rows(
+            recorder,
+            streams,
+            Count::Characters.rows(&frame.params, &frame.rows),
+        );
+    }
+}
+
+impl PassRuntime<RigidFrame> for CharacterSweeps {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             sweeps: Stage::build(
                 context,
                 "character sweeps",
@@ -66,22 +89,9 @@ impl Characters {
         }
     }
 
-    pub fn record_step(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.step.record_rows(
-            recorder,
-            streams,
-            Count::Characters.rows(&frame.params, &frame.rows),
-        );
-    }
-
-    pub fn record_sweeps(
-        &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

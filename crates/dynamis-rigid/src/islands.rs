@@ -8,7 +8,7 @@ use dynamis_abi::{
 };
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows, stream};
 use dynamis_state::StateStream;
 
@@ -21,6 +21,9 @@ pub struct Islands {
     island_link_resting: Stage,
     island_jump: Stage,
     island_aggregate: Stage,
+}
+
+pub struct Wake {
     island_wake: Stage,
 }
 
@@ -28,8 +31,8 @@ pub struct Sleep {
     island_sleep: Stage,
 }
 
-impl Islands {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Islands {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             contact_relay: Stage::build(
                 context,
@@ -206,6 +209,35 @@ impl Islands {
                 ],
                 &[],
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        let dynamic = Count::Dynamic.rows(&frame.params, &frame.rows);
+        let constraints = Count::Constraints.rows(&frame.params, &frame.rows);
+        self.contact_relay.record_stream(recorder, streams);
+        self.contact_begin.record_stream(recorder, streams);
+        self.island_init.record_rows(recorder, streams, dynamic);
+        self.island_link_contacts.record_stream(recorder, streams);
+        self.island_link_constraints
+            .record_rows(recorder, streams, constraints);
+        self.island_link_resting.record_stream(recorder, streams);
+        for _ in 0..frame.shape.island_rounds {
+            self.island_jump.record_rows(recorder, streams, dynamic);
+        }
+        self.island_aggregate
+            .record_rows(recorder, streams, dynamic);
+    }
+}
+
+impl PassRuntime<RigidFrame> for Wake {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             island_wake: Stage::build(
                 context,
                 "island_wake",
@@ -233,31 +265,9 @@ impl Islands {
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        let dynamic = Count::Dynamic.rows(&frame.params, &frame.rows);
-        let constraints = Count::Constraints.rows(&frame.params, &frame.rows);
-        self.contact_relay.record_stream(recorder, streams);
-        self.contact_begin.record_stream(recorder, streams);
-        self.island_init.record_rows(recorder, streams, dynamic);
-        self.island_link_contacts.record_stream(recorder, streams);
-        self.island_link_constraints
-            .record_rows(recorder, streams, constraints);
-        self.island_link_resting.record_stream(recorder, streams);
-        for _ in 0..frame.shape.island_rounds {
-            self.island_jump.record_rows(recorder, streams, dynamic);
-        }
-        self.island_aggregate
-            .record_rows(recorder, streams, dynamic);
-    }
-
-    pub fn record_wake(
-        &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
@@ -269,8 +279,8 @@ impl Islands {
     }
 }
 
-impl Sleep {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Sleep {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             island_sleep: Stage::build(
                 context,
@@ -296,9 +306,9 @@ impl Sleep {
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

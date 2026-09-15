@@ -123,7 +123,7 @@ fn run_sort(
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let channels = Channels::new(context, major, minor, payload);
-    let mut sort = RadixSort::new(context, "test sort");
+    let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
     sort_once(context, &mut sort, &channels, major_words, minor_words);
     (
@@ -295,7 +295,7 @@ fn windows_prefers_dx12_when_vulkan_available() {
 fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let mut sort = RadixSort::new(context, "test sort");
+    let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
     let first = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     sort_once(context, &mut sort, &first, 1, 0);
@@ -316,7 +316,7 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
 fn reusing_the_channels_reuses_their_bindings() {
     let context = shared();
     let keys = vec![3u32, 5, 1, 0, 7, 2, 2, 9, 4, 6];
-    let mut sort = RadixSort::new(context, "test sort");
+    let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
     let channels = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     for _ in 0..3 {

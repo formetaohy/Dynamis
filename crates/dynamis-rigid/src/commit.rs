@@ -12,7 +12,7 @@ use dynamis_abi::{
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Execution;
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, JOINTS, rows, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
@@ -26,18 +26,31 @@ pub struct Commit {
     impacts: Impacts,
     thaw_contacts: Stage,
     freeze_contacts: Stage,
-    resting_gather: Stage,
-    resting_commit: Stage,
     contact_archive: Stage,
     constraint_breaks: Stage,
     archive_count_sync: Stage,
     static_wake_clear: Stage,
+}
+
+pub struct RestingGather {
+    resting_gather: Stage,
+}
+
+pub struct RestingIndex {
+    resting_commit: Stage,
+    sort: RadixSort,
+}
+
+pub struct Observe {
     observe: Stage,
+}
+
+pub struct ObserveJoints {
     observe_joints: Stage,
 }
 
-impl Commit {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Commit {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             impacts: Impacts::build(context, streams),
             thaw_contacts: Stage::build(
@@ -67,49 +80,6 @@ impl Commit {
                     ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
                     ("counters", StateStream::Counters.whole()),
-                ],
-                &[],
-            ),
-            resting_gather: Stage::build(
-                context,
-                "resting_gather",
-                stream(
-                    context,
-                    include_str!("../shaders/resting_gather.wgsl"),
-                    IDENTITY,
-                    "work",
-                    RigidStream::RestingContacts,
-                ),
-                streams,
-                &[
-                    ("resting", RigidStream::RestingContacts.whole()),
-                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
-                    ("resting_live", RigidStream::RestingLive.whole()),
-                    ("index_major", RigidStream::RestingIndexMajor.whole()),
-                    ("index_minor", RigidStream::RestingIndexMinor.whole()),
-                    ("index_slots", RigidStream::RestingIndexSlots.whole()),
-                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
-                ],
-                &[],
-            ),
-            resting_commit: Stage::build(
-                context,
-                "resting_commit",
-                workgroups(
-                    context,
-                    include_str!("../shaders/resting_commit.wgsl"),
-                    CORE,
-                ),
-                streams,
-                &[
-                    ("slept", dynamis_state::counter(COUNTER_SLEPT)),
-                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
-                    ("index_count", dynamis_state::counter(COUNTER_RESTING_INDEX)),
-                    (
-                        "deferred_woke",
-                        dynamis_state::counter(COUNTER_WOKE_DEFERRED),
-                    ),
-                    ("pending", dynamis_state::counter(COUNTER_RESTING_PENDING)),
                 ],
                 &[],
             ),
@@ -208,6 +178,122 @@ impl Commit {
                 ],
                 &[],
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.impacts.record(recorder, streams, frame);
+        self.thaw_contacts.record_stream(recorder, streams);
+        self.contact_archive.record_stream(recorder, streams);
+        self.archive_count_sync
+            .record_workgroups(recorder, streams, 1);
+        self.static_wake_clear.record_rows(
+            recorder,
+            streams,
+            Count::Bodies.rows(&frame.params, &frame.rows),
+        );
+        self.freeze_contacts.record_stream(recorder, streams);
+        self.constraint_breaks.record_rows(
+            recorder,
+            streams,
+            Count::Constraints.rows(&frame.params, &frame.rows),
+        );
+    }
+}
+
+impl PassRuntime<RigidFrame> for RestingGather {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            resting_gather: Stage::build(
+                context,
+                "resting_gather",
+                stream(
+                    context,
+                    include_str!("../shaders/resting_gather.wgsl"),
+                    IDENTITY,
+                    "work",
+                    RigidStream::RestingContacts,
+                ),
+                streams,
+                &[
+                    ("resting", RigidStream::RestingContacts.whole()),
+                    ("resting_count", dynamis_state::counter(COUNTER_RESTING)),
+                    ("resting_live", RigidStream::RestingLive.whole()),
+                    ("index_major", RigidStream::RestingIndexMajor.whole()),
+                    ("index_minor", RigidStream::RestingIndexMinor.whole()),
+                    ("index_slots", RigidStream::RestingIndexSlots.whole()),
+                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
+                ],
+                &[],
+            ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        _: &RigidFrame,
+    ) {
+        self.resting_gather.record_stream(recorder, streams);
+    }
+}
+
+impl PassRuntime<RigidFrame> for RestingIndex {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            resting_commit: Stage::build(
+                context,
+                "resting_commit",
+                workgroups(
+                    context,
+                    include_str!("../shaders/resting_commit.wgsl"),
+                    CORE,
+                ),
+                streams,
+                &[
+                    ("slept", dynamis_state::counter(COUNTER_SLEPT)),
+                    ("gathered", dynamis_state::counter(COUNTER_RESTING_GATHER)),
+                    ("index_count", dynamis_state::counter(COUNTER_RESTING_INDEX)),
+                    (
+                        "deferred_woke",
+                        dynamis_state::counter(COUNTER_WOKE_DEFERRED),
+                    ),
+                    ("pending", dynamis_state::counter(COUNTER_RESTING_PENDING)),
+                ],
+                &[],
+            ),
+            sort: RadixSort::new(context),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.resting_commit.record_workgroups(recorder, streams, 1);
+        let words = frame.shape.body_id_words;
+        let channels = sort::keyed(
+            streams,
+            dynamis_state::counter(COUNTER_RESTING_GATHER),
+            RigidStream::RestingIndexMajor.whole(),
+            RigidStream::RestingIndexMinor.whole(),
+            RigidStream::RestingIndexSlots.whole(),
+        );
+        self.sort.sort(recorder, &channels, words, words);
+    }
+}
+
+impl PassRuntime<RigidFrame> for Observe {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             observe: Stage::build(
                 context,
                 "observe",
@@ -227,6 +313,23 @@ impl Commit {
                 ],
                 &[],
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.observe
+            .record_rows(recorder, streams, frame.observed_count);
+    }
+}
+
+impl PassRuntime<RigidFrame> for ObserveJoints {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             observe_joints: Stage::build(
                 context,
                 "observe_joints",
@@ -263,68 +366,13 @@ impl Commit {
         }
     }
 
-    pub(crate) fn record_observe(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        count: u32,
-    ) {
-        self.observe.record_rows(recorder, streams, count);
-    }
-
-    pub(crate) fn record_observe_joints(
-        &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        count: u32,
-    ) {
-        self.observe_joints.record_rows(recorder, streams, count);
-    }
-
-    pub fn record(
-        &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
-        self.impacts.record(recorder, streams, frame);
-        self.thaw_contacts.record_stream(recorder, streams);
-        self.contact_archive.record_stream(recorder, streams);
-        self.archive_count_sync
-            .record_workgroups(recorder, streams, 1);
-        self.static_wake_clear.record_rows(
-            recorder,
-            streams,
-            Count::Bodies.rows(&frame.params, &frame.rows),
-        );
-        self.freeze_contacts.record_stream(recorder, streams);
-        self.constraint_breaks.record_rows(
-            recorder,
-            streams,
-            Count::Constraints.rows(&frame.params, &frame.rows),
-        );
-    }
-
-    pub fn record_gather(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
-        self.resting_gather.record_stream(recorder, streams);
-    }
-
-    pub fn record_index(
-        &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-        sort: &mut RadixSort,
-    ) {
-        self.resting_commit.record_workgroups(recorder, streams, 1);
-        let words = frame.shape.body_id_words;
-        let channels = sort::keyed(
-            streams,
-            dynamis_state::counter(COUNTER_RESTING_GATHER),
-            RigidStream::RestingIndexMajor.whole(),
-            RigidStream::RestingIndexMinor.whole(),
-            RigidStream::RestingIndexSlots.whole(),
-        );
-        sort.sort(recorder, &channels, words, words);
+        self.observe_joints
+            .record_rows(recorder, streams, frame.observed_joints);
     }
 }

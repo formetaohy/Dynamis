@@ -2,7 +2,7 @@ use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, Resources};
-use dynamis_pass::{Execution, Stage, domain_passes};
+use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_JOINTS, COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
@@ -13,22 +13,17 @@ pub const CCD_GATE: u32 = 0;
 
 pub const CCD_EXECUTION: Execution = Execution::AWAKE.and(Execution::gate(CCD_GATE));
 
-domain_passes!(
-    CcdPasses,
-    ccd_sweep => CCD_EXECUTION => &["substeps"],
-    ccd_apply => CCD_EXECUTION => &["ccd_sweep"],
-);
-
-pub struct Ccd {
-    passes: CcdPasses,
+pub struct CcdSweep {
     sweep: Stage,
+}
+
+pub struct CcdApply {
     apply: Stage,
 }
 
-impl Ccd {
-    pub fn new(context: &GpuContext, streams: &impl Resources, passes: CcdPasses) -> Self {
+impl PassRuntime<RigidFrame> for CcdSweep {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
-            passes,
             sweep: Stage::build(
                 context,
                 "ccd_sweep",
@@ -57,6 +52,22 @@ impl Ccd {
                 ],
                 &dynamis_state::shape_resources(),
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        _: &RigidFrame,
+    ) {
+        self.sweep.record_stream(recorder, streams);
+    }
+}
+
+impl PassRuntime<RigidFrame> for CcdApply {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             apply: Stage::build(
                 context,
                 "ccd_apply",
@@ -78,24 +89,24 @@ impl Ccd {
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        pass: u32,
         recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
-    ) -> bool {
-        if pass == self.passes.ccd_sweep {
-            self.sweep.record_stream(recorder, streams);
-        } else if pass == self.passes.ccd_apply {
-            self.apply.record_rows(
-                recorder,
-                streams,
-                Count::Dynamic.rows(&frame.params, &frame.rows),
-            );
-        } else {
-            return false;
-        }
-        true
+    ) {
+        self.apply.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
     }
 }
+
+domain_passes!(
+    CcdPasses,
+    CcdRuntime,
+    RigidFrame,
+    ccd_sweep: CcdSweep => CCD_EXECUTION => &["substeps"],
+    ccd_apply: CcdApply => CCD_EXECUTION => &["ccd_sweep"],
+);

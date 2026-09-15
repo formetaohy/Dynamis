@@ -3,7 +3,7 @@ use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
@@ -11,8 +11,8 @@ pub struct Reactions {
     apply: Stage,
 }
 
-impl Reactions {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Reactions {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             apply: Stage::build(
                 context,
@@ -40,9 +40,9 @@ impl Reactions {
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

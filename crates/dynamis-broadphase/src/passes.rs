@@ -1,0 +1,94 @@
+use crate::streams::BroadphaseStream;
+use dynamis_abi::COUNTER_ENTRIES;
+use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
+use dynamis_shader::{GRID_INDEX, stream};
+use dynamis_sort::{RadixSort, SortChannels};
+use dynamis_state::StateStream;
+
+pub struct Broadphase {
+    sort: RadixSort,
+    cell_pairs: Stage,
+    level_links: Stage,
+}
+
+impl Broadphase {
+    fn sort_entries(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+        let count = dynamis_state::counter(COUNTER_ENTRIES).resolve(streams);
+        let channels = SortChannels {
+            count,
+            major: BroadphaseStream::EntryKeys.whole().resolve(streams),
+            minor: BroadphaseStream::SortDummy.whole().resolve(streams),
+            payload: BroadphaseStream::EntryOrder.whole().resolve(streams),
+            scratch_major: BroadphaseStream::SortScratchMajor.whole().resolve(streams),
+            scratch_minor: BroadphaseStream::SortScratchMinor.whole().resolve(streams),
+            scratch_payload: BroadphaseStream::SortScratchPayload
+                .whole()
+                .resolve(streams),
+        };
+        self.sort.sort(recorder, &channels, 4, 0);
+    }
+}
+
+impl PassRuntime<()> for Broadphase {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            sort: RadixSort::new(context),
+            level_links: Stage::build(
+                context,
+                "level_links",
+                stream(
+                    context,
+                    include_str!("../shaders/level_links.wgsl"),
+                    GRID_INDEX,
+                    "work",
+                    BroadphaseStream::EntryKeys,
+                ),
+                streams,
+                &[
+                    ("pair_major", BroadphaseStream::PairMajor.whole()),
+                    ("pair_minor", BroadphaseStream::PairMinor.whole()),
+                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
+                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
+                    ("entries", BroadphaseStream::Entries.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+            cell_pairs: Stage::build(
+                context,
+                "cell_pairs",
+                stream(
+                    context,
+                    include_str!("../shaders/cell_pairs.wgsl"),
+                    GRID_INDEX,
+                    "work",
+                    BroadphaseStream::EntryKeys,
+                ),
+                streams,
+                &[
+                    ("pair_major", BroadphaseStream::PairMajor.whole()),
+                    ("pair_minor", BroadphaseStream::PairMinor.whole()),
+                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
+                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
+                    ("entries", BroadphaseStream::Entries.whole()),
+                    ("counters", StateStream::Counters.whole()),
+                ],
+                &[],
+            ),
+        }
+    }
+
+    fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources, _: &()) {
+        self.sort_entries(recorder, streams);
+        self.level_links.record_stream(recorder, streams);
+        self.cell_pairs.record_stream(recorder, streams);
+    }
+}
+
+domain_passes!(
+    BroadphasePasses,
+    BroadphaseRuntime,
+    (),
+    broadphase: Broadphase => Execution::INDEXING => &["entries", "soft_entries"],
+);

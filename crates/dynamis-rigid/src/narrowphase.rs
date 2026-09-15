@@ -6,7 +6,7 @@ use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_REFUS
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, Stage};
+use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, PassRuntime, Stage};
 use dynamis_shader::{CORE, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
@@ -16,10 +16,11 @@ pub struct Narrowphase {
     compact_scan: Stage,
     compact_offsets: Stage,
     compact_scatter: Stage,
+    sort: RadixSort,
 }
 
-impl Narrowphase {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Narrowphase {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             narrowphase: Stage::build(
                 context,
@@ -102,15 +103,15 @@ impl Narrowphase {
                 ],
                 &[],
             ),
+            sort: RadixSort::new(context),
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
-        sort: &mut RadixSort,
     ) {
         let words = frame.shape.collider_slot_words;
         let pairs = pair_capacity(streams);
@@ -120,7 +121,7 @@ impl Narrowphase {
             BroadphaseStream::PairMajor.whole(),
             BroadphaseStream::PairMinor.whole(),
         );
-        sort.sort(recorder, &channels, words, words);
+        self.sort.sort(recorder, &channels, words, words);
         self.narrowphase.record_stream(recorder, streams);
         self.compact_scan.record_workgroups(
             recorder,

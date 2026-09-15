@@ -1,5 +1,5 @@
-use crate::{Broadphase, BroadphaseDemand, BroadphaseInputs, BroadphasePasses};
 use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
+use crate::{BroadphaseDemand, BroadphaseInputs, BroadphasePasses, BroadphaseRuntime};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
@@ -22,7 +22,7 @@ impl Domain for BroadphaseDomain {
     type Streams = BroadphaseStreams;
     type Planner = Capacity;
     type Passes = BroadphasePasses;
-    type Runtime = Broadphase;
+    type Runtime = BroadphaseRuntime;
     type Frame = ();
     type Capacity = BroadphaseCapacity;
 
@@ -54,8 +54,8 @@ impl Domain for BroadphaseDomain {
         context: &GpuContext,
         streams: &impl Resources,
         passes: BroadphasePasses,
-    ) -> Broadphase {
-        Broadphase::new(context, streams, passes)
+    ) -> BroadphaseRuntime {
+        BroadphaseRuntime::build(context, streams, passes)
     }
 
     fn gates(_: &()) -> u16 {
@@ -69,12 +69,12 @@ impl Domain for BroadphaseDomain {
     }
 
     fn record(
-        runtime: &mut Broadphase,
+        runtime: &mut BroadphaseRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         _: &(),
     ) -> bool {
-        runtime.record(pass, recorder, streams)
+        runtime.record(pass, recorder, streams, &())
     }
 }

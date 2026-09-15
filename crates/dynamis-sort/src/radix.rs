@@ -292,6 +292,8 @@ fn digit_passes(minor_words: u32, major_words: u32) -> Vec<Digit> {
         .collect()
 }
 
+const LABEL: &str = "radix sort";
+
 pub struct RadixSort {
     device: Device,
     length: Declared,
@@ -307,7 +309,7 @@ pub struct RadixSort {
 }
 
 impl RadixSort {
-    pub fn new(context: &GpuContext, label: &str) -> Self {
+    pub fn new(context: &GpuContext) -> Self {
         assert!(
             CHUNKS <= context.workgroups_per_row(),
             "the radix scan blocks must fit one dispatch row"
@@ -316,37 +318,37 @@ impl RadixSort {
         let row = context.workgroups_per_row();
         let length = Declared::declare(
             context,
-            format!("{label} length"),
+            format!("{LABEL} length"),
             LENGTH.to_owned(),
             "main",
         );
         let histogram = (0..8)
-            .map(|digit| (digit, declare_digit(context, label, HISTOGRAM, row, digit)))
+            .map(|digit| (digit, declare_digit(context, LABEL, HISTOGRAM, row, digit)))
             .collect();
         let scatter = (0..8)
-            .map(|digit| (digit, declare_digit(context, label, SCATTER, row, digit)))
+            .map(|digit| (digit, declare_digit(context, LABEL, SCATTER, row, digit)))
             .collect();
         let prefix = Declared::declare(
             context,
-            format!("{label} prefix"),
+            format!("{LABEL} prefix"),
             PREFIX.replace("__PARTITION__", &partition(row, 0)),
             "main",
         );
         let copy = Declared::declare(
             context,
-            format!("{label} copy"),
+            format!("{LABEL} copy"),
             COPY.replace("__PARTITION__", &partition(row, 0)),
             "main",
         );
         let storage = wgpu::BufferUsages::STORAGE;
         let table = (UNITS * BINS * 4) as u64;
         let block_table = (CHUNKS * BINS * 4) as u64;
-        let length_holder = GpuBuffer::new(&device, &format!("{label} length"), 4, storage);
-        let counts = GpuBuffer::new(&device, &format!("{label} counts"), table, storage);
-        let offsets = GpuBuffer::new(&device, &format!("{label} offsets"), table, storage);
+        let length_holder = GpuBuffer::new(&device, &format!("{LABEL} length"), 4, storage);
+        let counts = GpuBuffer::new(&device, &format!("{LABEL} counts"), table, storage);
+        let offsets = GpuBuffer::new(&device, &format!("{LABEL} offsets"), table, storage);
         let block_totals = GpuBuffer::new(
             &device,
-            &format!("{label} block totals"),
+            &format!("{LABEL} block totals"),
             block_table,
             storage,
         );

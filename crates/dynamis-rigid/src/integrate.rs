@@ -6,20 +6,63 @@ use dynamis_abi::COUNTER_LIVE;
 use dynamis_abi::Count;
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows, stream};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
-pub struct Integrate {
-    begin_step: Stage,
-    substep_integrate: Stage,
-    substep_advance: Stage,
-    broadphase_aabb: Stage,
+fn aabb(context: &GpuContext, streams: &impl Resources) -> Stage {
+    Stage::build(
+        context,
+        "broadphase_aabb",
+        rows(
+            context,
+            include_str!("../shaders/broadphase_aabb.wgsl"),
+            CORE,
+            Count::Colliders.bound(),
+        ),
+        streams,
+        &[
+            ("params", StateStream::Params.whole()),
+            ("body_states", StateStream::BodyStates.whole()),
+            ("body_descs", StateStream::BodyDescriptors.whole()),
+            ("colliders", StateStream::Colliders.whole()),
+            ("collider_owners", StateStream::ColliderOwners.whole()),
+            ("aabbs", RigidStream::ColliderAabbs.whole()),
+            ("counters", StateStream::Counters.whole()),
+        ],
+        &dynamis_state::shape_resources(),
+    )
 }
 
-impl Integrate {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+pub struct Prepare {
+    begin_step: Stage,
+    aabb: Stage,
+    sort: RadixSort,
+}
+
+impl Prepare {
+    fn sort_joints(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        if frame.params.constraint_count > 0 {
+            let words = frame.shape.body_row_words;
+            let channels = sort::lanes_dual(
+                streams,
+                dynamis_state::counter(COUNTER_JOINTS),
+                RigidStream::JointFilterMajor.whole(),
+                RigidStream::JointFilterMinor.whole(),
+            );
+            self.sort.sort(recorder, &channels, words, words);
+        }
+    }
+}
+
+impl PassRuntime<RigidFrame> for Prepare {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             begin_step: Stage::build(
                 context,
@@ -38,7 +81,65 @@ impl Integrate {
                 ],
                 &[],
             ),
-            substep_integrate: Stage::build(
+            aabb: aabb(context, streams),
+            sort: RadixSort::new(context),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.sort_joints(recorder, streams, frame);
+        self.begin_step.record_rows(
+            recorder,
+            streams,
+            Count::Dynamic.rows(&frame.params, &frame.rows),
+        );
+        self.aabb.record_rows(
+            recorder,
+            streams,
+            Count::Colliders.rows(&frame.params, &frame.rows),
+        );
+    }
+}
+
+pub struct QueryAabbs {
+    aabb: Stage,
+}
+
+impl PassRuntime<RigidFrame> for QueryAabbs {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            aabb: aabb(context, streams),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.aabb.record_rows(
+            recorder,
+            streams,
+            Count::Colliders.rows(&frame.params, &frame.rows),
+        );
+    }
+}
+
+pub(crate) struct SubstepIntegrate {
+    integrate: Stage,
+    advance: Stage,
+}
+
+impl SubstepIntegrate {
+    pub(crate) fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
+            integrate: Stage::build(
                 context,
                 "substep_integrate",
                 stream(
@@ -58,7 +159,7 @@ impl Integrate {
                 ],
                 &[],
             ),
-            substep_advance: Stage::build(
+            advance: Stage::build(
                 context,
                 "substep_advance",
                 stream(
@@ -77,86 +178,18 @@ impl Integrate {
                 ],
                 &[],
             ),
-            broadphase_aabb: Stage::build(
-                context,
-                "broadphase_aabb",
-                rows(
-                    context,
-                    include_str!("../shaders/broadphase_aabb.wgsl"),
-                    CORE,
-                    Count::Colliders.bound(),
-                ),
-                streams,
-                &[
-                    ("params", StateStream::Params.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
-                    ("colliders", StateStream::Colliders.whole()),
-                    ("collider_owners", StateStream::ColliderOwners.whole()),
-                    ("aabbs", RigidStream::ColliderAabbs.whole()),
-                    ("counters", StateStream::Counters.whole()),
-                ],
-                &dynamis_state::shape_resources(),
-            ),
         }
     }
 
-    fn record_begin(
-        &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.begin_step.record_rows(
-            recorder,
-            streams,
-            Count::Dynamic.rows(&frame.params, &frame.rows),
-        );
+    pub(crate) fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources) {
+        self.integrate.record_stream(recorder, streams);
     }
 
-    pub fn record_substep(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
-        self.substep_integrate.record_stream(recorder, streams);
-    }
-
-    pub fn record_substep_advance(
+    pub(crate) fn record_advance(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
     ) {
-        self.substep_advance.record_stream(recorder, streams);
-    }
-
-    pub fn record_broadphase(
-        &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.broadphase_aabb.record_rows(
-            recorder,
-            streams,
-            Count::Colliders.rows(&frame.params, &frame.rows),
-        );
-    }
-
-    pub fn record(
-        &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-        sort: &mut RadixSort,
-    ) {
-        if frame.params.constraint_count > 0 {
-            let words = frame.shape.body_row_words;
-            let channels = sort::lanes_dual(
-                streams,
-                dynamis_state::counter(COUNTER_JOINTS),
-                RigidStream::JointFilterMajor.whole(),
-                RigidStream::JointFilterMinor.whole(),
-            );
-            sort.sort(recorder, &channels, words, words);
-        }
-        self.record_begin(recorder, streams, frame);
-        self.record_broadphase(recorder, streams, frame);
+        self.advance.record_stream(recorder, streams);
     }
 }

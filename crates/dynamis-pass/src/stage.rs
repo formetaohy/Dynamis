@@ -7,6 +7,14 @@ use wgpu::{BindGroup, BindGroupEntry, Device};
 
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
 
+pub trait PassRuntime<F> {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self
+    where
+        Self: Sized;
+
+    fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources, frame: &F);
+}
+
 #[derive(Clone, Copy)]
 enum Entry {
     Main,

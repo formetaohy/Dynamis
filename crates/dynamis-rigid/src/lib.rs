@@ -17,8 +17,8 @@ mod sort;
 mod streams;
 mod vehicle;
 
+use commit::OBSERVED_JOINTS_EXECUTION;
 use dynamis_abi::{FrameCounts, RowStreams, StepParamsRecord};
-use dynamis_gpu::Resources;
 
 const IDENTITY_FRAGMENT: &str = include_str!("../shaders/identity.wgsl");
 const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
@@ -81,173 +81,55 @@ pub struct RigidFrame {
     pub impacts: bool,
 }
 
-use character::Characters;
+use character::{Character, CharacterSweeps};
 use commands::Commands;
-use commit::{Commit, OBSERVED_JOINTS_EXECUTION};
-use dynamis_gpu::{ComputeRecorder, GpuContext};
+use commit::{Commit, Observe, ObserveJoints, RestingGather, RestingIndex};
 use dynamis_pass::{Execution, domain_passes};
-use dynamis_sort::RadixSort;
 use entries::Entries;
-use integrate::Integrate;
-use islands::Islands;
-use islands::Sleep;
+use integrate::{Prepare, QueryAabbs};
+use islands::{Islands, Sleep, Wake};
 use live::Live;
 use narrowphase::Narrowphase;
-use queries::Queries;
+use queries::Query;
 use reactions::Reactions;
-use solver::Solver;
-use vehicle::Vehicles;
+use solver::{SolverPrepare, Substeps};
+use vehicle::{Vehicle, VehicleSweeps};
 
 pub use capacity::{Capacity, RigidCapacity, RigidInputs, capacity};
-pub use ccd::{Ccd, CcdPasses};
+pub use ccd::{CcdApply, CcdPasses, CcdRuntime, CcdSweep};
 pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
 pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, impact_capacity};
 
 domain_passes!(
     RigidPasses,
-    commands => Execution::GRAPH => &[],
-    character => Execution::STEP.and(Execution::AWAKE) => &["commands"],
-    prepare => Execution::INDEXING.and(Execution::STEP) => &["commands", "character"],
-    query_aabbs => Execution::QUERY => &["commands"],
-    vehicle => Execution::STEP.and(Execution::AWAKE) => &["commands"],
-    entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
-    narrowphase => Execution::AWAKE => &["broadphase"],
-    islands => Execution::AWAKE => &["narrowphase"],
-    wake => Execution::AWAKE => &["islands"],
-    live => Execution::AWAKE => &["wake"],
-    solver_prepare => Execution::AWAKE => &["live"],
-    substeps => Execution::AWAKE => &["solver_prepare"],
-    reactions => Execution::AWAKE => &["soft_substeps"],
+    RigidRuntime,
+    RigidFrame,
+    commands: Commands => Execution::GRAPH => &[],
+    character: Character => Execution::STEP.and(Execution::AWAKE) => &["commands"],
+    prepare: Prepare => Execution::INDEXING.and(Execution::STEP) => &["commands", "character"],
+    query_aabbs: QueryAabbs => Execution::QUERY => &["commands"],
+    vehicle: Vehicle => Execution::STEP.and(Execution::AWAKE) => &["commands"],
+    entries: Entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
+    narrowphase: Narrowphase => Execution::AWAKE => &["broadphase"],
+    islands: Islands => Execution::AWAKE => &["narrowphase"],
+    wake: Wake => Execution::AWAKE => &["islands"],
+    live: Live => Execution::AWAKE => &["wake"],
+    solver_prepare: SolverPrepare => Execution::AWAKE => &["live"],
+    substeps: Substeps => Execution::AWAKE => &["solver_prepare"],
+    reactions: Reactions => Execution::AWAKE => &["soft_substeps"],
 );
 
 domain_passes!(
     RigidResolutionPasses,
-    sleep => Execution::AWAKE => &["reactions"],
-    commit => Execution::STEP => &["sleep"],
-    observe => Execution::PUBLISH => &["commit"],
-    observe_joints => OBSERVED_JOINTS_EXECUTION => &["observe"],
-    resting_gather => Execution::AWAKE => &["commit"],
-    resting_index => Execution::AWAKE => &["resting_gather"],
-    query => Execution::GRAPH => &["broadphase", "commit"],
-    character_sweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
-    vehicle_sweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
+    RigidResolutionRuntime,
+    RigidFrame,
+    sleep: Sleep => Execution::AWAKE => &["reactions"],
+    commit: Commit => Execution::STEP => &["sleep"],
+    observe: Observe => Execution::PUBLISH => &["commit"],
+    observe_joints: ObserveJoints => OBSERVED_JOINTS_EXECUTION => &["observe"],
+    resting_gather: RestingGather => Execution::AWAKE => &["commit"],
+    resting_index: RestingIndex => Execution::AWAKE => &["resting_gather"],
+    query: Query => Execution::GRAPH => &["broadphase", "commit"],
+    character_sweeps: CharacterSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
+    vehicle_sweeps: VehicleSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
 );
-
-pub struct Rigid {
-    passes: RigidPasses,
-    resolution: RigidResolutionPasses,
-    commands: Commands,
-    characters: Characters,
-    vehicles: Vehicles,
-    integrate: Integrate,
-    entries: Entries,
-    narrowphase: Narrowphase,
-    queries: Queries,
-    islands: Islands,
-    sleep: Sleep,
-    reactions: Reactions,
-    live: Live,
-    solver: Solver,
-    commit: Commit,
-    sort: RadixSort,
-}
-
-impl Rigid {
-    pub fn new(
-        context: &GpuContext,
-        streams: &impl Resources,
-        passes: RigidPasses,
-        resolution: RigidResolutionPasses,
-    ) -> Self {
-        Self {
-            passes,
-            resolution,
-            commands: Commands::build(context, streams),
-            characters: Characters::build(context, streams),
-            vehicles: Vehicles::build(context, streams),
-            integrate: Integrate::build(context, streams),
-            entries: Entries::build(context, streams),
-            narrowphase: Narrowphase::build(context, streams),
-            queries: Queries::build(context, streams),
-            islands: Islands::build(context, streams),
-            sleep: Sleep::build(context, streams),
-            reactions: Reactions::build(context, streams),
-            live: Live::build(context, streams),
-            solver: Solver::build(context, streams),
-            commit: Commit::build(context, streams),
-            sort: RadixSort::new(context, "rigid sort"),
-        }
-    }
-
-    pub fn record(
-        &mut self,
-        pass: u32,
-        recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) -> bool {
-        if pass == self.passes.commands {
-            self.commands.record(recorder, streams, frame);
-        } else if pass == self.passes.character {
-            self.characters.record_step(recorder, streams, frame);
-        } else if pass == self.passes.prepare {
-            self.integrate
-                .record(recorder, streams, frame, &mut self.sort);
-        } else if pass == self.passes.query_aabbs {
-            self.integrate.record_broadphase(recorder, streams, frame);
-        } else if pass == self.passes.vehicle {
-            self.vehicles.record_step(recorder, streams, frame);
-        } else if pass == self.passes.entries {
-            self.entries.record(recorder, streams, frame);
-        } else if pass == self.passes.narrowphase {
-            self.narrowphase
-                .record(recorder, streams, frame, &mut self.sort);
-        } else if pass == self.passes.islands {
-            self.islands.record(recorder, streams, frame);
-        } else if pass == self.passes.wake {
-            self.islands.record_wake(recorder, streams, frame);
-        } else if pass == self.passes.live {
-            self.live.record(recorder, streams, frame);
-        } else if pass == self.passes.solver_prepare {
-            self.solver.record_prepare(recorder, streams, frame);
-        } else if pass == self.passes.substeps {
-            self.solver.record_topology(recorder, streams);
-            for substep in 0..frame.params.substeps {
-                self.integrate.record_substep(recorder, streams);
-                if substep == 0 {
-                    self.solver.record_warm(recorder, streams);
-                }
-                self.solver.record_iterations(recorder, streams, frame);
-                self.integrate.record_substep_advance(recorder, streams);
-                self.solver
-                    .record_position_iterations(recorder, streams, frame);
-            }
-        } else if pass == self.passes.reactions {
-            self.reactions.record(recorder, streams, frame);
-        } else if pass == self.resolution.sleep {
-            self.sleep.record(recorder, streams, frame);
-        } else if pass == self.resolution.commit {
-            self.commit.record(recorder, streams, frame);
-        } else if pass == self.resolution.observe {
-            self.commit
-                .record_observe(recorder, streams, frame.observed_count);
-        } else if pass == self.resolution.observe_joints {
-            self.commit
-                .record_observe_joints(recorder, streams, frame.observed_joints);
-        } else if pass == self.resolution.resting_gather {
-            self.commit.record_gather(recorder, streams);
-        } else if pass == self.resolution.resting_index {
-            self.commit
-                .record_index(recorder, streams, frame, &mut self.sort);
-        } else if pass == self.resolution.query {
-            self.queries.record(recorder, streams, frame);
-        } else if pass == self.resolution.character_sweeps {
-            self.characters.record_sweeps(recorder, streams, frame);
-        } else if pass == self.resolution.vehicle_sweeps {
-            self.vehicles.record_sweeps(recorder, streams, frame);
-        } else {
-            return false;
-        }
-        true
-    }
-}

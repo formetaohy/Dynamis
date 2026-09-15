@@ -3,17 +3,20 @@ use crate::RigidFrame;
 use dynamis_abi::{Count, VEHICLE_WHEELS};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{GEOMETRY_INDEX, rows, workgroups};
 use dynamis_state::StateStream;
 
-pub struct Vehicles {
+pub struct Vehicle {
     step: Stage,
+}
+
+pub struct VehicleSweeps {
     sweeps: Stage,
 }
 
-impl Vehicles {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Vehicle {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             step: Stage::build(
                 context,
@@ -40,6 +43,26 @@ impl Vehicles {
                 ],
                 &[],
             ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &RigidFrame,
+    ) {
+        self.step.record_rows(
+            recorder,
+            streams,
+            Count::Vehicles.rows(&frame.params, &frame.rows),
+        );
+    }
+}
+
+impl PassRuntime<RigidFrame> for VehicleSweeps {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        Self {
             sweeps: Stage::build(
                 context,
                 "vehicle sweeps",
@@ -68,22 +91,9 @@ impl Vehicles {
         }
     }
 
-    pub fn record_step(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
-        streams: &impl Resources,
-        frame: &RigidFrame,
-    ) {
-        self.step.record_rows(
-            recorder,
-            streams,
-            Count::Vehicles.rows(&frame.params, &frame.rows),
-        );
-    }
-
-    pub fn record_sweeps(
-        &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

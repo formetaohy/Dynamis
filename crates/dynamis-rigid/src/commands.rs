@@ -6,7 +6,7 @@ use dynamis_abi::{
 };
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::workgroups_of;
 use dynamis_shader::{CORE, rows, workgroups};
 use dynamis_state::StateStream;
@@ -26,8 +26,8 @@ pub struct Commands {
     activity: Stage,
 }
 
-impl Commands {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Commands {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         let reset = dynamis_abi::step_reset_wgsl();
         let reset_fragments = [reset.as_str()];
         Self {
@@ -266,17 +266,9 @@ impl Commands {
         }
     }
 
-    fn reset(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
-        self.reset_counters.record_workgroups(
-            recorder,
-            streams,
-            workgroups_of(COUNTER_STEP_RESET_SLOTS.len() as u32),
-        );
-    }
-
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
@@ -304,10 +296,20 @@ impl Commands {
             Count::Bodies.rows(&frame.params, &frame.rows),
         );
     }
+}
+
+impl Commands {
+    fn reset(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources) {
+        self.reset_counters.record_workgroups(
+            recorder,
+            streams,
+            workgroups_of(COUNTER_STEP_RESET_SLOTS.len() as u32),
+        );
+    }
 
     fn record_moves(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {
@@ -345,7 +347,7 @@ impl Commands {
 
     fn record_edits(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

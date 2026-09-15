@@ -1,7 +1,7 @@
 use crate::capacity::Capacity;
 use crate::{
-    Ccd, CcdPasses, Rigid, RigidCapacity, RigidDemand, RigidFrame, RigidInputs, RigidPasses,
-    RigidResolutionPasses, RigidShape, RigidStreams,
+    CcdPasses, CcdRuntime, RigidCapacity, RigidDemand, RigidFrame, RigidInputs, RigidPasses,
+    RigidResolutionPasses, RigidResolutionRuntime, RigidRuntime, RigidShape, RigidStreams,
 };
 use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_abi::Counters;
@@ -9,20 +9,18 @@ use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, PassGroup, Pipeline};
+use dynamis_pass::{Execution, PassGroup, Pipeline, domain_groups};
 
 pub struct RigidDomain;
 
-pub struct RigidDomainPasses {
-    pub simulation: RigidPasses,
-    pub continuous: CcdPasses,
-    pub resolution: RigidResolutionPasses,
-}
-
-pub struct RigidDomainRuntime {
-    pub simulation: Rigid,
-    pub continuous: Ccd,
-}
+domain_groups!(
+    RigidDomainPasses,
+    RigidDomainRuntime,
+    RigidFrame,
+    simulation: RigidPasses => RigidRuntime,
+    continuous: CcdPasses => CcdRuntime,
+    resolution: RigidResolutionPasses => RigidResolutionRuntime,
+);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidWork {
@@ -37,11 +35,7 @@ impl Domain for RigidDomain {
 
     const SIMULATES: bool = true;
 
-    const PASS_EDGES: dynamis_pass::PassEdges = &[
-        RigidPasses::EDGES,
-        CcdPasses::EDGES,
-        RigidResolutionPasses::EDGES,
-    ];
+    const PASS_EDGES: dynamis_pass::PassEdges = RigidDomainPasses::EDGES;
 
     type Demand = RigidDemand;
     type Inputs = RigidInputs;
@@ -73,19 +67,11 @@ impl Domain for RigidDomain {
     }
 
     fn pass_groups() -> &'static [PassGroup] {
-        &[
-            RigidPasses::GROUP,
-            CcdPasses::GROUP,
-            RigidResolutionPasses::GROUP,
-        ]
+        RigidDomainPasses::GROUPS
     }
 
     fn resolve(pipeline: &Pipeline) -> RigidDomainPasses {
-        RigidDomainPasses {
-            simulation: RigidPasses::resolve(pipeline),
-            continuous: CcdPasses::resolve(pipeline),
-            resolution: RigidResolutionPasses::resolve(pipeline),
-        }
+        RigidDomainPasses::resolve(pipeline)
     }
 
     fn build(
@@ -93,10 +79,7 @@ impl Domain for RigidDomain {
         streams: &impl Resources,
         passes: RigidDomainPasses,
     ) -> RigidDomainRuntime {
-        RigidDomainRuntime {
-            simulation: Rigid::new(context, streams, passes.simulation, passes.resolution),
-            continuous: Ccd::new(context, streams, passes.continuous),
-        }
+        RigidDomainRuntime::build(context, streams, passes)
     }
 
     fn gates(frame: &RigidFrame) -> u16 {
@@ -134,7 +117,6 @@ impl Domain for RigidDomain {
         streams: &impl Resources,
         frame: &RigidFrame,
     ) -> bool {
-        runtime.simulation.record(pass, recorder, streams, frame)
-            || runtime.continuous.record(pass, recorder, streams, frame)
+        runtime.record(pass, recorder, streams, frame)
     }
 }

@@ -3,17 +3,17 @@ use crate::RigidFrame;
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::Resources;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
-use dynamis_pass::Stage;
+use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::GEOMETRY_INDEX;
 use dynamis_shader::workgroups;
 use dynamis_state::StateStream;
 
-pub struct Queries {
+pub struct Query {
     kernel: Stage,
 }
 
-impl Queries {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for Query {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
             kernel: Stage::build(
                 context,
@@ -43,9 +43,9 @@ impl Queries {
         }
     }
 
-    pub fn record(
+    fn record(
         &mut self,
-        recorder: &mut ComputeRecorder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
     ) {

@@ -298,10 +298,68 @@ impl PipelineBuilder {
 }
 
 #[macro_export]
+macro_rules! domain_groups {
+    (
+        $passes:ident, $runtime:ident, $frame:ty,
+        $( $field:ident: $group:ident => $group_runtime:ident ),+ $(,)?
+    ) => {
+        pub struct $passes {
+            $( $field: $group, )+
+        }
+
+        pub struct $runtime {
+            $( $field: $group_runtime, )+
+        }
+
+        impl $passes {
+            pub const EDGES: $crate::PassEdges = &[ $( $group::EDGES, )+ ];
+
+            pub const GROUPS: &'static [$crate::PassGroup] = &[ $( $group::GROUP, )+ ];
+
+            pub fn resolve(pipeline: &$crate::Pipeline) -> Self {
+                Self {
+                    $( $field: $group::resolve(pipeline), )+
+                }
+            }
+        }
+
+        impl $runtime {
+            pub fn build(
+                context: &::dynamis_gpu::GpuContext,
+                streams: &impl ::dynamis_gpu::Resources,
+                passes: $passes,
+            ) -> Self {
+                let $passes { $( $field, )+ } = passes;
+                Self {
+                    $(
+                        $field: $group_runtime::build(context, streams, $field),
+                    )+
+                }
+            }
+
+            pub fn record(
+                &mut self,
+                pass: u32,
+                recorder: &mut ::dynamis_gpu::ComputeRecorder<'_>,
+                streams: &impl ::dynamis_gpu::Resources,
+                frame: &$frame,
+            ) -> bool {
+                $(
+                    if self.$field.record(pass, recorder, streams, frame) {
+                        return true;
+                    }
+                )+
+                false
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! domain_passes {
     (
-        $name:ident,
-        $( $field:ident => $execution:expr => $after:expr ),+ $(,)?
+        $name:ident, $runtime:ident, $frame:ty,
+        $( $field:ident: $pass:ty => $execution:expr => $after:expr ),+ $(,)?
     ) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct $name {
@@ -327,6 +385,47 @@ macro_rules! domain_passes {
                 Self {
                     $( $field: pipeline.index(stringify!($field)), )+
                 }
+            }
+        }
+
+        pub struct $runtime {
+            passes: $name,
+            $( $field: $pass, )+
+        }
+
+        impl $runtime {
+            pub fn build(
+                context: &::dynamis_gpu::GpuContext,
+                streams: &impl ::dynamis_gpu::Resources,
+                passes: $name,
+            ) -> Self {
+                Self {
+                    passes,
+                    $(
+                        $field: <$pass as $crate::PassRuntime<$frame>>::build(context, streams),
+                    )+
+                }
+            }
+
+            pub fn record(
+                &mut self,
+                pass: u32,
+                recorder: &mut ::dynamis_gpu::ComputeRecorder<'_>,
+                streams: &impl ::dynamis_gpu::Resources,
+                frame: &$frame,
+            ) -> bool {
+                $(
+                    if pass == self.passes.$field {
+                        <$pass as $crate::PassRuntime<$frame>>::record(
+                            &mut self.$field,
+                            recorder,
+                            streams,
+                            frame,
+                        );
+                        return true;
+                    }
+                )+
+                false
             }
         }
     };

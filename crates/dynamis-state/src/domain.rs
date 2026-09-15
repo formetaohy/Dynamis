@@ -1,22 +1,14 @@
 use crate::capacity::floor;
-use crate::{StateCapacity, StateDemand, StateInputs, StateStream, StateStreams};
+use crate::passes::{StatePasses, StateRuntime};
+use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, PassGroup, Pipeline, Stage, domain_passes};
+use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct StateDomain;
-
-domain_passes!(
-    StatePasses,
-    consume_streams => Execution::STEP => &["commit"],
-);
-
-pub struct StateRuntime {
-    consume_streams: Stage,
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StateWork {
@@ -65,24 +57,8 @@ impl Domain for StateDomain {
         StatePasses::resolve(pipeline)
     }
 
-    fn build(context: &GpuContext, streams: &impl Resources, _: StatePasses) -> StateRuntime {
-        StateRuntime {
-            consume_streams: Stage::build(
-                context,
-                "consume_streams",
-                dynamis_shader::workgroups(
-                    context,
-                    include_str!("../shaders/consume_streams.wgsl"),
-                    dynamis_shader::CORE,
-                ),
-                streams,
-                &[
-                    ("row_streams", StateStream::RowStreams.whole()),
-                    ("counters", StateStream::Counters.whole()),
-                ],
-                &[],
-            ),
-        }
+    fn build(context: &GpuContext, streams: &impl Resources, passes: StatePasses) -> StateRuntime {
+        StateRuntime::build(context, streams, passes)
     }
 
     fn gates(_: &()) -> u16 {
@@ -97,14 +73,11 @@ impl Domain for StateDomain {
 
     fn record(
         runtime: &mut StateRuntime,
-        _: u32,
+        pass: u32,
         recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         _: &(),
     ) -> bool {
-        runtime
-            .consume_streams
-            .record_workgroups(recorder, streams, 1);
-        true
+        runtime.record(pass, recorder, streams, &())
     }
 }

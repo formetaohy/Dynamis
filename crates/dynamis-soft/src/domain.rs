@@ -1,5 +1,7 @@
 use crate::capacity::floor;
-use crate::{Soft, SoftCapacity, SoftDemand, SoftFrame, SoftInputs, SoftPasses, SoftStreams};
+use crate::{
+    SoftCapacity, SoftDemand, SoftFrame, SoftInputs, SoftPasses, SoftRuntime, SoftStreams,
+};
 use dynamis_abi::COUNTER_SOFT_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
@@ -30,7 +32,7 @@ impl Domain for SoftDomain {
     type Streams = SoftStreams;
     type Planner = ();
     type Passes = SoftPasses;
-    type Runtime = Soft;
+    type Runtime = SoftRuntime;
     type Frame = SoftFrame;
     type Capacity = SoftCapacity;
 
@@ -58,8 +60,8 @@ impl Domain for SoftDomain {
         SoftPasses::resolve(pipeline)
     }
 
-    fn build(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> Soft {
-        Soft::new(context, streams, passes)
+    fn build(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> SoftRuntime {
+        SoftRuntime::build(context, streams, passes)
     }
 
     fn gates(_: &SoftFrame) -> u16 {
@@ -79,7 +81,7 @@ impl Domain for SoftDomain {
     }
 
     fn record(
-        runtime: &mut Soft,
+        runtime: &mut SoftRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,

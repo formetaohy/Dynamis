@@ -9,4 +9,4 @@ pub use order::{
     Run, assert_declared,
 };
 pub use schedule::Schedule;
-pub use stage::{MAX_DISPATCH_WORKGROUPS, Stage};
+pub use stage::{MAX_DISPATCH_WORKGROUPS, PassRuntime, Stage};
