@@ -1,12 +1,43 @@
-use dynamis_abi::{Counters, QueryRecord, QueryResultRecord, StepParamsRecord};
+use dynamis_abi::{
+    Counters, ENTRY_INDEX_MASK, ENTRY_KIND_COLLIDER, ENTRY_KIND_PARTICLE, ENTRY_KIND_SHIFT,
+    QueryRecord, QueryResultRecord, StepParamsRecord,
+};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_domain::streams;
 use dynamis_domain::{Domain, STREAM_FLOOR, StepFacts, settled};
 use dynamis_gpu::{ComputeRecorder, Contents, GpuContext, Resources};
+use dynamis_model::{BodyHandle, SceneTarget, SoftBodyHandle};
 use dynamis_pass::{Execution, PassGroup, PassRuntime, Pipeline, Stage, domain_passes};
 use dynamis_shader::{GEOMETRY_INDEX, workgroups};
 use dynamis_soft::SoftStream;
 use dynamis_state::StateStream;
+
+pub(crate) fn scene_target(
+    packed: u32,
+    id: u32,
+    generation: u32,
+    collider_of: impl Fn(BodyHandle, u32) -> u32,
+    particle_of: impl Fn(SoftBodyHandle, u32) -> u32,
+) -> SceneTarget {
+    let slot = packed & ENTRY_INDEX_MASK;
+    match packed >> ENTRY_KIND_SHIFT {
+        ENTRY_KIND_COLLIDER => {
+            let body = BodyHandle { id, generation };
+            SceneTarget::Collider {
+                body,
+                collider: collider_of(body, slot),
+            }
+        }
+        ENTRY_KIND_PARTICLE => {
+            let body = SoftBodyHandle { id, generation };
+            SceneTarget::Particle {
+                body,
+                particle: particle_of(body, slot),
+            }
+        }
+        kind => panic!("a scene target reports an unknown kind {kind}"),
+    }
+}
 
 streams! {
     SceneStreams, SceneStream, SceneDemand, SceneDomain::ID, demand,

@@ -1,6 +1,7 @@
 use super::World;
+use super::scene::scene_target;
 use dynamis_abi::ContactEventRecord;
-use dynamis_model::{BodyHandle, ContactEvent, ContactEventKind};
+use dynamis_model::{ContactEvent, ContactEventKind};
 
 #[derive(Clone)]
 pub(crate) struct Events {
@@ -34,6 +35,12 @@ impl World {
             records.len() <= count as usize,
             "an event publication must not carry more events than it declared"
         );
+        let bodies = &self.bodies;
+        let pool = &self.colliders;
+        let soft = &self.soft;
+        let collider_of =
+            |body, slot| crate::colliders::local_collider_of(bodies, pool, body, slot);
+        let particle_of = |body, slot| soft.local_particle_of(body, slot);
         let mut fresh = Vec::with_capacity(records.len());
         for record in &records {
             let kind = match record.kind {
@@ -44,14 +51,20 @@ impl World {
             };
             fresh.push(ContactEvent {
                 kind,
-                first: BodyHandle {
-                    id: record.first_id,
-                    generation: record.first_generation,
-                },
-                second: BodyHandle {
-                    id: record.second_id,
-                    generation: record.second_generation,
-                },
+                first: scene_target(
+                    record.first_target,
+                    record.first_id,
+                    record.first_generation,
+                    collider_of,
+                    particle_of,
+                ),
+                second: scene_target(
+                    record.second_target,
+                    record.second_id,
+                    record.second_generation,
+                    collider_of,
+                    particle_of,
+                ),
                 sensor: record.sensor == 1,
                 point: record.point,
                 normal: record.normal,

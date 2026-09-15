@@ -52,6 +52,16 @@ struct RowStreams {
     soft_body_edits: u32,
 }
 
+struct SoftAnnouncement {
+    scene_target: u32,
+    id: u32,
+    generation: u32,
+    step: u32,
+    sensor: u32,
+    announced: u32,
+    _pad0: array<u32, 2>,
+}
+
 struct SoftParticle {
     position: vec4f,
     prev_position: vec4f,
@@ -62,6 +72,7 @@ struct SoftParticle {
     neighbour_count: u32,
     owner: u32,
     generation: u32,
+    announcement: SoftAnnouncement,
 }
 
 struct SoftBody {
@@ -72,7 +83,7 @@ struct SoftBody {
     collision_group: u32,
     collision_mask: u32,
     acceleration: vec3f,
-    _pad0: f32,
+    events: u32,
 }
 
 struct SoftEdit {
@@ -107,6 +118,12 @@ struct SoftElement {
     plastic_flow: f32,
 }
 
+struct SoftFact {
+    scene_target: u32,
+    id: u32,
+    generation: u32,
+}
+
 struct SoftContact {
     normal: vec3f,
     depth: f32,
@@ -116,6 +133,8 @@ struct SoftContact {
     group: u32,
     kind: u32,
     partner_inverse_mass: f32,
+    contact: SoftFact,
+    sensor: SoftFact,
 }
 
 struct BodyState {
@@ -440,16 +459,19 @@ struct QueryResult {
 }
 
 struct ContactEvent {
-    kind: u32,
-    sensor: u32,
-    first_id: u32,
-    first_generation: u32,
-    second_id: u32,
-    second_generation: u32,
     point: vec3f,
     _pad0: f32,
     normal: vec3f,
     _pad1: f32,
+    kind: u32,
+    sensor: u32,
+    first_target: u32,
+    first_id: u32,
+    first_generation: u32,
+    second_target: u32,
+    second_id: u32,
+    second_generation: u32,
+    _pad2: u32,
 }
 
 struct ImpactEvent {

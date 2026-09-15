@@ -6,17 +6,21 @@ use dynamis_abi::{
     CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
     ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
     EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
-    ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, FILTER_IGNORE_KINEMATIC,
-    FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT,
-    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID,
-    QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES,
-    QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord, SHAPE_CAPSULE, SHAPE_CUBOID,
-    SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE,
-    SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE, SoftBodyEditRecord, SoftElementInit,
-    SoftElementRecord, SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord,
-    TriangleRecord, dof_driven, dof_limited, dof_locked,
+    ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST,
+    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
+    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
+    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS,
+    QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
+    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
+    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
+    SoftAnnouncementRecord, SoftBodyEditRecord, SoftElementInit, SoftElementRecord,
+    SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord, TriangleRecord,
+    dof_driven, dof_limited, dof_locked, event_flags,
 };
-use dynamis_abi::{Census, ContactRecord, Count, QueryHitRecord};
+use dynamis_abi::{
+    Census, ContactEventRecord, ContactRecord, Count, QueryHitRecord, SoftContactRecord,
+    SoftFactRecord,
+};
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
     MassProperties, PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind,
@@ -190,9 +194,11 @@ fn the_step_reset_names_every_counter_it_clears_once() {
     let slots = dynamis_abi::COUNTER_STEP_RESET_SLOTS;
     assert!(slots.contains(&(dynamis_abi::COUNTER_IMPACTS as u32)));
     assert!(slots.contains(&(dynamis_abi::COUNTER_REFUSED_IMPACTS as u32)));
+    assert!(slots.contains(&(dynamis_abi::COUNTER_SOFT_EVENTS as u32)));
+    assert!(slots.contains(&(dynamis_abi::COUNTER_REFUSED_SOFT_EVENTS as u32)));
     assert!(!slots.contains(&(dynamis_abi::COUNTER_STEP as u32)));
     let source = dynamis_abi::step_reset_wgsl();
-    assert!(source.contains("const STEP_RESET_COUNT: u32 = 29u;"));
+    assert!(source.contains(&format!("const STEP_RESET_COUNT: u32 = {}u;", slots.len())));
     for slot in slots {
         assert!(
             source.contains(&format!("{slot}u,")),
@@ -687,6 +693,35 @@ fn step_rows_mirror_the_host_stream_counts() {
         ),
         (0, 0, 0, 0, 0)
     );
+}
+
+#[test]
+fn contact_event_addresses_a_pair_of_scene_targets() {
+    assert_eq!(offset_of!(ContactEventRecord, point), 0);
+    assert_eq!(offset_of!(ContactEventRecord, first_target), 40);
+    assert_eq!(offset_of!(ContactEventRecord, second_generation), 60);
+    assert_eq!(size_of::<ContactEventRecord>(), 80);
+    assert_eq!(offset_of!(SoftAnnouncementRecord, announced), 20);
+    assert_eq!(size_of::<SoftAnnouncementRecord>(), 32);
+    assert_eq!(offset_of!(SoftContactRecord, contact), 48);
+    assert_eq!(offset_of!(SoftContactRecord, sensor), 60);
+    assert_eq!(size_of::<SoftContactRecord>(), 80);
+    assert_eq!(size_of::<SoftFactRecord>(), 12);
+    let cleared = SoftAnnouncementRecord::cleared();
+    assert_eq!(cleared.announced, 0);
+    assert!(!cleared.holds(7, 3, 1));
+    let mut announced = cleared;
+    announced.scene_target = 7;
+    announced.id = 3;
+    announced.generation = 1;
+    announced.announced = 1;
+    assert!(announced.holds(7, 3, 1));
+    assert!(!announced.holds(7, 3, 2));
+    assert_eq!(
+        event_flags(dynamis_model::ContactEventMode::Persist),
+        EVENT_MODE_BEGIN_END | EVENT_MODE_PERSIST
+    );
+    assert_eq!(event_flags(dynamis_model::ContactEventMode::None), 0);
 }
 
 #[test]

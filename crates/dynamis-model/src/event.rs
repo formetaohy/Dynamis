@@ -8,8 +8,8 @@ pub enum ContactEventKind {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContactEvent {
     pub kind: ContactEventKind,
-    pub first: crate::body::BodyHandle,
-    pub second: crate::body::BodyHandle,
+    pub first: crate::scene::SceneTarget,
+    pub second: crate::scene::SceneTarget,
     pub sensor: bool,
     pub point: [f32; 3],
     pub normal: [f32; 3],

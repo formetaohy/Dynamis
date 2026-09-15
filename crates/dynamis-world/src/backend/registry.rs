@@ -50,7 +50,7 @@ impl Plan {
             release,
         );
         let state = dynamis_state::plan(&live.state, &streams.state, release);
-        let soft = dynamis_soft::plan(&live.soft, &streams.soft, release);
+        let soft = dynamis_soft::plan(measured, &live.soft, &streams.soft, release);
         let scene = crate::scene::plan(&live.scene, &streams.scene, release);
         Self {
             state,
@@ -191,6 +191,7 @@ impl World {
                 edits: census.pending_soft_edits,
                 body_edits: census.pending_soft_body_edits,
                 material: self.soft.carries_strength(),
+                events: self.soft.carries_events(),
             },
             scene: crate::scene::SceneInputs {
                 queries: census.queries,

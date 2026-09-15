@@ -1,8 +1,8 @@
 use crate::ColliderRecord;
 use crate::constant::{
-    COLLIDER_EVENT_BEGIN_END, COLLIDER_EVENT_PERSIST, COLLIDER_SENSOR, NO_COLLISION_FILTER,
-    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE,
+    COLLIDER_SENSOR, EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST, NO_COLLISION_FILTER, SHAPE_CAPSULE,
+    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE,
+    SHAPE_PLANE, SHAPE_SPHERE,
 };
 use dynamis_model::{ColliderDesc, CollisionFilter, ContactEventMode, Shape};
 
@@ -37,9 +37,9 @@ impl ColliderRecord {
         let mut flags = if collider.sensor { COLLIDER_SENSOR } else { 0 };
         match collider.events {
             ContactEventMode::None => {}
-            ContactEventMode::BeginEnd => flags |= COLLIDER_EVENT_BEGIN_END,
+            ContactEventMode::BeginEnd => flags |= EVENT_MODE_BEGIN_END,
             ContactEventMode::Persist => {
-                flags |= COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST;
+                flags |= EVENT_MODE_BEGIN_END | EVENT_MODE_PERSIST;
             }
         }
         Self {

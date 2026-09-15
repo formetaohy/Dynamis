@@ -761,7 +761,7 @@ fn work(index: u32) {
     contact.restitution = material_combine(first_surface.restitution, second_surface.restitution, params.restitution_combine);
     contact.rolling_friction = max(first_surface.rolling_friction, second_surface.rolling_friction);
     contact.spin_friction = max(first_surface.spin_friction, second_surface.spin_friction);
-    contact.events = (first_collider.flags & second_collider.flags) & (COLLIDER_EVENT_BEGIN_END | COLLIDER_EVENT_PERSIST);
+    contact.events = (first_collider.flags & second_collider.flags) & (EVENT_MODE_BEGIN_END | EVENT_MODE_PERSIST);
     if (contact.point_count > 0u) {
         manifold_anchor(&contact, first, second);
         contacts_raw[index] = contact;

@@ -1,5 +1,7 @@
 use super::streams::{SoftDemand, SoftStreams};
+use dynamis_abi::{COUNTER_SOFT_EVENTS, Counters};
 use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, settled};
+use dynamis_gpu::SEGMENT_COUNT;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SoftCapacity {
@@ -10,6 +12,7 @@ pub struct SoftCapacity {
     pub bodies: u32,
     pub edits: u32,
     pub body_edits: u32,
+    pub events: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -22,6 +25,7 @@ pub struct SoftInputs {
     pub edits: u32,
     pub body_edits: u32,
     pub material: bool,
+    pub events: bool,
 }
 
 pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
@@ -33,10 +37,16 @@ pub fn capacity(streams: &SoftStreams) -> SoftCapacity {
         bodies: streams.bodies.slots(),
         edits: streams.edits.slots(),
         body_edits: streams.body_edits.slots(),
+        events: streams.events.slots() / SEGMENT_COUNT,
     }
 }
 
-pub fn plan(inputs: &SoftInputs, current: &SoftStreams, release: bool) -> SoftDemand {
+pub fn plan(
+    measured: &Counters,
+    inputs: &SoftInputs,
+    current: &SoftStreams,
+    release: bool,
+) -> SoftDemand {
     SoftDemand {
         particles: settled(
             current.particles.slots(),
@@ -70,6 +80,16 @@ pub fn plan(inputs: &SoftInputs, current: &SoftStreams, release: bool) -> SoftDe
             MIN_SLOTS,
             release,
         ),
+        events: settled(
+            current.events.slots() / SEGMENT_COUNT,
+            if inputs.events {
+                measured[COUNTER_SOFT_EVENTS].max(inputs.particles)
+            } else {
+                0
+            },
+            STREAM_FLOOR,
+            release,
+        ),
     }
 }
 
@@ -82,5 +102,6 @@ pub const fn floor() -> SoftDemand {
         soft_bodies: MIN_SLOTS,
         edits: MIN_SLOTS,
         body_edits: MIN_SLOTS,
+        events: STREAM_FLOOR,
     }
 }

@@ -50,7 +50,7 @@ fn work(index: u32) {
                     relayed.events = relayed.events | CONTACT_ANNOUNCED;
                     if (contact_carries_over(held, current)) {
                         if (contact_touches(current, params.slop)) {
-                            announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, current);
+                            announce(EVENT_MODE_PERSIST, EVENT_PERSIST, current);
                         }
                         relayed = contact_carried(contact_relay_impulses(current, held));
                         relayed.events = relayed.events | CONTACT_ANNOUNCED;
@@ -61,7 +61,7 @@ fn work(index: u32) {
             }
         }
     }
-    if ((held.events & COLLIDER_EVENT_BEGIN_END) == 0u) {
+    if ((held.events & EVENT_MODE_BEGIN_END) == 0u) {
         return;
     }
     if (first_row != NO_BODY && second_row != NO_BODY
@@ -70,7 +70,7 @@ fn work(index: u32) {
         return;
     }
     if ((held.events & CONTACT_ANNOUNCED) != 0u) {
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, held);
+        announce(EVENT_MODE_BEGIN_END, EVENT_END, held);
     }
 }
 

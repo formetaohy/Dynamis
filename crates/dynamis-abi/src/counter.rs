@@ -37,10 +37,12 @@ pub mod device {
         pub const COUNTER_STEP: usize = 32;
         pub const COUNTER_IMPACTS: usize = 33;
         pub const COUNTER_REFUSED_IMPACTS: usize = 34;
-        pub const COUNTER_DEVICE_COUNT: usize = 35;
+        pub const COUNTER_SOFT_EVENTS: usize = 35;
+        pub const COUNTER_REFUSED_SOFT_EVENTS: usize = 36;
+        pub const COUNTER_DEVICE_COUNT: usize = 37;
     }
 
-    pub const STEP_RESET: [u32; 29] = [
+    pub const STEP_RESET: [u32; 31] = [
         COUNTER_ENTRIES as u32,
         COUNTER_PAIRS as u32,
         COUNTER_GRID_LEVELS as u32,
@@ -70,6 +72,8 @@ pub mod device {
         COUNTER_SOFT_WOKE as u32,
         COUNTER_IMPACTS as u32,
         COUNTER_BREAKS as u32,
+        COUNTER_SOFT_EVENTS as u32,
+        COUNTER_REFUSED_SOFT_EVENTS as u32,
     ];
 
     const _: () = {

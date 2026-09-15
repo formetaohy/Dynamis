@@ -2,12 +2,16 @@ fn announce(flag: u32, kind: u32, contact: Contact) {
     if ((contact.events & flag) == 0u) {
         return;
     }
-    let slot = atomicAdd(&event_count[0], 1u);
-    let segment = arrayLength(&events) / SEGMENT_COUNT;
-    let base = step_segment() * segment;
-    if (slot < segment) {
-        events[base + slot] = ContactEvent(kind, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, contact.points[0].position, 0.0, contact.normal, 0.0);
-    } else {
-        atomicAdd(&spillover[0], 1u);
-    }
+    emit_contact_fact(
+        kind,
+        contact.sensor,
+        scene_target_of(ENTRY_KIND_COLLIDER, contact.a),
+        contact.first_body_id,
+        contact.first_generation,
+        scene_target_of(ENTRY_KIND_COLLIDER, contact.b),
+        contact.second_body_id,
+        contact.second_generation,
+        contact.points[0].position,
+        contact.normal,
+    );
 }

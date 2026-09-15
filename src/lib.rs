@@ -31,6 +31,6 @@ pub use dynamis_model::{
     SurfaceTable, VehicleDesc, VehicleHandle, VehicleInput, VehicleState, WheelDesc,
 };
 pub use dynamis_world::{
-    ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, QueryTarget, RigidShape,
+    ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, RigidShape, SceneTarget,
     ShapeCapacity, Snapshot, SoftCapacity, StreamCapacity, World,
 };

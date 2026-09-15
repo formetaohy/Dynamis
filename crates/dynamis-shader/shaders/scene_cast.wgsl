@@ -74,7 +74,7 @@ fn scene_target(entry: u32) -> u32 {
     if (kind != ENTRY_KIND_COLLIDER && kind != ENTRY_KIND_PARTICLE) {
         return NO_SLOT;
     }
-    return (kind << ENTRY_KIND_SHIFT) | entry_index(info);
+    return scene_target_of(kind, entry_index(info));
 }
 
 fn candidate_kind(candidate: u32) -> u32 {

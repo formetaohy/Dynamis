@@ -1,21 +1,23 @@
 use super::registry::Streams;
-use dynamis_abi::{COUNTER_BREAKS, COUNTER_EVENTS, COUNTER_IMPACTS, Counters};
+use dynamis_abi::{COUNTER_BREAKS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_SOFT_EVENTS, Counters};
 use dynamis_gpu::{SEGMENT_COUNT, Segments as SegmentRing, Stream, SubmissionEncoder};
 use wgpu::{BufferAddress, Device};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SegmentKind {
     Events,
+    SoftEvents,
     Impacts,
     Breaks,
 }
 
 impl SegmentKind {
-    pub(crate) const ALL: [Self; 3] = [Self::Events, Self::Impacts, Self::Breaks];
+    pub(crate) const ALL: [Self; 4] = [Self::Events, Self::SoftEvents, Self::Impacts, Self::Breaks];
 
     const fn label(self) -> &'static str {
         match self {
             Self::Events => "contact event segments",
+            Self::SoftEvents => "soft contact event segments",
             Self::Impacts => "impact segments",
             Self::Breaks => "constraint break segments",
         }
@@ -24,6 +26,7 @@ impl SegmentKind {
     fn count(self, measured: &Counters) -> u32 {
         match self {
             Self::Events => measured[COUNTER_EVENTS],
+            Self::SoftEvents => measured[COUNTER_SOFT_EVENTS],
             Self::Impacts => measured[COUNTER_IMPACTS],
             Self::Breaks => measured[COUNTER_BREAKS],
         }
@@ -32,6 +35,7 @@ impl SegmentKind {
     fn source(self, streams: &Streams) -> &Stream {
         match self {
             Self::Events => &streams.rigid.events,
+            Self::SoftEvents => &streams.soft.events,
             Self::Impacts => &streams.rigid.impacts,
             Self::Breaks => &streams.state.constraint_breaks,
         }

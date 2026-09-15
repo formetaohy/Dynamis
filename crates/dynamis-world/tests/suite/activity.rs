@@ -391,8 +391,8 @@ fn an_impact_revives_a_resting_pair_without_a_new_begin() {
 
     let faller = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     let rests_on_ground = |event: &dynamis_model::ContactEvent| {
-        [event.first, event.second].contains(&sleeper)
-            && [event.first, event.second].contains(&ground)
+        (event.first.is_body(sleeper) || event.second.is_body(sleeper))
+            && (event.first.is_body(ground) || event.second.is_body(ground))
     };
     let mut disturbed = 0;
     let mut impacts = 0;
@@ -400,7 +400,7 @@ fn an_impact_revives_a_resting_pair_without_a_new_begin() {
         world.step(DT);
         world.wait();
         for event in world.drain_events() {
-            let touches_faller = [event.first, event.second].contains(&faller);
+            let touches_faller = event.first.is_body(faller) || event.second.is_body(faller);
             match event.kind {
                 ContactEventKind::Begin if rests_on_ground(&event) => disturbed += 1,
                 ContactEventKind::End if rests_on_ground(&event) => disturbed += 1,

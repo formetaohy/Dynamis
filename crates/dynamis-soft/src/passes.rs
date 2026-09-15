@@ -1,5 +1,7 @@
 use crate::streams::SoftStream;
-use dynamis_abi::{Count, RowStreams, StepParamsRecord};
+use dynamis_abi::{
+    COUNTER_REFUSED_SOFT_EVENTS, COUNTER_SOFT_EVENTS, Count, RowStreams, StepParamsRecord,
+};
 use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
@@ -37,6 +39,10 @@ fn particle_collide_index() -> Vec<&'static str> {
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments.extend_from_slice(SOFT_FILTER);
     fragments
+}
+
+fn particle_fact_index() -> Vec<&'static str> {
+    vec![dynamis_shader::COUNTER_ACCESS, dynamis_shader::CONTACT_FACT]
 }
 
 fn particle_wake_index() -> Vec<&'static str> {
@@ -596,6 +602,55 @@ impl PassRuntime<SoftFrame> for SoftSubsteps {
     }
 }
 
+pub struct ContactFacts {
+    announce: Stage,
+}
+
+impl PassRuntime<SoftFrame> for ContactFacts {
+    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+        let particles = SoftStream::Particles.whole();
+        let bodies = SoftStream::BodyStates.whole();
+        Self {
+            announce: Stage::build(
+                context,
+                "soft_contact_facts",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_contact_facts.wgsl"),
+                    &particle_fact_index(),
+                    Count::Particles.bound(),
+                ),
+                streams,
+                &[
+                    ("contacts", SoftStream::Contacts.whole()),
+                    ("bodies", bodies),
+                    ("colliders", StateStream::Colliders.whole()),
+                    ("particles", particles),
+                    ("events", SoftStream::Events.whole()),
+                    ("event_count", dynamis_state::counter(COUNTER_SOFT_EVENTS)),
+                    (
+                        "spillover",
+                        dynamis_state::counter(COUNTER_REFUSED_SOFT_EVENTS),
+                    ),
+                    ("counters", StateStream::Counters.whole()),
+                    ("params", StateStream::Params.whole()),
+                ],
+                &[],
+            ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl Resources,
+        frame: &SoftFrame,
+    ) {
+        self.announce
+            .record_rows(recorder, streams, frame.particles());
+    }
+}
+
 domain_passes!(
     SoftPasses,
     SoftRuntime,
@@ -605,4 +660,5 @@ domain_passes!(
     soft_inputs: SoftInputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
     soft_settle: SoftSettle => Execution::AWAKE => &["soft_inputs"],
     soft_substeps: SoftSubsteps => Execution::AWAKE => &["soft_settle"],
+    contact_facts: ContactFacts => Execution::AWAKE => &["soft_substeps"],
 );

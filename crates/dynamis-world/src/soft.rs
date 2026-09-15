@@ -10,7 +10,8 @@ use dynamis_abi::{
 };
 use dynamis_model::math::{add, mul, quat_rotate};
 use dynamis_model::{
-    BodyHandle, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState, SoftParticleState,
+    BodyHandle, ContactEventMode, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState,
+    SoftParticleState,
 };
 use dynamis_soft::SoftStreams;
 
@@ -53,6 +54,7 @@ pub(crate) struct SoftBodies {
     index_of: Vec<u32>,
     runs: Vec<SoftRuns>,
     masses: Vec<f32>,
+    events: Vec<ContactEventMode>,
     created: Vec<(u32, SoftBodyRecord)>,
     body_commands: EditJournal<u32, SoftBodyCommand>,
     commands: EditJournal<u32, SoftCommand>,
@@ -90,6 +92,7 @@ impl SoftBodies {
             index_of: Vec::new(),
             runs: Vec::new(),
             masses: Vec::new(),
+            events: Vec::new(),
             created: Vec::new(),
             body_commands: EditJournal::new(),
             commands: EditJournal::new(),
@@ -116,6 +119,12 @@ impl SoftBodies {
         self.alive
             .iter()
             .any(|handle| self.runs[handle.id as usize].strength)
+    }
+
+    pub(crate) fn carries_events(&self) -> bool {
+        self.alive
+            .iter()
+            .any(|handle| !matches!(self.events[handle.id as usize], ContactEventMode::None))
     }
 
     pub(crate) fn bodies(&self) -> &[SoftBodyHandle] {
@@ -314,6 +323,7 @@ impl SoftBodies {
         self.index_of.resize(id as usize + 1, u32::MAX);
         self.runs.resize(id as usize + 1, SoftRuns::EMPTY);
         self.masses.resize(id as usize + 1, 0.0);
+        self.events.resize(id as usize + 1, ContactEventMode::None);
     }
 
     fn hold_attachment(&mut self, body: BodyHandle) {
@@ -336,7 +346,9 @@ impl SoftBodies {
     pub(crate) fn spawn(&mut self, desc: &SoftBodyDesc) -> SoftBodyHandle {
         let (id, generation) = self.ids.acquire();
         self.grow_to(id);
-        self.created.push((id, SoftBodyRecord::awake(desc.filter)));
+        self.events[id as usize] = desc.events;
+        self.created
+            .push((id, SoftBodyRecord::awake(desc.filter, desc.events)));
         self.masses[id as usize] = desc
             .inverse_masses
             .iter()
@@ -430,6 +442,7 @@ impl SoftBodies {
         self.attachments.retire(runs.attachments);
         self.adjacency.retire(runs.adjacency);
         self.runs[id] = SoftRuns::EMPTY;
+        self.events[id] = ContactEventMode::None;
         let slot = self.index_of[id] as usize;
         self.alive.swap_remove(slot);
         if slot < self.alive.len() {

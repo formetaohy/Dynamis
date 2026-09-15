@@ -50,7 +50,7 @@ fn work(index: u32) {
     if (first_row == NO_BODY || second_row == NO_BODY) {
         release(index);
         if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
-            announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+            announce(EVENT_MODE_BEGIN_END, EVENT_END, contact);
         }
         return;
     }
@@ -62,7 +62,7 @@ fn work(index: u32) {
         return;
     }
     if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_END, contact);
+        announce(EVENT_MODE_BEGIN_END, EVENT_END, contact);
     }
 }
 

@@ -27,10 +27,16 @@ const JOINED_PAIRS_FRAGMENT: &str = include_str!("../shaders/joined_pairs.wgsl")
 const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
-const CONTACT: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT, EVENTS_FRAGMENT];
+const CONTACT: &[&str] = &[
+    COUNTERS_FRAGMENT,
+    dynamis_shader::CONTACT_FACT,
+    IDENTITY_FRAGMENT,
+    EVENTS_FRAGMENT,
+];
 const CONTACT_COUNTERS: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT];
 const CONTACT_ROW: &[&str] = &[
     COUNTERS_FRAGMENT,
+    dynamis_shader::CONTACT_FACT,
     IDENTITY_FRAGMENT,
     EVENTS_FRAGMENT,
     BODY_ROW_FRAGMENT,
@@ -113,7 +119,7 @@ domain_passes!(
     live: Live => Execution::AWAKE => &["wake"],
     solver_prepare: SolverPrepare => Execution::AWAKE => &["live"],
     substeps: Substeps => Execution::AWAKE => &["solver_prepare"],
-    reactions: Reactions => Execution::AWAKE => &["soft_substeps"],
+    reactions: Reactions => Execution::AWAKE => &["soft_substeps", "contact_facts"],
 );
 
 domain_passes!(

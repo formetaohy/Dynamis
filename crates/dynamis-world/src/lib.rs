@@ -44,11 +44,12 @@ use soft::SoftBodies;
 use vehicle::Vehicles;
 
 pub use backend::StreamCapacity;
+pub use dynamis_model::SceneTarget;
 pub use dynamis_rigid::RigidShape;
 pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::{ShapeCapacity, StateCapacity};
 pub use observation::Observation;
-pub use query_pool::{QueryHandle, QueryHit, QueryState, QueryTarget};
+pub use query_pool::{QueryHandle, QueryHit, QueryState};
 pub use readback::{ConstraintForce, ContactManifold, ContactPoint};
 pub use scene::SceneCapacity;
 pub use snapshot::Snapshot;

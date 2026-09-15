@@ -192,7 +192,9 @@ impl World {
     pub(crate) fn consume_segments(&mut self, arrivals: Vec<Arrival>) {
         for arrival in arrivals {
             match arrival.kind {
-                SegmentKind::Events => self.consume_events(arrival.count, &arrival.bytes),
+                SegmentKind::Events | SegmentKind::SoftEvents => {
+                    self.consume_events(arrival.count, &arrival.bytes)
+                }
                 SegmentKind::Impacts => {
                     self.consume_impacts(arrival.step, arrival.count, &arrival.bytes)
                 }

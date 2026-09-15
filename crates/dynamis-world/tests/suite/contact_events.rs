@@ -57,8 +57,8 @@ fn persist_mode_emits_per_frame_touch() {
             match event.kind {
                 ContactEventKind::Begin => began = true,
                 ContactEventKind::Persist => {
-                    assert!(event.first == ground || event.second == ground);
-                    assert!(event.first == ball || event.second == ball);
+                    assert!(event.first.is_body(ground) || event.second.is_body(ground));
+                    assert!(event.first.is_body(ball) || event.second.is_body(ball));
                     persist_count += 1;
                 }
                 ContactEventKind::End => {}
@@ -117,10 +117,10 @@ fn a_widening_step_keeps_only_real_events() {
     );
     for event in events {
         assert!(
-            event.first == ground
-                || event.first == ball
-                || event.second == ground
-                || event.second == ball,
+            event.first.is_body(ground)
+                || event.first.is_body(ball)
+                || event.second.is_body(ground)
+                || event.second.is_body(ball),
             "a widening step must not invent events, got {event:?}"
         );
     }

@@ -8,6 +8,8 @@
 @group(0) @binding(11) var<storage, read_write> contacts: array<SoftContact>;
 @group(0) @binding(12) var<storage, read> bodies: array<SoftBody>;
 
+const UNREACHED: f32 = 3.402823466e38;
+
 struct ParticleContact {
     separation: f32,
     normal: vec3f,
@@ -15,19 +17,33 @@ struct ParticleContact {
     kind: u32,
     partner: u32,
     group: u32,
+    id: u32,
+    generation: u32,
     friction: f32,
+    sensor: u32,
 }
 
 fn no_contact() -> ParticleContact {
     var contact: ParticleContact;
-    contact.separation = 3.402823466e38;
+    contact.separation = UNREACHED;
     contact.normal = vec3f(0.0, 1.0, 0.0);
     contact.point = vec3f(0.0);
     contact.kind = ENTRY_KIND_COLLIDER;
     contact.partner = NO_SLOT;
     contact.group = NO_BODY;
+    contact.id = NO_BODY;
+    contact.generation = 0u;
     contact.friction = 0.0;
+    contact.sensor = 0u;
     return contact;
+}
+
+fn contacts_partner(contact: ParticleContact) -> bool {
+    return contact.partner != NO_SLOT;
+}
+
+fn contact_touches(contact: ParticleContact) -> bool {
+    return contacts_partner(contact) && contact.separation < 0.0;
 }
 
 fn sphere_probe(center: vec3f, radius: f32) -> WorldShape {
@@ -107,7 +123,9 @@ fn visit_entry(
     radius: f32,
     self_index: u32,
     self_owner: u32,
-    held: ptr<function, ParticleContact>,
+    solid: ptr<function, ParticleContact>,
+    contact: ptr<function, ParticleContact>,
+    sensor: ptr<function, ParticleContact>,
 ) {
     if (!aabb_overlaps(entry_box(node), box)) {
         return;
@@ -118,7 +136,7 @@ fn visit_entry(
     let info = entries[node].info;
     if (entry_kind(info) == ENTRY_KIND_COLLIDER) {
         let collider = colliders[entry_index(info)];
-        if (collider.kind == SHAPE_NONE || (collider.flags & COLLIDER_SENSOR) != 0u) {
+        if (collider.kind == SHAPE_NONE) {
             return;
         }
         let body_slot = entry_group(node);
@@ -126,13 +144,25 @@ fn visit_entry(
             return;
         }
         var triangle = NO_TRIANGLE;
-        var contact = particle_contact(world_collider(body_states[entry_group(node)], collider), center, radius, &triangle);
-        contact.kind = ENTRY_KIND_COLLIDER;
-        contact.partner = entry_index(info);
-        contact.group = entry_group(node);
-        contact.friction = surface_material(collider, triangle).friction;
-        if (contact_precedes(contact, *held)) {
-            *held = contact;
+        var probe = particle_contact(world_collider(body_states[body_slot], collider), center, radius, &triangle);
+        probe.kind = ENTRY_KIND_COLLIDER;
+        probe.partner = entry_index(info);
+        probe.group = body_slot;
+        probe.id = body_states[body_slot].body_id;
+        probe.generation = body_states[body_slot].generation;
+        probe.friction = surface_material(collider, triangle).friction;
+        probe.sensor = select(0u, 1u, (collider.flags & COLLIDER_SENSOR) != 0u);
+        if (probe.sensor != 0u) {
+            if (contact_precedes(probe, *sensor)) {
+                *sensor = probe;
+            }
+            return;
+        }
+        if (contact_precedes(probe, *solid)) {
+            *solid = probe;
+        }
+        if (contact_precedes(probe, *contact)) {
+            *contact = probe;
         }
         return;
     }
@@ -156,16 +186,21 @@ fn visit_entry(
     if (separation >= 0.0) {
         return;
     }
-    var contact = no_contact();
-    contact.separation = separation;
-    contact.normal = sign_normalize(delta);
-    contact.point = center + contact.normal * (radius - separation * 0.5);
-    contact.kind = ENTRY_KIND_PARTICLE;
-    contact.partner = other_index;
-    contact.group = other.owner;
-    contact.friction = other.velocity.w;
-    if (contact_precedes(contact, *held)) {
-        *held = contact;
+    var probe = no_contact();
+    probe.separation = separation;
+    probe.normal = sign_normalize(delta);
+    probe.point = center + probe.normal * (radius - separation * 0.5);
+    probe.kind = ENTRY_KIND_PARTICLE;
+    probe.partner = other_index;
+    probe.group = other.owner;
+    probe.id = other.owner;
+    probe.generation = other.generation;
+    probe.friction = other.velocity.w;
+    if (contact_precedes(probe, *solid)) {
+        *solid = probe;
+    }
+    if (other.owner != self_owner && contact_precedes(probe, *contact)) {
+        *contact = probe;
     }
 }
 
@@ -175,7 +210,9 @@ fn scan_neighbours(
     radius: f32,
     self_index: u32,
     self_owner: u32,
-    held: ptr<function, ParticleContact>,
+    solid: ptr<function, ParticleContact>,
+    contact: ptr<function, ParticleContact>,
+    sensor: ptr<function, ParticleContact>,
 ) {
     let slices = grid_slices(box);
     for (var index = 0u; index < slices; index = index + 1u) {
@@ -189,10 +226,28 @@ fn scan_neighbours(
                 radius,
                 self_index,
                 self_owner,
-                held,
+                solid,
+                contact,
+                sensor,
             );
         }
     }
+}
+
+fn no_fact() -> SoftFact {
+    var fact: SoftFact;
+    fact.scene_target = NO_SLOT;
+    fact.id = NO_BODY;
+    fact.generation = 0u;
+    return fact;
+}
+
+fn fact_of(contact: ParticleContact) -> SoftFact {
+    var fact = no_fact();
+    fact.scene_target = scene_target_of(contact.kind, contact.partner);
+    fact.id = contact.id;
+    fact.generation = contact.generation;
+    return fact;
 }
 
 fn no_contact_record() -> SoftContact {
@@ -205,6 +260,8 @@ fn no_contact_record() -> SoftContact {
     record.group = NO_BODY;
     record.kind = ENTRY_KIND_PARTICLE;
     record.partner_inverse_mass = 0.0;
+    record.contact = no_fact();
+    record.sensor = no_fact();
     return record;
 }
 
@@ -216,7 +273,9 @@ fn work(index: u32) {
     }
     let radius = particle.position.w;
     let center = particle.position.xyz;
-    var held = no_contact();
+    var solid = no_contact();
+    var contact = no_contact();
+    var sensor = no_contact();
     if (radius > 0.0) {
         let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
         scan_neighbours(
@@ -225,21 +284,29 @@ fn work(index: u32) {
             radius,
             index,
             particle.owner,
-            &held,
+            &solid,
+            &contact,
+            &sensor,
         );
     }
     var record = no_contact_record();
-    if (held.partner != NO_SLOT && held.separation < 0.0) {
-        record.normal = held.normal;
-        record.depth = -held.separation;
-        record.point = held.point;
-        record.friction = max(held.friction, 0.0);
-        record.partner = held.partner;
-        record.group = held.group;
-        record.kind = held.kind;
-        if (held.kind == ENTRY_KIND_PARTICLE) {
-            record.partner_inverse_mass = particles[held.partner].prev_position.w;
+    if (contact_touches(solid)) {
+        record.normal = solid.normal;
+        record.depth = -solid.separation;
+        record.point = solid.point;
+        record.friction = max(solid.friction, 0.0);
+        record.partner = solid.partner;
+        record.group = solid.group;
+        record.kind = solid.kind;
+        if (solid.kind == ENTRY_KIND_PARTICLE) {
+            record.partner_inverse_mass = particles[solid.partner].prev_position.w;
         }
+    }
+    if (contact_touches(contact)) {
+        record.contact = fact_of(contact);
+    }
+    if (contact_touches(sensor)) {
+        record.sensor = fact_of(sensor);
     }
     contacts[index] = record;
 }

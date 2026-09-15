@@ -9,6 +9,7 @@ mod impact;
 mod mass;
 pub mod math;
 mod query;
+mod scene;
 mod shape;
 mod soft;
 mod surface;
@@ -30,6 +31,7 @@ pub use mass::{
     shape_solid, solid_volume_of,
 };
 pub use query::{QueryFilter, QueryTargets};
+pub use scene::SceneTarget;
 pub use shape::{Shape, ShapeSourceHandle, SolidGeometry};
 pub use soft::{
     FluidMaterial, SoftAttachment, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind,

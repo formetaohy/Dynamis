@@ -22,6 +22,7 @@ const STEP: &[&str] = &[
     "soft_inputs",
     "soft_settle",
     "soft_substeps",
+    "contact_facts",
     "reactions",
     "sleep",
     "commit",

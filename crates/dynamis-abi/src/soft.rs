@@ -1,13 +1,17 @@
+use crate::SoftAnnouncementRecord;
 use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
     ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT, SOFT_BODY_EDIT_ACCELERATION,
     SOFT_BODY_EDIT_WAKE, SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
 };
+use crate::event::event_flags;
 use crate::{
     SoftAttachmentRecord, SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementRecord,
     SoftParticleRecord,
 };
-use dynamis_model::{CollisionFilter, SoftElement, SoftElementKind, SoftElementState};
+use dynamis_model::{
+    CollisionFilter, ContactEventMode, SoftElement, SoftElementKind, SoftElementState,
+};
 
 pub struct SoftParticleInit {
     pub position: [f32; 3],
@@ -51,6 +55,7 @@ impl SoftParticleRecord {
             neighbour_count: init.neighbour_count,
             owner: init.owner,
             generation: init.generation,
+            announcement: SoftAnnouncementRecord::cleared(),
             _wgsl_pad0: [0; 8],
         }
     }
@@ -66,6 +71,7 @@ impl SoftParticleRecord {
             neighbour_count: 0,
             owner: NO_BODY,
             generation: 0,
+            announcement: SoftAnnouncementRecord::cleared(),
             _wgsl_pad0: [0; 8],
         }
     }
@@ -96,7 +102,7 @@ impl SoftParticleRecord {
 }
 
 impl SoftBodyRecord {
-    pub const fn awake(filter: CollisionFilter) -> Self {
+    pub const fn awake(filter: CollisionFilter, events: ContactEventMode) -> Self {
         Self {
             sleep_timer: 0.0,
             sleeping: 0,
@@ -106,14 +112,14 @@ impl SoftBodyRecord {
             collision_mask: filter.mask(),
             _wgsl_pad0: [0; 8],
             acceleration: [0.0; 3],
-            _pad0: 0.0,
+            events: event_flags(events),
         }
     }
 
     pub const fn cleared() -> Self {
         Self {
             sleeping: 1,
-            ..Self::awake(CollisionFilter::DEFAULT)
+            ..Self::awake(CollisionFilter::DEFAULT, ContactEventMode::None)
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::BodyHandle;
+use crate::collider::ContactEventMode;
 use crate::collision::CollisionFilter;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -386,6 +387,7 @@ pub struct SoftBodyDesc {
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
     pub filter: CollisionFilter,
+    pub events: ContactEventMode,
 }
 
 impl SoftBodyDesc {
@@ -421,6 +423,7 @@ impl SoftBodyDesc {
             orientation: [0.0, 0.0, 0.0, 1.0],
             velocity: [0.0; 3],
             filter: CollisionFilter::DEFAULT,
+            events: ContactEventMode::None,
         }
     }
 
@@ -730,6 +733,11 @@ impl SoftBodyDesc {
 
     pub fn velocity(mut self, velocity: [f32; 3]) -> Self {
         self.velocity = velocity;
+        self
+    }
+
+    pub fn events(mut self, events: ContactEventMode) -> Self {
+        self.events = events;
         self
     }
 }

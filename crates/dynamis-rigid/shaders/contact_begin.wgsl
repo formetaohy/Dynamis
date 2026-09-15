@@ -53,21 +53,21 @@ fn work(index: u32) {
         if ((resting[slot].events & CONTACT_ANNOUNCED) != 0u) {
             revived.events = revived.events | CONTACT_ANNOUNCED;
             if (contact_touches(contact, params.slop)) {
-                announce(COLLIDER_EVENT_PERSIST, EVENT_PERSIST, contact);
+                announce(EVENT_MODE_PERSIST, EVENT_PERSIST, contact);
             }
             if (contact_carries_over(resting[slot], contact)) {
                 revived = contact_carried(contact_relay_impulses(revived, resting[slot]));
                 revived.events = revived.events | CONTACT_ANNOUNCED;
             }
         } else if (contact_touches(contact, params.slop)) {
-            announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+            announce(EVENT_MODE_BEGIN_END, EVENT_BEGIN, contact);
             revived.events = revived.events | CONTACT_ANNOUNCED;
         }
         contacts[index] = revived;
         return;
     }
     if (contact_touches(contact, params.slop)) {
-        announce(COLLIDER_EVENT_BEGIN_END, EVENT_BEGIN, contact);
+        announce(EVENT_MODE_BEGIN_END, EVENT_BEGIN, contact);
         var announced = contacts[index];
         announced.events = announced.events | CONTACT_ANNOUNCED;
         contacts[index] = announced;

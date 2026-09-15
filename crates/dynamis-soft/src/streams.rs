@@ -1,11 +1,12 @@
 use crate::SoftDomain;
 use dynamis_abi::{
-    ELEMENT_PARTICLES, SoftAttachmentRecord, SoftBodyEditRecord, SoftBodyRecord, SoftContactRecord,
-    SoftEditRecord, SoftElementRecord, SoftParticleRecord,
+    ContactEventRecord, ELEMENT_PARTICLES, SoftAttachmentRecord, SoftBodyEditRecord,
+    SoftBodyRecord, SoftContactRecord, SoftEditRecord, SoftElementRecord, SoftParticleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
 use dynamis_gpu::Contents;
+use dynamis_gpu::SEGMENT_COUNT;
 
 streams! {
     SoftStreams, SoftStream, SoftDemand, SoftDomain::ID, demand,
@@ -17,6 +18,7 @@ streams! {
         soft_bodies: u32,
         edits: u32,
         body_edits: u32,
+        events: u32,
     }
     streams {
         particles, Particles: "soft particles", SoftParticleRecord, 1, Contents::Durable, demand.particles;
@@ -29,6 +31,7 @@ streams! {
         contributions, Contributions: "soft element contributions", [f32; 4], 1, Contents::Scratch, demand.element_contributions();
         contacts, Contacts: "soft particle contacts", SoftContactRecord, 1, Contents::Scratch, demand.particles;
         pressure, Pressure: "soft particle pressure", [f32; 4], 1, Contents::Scratch, demand.particles;
+        events, Events: "soft contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(SEGMENT_COUNT);
     }
 }
 

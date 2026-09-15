@@ -36,8 +36,8 @@ declare_constants! {
     pub const SHAPE_TRIANGLE: u32 = 8;
     pub const SHAPE_PLANE: u32 = 9;
     pub const COLLIDER_SENSOR: u32 = 1;
-    pub const COLLIDER_EVENT_BEGIN_END: u32 = 2;
-    pub const COLLIDER_EVENT_PERSIST: u32 = 4;
+    pub const EVENT_MODE_BEGIN_END: u32 = 2;
+    pub const EVENT_MODE_PERSIST: u32 = 4;
     pub const CONTACT_ANNOUNCED: u32 = 0x8000_0000;
     pub const ISLAND_WAKE: u32 = 1;
     pub const ELEMENT_ROLE_BITS: u32 = 2;
