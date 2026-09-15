@@ -1,8 +1,8 @@
 use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
+use dynamis_gpu::{ComputeRecorder, Resources};
+use dynamis_pass::{Execution, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_JOINTS, COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
@@ -81,20 +81,18 @@ impl Ccd {
     pub fn record(
         &mut self,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut wgpu::CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
-    ) {
+    ) -> bool {
         if pass == self.passes.ccd_sweep {
-            let mut sweep = schedule.open(encoder, pass);
-            self.sweep.record_stream(&mut sweep, streams);
-            drop(sweep);
+            self.sweep.record_stream(recorder, streams);
         } else if pass == self.passes.ccd_apply {
-            let mut apply = schedule.open(encoder, pass);
             self.apply
-                .record_rows(&mut apply, streams, Count::Dynamic.rows(&frame.params));
-            drop(apply);
+                .record_rows(recorder, streams, Count::Dynamic.rows(&frame.params));
+        } else {
+            return false;
         }
+        true
     }
 }

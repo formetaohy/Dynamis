@@ -4,12 +4,13 @@ use dynamis_gpu::SubmissionEncoder;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use wgpu::CommandEncoder;
 
+const STEP_SCOPE: &str = "dynamis step scope";
+
 pub struct Schedule {
     pipeline: Pipeline,
     per_row: u32,
     opened: Vec<bool>,
     completed: Vec<bool>,
-    last: Option<u32>,
     graph: bool,
     #[cfg(feature = "profile")]
     timer: Option<dynamis_gpu::GpuTimer>,
@@ -36,7 +37,6 @@ impl Schedule {
             per_row: context.workgroups_per_row(),
             opened: vec![false; pipeline.len()],
             completed: vec![false; pipeline.len()],
-            last: None,
             graph: false,
             pipeline,
             #[cfg(feature = "profile")]
@@ -60,10 +60,6 @@ impl Schedule {
         &self.pipeline
     }
 
-    pub fn pass(&self, index: u32) -> Pass {
-        self.pipeline.pass(index)
-    }
-
     pub fn ran(&self, index: u32) -> bool {
         self.opened.get(index as usize).copied().unwrap_or(false)
     }
@@ -84,7 +80,6 @@ impl Schedule {
 
     fn reset(&mut self, graph: bool, timed: bool) {
         self.opened.fill(false);
-        self.last = None;
         self.graph = graph;
         self.timed = timed;
     }
@@ -95,39 +90,49 @@ impl Schedule {
         }
     }
 
-    pub fn open<'a>(
-        &'a mut self,
-        encoder: &'a mut CommandEncoder,
-        pass: u32,
-    ) -> ComputeRecorder<'a> {
-        let declared = self.pipeline.pass(pass);
-        assert!(
-            !self.opened[pass as usize],
-            "pass {:?} opens twice in one step",
-            declared.label
-        );
-        if let Some(last) = self.last {
-            assert!(
-                last < pass,
-                "pass {:?} opens after {:?} in the resolved step",
-                declared.label,
-                self.pipeline.pass(last).label
-            );
-        }
-        self.opened[pass as usize] = true;
-        self.last = Some(pass);
+    pub fn record(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        passes: impl FnMut(Pass, u32, &mut ComputeRecorder<'_>) -> bool,
+    ) {
         #[cfg(feature = "profile")]
-        if self.timed
-            && let Some(timer) = &self.timer
-        {
-            return ComputeRecorder::begin_timed(
-                encoder,
-                declared.label,
-                Some(timer.writes(pass as usize)),
-                self.per_row,
-            );
+        if self.timed && self.timer.is_some() {
+            self.record_per_pass_scopes(encoder, passes);
+            return;
         }
-        ComputeRecorder::begin(encoder, declared.label, self.per_row)
+        self.record_one_scope(encoder, passes);
+    }
+
+    fn record_one_scope(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        mut passes: impl FnMut(Pass, u32, &mut ComputeRecorder<'_>) -> bool,
+    ) {
+        let mut recorder = ComputeRecorder::begin(&mut *encoder, STEP_SCOPE, self.per_row);
+        for index in 0..self.pipeline.len() as u32 {
+            let declared = self.pipeline.pass(index);
+            self.opened[index as usize] = passes(declared, index, &mut recorder);
+        }
+    }
+
+    #[cfg(feature = "profile")]
+    fn record_per_pass_scopes(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        mut passes: impl FnMut(Pass, u32, &mut ComputeRecorder<'_>) -> bool,
+    ) {
+        let per_row = self.per_row;
+        for index in 0..self.pipeline.len() as u32 {
+            let declared = self.pipeline.pass(index);
+            let timer = self.timer.as_ref().expect("a timed frame owns its timer");
+            let mut recorder = ComputeRecorder::begin_timed(
+                &mut *encoder,
+                declared.label,
+                Some(timer.writes(index as usize)),
+                per_row,
+            );
+            self.opened[index as usize] = passes(declared, index, &mut recorder);
+        }
     }
 
     #[cfg(feature = "profile")]

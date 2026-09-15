@@ -89,16 +89,11 @@ impl StepPasses {
         frames: &StepFrames,
         run: Run,
     ) {
-        self.schedule.begin(run);
-        self.run(encoder, streams, frames);
-    }
-
-    fn run(&mut self, encoder: &mut CommandEncoder, streams: &Streams, frames: &StepFrames) {
         let Self { schedule, runtimes } = self;
-        for index in 0..schedule.pipeline().len() as u32 {
-            let pass = schedule.pass(index);
-            runtimes.record(pass, index, schedule, encoder, streams, frames);
-        }
+        schedule.begin(run);
+        schedule.record(encoder, |pass, index, recorder| {
+            runtimes.record(pass, index, recorder, streams, frames)
+        });
         schedule.finish();
     }
 

@@ -8,9 +8,9 @@ pub use streams::{SoftDemand, SoftStream, SoftStreams};
 
 use dynamis_abi::{Count, StepParamsRecord};
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
+use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_pass::{Execution, Stage, domain_passes};
 use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
@@ -452,57 +452,46 @@ impl Soft {
     pub fn record(
         &mut self,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut wgpu::CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &SoftFrame,
-    ) {
+    ) -> bool {
         let particles = Count::Particles.rows(&frame.params);
         let elements = Count::Elements.rows(&frame.params);
         let bodies = Count::SoftBodies.rows(&frame.params);
         let attachments = Count::Attachments.rows(&frame.params);
         if pass == self.passes.soft_bounds {
-            let mut bounds = schedule.open(encoder, pass);
-            self.bounds.record_rows(&mut bounds, streams, particles);
-            drop(bounds);
+            self.bounds.record_rows(recorder, streams, particles);
         } else if pass == self.passes.soft_entries {
-            let mut entries = schedule.open(encoder, pass);
-            self.entries.record_rows(&mut entries, streams, particles);
-            drop(entries);
+            self.entries.record_rows(recorder, streams, particles);
         } else if pass == self.passes.soft_settle {
-            let mut settle = schedule.open(encoder, pass);
-            self.activity.record_rows(&mut settle, streams, particles);
-            self.wake.record_rows(&mut settle, streams, particles);
-            self.attach_wake
-                .record_rows(&mut settle, streams, attachments);
-            self.rest.record_rows(&mut settle, streams, bodies);
-            drop(settle);
+            self.activity.record_rows(recorder, streams, particles);
+            self.wake.record_rows(recorder, streams, particles);
+            self.attach_wake.record_rows(recorder, streams, attachments);
+            self.rest.record_rows(recorder, streams, bodies);
         } else if pass == self.passes.soft_substeps {
-            let mut substeps = schedule.open(encoder, pass);
             for _ in 0..frame.params.soft_substeps {
-                self.reset.record_rows(&mut substeps, streams, elements);
-                self.integrate
-                    .record_rows(&mut substeps, streams, particles);
+                self.reset.record_rows(recorder, streams, elements);
+                self.integrate.record_rows(recorder, streams, particles);
                 for _ in 0..frame.params.soft_iterations {
-                    self.elements.record_rows(&mut substeps, streams, elements);
-                    self.gather.record_rows(&mut substeps, streams, particles);
-                    self.density.record_rows(&mut substeps, streams, particles);
-                    self.pressure.record_rows(&mut substeps, streams, particles);
+                    self.elements.record_rows(recorder, streams, elements);
+                    self.gather.record_rows(recorder, streams, particles);
+                    self.density.record_rows(recorder, streams, particles);
+                    self.pressure.record_rows(recorder, streams, particles);
                 }
-                self.attachment
-                    .record_rows(&mut substeps, streams, attachments);
-                self.detect.record_rows(&mut substeps, streams, particles);
-                self.resolve.record_rows(&mut substeps, streams, particles);
+                self.attachment.record_rows(recorder, streams, attachments);
+                self.detect.record_rows(recorder, streams, particles);
+                self.resolve.record_rows(recorder, streams, particles);
                 if frame.material {
-                    self.material.record_rows(&mut substeps, streams, elements);
+                    self.material.record_rows(recorder, streams, elements);
                 }
             }
-            drop(substeps);
         } else if pass == self.passes.soft_apply {
-            let mut apply = schedule.open(encoder, pass);
             self.apply
-                .record_rows(&mut apply, streams, Count::Bodies.rows(&frame.params));
-            drop(apply);
+                .record_rows(recorder, streams, Count::Bodies.rows(&frame.params));
+        } else {
+            return false;
         }
+        true
     }
 }

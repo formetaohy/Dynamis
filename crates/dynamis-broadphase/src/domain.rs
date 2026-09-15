@@ -2,10 +2,10 @@ use crate::{Broadphase, BroadphaseDemand, BroadphaseInputs, BroadphasePasses};
 use crate::{BroadphaseCapacity, BroadphaseStreams, Capacity};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
+use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline, Schedule};
-use wgpu::CommandEncoder;
+use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct BroadphaseDomain;
 
@@ -71,11 +71,10 @@ impl Domain for BroadphaseDomain {
     fn record(
         runtime: &mut Broadphase,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         _: &(),
-    ) {
-        runtime.record(pass, schedule, encoder, streams);
+    ) -> bool {
+        runtime.record(pass, recorder, streams)
     }
 }

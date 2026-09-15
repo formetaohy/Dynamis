@@ -3,10 +3,10 @@ use crate::{Soft, SoftCapacity, SoftDemand, SoftFrame, SoftInputs, SoftPasses, S
 use dynamis_abi::COUNTER_SOFT_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
+use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline, Schedule};
-use wgpu::CommandEncoder;
+use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct SoftDomain;
 
@@ -78,11 +78,10 @@ impl Domain for SoftDomain {
     fn record(
         runtime: &mut Soft,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &SoftFrame,
-    ) {
-        runtime.record(pass, schedule, encoder, streams, frame);
+    ) -> bool {
+        runtime.record(pass, recorder, streams, frame)
     }
 }

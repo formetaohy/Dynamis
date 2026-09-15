@@ -69,8 +69,8 @@ pub struct RigidFrame {
 
 use commands::Commands;
 use commit::Commit;
-use dynamis_gpu::GpuContext;
-use dynamis_pass::{Execution, Schedule, domain_passes};
+use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_pass::{Execution, domain_passes};
 use dynamis_sort::RadixSort;
 use entries::Entries;
 use integrate::Integrate;
@@ -153,90 +153,59 @@ impl Rigid {
     pub fn record(
         &mut self,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut wgpu::CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
-    ) {
+    ) -> bool {
         if pass == self.passes.commands {
-            let mut commands = schedule.open(encoder, pass);
-            self.commands.record(&mut commands, streams, frame);
-            drop(commands);
+            self.commands.record(recorder, streams, frame);
         } else if pass == self.passes.prepare {
-            let mut prepare = schedule.open(encoder, pass);
             self.integrate
-                .record(&mut prepare, streams, frame, &mut self.sort);
-            drop(prepare);
+                .record(recorder, streams, frame, &mut self.sort);
         } else if pass == self.passes.query_aabbs {
-            let mut aabbs = schedule.open(encoder, pass);
-            self.integrate.record_broadphase(&mut aabbs, streams, frame);
-            drop(aabbs);
+            self.integrate.record_broadphase(recorder, streams, frame);
         } else if pass == self.passes.entries {
-            let mut entries = schedule.open(encoder, pass);
-            self.entries.record(&mut entries, streams, frame);
-            drop(entries);
+            self.entries.record(recorder, streams, frame);
         } else if pass == self.passes.narrowphase {
-            let mut narrowphase = schedule.open(encoder, pass);
             self.narrowphase
-                .record(&mut narrowphase, streams, frame, &mut self.sort);
-            drop(narrowphase);
+                .record(recorder, streams, frame, &mut self.sort);
         } else if pass == self.passes.islands {
-            let mut islands = schedule.open(encoder, pass);
-            self.islands.record(&mut islands, streams, frame);
-            drop(islands);
+            self.islands.record(recorder, streams, frame);
         } else if pass == self.passes.wake {
-            let mut wake = schedule.open(encoder, pass);
-            self.islands.record_wake(&mut wake, streams, frame);
-            drop(wake);
+            self.islands.record_wake(recorder, streams, frame);
         } else if pass == self.passes.live {
-            let mut live = schedule.open(encoder, pass);
-            self.live.record(&mut live, streams, frame);
-            drop(live);
+            self.live.record(recorder, streams, frame);
         } else if pass == self.passes.solver_prepare {
-            let mut prepare = schedule.open(encoder, pass);
-            self.solver.record_prepare(&mut prepare, streams, frame);
-            drop(prepare);
+            self.solver.record_prepare(recorder, streams, frame);
         } else if pass == self.passes.substeps {
-            let mut substeps = schedule.open(encoder, pass);
-            self.solver.record_topology(&mut substeps, streams);
+            self.solver.record_topology(recorder, streams);
             for substep in 0..frame.params.substeps {
-                self.integrate.record_substep(&mut substeps, streams);
+                self.integrate.record_substep(recorder, streams);
                 if substep == 0 {
-                    self.solver.record_warm(&mut substeps, streams);
+                    self.solver.record_warm(recorder, streams);
                 }
-                self.solver.record_iterations(&mut substeps, streams, frame);
-                self.integrate
-                    .record_substep_advance(&mut substeps, streams);
+                self.solver.record_iterations(recorder, streams, frame);
+                self.integrate.record_substep_advance(recorder, streams);
                 self.solver
-                    .record_position_iterations(&mut substeps, streams, frame);
+                    .record_position_iterations(recorder, streams, frame);
             }
-            drop(substeps);
         } else if pass == self.resolution.sleep {
-            let mut sleep = schedule.open(encoder, pass);
-            self.sleep.record(&mut sleep, streams, frame);
-            drop(sleep);
+            self.sleep.record(recorder, streams, frame);
         } else if pass == self.resolution.commit {
-            let mut commit = schedule.open(encoder, pass);
-            self.commit.record(&mut commit, streams, frame);
-            drop(commit);
+            self.commit.record(recorder, streams, frame);
         } else if pass == self.resolution.observe {
-            let mut observe = schedule.open(encoder, pass);
             self.commit
-                .record_observe(&mut observe, streams, frame.observed_count);
-            drop(observe);
+                .record_observe(recorder, streams, frame.observed_count);
         } else if pass == self.resolution.resting_gather {
-            let mut gather = schedule.open(encoder, pass);
-            self.commit.record_gather(&mut gather, streams);
-            drop(gather);
+            self.commit.record_gather(recorder, streams);
         } else if pass == self.resolution.resting_index {
-            let mut index = schedule.open(encoder, pass);
             self.commit
-                .record_index(&mut index, streams, frame, &mut self.sort);
-            drop(index);
+                .record_index(recorder, streams, frame, &mut self.sort);
         } else if pass == self.resolution.query {
-            let mut query = schedule.open(encoder, pass);
-            self.queries.record(&mut query, streams, frame);
-            drop(query);
+            self.queries.record(recorder, streams, frame);
+        } else {
+            return false;
         }
+        true
     }
 }

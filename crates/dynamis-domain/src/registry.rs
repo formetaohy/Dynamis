@@ -358,11 +358,10 @@ macro_rules! domains {
                 &mut self,
                 pass: dynamis_pass::Pass,
                 index: u32,
-                schedule: &mut dynamis_pass::Schedule,
-                encoder: &mut wgpu::CommandEncoder,
+                recorder: &mut dynamis_gpu::ComputeRecorder<'_>,
                 resources: &impl dynamis_gpu::Resources,
                 frames: &StepFrames,
-            ) {
+            ) -> bool {
                 $(
                     if pass.domain == <$domain as $crate::Domain>::ID {
                         let frame = &frames.$field;
@@ -372,24 +371,23 @@ macro_rules! domains {
                             frames.awake.$field,
                             <$domain as $crate::Domain>::gates(frame),
                         );
-                        if pass.execution.held(facts) {
-                            <$domain as $crate::Domain>::record(
+                        let held = pass.execution.held(facts);
+                        let recorded = held
+                            && <$domain as $crate::Domain>::record(
                                 &mut self.$field,
                                 index,
-                                schedule,
-                                encoder,
+                                recorder,
                                 resources,
                                 frame,
                             );
-                            assert!(
-                                schedule.ran(index),
-                                "pass {:?} of the {} domain declares {:?} yet records nothing",
-                                pass.label,
-                                stringify!($field),
-                                pass.execution,
-                            );
-                        }
-                        return;
+                        assert!(
+                            !held || recorded,
+                            "pass {:?} of the {} domain declares {:?} yet records nothing",
+                            pass.label,
+                            stringify!($field),
+                            pass.execution,
+                        );
+                        return recorded;
                     }
                 )*
                 panic!(

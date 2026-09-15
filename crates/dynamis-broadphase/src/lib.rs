@@ -10,9 +10,9 @@ pub use streams::{
 };
 
 use dynamis_abi::COUNTER_ENTRIES;
-use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, Schedule, Stage, domain_passes};
+use dynamis_gpu::{ComputeRecorder, GpuContext};
+use dynamis_pass::{Execution, Stage, domain_passes};
 use dynamis_shader::{GRID_INDEX, stream};
 use dynamis_sort::{RadixSort, SortChannels};
 use dynamis_state::StateStream;
@@ -106,17 +106,15 @@ impl Broadphase {
     pub fn record(
         &mut self,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut wgpu::CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
-    ) {
+    ) -> bool {
         if pass != self.passes.broadphase {
-            return;
+            return false;
         }
-        let mut index = schedule.open(encoder, pass);
-        self.sort_entries(&mut index, streams);
-        self.level_links.record_stream(&mut index, streams);
-        self.cell_pairs.record_stream(&mut index, streams);
-        drop(index);
+        self.sort_entries(recorder, streams);
+        self.level_links.record_stream(recorder, streams);
+        self.cell_pairs.record_stream(recorder, streams);
+        true
     }
 }

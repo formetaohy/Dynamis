@@ -2,10 +2,10 @@ use crate::capacity::floor;
 use crate::{StateCapacity, StateDemand, StateInputs, StateStreams};
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
+use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline, Schedule};
-use wgpu::CommandEncoder;
+use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct StateDomain;
 
@@ -66,13 +66,7 @@ impl Domain for StateDomain {
         crate::capacity(streams)
     }
 
-    fn record(
-        _: &mut (),
-        _: u32,
-        _: &mut Schedule,
-        _: &mut CommandEncoder,
-        _: &impl Resources,
-        _: &(),
-    ) {
+    fn record(_: &mut (), _: u32, _: &mut ComputeRecorder<'_>, _: &impl Resources, _: &()) -> bool {
+        false
     }
 }

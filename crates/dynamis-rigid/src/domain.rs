@@ -6,10 +6,10 @@ use crate::{
 use dynamis_abi::COUNTER_ACTIVE;
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
+use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{Execution, PassGroup, Pipeline, Schedule};
-use wgpu::CommandEncoder;
+use dynamis_pass::{Execution, PassGroup, Pipeline};
 
 pub struct RigidDomain;
 
@@ -119,16 +119,11 @@ impl Domain for RigidDomain {
     fn record(
         runtime: &mut RigidDomainRuntime,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &RigidFrame,
-    ) {
-        runtime
-            .simulation
-            .record(pass, schedule, encoder, streams, frame);
-        runtime
-            .continuous
-            .record(pass, schedule, encoder, streams, frame);
+    ) -> bool {
+        runtime.simulation.record(pass, recorder, streams, frame)
+            || runtime.continuous.record(pass, recorder, streams, frame)
     }
 }

@@ -8,10 +8,10 @@ pub use facts::StepFacts;
 pub use streams::DomainStreams;
 
 use dynamis_abi::Counters;
+use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::Resources;
-use dynamis_pass::{PassGroup, Pipeline, Schedule};
-use wgpu::CommandEncoder;
+use dynamis_pass::{PassGroup, Pipeline};
 
 pub trait Domain {
     const ID: u32;
@@ -54,9 +54,8 @@ pub trait Domain {
     fn record(
         runtime: &mut Self::Runtime,
         pass: u32,
-        schedule: &mut Schedule,
-        encoder: &mut CommandEncoder,
+        recorder: &mut ComputeRecorder<'_>,
         streams: &impl Resources,
         frame: &Self::Frame,
-    );
+    ) -> bool;
 }
