@@ -1,15 +1,11 @@
 use super::World;
 use super::commands::ConstraintCommand;
 use super::ids::IdSpace;
-use dynamis_abi::{BrokenConstraintRecord, COUNTER_BREAKS, ConstraintDescriptorRecord};
-use dynamis_gpu::EVENT_SLOTS;
-use dynamis_gpu::SubmissionEncoder;
+use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing,
 };
-use std::collections::VecDeque;
-use std::mem::size_of;
 
 #[derive(Clone)]
 pub(crate) struct Constraints {
@@ -23,7 +19,6 @@ pub(crate) struct Constraints {
     pub(crate) last_moves: u32,
     pub(crate) last_commands: u32,
     pub(crate) broken: Vec<ConstraintHandle>,
-    pub(crate) due: VecDeque<(u64, u32)>,
 }
 
 impl Constraints {
@@ -39,7 +34,6 @@ impl Constraints {
             last_moves: 0,
             last_commands: 0,
             broken: Vec::new(),
-            due: VecDeque::new(),
         }
     }
 
@@ -379,56 +373,6 @@ impl World {
         self.observed.joints.forget(handle.id);
     }
 
-    pub(crate) fn note_breaks_due(&mut self, step: u64) {
-        let count = self.backend.measured[COUNTER_BREAKS];
-        if count > 0 {
-            self.constraints.due.push_back((step, count));
-        }
-    }
-
-    pub(crate) fn copy_breaks(&mut self, encoder: &mut SubmissionEncoder) {
-        while let Some((step, count)) = self.constraints.due.pop_front() {
-            assert!(
-                self.clock.step <= step + EVENT_SLOTS as u64,
-                "constraint break reports for step {step} were overwritten before step {} could copy them",
-                self.clock.step
-            );
-            let segment = self.backend.streams.state.constraint_breaks.size() / EVENT_SLOTS as u64;
-            let offset = (step % EVENT_SLOTS as u64) * segment;
-            let bytes = count as u64 * size_of::<BrokenConstraintRecord>() as u64;
-            assert!(
-                bytes <= segment,
-                "constraint break reports for step {step} outrun their segment"
-            );
-            let displaced = self.backend.readback.breaks.declare(
-                encoder,
-                &[(
-                    self.backend.streams.state.constraint_breaks.buffer(),
-                    offset,
-                    bytes,
-                )],
-                step,
-                count,
-            );
-            if let Some((count, bytes)) = displaced {
-                self.consume_breaks(count, &bytes);
-            }
-        }
-    }
-
-    pub(crate) fn sync_breaks(&mut self) {
-        if self.constraints.due.is_empty() {
-            return;
-        }
-        let device = self.backend.gpu.device().clone();
-        let mut encoder = SubmissionEncoder::new(&device, "dynamis constraint break readback");
-        self.copy_breaks(&mut encoder);
-        self.submit(encoder);
-        for (count, bytes) in self.backend.readback.breaks.drain() {
-            self.consume_breaks(count, &bytes);
-        }
-    }
-
     pub(crate) fn consume_breaks(&mut self, count: u32, bytes: &[u8]) {
         let records = dynamis_abi::decode::<BrokenConstraintRecord>(bytes);
         assert!(
@@ -448,8 +392,7 @@ impl World {
 
     pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
         self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        self.sync_breaks();
+        self.retire_device_facts();
         std::mem::take(&mut self.constraints.broken)
     }
 

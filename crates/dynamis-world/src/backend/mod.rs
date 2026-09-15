@@ -1,6 +1,7 @@
 pub(crate) mod archive;
 mod readback;
 pub(crate) mod registry;
+pub(crate) mod segments;
 
 pub use registry::StreamCapacity;
 
@@ -9,6 +10,7 @@ use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
 use registry::{Live, Plan, Planning, Rest, StepPasses, Streams};
+use segments::{Arrival, Segments};
 use wgpu::SubmissionIndex;
 
 pub(crate) use registry::StepFrames;
@@ -19,6 +21,7 @@ pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
     pub(crate) streams: Streams,
     pub(crate) readback: ReadbackBuffers,
+    pub(crate) segments: Segments,
     pub(crate) passes: StepPasses,
     pub(crate) planning: Planning,
     pub(crate) measured: dynamis_abi::Counters,
@@ -37,11 +40,13 @@ impl Backend {
         let plan = Plan::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
         let readback = ReadbackBuffers::new(gpu.device(), &streams);
+        let segments = Segments::new(gpu.device(), &streams);
         let passes = StepPasses::new(&gpu, &streams);
         Self {
             gpu,
             streams,
             readback,
+            segments,
             passes,
             planning: Planning::new(),
             measured: [0; dynamis_abi::COUNTER_COUNT],
@@ -75,9 +80,7 @@ impl World {
         if self.backend.streams.matches(&plan) {
             return;
         }
-        self.sync_events();
-        self.sync_impacts();
-        self.drain_readbacks();
+        self.retire_device_facts();
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, "dynamis buffer plan");
         let streams = self.backend.streams.reserve(&device, &mut encoder, &plan);
@@ -88,6 +91,34 @@ impl World {
         self.backend
             .readback
             .reserve(&device, &self.backend.streams);
+        self.backend
+            .segments
+            .reserve(&device, &self.backend.streams);
         self.submit(encoder);
+    }
+
+    pub(crate) fn copy_segments(&mut self, encoder: &mut SubmissionEncoder) -> Vec<Arrival> {
+        let now = self.clock.step;
+        self.backend
+            .segments
+            .copy(encoder, &self.backend.streams, now)
+    }
+
+    fn retire_pending_segments(&mut self) -> Vec<Arrival> {
+        let mut arrivals = Vec::new();
+        if self.backend.segments.pending() {
+            let device = self.backend.gpu.device().clone();
+            let mut encoder = SubmissionEncoder::new(&device, "dynamis segment readback");
+            arrivals.extend(self.copy_segments(&mut encoder));
+            self.submit(encoder);
+        }
+        arrivals
+    }
+
+    pub(crate) fn retire_device_facts(&mut self) {
+        let mut arrivals = self.retire_pending_segments();
+        arrivals.extend(self.backend.segments.drain());
+        self.consume_segments(arrivals);
+        self.retire_fact_buffers();
     }
 }

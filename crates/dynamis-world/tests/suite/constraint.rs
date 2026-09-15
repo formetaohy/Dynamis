@@ -1,7 +1,9 @@
 use super::common::{
     DT, converged, distance, gravity_config, new_world, settle, settle_until, static_config,
 };
-use dynamis_model::{BodyDesc, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig};
+use dynamis_model::{
+    BodyDesc, ConstraintBreak, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig,
+};
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -1038,6 +1040,54 @@ fn every_simultaneous_break_reaches_the_host() {
         world.measured()[dynamis_abi::COUNTER_BREAKS],
         0,
         "a settled world must stop publishing breaks"
+    );
+}
+
+#[test]
+fn a_pending_break_survives_the_plan_change_that_follows_it() {
+    let mut world = new_world(gravity_config());
+    let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0).position([0.0, 3.0, 0.0]));
+    let weight = world.spawn(BodyDesc::sphere(0.3).position([0.0, 3.0, 0.0]).mass(50.0));
+    let joint = world.add_constraint(
+        anchor,
+        weight,
+        ConstraintDesc::distance([0.0; 3], [0.0; 3], 0.5).break_threshold(1.0e9, 0.0),
+    );
+    settle(&mut world, 10);
+    world.apply_force(weight, [0.0, -2000.0, 0.0]);
+    world.set_break_threshold(
+        joint,
+        Some(ConstraintBreak {
+            force: 1.0,
+            torque: 0.0,
+        }),
+    );
+    world.step(DT);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut reported = 0u32;
+    while std::time::Instant::now() < deadline && reported == 0 {
+        world.poll();
+        reported = world.measured()[dynamis_abi::COUNTER_BREAKS];
+        std::thread::yield_now();
+    }
+    assert_eq!(reported, 1, "the overloaded joint must report one break");
+    for _ in 0..70 {
+        let stand = world.spawn(BodyDesc::sphere(0.2).mass(0.0).position([40.0, 0.0, 0.0]));
+        world.add_constraint(
+            anchor,
+            stand,
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
+        );
+    }
+    world.step(DT);
+    let broken = world.drain_constraint_breaks();
+    assert!(
+        broken.contains(&joint),
+        "a break the device reported before the plan widened must still reach the host, got {broken:?}"
+    );
+    assert!(
+        !world.constraints().contains(&joint),
+        "the reported break must leave the live set"
     );
 }
 

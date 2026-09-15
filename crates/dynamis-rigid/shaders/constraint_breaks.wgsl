@@ -9,11 +9,11 @@ fn work(index: u32) {
     if (runtime.broken == 0u) {
         return;
     }
-    let segment = arrayLength(&constraint_breaks) / EVENT_SLOTS;
+    let segment = arrayLength(&constraint_breaks) / SEGMENT_COUNT;
     let slot = atomicAdd(&break_count[0], 1u);
     if (slot >= segment) {
         return;
     }
-    constraint_breaks[step_event_slot() * segment + slot] =
+    constraint_breaks[step_segment() * segment + slot] =
         BrokenConstraint(runtime.constraint_id, runtime.generation);
 }

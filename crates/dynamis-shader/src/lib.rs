@@ -1,5 +1,5 @@
 use dynamis_abi::{Bound, COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
-use dynamis_gpu::{EVENT_SLOTS, GpuContext, ResourceId};
+use dynamis_gpu::{GpuContext, ResourceId, SEGMENT_COUNT};
 use std::sync::Arc;
 
 const CORE_FRAGMENT: &str = include_str!("../shaders/core.wgsl");
@@ -97,7 +97,7 @@ fn shader_constants(per_row: u32) -> String {
     let mut source = constants_wgsl();
     source.push_str(&format!("const WORKGROUP_SIZE: u32 = {WORKGROUP_SIZE}u;\n"));
     source.push_str(&format!("const WORKGROUPS_PER_ROW: u32 = {per_row}u;\n"));
-    source.push_str(&format!("const EVENT_SLOTS: u32 = {EVENT_SLOTS}u;\n"));
+    source.push_str(&format!("const SEGMENT_COUNT: u32 = {SEGMENT_COUNT}u;\n"));
     source.push_str(&format!(
         "const COUNTER_STRIDE_WORDS: u32 = {}u;\n",
         COUNTER_STRIDE / 4

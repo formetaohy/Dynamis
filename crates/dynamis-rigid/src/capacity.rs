@@ -38,8 +38,8 @@ pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
         pairs: streams.contact_valid.slots(),
         contacts: streams.contacts.slots(),
         resting: streams.resting_contacts.slots(),
-        events: streams.events.slots() / dynamis_gpu::EVENT_SLOTS,
-        impacts: streams.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+        events: streams.events.slots() / dynamis_gpu::SEGMENT_COUNT,
+        impacts: streams.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
     }
 }
 
@@ -75,7 +75,7 @@ impl Capacity {
         self.events.observe(
             measured[COUNTER_EVENTS],
             measured[COUNTER_REFUSED_EVENTS] > 0,
-            current.events.slots() / dynamis_gpu::EVENT_SLOTS,
+            current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
         );
         if self.events.pressured() {
             self.events.settle(false);
@@ -87,19 +87,19 @@ impl Capacity {
         let event_budget = product(fresh, FRESH_EVENTS_PER_COLLIDER, "event").max(thawing);
         let events = if idle {
             self.events.released(
-                current.events.slots() / dynamis_gpu::EVENT_SLOTS,
+                current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
                 event_budget,
             )
         } else {
             self.events.widened(
-                current.events.slots() / dynamis_gpu::EVENT_SLOTS,
+                current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
                 event_budget,
             )
         };
         self.impacts.observe(
             measured[COUNTER_IMPACTS],
             measured[COUNTER_REFUSED_IMPACTS] > 0,
-            current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+            current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
         );
         if self.impacts.pressured() {
             self.impacts.settle(false);
@@ -109,12 +109,12 @@ impl Capacity {
         let impact_budget = product(fresh, FRESH_IMPACTS_PER_COLLIDER, "impact");
         let impacts = if idle {
             self.impacts.released(
-                current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+                current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
                 impact_budget,
             )
         } else {
             self.impacts.widened(
-                current.impacts.slots() / dynamis_gpu::EVENT_SLOTS,
+                current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
                 impact_budget,
             )
         };

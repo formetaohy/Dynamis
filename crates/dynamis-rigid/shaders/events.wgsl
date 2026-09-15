@@ -3,8 +3,8 @@ fn announce(flag: u32, kind: u32, contact: Contact) {
         return;
     }
     let slot = atomicAdd(&event_count[0], 1u);
-    let segment = arrayLength(&events) / EVENT_SLOTS;
-    let base = step_event_slot() * segment;
+    let segment = arrayLength(&events) / SEGMENT_COUNT;
+    let base = step_segment() * segment;
     if (slot < segment) {
         events[base + slot] = ContactEvent(kind, contact.sensor, contact.first_body_id, contact.first_generation, contact.second_body_id, contact.second_generation, contact.points[0].position, 0.0, contact.normal, 0.0);
     } else {

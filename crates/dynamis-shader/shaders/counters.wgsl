@@ -14,6 +14,6 @@ fn counter_max(slot: u32, value: u32) {
     atomicMax(&counters[slot * COUNTER_STRIDE_WORDS], value);
 }
 
-fn step_event_slot() -> u32 {
-    return counter_load(COUNTER_STEP) % EVENT_SLOTS;
+fn step_segment() -> u32 {
+    return counter_load(COUNTER_STEP) % SEGMENT_COUNT;
 }

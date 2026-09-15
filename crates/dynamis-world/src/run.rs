@@ -31,19 +31,20 @@ impl World {
         let frames = self.frames_of(&live, work.as_ref(), params, run);
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, run.label());
-        let batch = self.declare(&mut encoder, run);
+        let segments = self.copy_segments(&mut encoder);
+        let batch = self.declare(run);
         self.backend
             .passes
             .record(&mut encoder, &self.backend.streams, &frames, run);
         #[cfg(feature = "profile")]
         let timings = self.backend.passes.capture_timings(&mut encoder);
         let declarations = self.publish(&mut encoder, run, batch, self.clock.step);
-        self.copy_breaks(&mut encoder);
         self.submit(encoder);
         #[cfg(feature = "profile")]
         if let Some(timings) = timings {
             self.backend.pass_timings = timings;
         }
+        self.consume_segments(segments);
         self.consume(declarations);
         self.finish(run);
     }
@@ -85,14 +86,9 @@ impl World {
         }
     }
 
-    fn declare(&mut self, encoder: &mut SubmissionEncoder, run: Run) -> Option<Batch> {
+    fn declare(&mut self, run: Run) -> Option<Batch> {
         match run {
-            Run::Step => {
-                self.copy_events(encoder);
-                self.copy_impacts(encoder);
-                self.register_queries()
-            }
-            Run::Query => self.register_queries(),
+            Run::Step | Run::Query => self.register_queries(),
             Run::Publish => None,
         }
     }

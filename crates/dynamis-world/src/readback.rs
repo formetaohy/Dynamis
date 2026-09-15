@@ -1,4 +1,5 @@
 use super::World;
+use super::backend::segments::{Arrival, SegmentKind};
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
@@ -160,17 +161,10 @@ impl World {
     pub(crate) fn collect_readbacks(&mut self) {
         self.backend.gpu.poll();
         self.collect_observations();
+        let arrivals = self.backend.segments.collect();
+        self.consume_segments(arrivals);
         for ((step, declared), bytes) in self.backend.readback.counters.collect() {
             self.consume_pack(step, declared, &bytes);
-        }
-        for (count, bytes) in self.backend.readback.events.collect() {
-            self.consume_events(count, &bytes);
-        }
-        for (manifest, bytes) in self.backend.readback.impacts.collect() {
-            self.consume_impacts(manifest, &bytes);
-        }
-        for (count, bytes) in self.backend.readback.breaks.collect() {
-            self.consume_breaks(count, &bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.collect() {
             self.collect_query_batch(batch, &bytes);
@@ -181,19 +175,10 @@ impl World {
         }
     }
 
-    pub(crate) fn drain_readbacks(&mut self) {
+    pub(crate) fn retire_fact_buffers(&mut self) {
         self.drain_observations();
         for ((step, declared), bytes) in self.backend.readback.counters.drain() {
             self.consume_pack(step, declared, &bytes);
-        }
-        for (count, bytes) in self.backend.readback.events.drain() {
-            self.consume_events(count, &bytes);
-        }
-        for (manifest, bytes) in self.backend.readback.impacts.drain() {
-            self.consume_impacts(manifest, &bytes);
-        }
-        for (count, bytes) in self.backend.readback.breaks.drain() {
-            self.consume_breaks(count, &bytes);
         }
         for (batch, bytes) in self.backend.readback.queries.drain() {
             self.collect_query_batch(batch, &bytes);
@@ -204,12 +189,22 @@ impl World {
         }
     }
 
+    pub(crate) fn consume_segments(&mut self, arrivals: Vec<Arrival>) {
+        for arrival in arrivals {
+            match arrival.kind {
+                SegmentKind::Events => self.consume_events(arrival.count, &arrival.bytes),
+                SegmentKind::Impacts => {
+                    self.consume_impacts(arrival.step, arrival.count, &arrival.bytes)
+                }
+                SegmentKind::Breaks => self.consume_breaks(arrival.count, &arrival.bytes),
+            }
+        }
+    }
+
     pub(crate) fn accept_measured(&mut self, step: u64) {
         self.assert_no_device_faults();
         self.backend.measured_step = Some(step);
-        self.note_events_due(step);
-        self.note_impacts_due(step);
-        self.note_breaks_due(step);
+        self.backend.segments.close(&self.backend.measured, step);
     }
 
     fn assert_no_device_faults(&self) {

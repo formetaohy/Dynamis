@@ -9,7 +9,7 @@ use dynamis_abi::{
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_gpu::EVENT_SLOTS;
+use dynamis_gpu::SEGMENT_COUNT;
 
 pub const COMPACT_BLOCK: u32 = 256;
 
@@ -70,8 +70,8 @@ streams! {
         solver_contributions, SolverContributions: "solver contributions", u32, 1, Contents::Scratch, demand.bodies;
         island_parents, IslandParents: "island parents", u32, 1, Contents::Scratch, demand.bodies;
         island_state, IslandState: "island state", u32, 1, Contents::Scratch, demand.bodies;
-        events, Events: "contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(EVENT_SLOTS);
-        impacts, Impacts: "impact events", ImpactEventRecord, 1, Contents::Scratch, demand.impacts.saturating_mul(EVENT_SLOTS);
+        events, Events: "contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(SEGMENT_COUNT);
+        impacts, Impacts: "impact events", ImpactEventRecord, 1, Contents::Scratch, demand.impacts.saturating_mul(SEGMENT_COUNT);
         sort_scratch_major, SortScratchMajor: "sort scratch major", u32, 1, Contents::Scratch, demand.sort;
         sort_scratch_minor, SortScratchMinor: "sort scratch minor", u32, 1, Contents::Scratch, demand.sort;
         sort_scratch_payload, SortScratchPayload: "sort scratch payload", u32, 1, Contents::Scratch, demand.sort;
@@ -121,9 +121,9 @@ impl RigidDemand {
 }
 
 pub fn event_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
-    resources.slots(RigidStream::Events.into()) / EVENT_SLOTS
+    resources.slots(RigidStream::Events.into()) / SEGMENT_COUNT
 }
 
 pub fn impact_capacity<R: dynamis_gpu::Resources>(resources: &R) -> u32 {
-    resources.slots(RigidStream::Impacts.into()) / EVENT_SLOTS
+    resources.slots(RigidStream::Impacts.into()) / SEGMENT_COUNT
 }

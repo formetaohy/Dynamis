@@ -7,6 +7,7 @@ mod readback;
 mod recorder;
 mod resource;
 mod runtime;
+mod segments;
 mod stream;
 mod submission;
 #[cfg(feature = "profile")]
@@ -17,10 +18,11 @@ pub use buffer::{GpuBuffer, GpuSlot, StorageId};
 pub use context::{DeviceLost, GpuContext, GpuRequest, GpuUnavailable, LimitsPolicy};
 pub use library::{WarmupBudget, WarmupProgress};
 pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, PipelineHandle};
-pub use readback::{EVENT_SLOTS, FACT_LAG, Publication, Readback, read_regions};
+pub use readback::{FACT_LAG, Publication, Readback, SEGMENT_COUNT, read_regions};
 pub use recorder::ComputeRecorder;
 pub use resource::{ResourceId, Resources, SlotRef};
 pub use runtime::GpuRuntime;
+pub use segments::Segments;
 pub use stream::{Contents, PACK, STREAM, Stream, StreamDesc, StreamElement, TypedSlot, UNIFORM};
 pub use submission::SubmissionEncoder;
 #[cfg(feature = "profile")]

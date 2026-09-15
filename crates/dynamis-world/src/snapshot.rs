@@ -70,7 +70,7 @@ impl World {
 
     pub fn restore(&mut self, snapshot: &Snapshot) {
         self.backend.gpu.assert_alive();
-        self.drain_readbacks();
+        self.retire_device_facts();
         self.config = snapshot.config;
         self.clock = snapshot.clock;
         snapshot.scene.restore(self);
@@ -87,13 +87,10 @@ impl World {
     fn abandon_observations(&mut self) {
         self.observed.reset();
         self.events.contact.clear();
-        self.events.due.clear();
         self.impacts.impact.clear();
-        self.impacts.due.clear();
         self.queries.pending.clear();
         self.queries.pool = QueryPool::new();
         self.constraints.broken.clear();
-        self.constraints.due.clear();
     }
 
     fn restart_measures(&mut self) {

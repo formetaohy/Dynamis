@@ -21,13 +21,13 @@ fn work(index: u32) {
     if (!(impact.x / params.dt > threshold)) {
         return;
     }
-    let segment = arrayLength(&impacts) / EVENT_SLOTS;
+    let segment = arrayLength(&impacts) / SEGMENT_COUNT;
     let slot = atomicAdd(&impact_count[0], 1u);
     if (slot >= segment) {
         atomicAdd(&spillover[0], 1u);
         return;
     }
-    impacts[step_event_slot() * segment + slot] = ImpactEvent(
+    impacts[step_segment() * segment + slot] = ImpactEvent(
         contact.first_body_id,
         contact.first_generation,
         contact.second_body_id,

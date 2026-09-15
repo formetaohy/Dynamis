@@ -351,7 +351,7 @@ impl World {
     pub fn wait(&mut self) {
         self.backend.gpu.assert_alive();
         self.resolve_queries();
-        self.drain_readbacks();
+        self.retire_device_facts();
         let stale = self
             .bodies
             .alive
@@ -369,7 +369,7 @@ impl World {
                 }
             }
             self.execute(dynamis_pass::Run::Publish);
-            self.drain_readbacks();
+            self.retire_device_facts();
             for id in held {
                 self.observed.bodies.forget(id);
             }
@@ -660,7 +660,7 @@ impl World {
         self.apply_plan(&live);
         self.flush_rows();
         self.execute(dynamis_pass::Run::Publish);
-        self.drain_readbacks();
+        self.retire_device_facts();
     }
 
     pub(crate) fn states_current(&self) -> bool {

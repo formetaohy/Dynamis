@@ -9,7 +9,7 @@ use dynamis_abi::{
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
 use dynamis_gpu::Contents;
-use dynamis_gpu::EVENT_SLOTS;
+use dynamis_gpu::SEGMENT_COUNT;
 use std::mem::size_of;
 
 pub const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
@@ -50,7 +50,7 @@ streams! {
         body_reactions, BodyReactions: "body reactions", u32, REACTION_WORDS, Contents::Scratch, demand.body_reactions();
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", RowMoveRecord, 1, Contents::Scratch, demand.constraint_moves();
         constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", ConstraintRuntimeRecord, 1, Contents::Scratch, demand.constraint_commands;
-        constraint_breaks, ConstraintBreaks: "constraint breaks", BrokenConstraintRecord, 1, Contents::Scratch, demand.constraints.saturating_mul(EVENT_SLOTS);
+        constraint_breaks, ConstraintBreaks: "constraint breaks", BrokenConstraintRecord, 1, Contents::Scratch, demand.constraints.saturating_mul(SEGMENT_COUNT);
         shape_sources, ShapeSources: "shape sources", ShapeSourceRecord, 1, Contents::Durable, demand.shapes.sources;
         shape_vertices, ShapeVertices: "shape vertices", [f32; 4], 1, Contents::Durable, demand.shapes.vertices;
         shape_triangles, ShapeTriangles: "shape triangles", TriangleRecord, 1, Contents::Durable, demand.shapes.triangles;

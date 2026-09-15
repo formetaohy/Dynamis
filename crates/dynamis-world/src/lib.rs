@@ -32,7 +32,6 @@ use clock::Clock;
 use colliders::ColliderPool;
 use commands::BodyCommand;
 use constraint::Constraints;
-use dynamis_gpu::EVENT_SLOTS;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::Events;
@@ -162,9 +161,5 @@ impl World {
 
     pub fn ran_passes(&self) -> Vec<&'static str> {
         self.backend.passes.ran()
-    }
-
-    pub(crate) fn event_slot_of(&self, step: u64) -> u32 {
-        (step % EVENT_SLOTS as u64) as u32
     }
 }
