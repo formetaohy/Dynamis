@@ -4,6 +4,8 @@ pub struct SurfaceDesc {
     pub restitution: f32,
     pub rolling_friction: f32,
     pub spin_friction: f32,
+    pub contact_frequency: f32,
+    pub contact_damping_ratio: f32,
 }
 
 impl SurfaceDesc {
@@ -13,6 +15,8 @@ impl SurfaceDesc {
             restitution: 0.0,
             rolling_friction: 0.0,
             spin_friction: 0.0,
+            contact_frequency: f32::INFINITY,
+            contact_damping_ratio: 1.0,
         }
     }
 
@@ -44,6 +48,24 @@ impl SurfaceDesc {
         self.spin_friction = spin_friction;
         self
     }
+
+    pub fn contact_frequency(mut self, contact_frequency: f32) -> Self {
+        assert!(
+            contact_frequency > 0.0,
+            "a contact frequency must be strictly positive"
+        );
+        self.contact_frequency = contact_frequency;
+        self
+    }
+
+    pub fn contact_damping_ratio(mut self, contact_damping_ratio: f32) -> Self {
+        assert!(
+            contact_damping_ratio >= 0.0,
+            "a contact damping ratio must be non-negative"
+        );
+        self.contact_damping_ratio = contact_damping_ratio;
+        self
+    }
 }
 
 impl Default for SurfaceDesc {
@@ -69,6 +91,12 @@ impl<'a> SurfaceTable<'a> {
                 .iter()
                 .all(|index| (*index as usize) < palette.len()),
             "a surface index must address its own palette"
+        );
+        assert!(
+            palette
+                .iter()
+                .all(|surface| !surface.contact_frequency.is_finite()),
+            "a surface palette carries no contact softness; a collider does"
         );
         Self { palette, indices }
     }

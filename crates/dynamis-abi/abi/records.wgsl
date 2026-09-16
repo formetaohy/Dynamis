@@ -206,6 +206,8 @@ struct Collider {
     flags: u32,
     radius: f32,
     half_height: f32,
+    relaxation: f32,
+    damping_ratio: f32,
     impact_force: f32,
     half_extents: vec3f,
     collision_group: u32,
@@ -304,6 +306,8 @@ struct Contact {
     spin_friction: f32,
     carried_normal: f32,
     carried_tangent: f32,
+    relaxation: f32,
+    damping_ratio: f32,
     points: array<ManifoldPoint, CONTACT_MAX_POINTS>,
 }
 

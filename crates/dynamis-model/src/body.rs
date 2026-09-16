@@ -128,6 +128,16 @@ impl BodyDesc {
         self
     }
 
+    pub fn contact_frequency(mut self, contact_frequency: f32) -> Self {
+        self.colliders[0] = self.colliders[0].contact_frequency(contact_frequency);
+        self
+    }
+
+    pub fn contact_damping_ratio(mut self, contact_damping_ratio: f32) -> Self {
+        self.colliders[0] = self.colliders[0].contact_damping_ratio(contact_damping_ratio);
+        self
+    }
+
     pub fn sensor(mut self, sensor: bool) -> Self {
         self.colliders[0].sensor = sensor;
         self

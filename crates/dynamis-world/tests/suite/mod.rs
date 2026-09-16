@@ -5,6 +5,7 @@ pub mod capabilities;
 pub mod capacity;
 pub mod commands;
 pub mod common;
+pub mod compliance;
 pub mod compound;
 pub mod constraint;
 pub mod contact_events;

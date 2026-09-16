@@ -6,6 +6,20 @@ use crate::constant::{
 };
 use dynamis_model::{ColliderDesc, CollisionFilter, ContactEventMode, Shape};
 
+pub fn contact_relaxation(frequency: f32) -> f32 {
+    if frequency.is_infinite() {
+        return 0.0;
+    }
+    1.0 / (std::f32::consts::TAU * frequency)
+}
+
+pub fn contact_frequency(relaxation: f32) -> f32 {
+    if relaxation <= 0.0 {
+        return f32::INFINITY;
+    }
+    1.0 / (std::f32::consts::TAU * relaxation)
+}
+
 impl ColliderRecord {
     pub const fn cleared() -> Self {
         Self {
@@ -15,7 +29,6 @@ impl ColliderRecord {
             radius: 0.0,
             half_height: 0.0,
             impact_force: f32::INFINITY,
-            _wgsl_pad0: [0; 8],
             half_extents: [0.0; 3],
             collision_group: NO_COLLISION_FILTER,
             local_offset: [0.0; 3],
@@ -27,6 +40,8 @@ impl ColliderRecord {
             rolling_friction: 0.0,
             scale: [1.0; 3],
             spin_friction: 0.0,
+            relaxation: 0.0,
+            damping_ratio: 0.0,
         }
     }
 
@@ -74,7 +89,6 @@ impl ColliderRecord {
                 _ => 0.0,
             },
             impact_force: collider.impact_force.unwrap_or(f32::INFINITY),
-            _wgsl_pad0: [0; 8],
             half_extents: match collider.shape {
                 Shape::Cuboid { half_extents } => [
                     half_extents[0] * collider.scale[0],
@@ -97,6 +111,8 @@ impl ColliderRecord {
             rolling_friction: collider.rolling_friction,
             scale: baked_scale(collider, uniform),
             spin_friction: collider.spin_friction,
+            relaxation: contact_relaxation(collider.contact_frequency),
+            damping_ratio: collider.contact_damping_ratio,
         }
     }
 }

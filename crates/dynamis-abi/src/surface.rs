@@ -17,6 +17,8 @@ impl SurfaceRecord {
             restitution: self.restitution,
             rolling_friction: self.rolling_friction,
             spin_friction: self.spin_friction,
+            contact_frequency: f32::INFINITY,
+            contact_damping_ratio: 1.0,
         }
     }
 }

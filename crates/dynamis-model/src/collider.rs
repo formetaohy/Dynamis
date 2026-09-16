@@ -20,6 +20,8 @@ pub struct ColliderDesc {
     pub filter: Option<CollisionFilter>,
     pub rolling_friction: f32,
     pub spin_friction: f32,
+    pub contact_frequency: f32,
+    pub contact_damping_ratio: f32,
     pub events: ContactEventMode,
     pub impact_force: Option<f32>,
 }
@@ -37,9 +39,29 @@ impl ColliderDesc {
             filter: None,
             rolling_friction: 0.0,
             spin_friction: 0.0,
+            contact_frequency: f32::INFINITY,
+            contact_damping_ratio: 1.0,
             events: ContactEventMode::BeginEnd,
             impact_force: None,
         }
+    }
+
+    pub fn contact_frequency(mut self, contact_frequency: f32) -> Self {
+        assert!(
+            contact_frequency > 0.0,
+            "a contact frequency must be strictly positive"
+        );
+        self.contact_frequency = contact_frequency;
+        self
+    }
+
+    pub fn contact_damping_ratio(mut self, contact_damping_ratio: f32) -> Self {
+        assert!(
+            contact_damping_ratio >= 0.0,
+            "a contact damping ratio must be non-negative"
+        );
+        self.contact_damping_ratio = contact_damping_ratio;
+        self
     }
 
     pub fn impact(mut self, force: f32) -> Self {

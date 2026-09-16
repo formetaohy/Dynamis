@@ -313,6 +313,8 @@ fn manifold_of(record: &ContactRecord, step: u64, surface: Option<SurfaceDesc>) 
             restitution: record.restitution,
             rolling_friction: record.rolling_friction,
             spin_friction: record.spin_friction,
+            contact_frequency: dynamis_abi::contact_frequency(record.relaxation),
+            contact_damping_ratio: record.damping_ratio,
         },
         surface,
         points: record.points[..record.point_count as usize]

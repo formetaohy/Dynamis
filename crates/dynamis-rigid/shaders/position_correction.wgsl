@@ -109,7 +109,7 @@ fn local_point_row(
 
 fn solve_contact_correction(contact_index: u32) {
     let contact = contacts[contact_index];
-    if (!contact_block_resolves(contact)) {
+    if (!contact_block_resolves(contact) || contact.relaxation > 0.0) {
         return;
     }
     let first_row = blocks[contact_index * 2u];

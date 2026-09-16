@@ -294,6 +294,34 @@ fn collider_surface(collider: Collider) -> Surface {
     return Surface(collider.friction, collider.restitution, collider.rolling_friction, collider.spin_friction);
 }
 
+fn contact_relaxation(first: Collider, second: Collider) -> vec2f {
+    return vec2f(
+        first.relaxation + second.relaxation,
+        max(first.damping_ratio, second.damping_ratio),
+    );
+}
+
+fn contact_normal_delta(
+    contact: Contact,
+    mass: f32,
+    truth: f32,
+    step: f32,
+    goal: f32,
+    depth: f32,
+    speed: f32,
+    accumulated: f32,
+) -> f32 {
+    if (contact.relaxation <= 0.0) {
+        return (goal - speed) / mass;
+    }
+    let bias = max(depth / step, goal);
+    let drag = 2.0 * contact.damping_ratio * contact.relaxation / step;
+    let softness = contact.relaxation * contact.relaxation * truth / (step * step);
+    let prior = speed - accumulated * truth;
+    let wanted = (bias - (1.0 + drag) * prior) / (softness + (1.0 + drag) * truth);
+    return truth * (wanted - accumulated) / mass;
+}
+
 fn body_com(body: Body) -> vec3f {
     return body_com_of(body.state, body.desc);
 }

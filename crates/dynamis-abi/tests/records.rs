@@ -167,15 +167,29 @@ fn collider_record_encodes_every_shape_kind() {
 }
 
 #[test]
-fn collider_record_fills_its_alignment_room_with_the_impact_threshold() {
-    assert_eq!(offset_of!(ColliderRecord, impact_force), 20);
+fn collider_record_fills_its_alignment_room_with_the_contact_softness() {
+    assert_eq!(offset_of!(ColliderRecord, relaxation), 20);
+    assert_eq!(offset_of!(ColliderRecord, damping_ratio), 24);
     assert_eq!(offset_of!(ColliderRecord, half_extents), 32);
     assert_eq!(size_of::<ColliderRecord>(), 112);
 
-    let silent = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0, 0);
+    let rigid = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0, 0);
+    assert_eq!(rigid.relaxation, 0.0);
     assert!(
-        !silent.impact_force.is_finite(),
+        !rigid.impact_force.is_finite(),
         "a collider that arms no impact must stay silent"
+    );
+    let soft = ColliderRecord::build(
+        &ColliderDesc::new(Shape::sphere(0.5))
+            .contact_frequency(10.0)
+            .contact_damping_ratio(0.5),
+        0,
+        0,
+    );
+    assert_eq!(soft.damping_ratio, 0.5);
+    assert!(
+        (dynamis_abi::contact_frequency(soft.relaxation) - 10.0).abs() < 1.0e-4,
+        "a stored relaxation must answer the frequency it came from"
     );
     let armed = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)).impact(250.0), 0, 0);
     assert_eq!(armed.impact_force, 250.0);
@@ -185,8 +199,10 @@ fn collider_record_fills_its_alignment_room_with_the_impact_threshold() {
 fn contact_record_fills_its_alignment_room_with_the_carried_impulse() {
     assert_eq!(offset_of!(ContactRecord, carried_normal), 68);
     assert_eq!(offset_of!(ContactRecord, carried_tangent), 72);
-    assert_eq!(offset_of!(ContactRecord, points), 80);
-    assert_eq!(size_of::<ContactRecord>(), 336);
+    assert_eq!(offset_of!(ContactRecord, relaxation), 76);
+    assert_eq!(offset_of!(ContactRecord, damping_ratio), 80);
+    assert_eq!(offset_of!(ContactRecord, points), 96);
+    assert_eq!(size_of::<ContactRecord>(), 352);
 }
 
 #[test]
@@ -866,7 +882,9 @@ fn contact_record_pins_the_manifold_surface() {
     assert_eq!(offset_of!(ContactRecord, events), 44);
     assert_eq!(offset_of!(ContactRecord, surface), 48);
     assert_eq!(offset_of!(ContactRecord, friction), 52);
-    assert_eq!(offset_of!(ContactRecord, points), 80);
+    assert_eq!(offset_of!(ContactRecord, relaxation), 76);
+    assert_eq!(offset_of!(ContactRecord, damping_ratio), 80);
+    assert_eq!(offset_of!(ContactRecord, points), 96);
 }
 
 #[test]

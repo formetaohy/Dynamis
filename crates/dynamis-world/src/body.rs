@@ -524,6 +524,29 @@ impl World {
         self.bodies.pool.mark(handle);
     }
 
+    pub fn set_contact_frequency(&mut self, handle: BodyHandle, contact_frequency: f32) {
+        assert!(
+            contact_frequency > 0.0,
+            "a contact frequency must be strictly positive"
+        );
+        self.validate(handle);
+        self.bodies.collider_descs[handle.id as usize][0].contact_frequency = contact_frequency;
+        self.repool_colliders(handle.id);
+        self.bodies.pool.mark(handle);
+    }
+
+    pub fn set_contact_damping_ratio(&mut self, handle: BodyHandle, contact_damping_ratio: f32) {
+        assert!(
+            contact_damping_ratio >= 0.0,
+            "a contact damping ratio must be non-negative"
+        );
+        self.validate(handle);
+        self.bodies.collider_descs[handle.id as usize][0].contact_damping_ratio =
+            contact_damping_ratio;
+        self.repool_colliders(handle.id);
+        self.bodies.pool.mark(handle);
+    }
+
     pub fn set_collider_events(
         &mut self,
         handle: BodyHandle,
