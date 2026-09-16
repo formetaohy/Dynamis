@@ -926,20 +926,21 @@ impl World {
             .declared()
             .iter()
             .map(|id| {
-                let record = self.constraints.records[*id as usize];
+                let handle = ConstraintHandle {
+                    id: *id,
+                    generation: self.constraints.pool.generation(*id),
+                };
+                let joint = self.joint(handle);
                 ConstraintRow {
-                    handle: ConstraintHandle {
-                        id: *id,
-                        generation: self.constraints.pool.generation(*id),
-                    },
-                    kind: record.constraint_kind(),
+                    handle,
+                    kind: joint.desc.kind,
                     first: BodyHandle {
-                        id: record.first_body_id,
-                        generation: self.bodies.pool.generation(record.first_body_id),
+                        id: joint.first,
+                        generation: self.bodies.pool.generation(joint.first),
                     },
                     second: BodyHandle {
-                        id: record.second_body_id,
-                        generation: self.bodies.pool.generation(record.second_body_id),
+                        id: joint.second,
+                        generation: self.bodies.pool.generation(joint.second),
                     },
                 }
             })

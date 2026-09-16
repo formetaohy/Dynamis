@@ -1136,3 +1136,157 @@ fn unloaded_joints_never_publish_breaks() {
         "an unbroken world must publish no break records"
     );
 }
+
+#[test]
+fn constraint_patches_rewrite_the_description_the_host_reads_back() {
+    let mut world = new_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let joint = world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+            .dofs([DofDesc::locked(); 6]),
+    );
+    let limit = dynamis_model::ConstraintLimit {
+        min: -0.5,
+        max: 0.5,
+    };
+    let spring = dynamis_model::ConstraintSpring {
+        frequency: 3.0,
+        damping_ratio: 0.4,
+    };
+    let swing = dynamis_model::ConstraintSwing {
+        swing_a: 0.25,
+        swing_b: 0.5,
+    };
+    let motor = velocity_motor(2.0, 50.0);
+    world.set_motor(joint, 2.0, 50.0);
+    assert_eq!(
+        world.constraint_desc(joint).motor,
+        Some(motor),
+        "set_motor must rewrite the joint description"
+    );
+    world.set_limit(joint, Some(limit));
+    assert_eq!(world.constraint_desc(joint).limit, Some(limit));
+    world.set_spring(joint, Some(spring));
+    assert_eq!(world.constraint_desc(joint).spring, Some(spring));
+    world.set_swing_limits(joint, Some(swing));
+    assert_eq!(world.constraint_desc(joint).swing, Some(swing));
+    world.set_break_threshold(
+        joint,
+        Some(ConstraintBreak {
+            force: 10.0,
+            torque: 20.0,
+        }),
+    );
+    assert_eq!(
+        world.constraint_desc(joint).break_threshold,
+        Some(ConstraintBreak {
+            force: 10.0,
+            torque: 20.0,
+        })
+    );
+    world.set_warm_start(joint, false);
+    assert!(!world.constraint_desc(joint).warm_start);
+    world.set_constraint_disable_collisions(joint, false);
+    assert!(!world.constraint_desc(joint).disable_collisions);
+    world.set_dof_locked(joint, 0, false);
+    world.set_dof_motor(joint, 3, Some(motor));
+    world.set_dof_limit(joint, 4, Some(limit));
+    let dofs = world
+        .constraint_desc(joint)
+        .dofs
+        .expect("dof patches keep the dof layout");
+    assert!(!dofs[0].locked, "set_dof_locked must rewrite its dof");
+    assert_eq!(
+        dofs[3].motor,
+        Some(motor),
+        "set_dof_motor must rewrite its dof"
+    );
+    assert_eq!(
+        dofs[4].limit,
+        Some(limit),
+        "set_dof_limit must rewrite its dof"
+    );
+    world.set_limit(joint, None);
+    world.set_spring(joint, None);
+    world.set_swing_limits(joint, None);
+    world.set_break_threshold(joint, None);
+    world.set_dof_limit(joint, 4, None);
+    world.set_dof_motor(joint, 3, None);
+    let cleared = world.constraint_desc(joint);
+    assert_eq!(
+        cleared.limit, None,
+        "clearing a limit must clear the description"
+    );
+    assert_eq!(cleared.spring, None);
+    assert_eq!(cleared.swing, None);
+    assert_eq!(cleared.break_threshold, None);
+    let dofs = cleared.dofs.expect("dof patches keep the dof layout");
+    assert_eq!(dofs[3].motor, None);
+    assert_eq!(dofs[4].limit, None);
+}
+
+#[test]
+fn patched_and_declared_constraints_share_one_device_encoding() {
+    let motor = velocity_motor(2.0, 50.0);
+    let limit = dynamis_model::ConstraintLimit {
+        min: -0.5,
+        max: 0.5,
+    };
+    let spring = dynamis_model::ConstraintSpring {
+        frequency: 3.0,
+        damping_ratio: 0.4,
+    };
+    let swing = dynamis_model::ConstraintSwing {
+        swing_a: 0.25,
+        swing_b: 0.5,
+    };
+    let drive = |index: usize| {
+        let mut dofs = [DofDesc::locked(); 6];
+        dofs[index] = DofDesc::free().motor(motor);
+        dofs
+    };
+    let mut declared_world = new_world(static_config());
+    let declared_base = declared_world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let declared_arm = declared_world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    declared_world.add_constraint(
+        declared_base,
+        declared_arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+            .dofs(drive(3))
+            .limit(limit.min, limit.max)
+            .swing(swing.swing_a, swing.swing_b)
+            .spring(spring.frequency, spring.damping_ratio)
+            .warm_start(false)
+            .disable_collisions(false),
+    );
+    let mut patched_world = new_world(static_config());
+    let patched_base = patched_world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let patched_arm = patched_world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let patched = patched_world.add_constraint(
+        patched_base,
+        patched_arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+            .dofs([DofDesc::locked(); 6]),
+    );
+    patched_world.set_limit(patched, Some(limit));
+    patched_world.set_spring(patched, Some(spring));
+    patched_world.set_swing_limits(patched, Some(swing));
+    patched_world.set_warm_start(patched, false);
+    patched_world.set_constraint_disable_collisions(patched, false);
+    patched_world.set_dof_locked(patched, 3, false);
+    patched_world.set_dof_motor(patched, 3, Some(motor));
+    for _ in 0..45 {
+        declared_world.step(DT);
+        patched_world.step(DT);
+    }
+    declared_world.wait();
+    patched_world.wait();
+    assert_eq!(
+        declared_world.read_state(declared_arm),
+        patched_world.read_state(patched_arm),
+        "a patched joint must reach the device as the description it declares"
+    );
+}

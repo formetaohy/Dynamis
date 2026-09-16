@@ -99,13 +99,13 @@ impl JointState {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintLimit {
     pub min: f32,
     pub max: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintMotor {
     pub target_velocity: f32,
     pub max_force: f32,
@@ -114,25 +114,25 @@ pub struct ConstraintMotor {
     pub damping: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintSpring {
     pub frequency: f32,
     pub damping_ratio: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintSwing {
     pub swing_a: f32,
     pub swing_b: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintBreak {
     pub force: f32,
     pub torque: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DofDesc {
     pub locked: bool,
     pub limit: Option<ConstraintLimit>,
@@ -177,7 +177,7 @@ impl DofDesc {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintDesc {
     pub kind: ConstraintKind,
     pub anchor_a: [f32; 3],
@@ -200,7 +200,9 @@ pub struct ConstraintDesc {
 }
 
 impl ConstraintDesc {
-    fn base(kind: ConstraintKind) -> Self {
+    pub const VACANT: Self = Self::base(ConstraintKind::Ball);
+
+    const fn base(kind: ConstraintKind) -> Self {
         Self {
             kind,
             anchor_a: [0.0; 3],

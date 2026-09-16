@@ -4,13 +4,32 @@ use super::pool::{Pool, Retired};
 use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
-    ConstraintMotor, ConstraintSpring, ConstraintSwing,
+    ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
 };
+
+#[derive(Clone, Copy)]
+pub(crate) struct JointDesc {
+    pub(crate) first: u32,
+    pub(crate) second: u32,
+    pub(crate) desc: ConstraintDesc,
+}
+
+impl JointDesc {
+    pub(crate) const VACANT: Self = Self {
+        first: dynamis_abi::NO_BODY,
+        second: dynamis_abi::NO_BODY,
+        desc: ConstraintDesc::VACANT,
+    };
+
+    fn record(self) -> ConstraintDescriptorRecord {
+        ConstraintDescriptorRecord::build(&self.desc, self.first, self.second)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct ConstraintStore {
     pub(crate) pool: Pool<ConstraintHandle>,
-    pub(crate) records: Vec<ConstraintDescriptorRecord>,
+    pub(crate) joints: Vec<JointDesc>,
     pub(crate) attached: Vec<Vec<u32>>,
     pub(crate) commands: Vec<ConstraintCommand>,
     pub(crate) last_moves: u32,
@@ -22,7 +41,7 @@ impl ConstraintStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::compact("constraint"),
-            records: Vec::new(),
+            joints: Vec::new(),
             attached: Vec::new(),
             commands: Vec::new(),
             last_moves: 0,
@@ -54,13 +73,13 @@ impl ConstraintStore {
         attached.swap_remove(slot);
     }
 
-    fn attach(&mut self, handle: ConstraintHandle, record: ConstraintDescriptorRecord) -> u32 {
+    fn attach(&mut self, handle: ConstraintHandle, joint: JointDesc) -> u32 {
         let slot = self.pool.insert(handle);
-        if self.records.len() <= handle.id as usize {
-            self.records
-                .resize(handle.id as usize + 1, bytemuck::Zeroable::zeroed());
+        if self.joints.len() <= handle.id as usize {
+            self.joints
+                .resize(handle.id as usize + 1, JointDesc::VACANT);
         }
-        self.records[handle.id as usize] = record;
+        self.joints[handle.id as usize] = joint;
         slot
     }
 
@@ -83,10 +102,14 @@ impl World {
         }
         self.validate_constraint_desc(&desc);
         let handle = self.constraints.pool.acquire();
-        let record = ConstraintDescriptorRecord::build(&desc, first.id, second.id);
-        let slot = self.constraints.attach(handle, record);
-        self.constraints.attach_to(first.id, handle.id);
-        self.constraints.attach_to(second.id, handle.id);
+        let joint = JointDesc {
+            first: first.id,
+            second: second.id,
+            desc,
+        };
+        let slot = self.constraints.attach(handle, joint);
+        self.constraints.attach_to(joint.first, handle.id);
+        self.constraints.attach_to(joint.second, handle.id);
         self.constraints.commands.push(ConstraintCommand::Add {
             slot,
             id: handle.id,
@@ -98,25 +121,23 @@ impl World {
     pub fn update_constraint(&mut self, handle: ConstraintHandle, desc: ConstraintDesc) {
         self.validate_constraint(handle);
         self.validate_constraint_desc(&desc);
-        let existing = self.constraints.records[handle.id as usize];
-        let record = ConstraintDescriptorRecord::build(
-            &desc,
-            existing.first_body_id,
-            existing.second_body_id,
-        );
-        self.constraints.records[handle.id as usize] = record;
-        self.constraints.pool.mark(handle);
+        self.edit_constraint(handle, |joint| joint.desc = desc);
+    }
+
+    pub fn constraint_desc(&self, handle: ConstraintHandle) -> ConstraintDesc {
+        self.joint(handle).desc
     }
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
         assert!(max_force >= 0.0, "motor force must be non-negative");
-        self.patch_record(handle, |record| {
-            record.motor_speed = target_velocity;
-            record.motor_max_force = max_force;
-            record.motor_target = 0.0;
-            record.motor_stiffness = 0.0;
-            record.motor_damping = 0.0;
-            record.flags |= dynamis_abi::CONSTRAINT_HAS_MOTOR;
+        self.edit_constraint(handle, |joint| {
+            joint.desc.motor = Some(ConstraintMotor {
+                target_velocity,
+                max_force,
+                target_position: None,
+                stiffness: 0.0,
+                damping: 0.0,
+            });
         });
     }
 
@@ -127,14 +148,7 @@ impl World {
                 "constraint limit max must not be below min"
             );
         }
-        self.patch_record(handle, |record| match limit {
-            Some(limit) => {
-                record.limit_min = limit.min;
-                record.limit_max = limit.max;
-                record.flags |= dynamis_abi::CONSTRAINT_HAS_LIMIT;
-            }
-            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_LIMIT,
-        });
+        self.edit_constraint(handle, |joint| joint.desc.limit = limit);
     }
 
     pub fn set_spring(&mut self, handle: ConstraintHandle, spring: Option<ConstraintSpring>) {
@@ -148,14 +162,7 @@ impl World {
                 "spring damping ratio must be non-negative"
             );
         }
-        self.patch_record(handle, |record| match spring {
-            Some(spring) => {
-                record.spring_frequency = spring.frequency;
-                record.spring_damping_ratio = spring.damping_ratio;
-                record.flags |= dynamis_abi::CONSTRAINT_IS_SPRING;
-            }
-            None => record.flags &= !dynamis_abi::CONSTRAINT_IS_SPRING,
-        });
+        self.edit_constraint(handle, |joint| joint.desc.spring = spring);
     }
 
     pub fn set_break_threshold(
@@ -167,25 +174,11 @@ impl World {
             assert!(threshold.force >= 0.0, "break force must be non-negative");
             assert!(threshold.torque >= 0.0, "break torque must be non-negative");
         }
-        self.patch_record(handle, |record| match threshold {
-            Some(threshold) => {
-                record.break_force = threshold.force;
-                record.break_torque = threshold.torque;
-                record.flags |= dynamis_abi::CONSTRAINT_HAS_BREAK;
-            }
-            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_BREAK,
-        });
+        self.edit_constraint(handle, |joint| joint.desc.break_threshold = threshold);
     }
 
     pub fn set_warm_start(&mut self, handle: ConstraintHandle, warm_start: bool) {
-        self.patch_record(handle, |record| {
-            record.flags = (record.flags & !dynamis_abi::CONSTRAINT_WARM_START)
-                | if warm_start {
-                    dynamis_abi::CONSTRAINT_WARM_START
-                } else {
-                    0
-                };
-        });
+        self.edit_constraint(handle, |joint| joint.desc.warm_start = warm_start);
     }
 
     pub fn set_servo(
@@ -203,11 +196,17 @@ impl World {
             (0.0..=1.0).contains(&damping),
             "servo damping must be within [0, 1]"
         );
-        self.patch_record(handle, |record| {
-            record.motor_target = target_position;
-            record.motor_stiffness = stiffness;
-            record.motor_damping = damping;
-            record.flags |= dynamis_abi::CONSTRAINT_HAS_MOTOR;
+        self.edit_constraint(handle, |joint| {
+            let motor = joint.desc.motor.get_or_insert(ConstraintMotor {
+                target_velocity: 0.0,
+                max_force: 0.0,
+                target_position: None,
+                stiffness: 0.0,
+                damping: 0.0,
+            });
+            motor.target_position = Some(target_position);
+            motor.stiffness = stiffness;
+            motor.damping = damping;
         });
     }
 
@@ -216,32 +215,16 @@ impl World {
             assert!(swing.swing_a >= 0.0, "swing limit must be non-negative");
             assert!(swing.swing_b >= 0.0, "swing limit must be non-negative");
         }
-        self.patch_record(handle, |record| match swing {
-            Some(swing) => {
-                record.swing_a = swing.swing_a;
-                record.swing_b = swing.swing_b;
-                record.flags |= dynamis_abi::CONSTRAINT_HAS_SWING;
-            }
-            None => record.flags &= !dynamis_abi::CONSTRAINT_HAS_SWING,
-        });
+        self.edit_constraint(handle, |joint| joint.desc.swing = swing);
     }
 
     pub fn set_constraint_disable_collisions(&mut self, handle: ConstraintHandle, disable: bool) {
-        self.patch_record(handle, |record| {
-            record.flags = (record.flags & !dynamis_abi::CONSTRAINT_DISABLE_COLLISIONS)
-                | if disable {
-                    dynamis_abi::CONSTRAINT_DISABLE_COLLISIONS
-                } else {
-                    0
-                };
-        });
+        self.edit_constraint(handle, |joint| joint.desc.disable_collisions = disable);
     }
 
     pub fn set_dof_locked(&mut self, handle: ConstraintHandle, index: usize, locked: bool) {
         self.assert_dof_index(index);
-        self.patch_record(handle, |record| {
-            record.flags = dynamis_abi::set_dof_locked(record.flags, index as u32, locked);
-        });
+        self.edit_dof(handle, index, |dof| dof.locked = locked);
     }
 
     pub fn set_dof_limit(
@@ -257,21 +240,7 @@ impl World {
                 "dof limit max must not be below min"
             );
         }
-        self.patch_record(handle, |record| {
-            let (min, max) = dof_limit_pair(record, index);
-            match limit {
-                Some(limit) => {
-                    *min = limit.min;
-                    *max = limit.max;
-                    record.flags = dynamis_abi::set_dof_limited(record.flags, index as u32, true);
-                }
-                None => {
-                    *min = 0.0;
-                    *max = 0.0;
-                    record.flags = dynamis_abi::set_dof_limited(record.flags, index as u32, false);
-                }
-            }
-        });
+        self.edit_dof(handle, index, |dof| dof.limit = limit);
     }
 
     pub fn set_dof_motor(
@@ -281,35 +250,25 @@ impl World {
         motor: Option<ConstraintMotor>,
     ) {
         self.assert_dof_index(index);
-        self.patch_record(handle, |record| {
-            let (target, stiffness, damping, force) = dof_motor_slots(record, index);
-            match motor {
-                Some(motor) => {
-                    *target = motor.target_position.unwrap_or(motor.target_velocity);
-                    *stiffness = motor.stiffness;
-                    *damping = motor.damping;
-                    *force = motor.max_force;
-                    record.flags = dynamis_abi::set_dof_driven(record.flags, index as u32, true);
-                }
-                None => {
-                    *target = 0.0;
-                    *stiffness = 0.0;
-                    *damping = 0.0;
-                    *force = 0.0;
-                    record.flags = dynamis_abi::set_dof_driven(record.flags, index as u32, false);
-                }
-            }
-        });
+        self.edit_dof(handle, index, |dof| dof.motor = motor);
     }
 
-    fn patch_record(
+    fn edit_constraint(&mut self, handle: ConstraintHandle, change: impl FnOnce(&mut JointDesc)) {
+        self.validate_constraint(handle);
+        change(&mut self.constraints.joints[handle.id as usize]);
+        self.constraints.pool.mark(handle);
+    }
+
+    fn edit_dof(
         &mut self,
         handle: ConstraintHandle,
-        change: impl FnOnce(&mut ConstraintDescriptorRecord),
+        index: usize,
+        change: impl FnOnce(&mut DofDesc),
     ) {
-        self.validate_constraint(handle);
-        change(&mut self.constraints.records[handle.id as usize]);
-        self.constraints.pool.mark(handle);
+        self.edit_constraint(handle, |joint| {
+            let dofs = joint.desc.dofs.get_or_insert([DofDesc::free(); 6]);
+            change(&mut dofs[index]);
+        });
     }
 
     fn assert_dof_index(&self, index: usize) {
@@ -321,13 +280,11 @@ impl World {
     }
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
-        self.validate_constraint(handle);
-        let record = self.constraints.records[handle.id as usize];
-        self.constraints
-            .detach_from(record.first_body_id, handle.id);
-        self.constraints
-            .detach_from(record.second_body_id, handle.id);
+        let joint = self.joint(handle);
+        self.constraints.detach_from(joint.first, handle.id);
+        self.constraints.detach_from(joint.second, handle.id);
         let Retired { row, moved } = self.constraints.pool.retire(handle);
+        self.constraints.joints[handle.id as usize] = JointDesc::VACANT;
         if moved.is_some() {
             self.constraints.commands.push(ConstraintCommand::Swap {
                 slot: row,
@@ -377,18 +334,26 @@ impl World {
     }
 
     pub fn constraint_bodies(&self, handle: ConstraintHandle) -> (BodyHandle, BodyHandle) {
-        self.validate_constraint(handle);
-        let record = self.constraints.records[handle.id as usize];
+        let joint = self.joint(handle);
         (
             BodyHandle {
-                id: record.first_body_id,
-                generation: self.bodies.pool.generation(record.first_body_id),
+                id: joint.first,
+                generation: self.bodies.pool.generation(joint.first),
             },
             BodyHandle {
-                id: record.second_body_id,
-                generation: self.bodies.pool.generation(record.second_body_id),
+                id: joint.second,
+                generation: self.bodies.pool.generation(joint.second),
             },
         )
+    }
+
+    pub(crate) fn joint(&self, handle: ConstraintHandle) -> JointDesc {
+        self.validate_constraint(handle);
+        self.constraints.joints[handle.id as usize]
+    }
+
+    pub(crate) fn record_of(&self, handle: ConstraintHandle) -> ConstraintDescriptorRecord {
+        self.joint(handle).record()
     }
 
     pub(crate) fn validate_constraint(&self, handle: ConstraintHandle) {
@@ -412,41 +377,5 @@ impl World {
                 }
             }
         }
-    }
-}
-
-fn dof_limit_pair(record: &mut ConstraintDescriptorRecord, index: usize) -> (&mut f32, &mut f32) {
-    if index < 3 {
-        (
-            &mut record.linear_limit_min[index],
-            &mut record.linear_limit_max[index],
-        )
-    } else {
-        let axis = index - 3;
-        (
-            &mut record.angular_limit_min[axis],
-            &mut record.angular_limit_max[axis],
-        )
-    }
-}
-
-type DofMotorSlots<'a> = (&'a mut f32, &'a mut f32, &'a mut f32, &'a mut f32);
-
-fn dof_motor_slots(record: &mut ConstraintDescriptorRecord, index: usize) -> DofMotorSlots<'_> {
-    let axis = index % 3;
-    if index < 3 {
-        (
-            &mut record.linear_motor_target[axis],
-            &mut record.linear_motor_stiffness[axis],
-            &mut record.linear_motor_damping[axis],
-            &mut record.linear_motor_force[axis],
-        )
-    } else {
-        (
-            &mut record.angular_motor_target[axis],
-            &mut record.angular_motor_stiffness[axis],
-            &mut record.angular_motor_damping[axis],
-            &mut record.angular_motor_force[axis],
-        )
     }
 }

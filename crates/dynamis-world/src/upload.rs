@@ -95,9 +95,7 @@ impl World {
             let first = run[0];
             let records = run
                 .iter()
-                .map(|row| {
-                    self.constraints.records[self.constraints.pool.handle_of_row(*row).id as usize]
-                })
+                .map(|row| self.record_of(self.constraints.pool.handle_of_row(*row)))
                 .collect::<Vec<_>>();
             self.backend.streams.state.constraint_descriptors.write_at(
                 &queue,

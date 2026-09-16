@@ -187,23 +187,6 @@ impl ConstraintDescriptorRecord {
     }
 }
 
-impl ConstraintDescriptorRecord {
-    pub fn constraint_kind(&self) -> dynamis_model::ConstraintKind {
-        match self.kind {
-            CONSTRAINT_BALL => dynamis_model::ConstraintKind::Ball,
-            CONSTRAINT_DISTANCE => dynamis_model::ConstraintKind::Distance,
-            CONSTRAINT_REVOLUTE => dynamis_model::ConstraintKind::Revolute,
-            CONSTRAINT_PRISMATIC => dynamis_model::ConstraintKind::Prismatic,
-            CONSTRAINT_FIXED => dynamis_model::ConstraintKind::Fixed,
-            CONSTRAINT_GEAR => dynamis_model::ConstraintKind::Gear,
-            CONSTRAINT_PULLEY => dynamis_model::ConstraintKind::Pulley,
-            CONSTRAINT_CONE => dynamis_model::ConstraintKind::Cone,
-            CONSTRAINT_SIXDOF => dynamis_model::ConstraintKind::SixDof,
-            other => panic!("constraint descriptor carries an unknown kind {other}"),
-        }
-    }
-}
-
 impl ConstraintRuntimeRecord {
     pub fn fresh(constraint_id: u32, generation: u32) -> Self {
         Self {
