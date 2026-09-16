@@ -5,7 +5,7 @@ use crate::constant::{
 };
 use crate::{BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord};
 use bytemuck::Zeroable;
-use dynamis_model::{BodyDesc, MassProperties, PhysicsConfig};
+use dynamis_model::{BodyDesc, BodyState, PhysicsConfig, Shape, SolidGeometry};
 
 impl BodyStateRecord {
     pub fn initial(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
@@ -29,10 +29,30 @@ impl BodyStateRecord {
             sleeping: 0,
         }
     }
+
+    pub fn state(&self, descriptor: &BodyDescriptorRecord, step: u64) -> BodyState {
+        BodyState {
+            position: self.position,
+            prev_position: self.prev_position,
+            orientation: self.orientation,
+            velocity: self.velocity,
+            angular_velocity: self.angular_velocity,
+            inverse_mass: descriptor.inverse_mass,
+            com: descriptor.com,
+            sleeping: self.sleeping != 0,
+            step,
+        }
+    }
 }
 
 impl BodyDescriptorRecord {
-    pub fn build(desc: &BodyDesc, mass: MassProperties, config: &PhysicsConfig) -> Self {
+    pub fn build(
+        desc: &BodyDesc,
+        config: &PhysicsConfig,
+        geometry: impl Fn(&Shape) -> Option<SolidGeometry>,
+    ) -> Self {
+        let mass = desc.effective_mass(&geometry);
+        let properties = desc.mass_properties(&geometry);
         let mut flags = 0;
         if desc.kinematic {
             flags |= BODY_KINEMATIC;
@@ -47,10 +67,10 @@ impl BodyDescriptorRecord {
             flags |= OVERRIDE_SLEEP_ANGULAR;
         }
         Self {
-            inverse_mass: if desc.kinematic || desc.mass <= 0.0 {
+            inverse_mass: if desc.kinematic || mass <= 0.0 {
                 0.0
             } else {
-                1.0 / desc.mass
+                1.0 / mass
             },
             linear_damping: desc.linear_damping.unwrap_or(config.damping),
             angular_damping: desc.angular_damping.unwrap_or(config.angular_damping),
@@ -63,10 +83,10 @@ impl BodyDescriptorRecord {
             collision_mask: desc.filter.mask(),
             _pad1: 0,
             _pad4: 0,
-            com: mass.com,
+            com: properties.com,
             _pad2: 0.0,
-            inertia: mass.inertia,
-            inverse_inertia: mass.inverse_inertia,
+            inertia: properties.inertia,
+            inverse_inertia: properties.inverse_inertia,
             _pad3: [0.0; 4],
         }
     }

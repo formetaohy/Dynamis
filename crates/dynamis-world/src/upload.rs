@@ -67,9 +67,7 @@ impl World {
         for run in contiguous_runs(&rows) {
             let descriptors = run
                 .iter()
-                .map(|row| {
-                    self.bodies.descriptors[self.bodies.pool.handle_of_row(*row).id as usize]
-                })
+                .map(|row| self.bodies.records[self.bodies.pool.handle_of_row(*row).id as usize])
                 .collect::<Vec<_>>();
             self.backend.streams.state.body_descriptors.write_at(
                 &queue,

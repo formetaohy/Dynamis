@@ -23,8 +23,8 @@ use dynamis_abi::{
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
-    MassProperties, PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind,
-    SoftElementState, SurfaceDesc,
+    PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind, SoftElementState,
+    SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -33,19 +33,13 @@ use std::panic::catch_unwind;
 fn body_descriptor_encodes_the_host_owned_half() {
     let desc = BodyDesc::sphere(0.5)
         .mass(2.0)
+        .com([0.5, 0.0, 0.0])
+        .inertia([1.0, 0.25, 0.0, 2.0, 0.0, 3.0])
         .filter(CollisionFilter::new(7, 3))
         .kinematic(true)
         .ccd(true)
         .sleep_thresholds(0.1, 0.2);
-    let record = BodyDescriptorRecord::build(
-        &desc,
-        MassProperties {
-            com: [0.5, 0.0, 0.0],
-            inertia: [1.0, 0.25, 0.0, 2.0, 0.0, 3.0],
-            inverse_inertia: [1.0, 0.0, 0.0, 2.0, 0.0, 3.0],
-        },
-        &PhysicsConfig::default(),
-    );
+    let record = BodyDescriptorRecord::build(&desc, &PhysicsConfig::default(), |_| None);
     assert_eq!(record.inverse_mass, 0.0, "kinematic mass is infinite");
     assert_eq!(record.collision_group, 7);
     assert_eq!(record.collision_mask, 3);
@@ -59,15 +53,28 @@ fn body_descriptor_encodes_the_host_owned_half() {
     assert_eq!(record.sleep_angular_velocity, 0.2);
     assert_eq!(record.com, [0.5, 0.0, 0.0]);
     assert_eq!(record.inertia, [1.0, 0.25, 0.0, 2.0, 0.0, 3.0]);
-    assert_eq!(record.inverse_inertia, [1.0, 0.0, 0.0, 2.0, 0.0, 3.0]);
+    assert_eq!(
+        record.inverse_inertia,
+        [1.032258, -0.12903225, 0.0, 0.516129, 0.0, 0.33333334]
+    );
 
     let dynamic = BodyDescriptorRecord::build(
         &BodyDesc::sphere(0.5).mass(2.0),
-        MassProperties::zeroed(),
         &PhysicsConfig::default(),
+        |_| None,
     );
     assert_eq!(dynamic.inverse_mass, 0.5);
+    assert_eq!(dynamic.com, [0.0; 3]);
+    assert_eq!(dynamic.inertia, [0.2, 0.0, 0.0, 0.2, 0.0, 0.2]);
+    assert_eq!(dynamic.inverse_inertia, [5.0, 0.0, 0.0, 5.0, 0.0, 5.0]);
     assert_eq!(dynamic.flags & OVERRIDE_SLEEP_LINEAR, 0);
+
+    let density = BodyDescriptorRecord::build(
+        &BodyDesc::sphere(1.0).density(3.0),
+        &PhysicsConfig::default(),
+        |_| None,
+    );
+    assert_eq!(density.inverse_mass, 1.0 / (4.0 * std::f32::consts::PI));
 }
 
 #[test]

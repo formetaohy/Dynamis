@@ -4,25 +4,20 @@ use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{
     BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
-    OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_VELOCITY, ShapeRole, shape_source_handle,
+    PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, ShapeRole,
+    shape_source_handle,
 };
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
-    MassProperties, Shape,
+    BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode, Shape,
 };
 
 #[derive(Clone)]
 pub(crate) struct BodyStore {
     pub(crate) pool: Pool<BodyHandle>,
-    pub(crate) collider_descs: Vec<Vec<ColliderDesc>>,
-    pub(crate) masses: Vec<f32>,
-    pub(crate) com_overrides: Vec<Option<[f32; 3]>>,
-    pub(crate) inertia_overrides: Vec<Option<[f32; 6]>>,
-    pub(crate) descriptors: Vec<BodyDescriptorRecord>,
-    pub(crate) dynamic_count: usize,
-    pub(crate) kinematic: Vec<bool>,
-    pub(crate) ccd_count: u32,
+    pub(crate) descs: Vec<BodyDesc>,
+    pub(crate) records: Vec<BodyDescriptorRecord>,
+    pub(crate) dynamic: u32,
+    pub(crate) ccd: u32,
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
@@ -32,14 +27,10 @@ impl BodyStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::compact("body"),
-            collider_descs: Vec::new(),
-            masses: Vec::new(),
-            com_overrides: Vec::new(),
-            inertia_overrides: Vec::new(),
-            descriptors: Vec::new(),
-            dynamic_count: 0,
-            kinematic: Vec::new(),
-            ccd_count: 0,
+            descs: Vec::new(),
+            records: Vec::new(),
+            dynamic: 0,
+            ccd: 0,
             commands: Vec::new(),
             last_moves: 0,
             last_edits: 0,
@@ -52,55 +43,30 @@ impl BodyStore {
 
     fn grow_to(&mut self, id: u32) {
         let rows = id as usize + 1;
-        if rows <= self.collider_descs.len() {
+        if rows <= self.descs.len() {
             return;
         }
-        self.collider_descs.resize(rows, Vec::new());
-        self.masses.resize(rows, 1.0);
-        self.com_overrides.resize(rows, None);
-        self.inertia_overrides.resize(rows, None);
-        self.descriptors
-            .resize(rows, BodyDescriptorRecord::zeroed());
-        self.kinematic.resize(rows, false);
+        self.descs.resize(rows, BodyDesc::VACANT);
+        self.records.resize(rows, BodyDescriptorRecord::zeroed());
     }
 }
 
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
-        let handle = self.bodies.pool.acquire();
-        let id = handle.id as usize;
-        self.bodies.grow_to(handle.id);
         self.validate_world_geometry(&desc);
-        let mass = desc.effective_mass(|shape| self.shape_solid(shape));
-        let mut spawn_desc = desc.clone();
-        spawn_desc.mass = mass;
-        self.bodies.masses[id] = mass;
-        self.bodies.com_overrides[id] = desc.com;
-        self.bodies.inertia_overrides[id] = desc.inertia;
-        self.bodies.kinematic[id] = desc.kinematic;
-        self.bodies.collider_descs[id] = desc.colliders.clone();
+        let handle = self.bodies.pool.acquire();
+        self.bodies.grow_to(handle.id);
+        self.bodies.descs[handle.id as usize] = desc.clone();
         for collider in &desc.colliders {
             self.retain_shape_ref(&collider.shape);
         }
-        let mass_properties = self.mass_properties_of(id);
-        self.bodies.descriptors[id] =
-            BodyDescriptorRecord::build(&spawn_desc, mass_properties, &self.config);
-        self.record_state(id, &spawn_desc);
-        self.repool_colliders(id as u32);
-        let state = BodyStateRecord::initial(&spawn_desc, handle.id, handle.generation);
         let slot = self.bodies.pool.insert(handle);
+        let state = BodyStateRecord::initial(&desc, handle.id, handle.generation);
         self.bodies
             .commands
             .push(BodyCommand::Add { row: slot, state });
-        if spawn_desc.ccd {
-            self.bodies.ccd_count += 1;
-        }
-        if mass > 0.0 || desc.kinematic {
-            if (self.bodies.dynamic_count as u32) < slot {
-                self.swap_slots(self.bodies.dynamic_count as u32, slot);
-            }
-            self.bodies.dynamic_count += 1;
-        }
+        self.encode_body(handle);
+        self.record_state(handle, &state);
         handle
     }
 
@@ -108,12 +74,12 @@ impl World {
         self.validate(handle);
         self.assert_unreferenced(handle);
         let slot = self.bodies.pool.row_of(handle);
-        if (slot as usize) < self.bodies.dynamic_count {
-            let tail_dynamic = (self.bodies.dynamic_count - 1) as u32;
+        if slot < self.bodies.dynamic {
+            let tail_dynamic = self.bodies.dynamic - 1;
             if slot != tail_dynamic {
                 self.swap_slots(slot, tail_dynamic);
             }
-            self.bodies.dynamic_count -= 1;
+            self.bodies.dynamic -= 1;
             let last = self.bodies.pool.len() - 1;
             if tail_dynamic != last {
                 self.swap_slots(tail_dynamic, last);
@@ -136,17 +102,16 @@ impl World {
             retired.moved.is_none(),
             "the tail row retires without a move"
         );
-        let removed = std::mem::take(&mut self.bodies.collider_descs[id]);
-        for collider in &removed {
+        let removed = std::mem::replace(&mut self.bodies.descs[id], BodyDesc::VACANT);
+        for collider in &removed.colliders {
             self.release_shape_ref(&collider.shape);
         }
         self.colliders.release(id as u32);
         self.observed.bodies.stop_watching(handle.id);
-        self.bodies.kinematic[id] = false;
-        if self.bodies.descriptors[id].flags & BODY_CCD != 0 {
-            self.bodies.ccd_count -= 1;
+        if self.bodies.records[id].flags & BODY_CCD != 0 {
+            self.bodies.ccd -= 1;
         }
-        self.bodies.descriptors[id] = BodyDescriptorRecord::zeroed();
+        self.bodies.records[id] = BodyDescriptorRecord::zeroed();
         self.bodies.commands.push(BodyCommand::Remove {
             hole: last,
             tail: last,
@@ -160,20 +125,54 @@ impl World {
             .push(BodyCommand::Swap { first, second });
     }
 
+    fn encode_body(&mut self, handle: BodyHandle) {
+        let id = handle.id as usize;
+        let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
+            self.shape_solid(shape)
+        });
+        let previous = self.bodies.records[id];
+        self.bodies.ccd = match (previous.flags & BODY_CCD != 0, record.flags & BODY_CCD != 0) {
+            (false, true) => self.bodies.ccd + 1,
+            (true, false) => self.bodies.ccd - 1,
+            _ => self.bodies.ccd,
+        };
+        self.bodies.records[id] = record;
+        self.bodies.pool.mark(handle);
+        self.observed.bodies.patch(id as u32, |state| {
+            state.inverse_mass = record.inverse_mass;
+            state.com = record.com;
+        });
+        self.migrate_partition(handle);
+        self.repool_colliders(handle.id);
+    }
+
+    pub(crate) fn encode_bodies(&mut self) {
+        let handles = self.bodies.pool.alive().to_vec();
+        for handle in handles {
+            self.encode_body(handle);
+        }
+    }
+
+    fn edit_body(&mut self, handle: BodyHandle, change: impl FnOnce(&mut BodyDesc)) {
+        self.validate(handle);
+        change(&mut self.bodies.descs[handle.id as usize]);
+        self.encode_body(handle);
+    }
+
     fn migrate_partition(&mut self, handle: BodyHandle) {
         let id = handle.id as usize;
-        let static_now = self.is_static_id(id);
+        let static_now = self.is_static(id);
         let slot = self.bodies.pool.row_of(handle);
-        let in_dynamic = (slot as usize) < self.bodies.dynamic_count;
+        let in_dynamic = slot < self.bodies.dynamic;
         if static_now == !in_dynamic {
             return;
         }
         if static_now {
-            let tail = (self.bodies.dynamic_count - 1) as u32;
+            let tail = self.bodies.dynamic - 1;
             if slot != tail {
                 self.swap_slots(slot, tail);
             }
-            self.bodies.dynamic_count -= 1;
+            self.bodies.dynamic -= 1;
             self.bodies.commands.push(BodyCommand::Patch {
                 row: tail,
                 mask: PATCH_VELOCITY,
@@ -185,11 +184,11 @@ impl World {
             });
             self.bodies.pool.mark_row(tail);
         } else {
-            let boundary = self.bodies.dynamic_count as u32;
+            let boundary = self.bodies.dynamic;
             if slot != boundary {
                 self.swap_slots(slot, boundary);
             }
-            self.bodies.dynamic_count += 1;
+            self.bodies.dynamic += 1;
         }
         self.bodies.pool.mark_row(slot);
     }
@@ -207,34 +206,30 @@ impl World {
             .expect("body state is unavailable")
     }
 
-    fn record_state(&mut self, id: usize, desc: &BodyDesc) {
+    fn record_state(&mut self, handle: BodyHandle, initial: &BodyStateRecord) {
         let step = self.clock.step;
-        let state = BodyState {
-            position: desc.position,
-            prev_position: desc.position,
-            orientation: desc.orientation,
-            velocity: desc.velocity,
-            angular_velocity: desc.angular_velocity,
-            inverse_mass: self.bodies.descriptors[id].inverse_mass,
-            com: self.bodies.descriptors[id].com,
-            sleeping: false,
-            step,
-        };
-        self.observed.bodies.insert(id as u32, step, state);
+        let record = self.bodies.records[handle.id as usize];
+        self.observed
+            .bodies
+            .insert(handle.id, step, initial.state(&record, step));
     }
 
     fn validate_world_geometry(&self, desc: &BodyDesc) {
+        let mass = desc.effective_mass(|shape| self.shape_solid(shape));
+        if mass <= 0.0 || desc.kinematic {
+            return;
+        }
         for collider in &desc.colliders {
-            if ShapeRole::of_shape(&collider.shape).world_geometry()
-                && (desc.mass > 0.0 && !desc.kinematic)
-            {
-                panic!("world geometry colliders must be static or kinematic");
-            }
+            assert!(
+                !ShapeRole::of_shape(&collider.shape).world_geometry(),
+                "world geometry colliders must be static or kinematic"
+            );
         }
     }
 
-    fn is_static_id(&self, id: usize) -> bool {
-        self.bodies.masses[id] <= 0.0 && !self.bodies.kinematic[id]
+    fn is_static(&self, id: usize) -> bool {
+        let record = self.bodies.records[id];
+        record.inverse_mass == 0.0 && record.flags & BODY_KINEMATIC == 0
     }
 
     fn assert_unreferenced(&self, handle: BodyHandle) {
@@ -255,44 +250,6 @@ impl World {
             !self.characters.owns_body(id),
             "body handle {handle:?} is the body of a character"
         );
-    }
-
-    fn patch_descriptor(
-        &mut self,
-        handle: BodyHandle,
-        edit: impl FnOnce(&mut BodyDescriptorRecord),
-    ) {
-        self.validate(handle);
-        edit(&mut self.bodies.descriptors[handle.id as usize]);
-        self.bodies.pool.mark(handle);
-    }
-
-    fn refresh_descriptor(&mut self, handle: BodyHandle) {
-        let id = handle.id as usize;
-        let mass = self.mass_properties_of(id);
-        let kinematic = self.bodies.kinematic[id];
-        let inverse_mass = if kinematic || self.bodies.masses[id] <= 0.0 {
-            0.0
-        } else {
-            1.0 / self.bodies.masses[id]
-        };
-        let descriptor = &mut self.bodies.descriptors[id];
-        descriptor.com = mass.com;
-        descriptor.inverse_inertia = mass.inverse_inertia;
-        descriptor.inverse_mass = inverse_mass;
-        descriptor.flags =
-            (descriptor.flags & !BODY_KINEMATIC) | if kinematic { BODY_KINEMATIC } else { 0 };
-        let row = *descriptor;
-        self.bodies.pool.mark(handle);
-        self.observed.bodies.patch(id as u32, |state| {
-            state.inverse_mass = row.inverse_mass;
-            state.com = row.com;
-        });
-    }
-
-    fn apply_mass(&mut self, handle: BodyHandle, mass: f32) {
-        self.bodies.masses[handle.id as usize] = mass;
-        self.refresh_descriptor(handle);
     }
 
     fn command_slot(&self, handle: BodyHandle) -> u32 {
@@ -340,6 +297,7 @@ impl World {
         let mut payload = BodyStateRecord::zeroed();
         payload.velocity = velocity;
         self.schedule_patch(handle, PATCH_VELOCITY, payload);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_angular_velocity(&mut self, handle: BodyHandle, angular_velocity: [f32; 3]) {
@@ -350,30 +308,24 @@ impl World {
         let mut payload = BodyStateRecord::zeroed();
         payload.angular_velocity = angular_velocity;
         self.schedule_patch(handle, PATCH_ANGULAR_VELOCITY, payload);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_mass(&mut self, handle: BodyHandle, mass: f32) {
         assert!(mass >= 0.0, "mass must be non-negative");
-        self.validate(handle);
-        self.apply_mass(handle, mass);
-        self.migrate_partition(handle);
+        self.edit_body(handle, |desc| {
+            desc.mass = mass;
+            desc.density = None;
+        });
     }
 
     pub fn set_density(&mut self, handle: BodyHandle, density: f32) {
         assert!(density >= 0.0, "density must be non-negative");
-        self.validate(handle);
-        let volume = dynamis_model::solid_volume_of(
-            &self.bodies.collider_descs[handle.id as usize],
-            |shape| self.shape_solid(shape),
-        );
-        self.apply_mass(handle, density * volume);
-        self.migrate_partition(handle);
+        self.edit_body(handle, |desc| desc.density = Some(density));
     }
 
     pub fn set_com(&mut self, handle: BodyHandle, com: [f32; 3]) {
-        self.validate(handle);
-        self.bodies.com_overrides[handle.id as usize] = Some(com);
-        self.refresh_descriptor(handle);
+        self.edit_body(handle, |desc| desc.com = Some(com));
     }
 
     pub fn set_inertia(&mut self, handle: BodyHandle, inertia: [f32; 6]) {
@@ -381,23 +333,24 @@ impl World {
             inertia.iter().all(|value| value.is_finite()),
             "inertia tensor must be finite"
         );
-        self.validate(handle);
-        self.bodies.inertia_overrides[handle.id as usize] = Some(inertia);
-        self.refresh_descriptor(handle);
+        self.edit_body(handle, |desc| desc.inertia = Some(inertia));
     }
 
     pub fn set_linear_damping(&mut self, handle: BodyHandle, damping: f32) {
         assert!(damping >= 0.0, "damping must be non-negative");
-        self.patch_descriptor(handle, |row| row.linear_damping = damping);
+        self.edit_body(handle, |desc| desc.linear_damping = Some(damping));
     }
 
-    pub fn set_angular_damping(&mut self, handle: BodyHandle, damping: f32) {
-        assert!(damping >= 0.0, "angular damping must be non-negative");
-        self.patch_descriptor(handle, |row| row.angular_damping = damping);
+    pub fn set_angular_damping(&mut self, handle: BodyHandle, angular_damping: f32) {
+        assert!(
+            angular_damping >= 0.0,
+            "angular damping must be non-negative"
+        );
+        self.edit_body(handle, |desc| desc.angular_damping = Some(angular_damping));
     }
 
     pub fn set_gravity_scale(&mut self, handle: BodyHandle, gravity_scale: f32) {
-        self.patch_descriptor(handle, |row| row.gravity_scale = gravity_scale);
+        self.edit_body(handle, |desc| desc.gravity_scale = gravity_scale);
     }
 
     pub fn set_sleep_thresholds(
@@ -411,119 +364,91 @@ impl World {
             angular_velocity >= 0.0,
             "sleep angular velocity must be non-negative"
         );
-        self.patch_descriptor(handle, |row| {
-            row.sleep_velocity = velocity;
-            row.sleep_angular_velocity = angular_velocity;
-            row.flags |= OVERRIDE_SLEEP_LINEAR | OVERRIDE_SLEEP_ANGULAR;
+        self.edit_body(handle, |desc| {
+            desc.sleep_velocity = Some(velocity);
+            desc.sleep_angular_velocity = Some(angular_velocity);
         });
     }
 
     pub fn set_collision_filter(&mut self, handle: BodyHandle, filter: CollisionFilter) {
-        self.patch_descriptor(handle, |row| {
-            row.collision_group = filter.group();
-            row.collision_mask = filter.mask();
-        });
+        self.edit_body(handle, |desc| desc.filter = filter);
     }
 
     pub fn set_ccd(&mut self, handle: BodyHandle, ccd: bool) {
-        self.validate(handle);
-        let enabled = self.bodies.descriptors[handle.id as usize].flags & BODY_CCD != 0;
-        if enabled == ccd {
-            return;
-        }
-        self.bodies.ccd_count = if ccd {
-            self.bodies.ccd_count + 1
-        } else {
-            self.bodies.ccd_count - 1
-        };
-        self.patch_descriptor(handle, |row| {
-            row.flags = (row.flags & !BODY_CCD) | if ccd { BODY_CCD } else { 0 };
-        });
+        self.edit_body(handle, |desc| desc.ccd = ccd);
     }
 
     pub(crate) fn ccd_active(&self) -> bool {
         debug_assert_eq!(
-            self.bodies.ccd_count,
+            self.bodies.ccd,
             self.bodies
-                .descriptors
+                .records
                 .iter()
                 .filter(|row| row.flags & BODY_CCD != 0)
                 .count() as u32,
-            "the ccd body count must mirror the body descriptors"
+            "the ccd body count must mirror the body records"
         );
-        self.bodies.ccd_count > 0
+        self.bodies.ccd > 0
     }
 
     pub fn set_kinematic(&mut self, handle: BodyHandle, kinematic: bool) {
-        self.validate(handle);
-        self.bodies.kinematic[handle.id as usize] = kinematic;
-        self.refresh_descriptor(handle);
-        self.migrate_partition(handle);
+        self.edit_body(handle, |desc| desc.kinematic = kinematic);
     }
 
     pub fn set_collider(&mut self, handle: BodyHandle, index: usize, collider: ColliderDesc) {
         self.validate(handle);
         let id = handle.id as usize;
         assert!(
-            index < self.bodies.collider_descs[id].len(),
+            index < self.bodies.descs[id].colliders.len(),
             "collider index out of range"
         );
-        let existing = std::mem::replace(&mut self.bodies.collider_descs[id][index], collider);
+        let existing = std::mem::replace(&mut self.bodies.descs[id].colliders[index], collider);
         self.release_shape_ref(&existing.shape);
         self.retain_shape_ref(&collider.shape);
-        self.repool_colliders(handle.id);
-        self.refresh_descriptor(handle);
+        self.encode_body(handle);
     }
 
     pub fn add_collider(&mut self, handle: BodyHandle, collider: ColliderDesc) {
         self.validate(handle);
-        let id = handle.id as usize;
         self.retain_shape_ref(&collider.shape);
-        self.bodies.collider_descs[id].push(collider);
-        self.repool_colliders(handle.id);
-        self.refresh_descriptor(handle);
+        self.bodies.descs[handle.id as usize]
+            .colliders
+            .push(collider);
+        self.encode_body(handle);
     }
 
     pub fn remove_collider(&mut self, handle: BodyHandle, index: usize) {
         self.validate(handle);
         let id = handle.id as usize;
         assert!(
-            index < self.bodies.collider_descs[id].len(),
+            index < self.bodies.descs[id].colliders.len(),
             "collider index out of range"
         );
         assert!(
-            self.bodies.collider_descs[id].len() > 1,
+            self.bodies.descs[id].colliders.len() > 1,
             "a body requires at least one collider"
         );
-        let removed = self.bodies.collider_descs[id].swap_remove(index);
+        let removed = self.bodies.descs[id].colliders.swap_remove(index);
         self.release_shape_ref(&removed.shape);
-        self.repool_colliders(handle.id);
-        self.refresh_descriptor(handle);
+        self.encode_body(handle);
     }
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
         self.validate(handle);
         let id = handle.id as usize;
-        let replaced = std::mem::replace(&mut self.bodies.collider_descs[id][0].shape, shape);
+        let replaced = std::mem::replace(&mut self.bodies.descs[id].colliders[0].shape, shape);
         self.release_shape_ref(&replaced);
         self.retain_shape_ref(&shape);
-        self.repool_colliders(handle.id);
-        self.refresh_descriptor(handle);
+        self.encode_body(handle);
     }
 
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
-        self.validate(handle);
-        self.bodies.collider_descs[handle.id as usize][0].restitution = restitution;
-        self.repool_colliders(handle.id);
-        self.bodies.pool.mark(handle);
+        self.edit_body(handle, |desc| desc.colliders[0].restitution = restitution);
     }
 
     pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
         assert!(friction >= 0.0, "friction must be non-negative");
-        self.validate(handle);
-        self.bodies.collider_descs[handle.id as usize][0].friction = friction;
-        self.repool_colliders(handle.id);
-        self.bodies.pool.mark(handle);
+        self.edit_body(handle, |desc| desc.colliders[0].friction = friction);
     }
 
     pub fn set_contact_frequency(&mut self, handle: BodyHandle, contact_frequency: f32) {
@@ -531,10 +456,9 @@ impl World {
             contact_frequency > 0.0,
             "a contact frequency must be strictly positive"
         );
-        self.validate(handle);
-        self.bodies.collider_descs[handle.id as usize][0].contact_frequency = contact_frequency;
-        self.repool_colliders(handle.id);
-        self.bodies.pool.mark(handle);
+        self.edit_body(handle, |desc| {
+            desc.colliders[0].contact_frequency = contact_frequency
+        });
     }
 
     pub fn set_contact_damping_ratio(&mut self, handle: BodyHandle, contact_damping_ratio: f32) {
@@ -542,11 +466,9 @@ impl World {
             contact_damping_ratio >= 0.0,
             "a contact damping ratio must be non-negative"
         );
-        self.validate(handle);
-        self.bodies.collider_descs[handle.id as usize][0].contact_damping_ratio =
-            contact_damping_ratio;
-        self.repool_colliders(handle.id);
-        self.bodies.pool.mark(handle);
+        self.edit_body(handle, |desc| {
+            desc.colliders[0].contact_damping_ratio = contact_damping_ratio
+        });
     }
 
     pub fn set_collider_events(
@@ -556,14 +478,11 @@ impl World {
         events: ContactEventMode,
     ) {
         self.validate(handle);
-        let id = handle.id as usize;
         assert!(
-            index < self.bodies.collider_descs[id].len(),
+            index < self.bodies.descs[handle.id as usize].colliders.len(),
             "collider index out of range"
         );
-        self.bodies.collider_descs[id][index].events = events;
-        self.repool_colliders(handle.id);
-        self.bodies.pool.mark(handle);
+        self.edit_body(handle, |desc| desc.colliders[index].events = events);
     }
 
     pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
@@ -633,7 +552,8 @@ impl World {
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {
-        self.bodies.collider_descs[id]
+        self.bodies.descs[id]
+            .colliders
             .iter()
             .enumerate()
             .map(|(slot, collider)| self.collider_record(collider, slot as u32))
@@ -671,16 +591,6 @@ impl World {
 }
 
 impl World {
-    pub(crate) fn mass_properties_of(&self, id: usize) -> MassProperties {
-        dynamis_model::mass_properties_of_intent(
-            &self.bodies.collider_descs[id],
-            self.bodies.masses[id],
-            self.bodies.com_overrides[id],
-            self.bodies.inertia_overrides[id],
-            |shape| self.shape_solid(shape),
-        )
-    }
-
     pub(crate) fn collider_record(&self, desc: &ColliderDesc, slot: u32) -> ColliderRecord {
         let source = shape_source_handle(&desc.shape).map_or(0, |handle| handle.id);
         ColliderRecord::build(desc, source, slot)

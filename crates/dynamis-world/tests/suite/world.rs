@@ -1,7 +1,9 @@
 use super::common::distance;
 use super::common::{DT, gravity_config, new_world, static_config};
 use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
-use dynamis_model::{BodyDesc, BodyHandle, CollisionFilter, ConstraintDesc, PhysicsConfig};
+use dynamis_model::{
+    BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, PhysicsConfig, Shape,
+};
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -408,6 +410,79 @@ fn config_accessors_round_trip() {
     });
     assert_eq!(world.config().gravity, [0.0, -2.0, 0.0]);
     assert!(world.constraints().is_empty());
+}
+
+#[test]
+fn a_config_change_relevels_only_the_bodies_that_defer_to_it() {
+    let mut world = new_world(static_config());
+    let deferring = world.spawn(BodyDesc::sphere(0.5).velocity([10.0, 0.0, 0.0]));
+    let damped = world.spawn(
+        BodyDesc::sphere(0.5)
+            .velocity([10.0, 0.0, 0.0])
+            .damping(0.0),
+    );
+    world.set_config(PhysicsConfig {
+        damping: 8.0,
+        ..static_config()
+    });
+    settle_frames(&mut world, 30);
+    let slowed = world.read_state(deferring).velocity[0];
+    assert!(
+        slowed < 5.0,
+        "a body that defers to the world damping must follow a new config, got {slowed}"
+    );
+    assert_eq!(
+        world.read_state(damped).velocity[0],
+        10.0,
+        "a body that owns its damping must keep it across a config change"
+    );
+}
+
+#[test]
+fn a_body_layout_follows_its_description_alone() {
+    let mut world = new_world(static_config());
+    let body = world.spawn(BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5))).density(2.0));
+    let single = world.read_state(body).inverse_mass;
+    world.add_collider(
+        body,
+        ColliderDesc::new(Shape::sphere(0.5)).offset([2.0, 0.0, 0.0]),
+    );
+    let doubled = world.read_state(body).inverse_mass;
+    assert!(
+        (doubled * 2.0 - single).abs() < 1e-6,
+        "a density body must weigh every collider it holds, {single} then {doubled}"
+    );
+    world.set_mass(body, 1.0);
+    assert_eq!(world.read_state(body).inverse_mass, 1.0);
+    world.set_density(body, 4.0);
+    let density = world.read_state(body).inverse_mass;
+    assert!(
+        (density * 4.0 - doubled * 2.0).abs() < 1e-5,
+        "a density change must reweigh the body, got {density} on top of {doubled}"
+    );
+}
+
+#[test]
+fn the_ccd_flag_reaches_the_pass_graph_from_the_description() {
+    let mut world = new_world(static_config());
+    let body = world.spawn(BodyDesc::sphere(0.3));
+    world.step(DT);
+    world.wait();
+    assert!(!world.ran_passes().contains(&"ccd_sweep"));
+    world.set_ccd(body, true);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.ran_passes().contains(&"ccd_sweep"),
+        "an armed body must sweep"
+    );
+    world.set_ccd(body, false);
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.ran_passes().contains(&"ccd_sweep"),
+        "a disarmed body must stop sweeping"
+    );
 }
 
 fn settle_frames(world: &mut World, frames: usize) {

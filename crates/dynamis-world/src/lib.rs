@@ -103,6 +103,7 @@ impl World {
     pub fn set_config(&mut self, config: PhysicsConfig) {
         config.assert_valid();
         self.config = config;
+        self.encode_bodies();
         self.wake_all();
     }
 

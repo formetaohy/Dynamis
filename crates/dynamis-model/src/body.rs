@@ -43,6 +43,26 @@ pub struct BodyDesc {
 }
 
 impl BodyDesc {
+    pub const VACANT: Self = Self {
+        colliders: Vec::new(),
+        position: [0.0; 3],
+        orientation: [0.0, 0.0, 0.0, 1.0],
+        velocity: [0.0; 3],
+        angular_velocity: [0.0; 3],
+        mass: 0.0,
+        density: None,
+        com: None,
+        inertia: None,
+        filter: CollisionFilter::DEFAULT,
+        linear_damping: None,
+        angular_damping: None,
+        gravity_scale: 0.0,
+        sleep_velocity: None,
+        sleep_angular_velocity: None,
+        kinematic: false,
+        ccd: false,
+    };
+
     pub fn new(collider: ColliderDesc) -> Self {
         Self {
             colliders: vec![collider],

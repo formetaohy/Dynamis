@@ -127,7 +127,7 @@ impl World {
         let (particles, elements, attachments, adjacency) = self.soft.used();
         Census {
             bodies: self.bodies.pool.len(),
-            dynamic_bodies: self.bodies.dynamic_count as u32,
+            dynamic_bodies: self.bodies.dynamic,
             body_ids: self.bodies.pool.ids(),
             colliders: self.colliders.used(),
             live_colliders: self.colliders.live(),

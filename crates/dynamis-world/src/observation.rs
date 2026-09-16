@@ -64,21 +64,7 @@ impl Kind for BodyFacts {
             if record.generation != ids.generation(record.body_id) {
                 continue;
             }
-            let descriptor = descriptors[id];
-            states.push((
-                record.body_id,
-                BodyState {
-                    position: record.position,
-                    prev_position: record.prev_position,
-                    orientation: record.orientation,
-                    velocity: record.velocity,
-                    angular_velocity: record.angular_velocity,
-                    inverse_mass: descriptor.inverse_mass,
-                    com: descriptor.com,
-                    sleeping: record.sleeping != 0,
-                    step: *manifest,
-                },
-            ));
+            states.push((record.body_id, record.state(&descriptors[id], *manifest)));
         }
         states
     }
@@ -432,22 +418,10 @@ impl World {
                 record.body_id == handle.id && record.generation == handle.generation,
                 "the device row of body {handle:?} holds another identity"
             );
-            let descriptor = self.bodies.descriptors[handle.id as usize];
-            self.observed.bodies.insert(
-                handle.id,
-                step,
-                BodyState {
-                    position: record.position,
-                    prev_position: record.prev_position,
-                    orientation: record.orientation,
-                    velocity: record.velocity,
-                    angular_velocity: record.angular_velocity,
-                    inverse_mass: descriptor.inverse_mass,
-                    com: descriptor.com,
-                    sleeping: record.sleeping != 0,
-                    step,
-                },
-            );
+            let descriptor = self.bodies.records[handle.id as usize];
+            self.observed
+                .bodies
+                .insert(handle.id, step, record.state(&descriptor, step));
         }
     }
 
@@ -807,7 +781,7 @@ impl World {
         let regions = [(observed.buffer(), 0, bytes)];
         let context = (
             self.bodies.pool.identities(),
-            self.bodies.descriptors.as_slice(),
+            self.bodies.records.as_slice(),
         );
         self.observed
             .bodies
@@ -950,7 +924,7 @@ impl World {
     pub(crate) fn collect_observations(&mut self) {
         let context = (
             self.bodies.pool.identities(),
-            self.bodies.descriptors.as_slice(),
+            self.bodies.records.as_slice(),
         );
         self.observed.bodies.collect(context);
         self.observed.joints.collect(());
@@ -962,7 +936,7 @@ impl World {
     pub(crate) fn drain_observations(&mut self) {
         let context = (
             self.bodies.pool.identities(),
-            self.bodies.descriptors.as_slice(),
+            self.bodies.records.as_slice(),
         );
         self.observed.bodies.drain(context);
         self.observed.joints.drain(());
