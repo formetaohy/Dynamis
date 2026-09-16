@@ -1,4 +1,4 @@
-use super::common::{DT, flat_mesh_floor, new_world, settle_until, static_config};
+use super::common::{DT, flat_mesh_floor, observed_world, settle_until, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, ConstraintDesc, Shape};
 
 fn swing_angle(orientation: [f32; 4]) -> f32 {
@@ -9,7 +9,7 @@ fn swing_angle(orientation: [f32; 4]) -> f32 {
 
 #[test]
 fn offset_com_pendulum_swings_under_gravity() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.1).position([0.0, 0.0, 0.0]));
     let bob = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)).offset([1.5, 0.0, 0.0]))
@@ -35,7 +35,7 @@ fn offset_com_pendulum_swings_under_gravity() {
 
 #[test]
 fn composite_body_reports_center_of_mass() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let double = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)))
             .collider(ColliderDesc::new(Shape::sphere(0.2)).offset([2.0, 0.0, 0.0]))
@@ -51,7 +51,7 @@ fn composite_body_reports_center_of_mass() {
 
 #[test]
 fn set_com_relocates_center_of_mass_on_gpu() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let double = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.2)))
             .collider(ColliderDesc::new(Shape::sphere(0.2)).offset([2.0, 0.0, 0.0]))
@@ -66,7 +66,7 @@ fn set_com_relocates_center_of_mass_on_gpu() {
 
 #[test]
 fn custom_inertia_scales_angular_response() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let default = world.spawn(BodyDesc::sphere(0.5).position([-3.0, 0.0, 0.0]));
     let custom = world.spawn(BodyDesc::sphere(0.5).position([3.0, 0.0, 0.0]));
     world.set_inertia(custom, [0.05, 0.0, 0.0, 0.05, 0.0, 0.05]);
@@ -85,7 +85,7 @@ fn custom_inertia_scales_angular_response() {
 
 #[test]
 fn ccd_stops_against_mesh_floor_while_non_ccd_passes() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     flat_mesh_floor(&mut world);
     let shielded = world.spawn(
         BodyDesc::sphere(0.3)
@@ -116,7 +116,7 @@ fn ccd_stops_against_mesh_floor_while_non_ccd_passes() {
 
 #[test]
 fn ccd_retreats_before_mesh_impact_without_tunneling() {
-    let mut world = new_world(dynamis_model::PhysicsConfig {
+    let mut world = observed_world(dynamis_model::PhysicsConfig {
         max_velocity: 1000.0,
         ..static_config()
     });
@@ -171,7 +171,7 @@ fn unit_tetrahedron() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
 
 #[test]
 fn hull_density_uses_the_exact_hull_volume() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = octahedron(1.0);
     let hull = world.add_hull(&vertices, &triangles);
     let body = world.spawn(
@@ -197,7 +197,7 @@ fn hull_density_uses_the_exact_hull_volume() {
 
 #[test]
 fn an_asymmetric_hull_centers_on_its_geometry() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = unit_tetrahedron();
     let hull = world.add_hull(&vertices, &triangles);
     let body = world.spawn(
@@ -222,7 +222,7 @@ fn an_asymmetric_hull_centers_on_its_geometry() {
 
 #[test]
 fn a_hull_spins_with_its_exact_inertia() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = octahedron(1.0);
     let hull = world.add_hull(&vertices, &triangles);
     let body = world.spawn(
@@ -246,7 +246,7 @@ fn a_hull_spins_with_its_exact_inertia() {
 
 #[test]
 fn a_hull_compound_centers_between_its_placed_geometries() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = unit_tetrahedron();
     let hull = world.add_hull(&vertices, &triangles);
     let body = world.spawn(

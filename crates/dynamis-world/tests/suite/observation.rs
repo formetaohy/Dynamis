@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle, static_config};
+use super::common::{DT, gravity_config, new_world, observed_world, settle, static_config};
 use dynamis_model::{BodyDesc, BodyHandle, BodyState, ConstraintDesc, ConstraintKind, QueryFilter};
 use dynamis_world::QueryState;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -28,7 +28,7 @@ fn poll_observation(world: &mut dynamis_world::World, body: BodyHandle) -> BodyS
         }
         std::thread::yield_now();
     }
-    panic!("an observed body must reach the mirror without a sync");
+    panic!("an observed body must reach its observation without a sync");
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn a_state_mirror_rides_the_step_submission() {
 
 #[test]
 fn polling_only_retires_what_the_engine_already_submitted() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = falling_sphere(&mut world);
     settle(&mut world, 10);
     world.try_state(body);
@@ -119,7 +119,7 @@ fn polling_only_retires_what_the_engine_already_submitted() {
 
 #[test]
 fn observed_state_arrives_without_a_sync_while_strict_reads_require_one() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = falling_sphere(&mut world);
     world.wait();
     assert_eq!(world.read_state(body).position, [0.0, 5.0, 0.0]);
@@ -153,7 +153,7 @@ fn observed_state_arrives_without_a_sync_while_strict_reads_require_one() {
 
 #[test]
 fn a_sync_opens_at_most_one_submission_and_reads_stay_free() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let bodies = (0..8)
         .map(|index| world.spawn(BodyDesc::sphere(0.5).position([index as f32, 5.0, 0.0])))
         .collect::<Vec<_>>();
@@ -179,7 +179,7 @@ fn a_sync_opens_at_most_one_submission_and_reads_stay_free() {
 
 #[test]
 fn contact_inspection_costs_a_single_submission() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(BodyDesc::static_sphere(1.0));
     let body = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.4, 0.0]));
     settle(&mut world, 40);
@@ -200,7 +200,7 @@ fn contact_inspection_costs_a_single_submission() {
 
 #[test]
 fn a_query_rides_the_step_submission() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ground = world.spawn(BodyDesc::static_sphere(1.0));
     world.try_state(ground);
     world.step(DT);
@@ -228,7 +228,7 @@ fn a_query_rides_the_step_submission() {
 
 #[test]
 fn an_observation_outlives_the_batch_that_follows_it() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 2.0]));
     let first = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -261,7 +261,7 @@ fn an_observation_outlives_the_batch_that_follows_it() {
 
 #[test]
 fn an_observation_beyond_the_retention_window_lapses() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 2.0]));
     let mut handles = Vec::new();
     for _ in 0..dynamis_gpu::FACT_LAG + 2 {
@@ -287,7 +287,7 @@ fn an_observation_beyond_the_retention_window_lapses() {
 
 #[test]
 fn resolving_queries_opens_a_single_submission() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(BodyDesc::static_sphere(1.0).position([0.0, 0.0, 0.0]));
     let base = world.submissions();
     let query = world.ray_query(
@@ -381,7 +381,7 @@ fn poll_soft_mirror(
 
 #[test]
 fn a_joint_mirror_rides_the_step_submission() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let (arm, joint) = hinge(&mut world);
     settle(&mut world, 8);
     assert!(
@@ -428,7 +428,7 @@ fn a_joint_mirror_rides_the_step_submission() {
 
 #[test]
 fn a_joint_mirror_stops_and_resumes_with_its_subscription() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     hinge(&mut world);
     world.try_joint_states();
     publish(&mut world, 4);
@@ -448,7 +448,7 @@ fn a_joint_mirror_stops_and_resumes_with_its_subscription() {
 
 #[test]
 fn a_soft_mirror_rides_the_step_submission() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let soft = cloth(&mut world);
     settle(&mut world, 8);
     assert!(
@@ -481,7 +481,7 @@ fn a_soft_mirror_rides_the_step_submission() {
 
 #[test]
 fn a_soft_mirror_reports_only_the_soft_bodies_it_observes() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let first = cloth(&mut world);
     let second = cloth(&mut world);
     world.try_soft_particles(first);
@@ -497,6 +497,41 @@ fn a_soft_mirror_reports_only_the_soft_bodies_it_observes() {
     assert!(
         world.try_soft_particles(first).is_none(),
         "a stopped soft observation must forget the particles it held"
+    );
+}
+
+#[test]
+fn a_declaration_after_a_step_lands_without_another_step() {
+    let mut world = new_world(gravity_config());
+    let body = falling_sphere(&mut world);
+    world.step(DT);
+    world.wait();
+    world.observe_bodies(&[body]);
+    world.wait();
+    assert_eq!(
+        world.read_state(body).step,
+        0,
+        "a declaration must land the state of the step it follows"
+    );
+    assert!(world.read_state(body).position[1] < 5.0);
+}
+
+#[test]
+fn stopping_the_whole_body_set_leaves_every_body_behind() {
+    let mut world = observed_world(gravity_config());
+    let body = falling_sphere(&mut world);
+    settle(&mut world, 4);
+    world.read_state(body);
+    world.stop_observing_all_bodies();
+    world.step(DT);
+    world.wait();
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(body))).is_err(),
+        "a stopped whole body set must not answer with a landed state"
+    );
+    assert!(
+        world.try_state(body).is_none(),
+        "a stopped whole body set must forget the states it held"
     );
 }
 
@@ -521,7 +556,7 @@ fn a_stopped_body_observation_forgets_its_state() {
     let resumed = poll_observation(&mut world, body);
     assert!(
         resumed.position[1] < observed.position[1],
-        "a re-observed body must resume its mirror on the next step, got {} after {}",
+        "a re-observed body must resume its observation on the next step, got {} after {}",
         resumed.position[1],
         observed.position[1]
     );
@@ -529,7 +564,7 @@ fn a_stopped_body_observation_forgets_its_state() {
 
 #[test]
 fn a_strict_inspection_retires_its_own_publication() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0).position([0.0, 3.0, 0.0]));
     let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
     let joint = world.add_constraint(
@@ -552,7 +587,7 @@ fn a_strict_inspection_retires_its_own_publication() {
 
 #[test]
 fn a_repeated_sync_wait_publishes_nothing_new() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _body = falling_sphere(&mut world);
     settle(&mut world, 4);
     let submissions = world.submissions();
@@ -565,68 +600,67 @@ fn a_repeated_sync_wait_publishes_nothing_new() {
 }
 
 #[test]
-fn a_sync_leaves_the_bodies_it_never_declared_out_of_its_mirror() {
+fn a_wait_lands_only_the_bodies_the_world_observes() {
     let mut world = new_world(gravity_config());
     let bodies = crowd(&mut world, 8);
+    world.observe_bodies(&[bodies[1]]);
     settle(&mut world, 4);
-    let synced = world.read_state(bodies[0]);
-    let observed = bodies[1];
-    world.try_state(observed);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let mirrored = loop {
-        world.step(DT);
-        world.poll();
-        if let Some(state) = world.try_state(observed)
-            && state.step > synced.step
-        {
-            break state;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "an observed body must keep publishing after a sync"
-        );
-        std::thread::yield_now();
-    };
-    assert!(mirrored.position[1] < synced.position[1]);
-    assert_eq!(
-        world
-            .try_state(bodies[0])
-            .expect("a synced body keeps its mirror")
-            .step,
-        synced.step,
-        "a sync must not leave its bodies observed"
+    assert!(
+        world.read_state(bodies[1]).position[1] < 5.0,
+        "a declared body must land the steps it was observed across"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(bodies[0]))).is_err(),
+        "a wait must leave every body the world never declared behind"
     );
 }
 
 #[test]
-fn a_sync_mirrors_the_live_rows_without_declaring_them() {
-    let mut world = new_world(gravity_config());
+fn observing_all_bodies_lands_every_live_row() {
+    let mut world = observed_world(gravity_config());
     let bodies = crowd(&mut world, 192);
     world.step(DT);
     world.wait();
     let declared = world.stream_capacity().state.observed;
+    assert!(
+        declared >= bodies.len() as u32,
+        "a whole body set observation must cover its live set"
+    );
     for body in &bodies {
         assert_eq!(
             world.read_state(*body).step,
-            1,
-            "a sync must land every live row it did not declare"
+            0,
+            "a whole body set observation must land every live row"
         );
     }
     world.step(DT);
+    let late = world.spawn(BodyDesc::sphere(0.5).position([0.0, 8.0, 0.0]));
     world.wait();
-    assert_eq!(
-        world.stream_capacity().state.observed,
-        declared,
-        "a sync must leave the observation channel at its declared size"
+    assert!(
+        world.stream_capacity().state.observed >= world.count() as u32,
+        "a whole body set observation must size the observation channel to the live set"
     );
     for body in &bodies {
-        assert_eq!(world.read_state(*body).step, 2);
+        assert_eq!(world.read_state(*body).step, 1);
     }
+    assert_eq!(
+        world.read_state(late).position,
+        [0.0, 8.0, 0.0],
+        "a body spawned after a landing must answer with its spawn state"
+    );
+    world.step(DT);
+    world.wait();
+    let landed = world.read_state(late);
+    assert_eq!(landed.step, 2);
+    assert_ne!(
+        landed.prev_position, landed.position,
+        "a body spawned into a stepped world must land the pose its step produced"
+    );
 }
 
 #[test]
 fn a_sync_serves_every_mirrored_row_without_a_submission() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let bodies = crowd(&mut world, 192);
     settle(&mut world, 4);
     let submissions = world.submissions();
@@ -642,12 +676,12 @@ fn a_sync_serves_every_mirrored_row_without_a_submission() {
 
 #[test]
 fn a_sync_reads_the_state_prefix_of_the_completed_step() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let bodies = crowd(&mut world, 8);
     world.step(DT);
     world.wait();
     let submissions = world.submissions();
-    assert!(bodies.iter().all(|body| world.read_state(*body).step == 1));
+    assert!(bodies.iter().all(|body| world.read_state(*body).step == 0));
     world.wait();
     assert_eq!(
         world.submissions(),
@@ -658,7 +692,7 @@ fn a_sync_reads_the_state_prefix_of_the_completed_step() {
 
 #[test]
 fn a_sync_keeps_every_identity_through_a_row_move() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let bodies = (0..16)
         .map(|index| world.spawn(BodyDesc::static_sphere(0.1).position([index as f32, 0.0, 0.0])))
         .collect::<Vec<_>>();

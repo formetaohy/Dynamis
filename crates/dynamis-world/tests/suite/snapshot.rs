@@ -1,4 +1,4 @@
-use super::common::{DT, flat_mesh_floor, gravity_config, new_world};
+use super::common::{DT, flat_mesh_floor, gravity_config, observed_world};
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_RESTING,
 };
@@ -153,10 +153,10 @@ fn restore(world: &mut World, snapshot: &Snapshot) {
 
 #[test]
 fn a_snapshot_alone_describes_the_world_it_captured() {
-    let mut author = new_world(gravity_config());
+    let mut author = observed_world(gravity_config());
     let scenario = settle(&mut author, FRAMES);
     let snapshot = author.snapshot();
-    let mut copy = new_world(gravity_config());
+    let mut copy = observed_world(gravity_config());
     advance(&mut copy, 3);
     restore(&mut copy, &snapshot);
     assert_eq!(
@@ -168,7 +168,7 @@ fn a_snapshot_alone_describes_the_world_it_captured() {
 
 #[test]
 fn a_restored_world_reproduces_the_frames_it_was_captured_from() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let scenario = settle(&mut world, FRAMES);
     let snapshot = world.snapshot();
     let captured = state_bits(&mut world, &scenario);
@@ -197,13 +197,13 @@ fn a_restored_world_reproduces_the_frames_it_was_captured_from() {
 
 #[test]
 fn a_snapshot_replaces_the_scene_of_the_world_it_lands_in() {
-    let mut author = new_world(gravity_config());
+    let mut author = observed_world(gravity_config());
     let scenario = settle(&mut author, FRAMES);
     let snapshot = author.snapshot();
     advance(&mut author, TAIL);
     let expected = world_bits(&mut author, &scenario);
 
-    let mut host = new_world(gravity_config());
+    let mut host = observed_world(gravity_config());
     for index in 0..2 {
         host.spawn(BodyDesc::sphere(0.5).position([8.0, 8.0 + index as f32, 8.0]));
     }
@@ -230,7 +230,7 @@ fn a_snapshot_replaces_the_scene_of_the_world_it_lands_in() {
 
 #[test]
 fn a_restored_world_keeps_simulating_the_snapshot_that_grew_its_storage() {
-    let mut author = new_world(gravity_config());
+    let mut author = observed_world(gravity_config());
     let ball = author.spawn(BodyDesc::sphere(0.2).position([0.0, 6.0, 0.0]));
     let burst = (0..BURST)
         .map(|index| author.spawn(BodyDesc::sphere(0.2).position([40.0 + index as f32, 6.0, 0.0])))
@@ -242,7 +242,7 @@ fn a_restored_world_keeps_simulating_the_snapshot_that_grew_its_storage() {
     advance(&mut author, 3);
     let snapshot = author.snapshot();
 
-    let mut host = new_world(gravity_config());
+    let mut host = observed_world(gravity_config());
     host.spawn(BodyDesc::sphere(0.2).position([-40.0, 6.0, 0.0]));
     advance(&mut host, 2);
     restore(&mut host, &snapshot);
@@ -258,7 +258,7 @@ fn a_restored_world_keeps_simulating_the_snapshot_that_grew_its_storage() {
 
 #[test]
 fn a_restored_world_requires_a_fresh_observation() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let scenario = settle(&mut world, FRAMES);
     let snapshot = world.snapshot();
     let captured = world
@@ -284,7 +284,7 @@ fn a_restored_world_requires_a_fresh_observation() {
 
 #[test]
 fn a_snapshot_carries_the_characters_it_captured() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)

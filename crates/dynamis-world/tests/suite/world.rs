@@ -1,5 +1,5 @@
 use super::common::distance;
-use super::common::{DT, gravity_config, new_world, static_config};
+use super::common::{DT, gravity_config, observed_world, static_config};
 use dynamis_gpu::{GpuContext, GpuRequest, WarmupBudget};
 use dynamis_model::{
     BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, PhysicsConfig, Shape,
@@ -13,6 +13,7 @@ fn logical_capacity_runs_on_minimum_device_limits() {
         .expect("minimum device limits must support a world");
     let mut world = World::new(context, static_config());
     world.warmup(WarmupBudget::All);
+    world.observe_all_bodies();
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
     world.wait();
@@ -25,7 +26,7 @@ fn sphere_inertia(radius: f32, mass: f32) -> f32 {
 
 #[test]
 fn spawn_state_is_immediately_readable() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([1.0, 2.0, 3.0])
@@ -43,7 +44,7 @@ fn spawn_state_is_immediately_readable() {
 
 #[test]
 fn remove_swap_keeps_live_bodies_in_place() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
     let third = world.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
@@ -59,7 +60,7 @@ fn remove_swap_keeps_live_bodies_in_place() {
 
 #[test]
 fn removed_and_stale_handles_panic() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.remove(ball);
     assert!(catch_unwind(AssertUnwindSafe(|| world.read_state(ball))).is_err());
@@ -88,7 +89,7 @@ fn spawn_burst(world: &mut World, count: usize) {
 
 #[test]
 fn a_world_outgrowing_its_plan_keeps_simulating() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.3)
             .position([0.0, 5.0, 0.0])
@@ -112,7 +113,7 @@ fn a_world_outgrowing_its_plan_keeps_simulating() {
 
 #[test]
 fn body_and_constraint_handles_grow_on_demand() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ground = world.spawn(BodyDesc::static_sphere(5.0));
     for index in 0..40u32 {
         let ball = world.spawn(BodyDesc::sphere(0.1).position([0.0, 3.0 + index as f32, 0.0]));
@@ -130,7 +131,7 @@ fn body_and_constraint_handles_grow_on_demand() {
 
 #[test]
 fn invalid_inputs_panic() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -156,7 +157,7 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
             scope.spawn(move || {
                 start.wait();
                 for _ in 0..2 {
-                    let mut world = new_world(static_config());
+                    let mut world = observed_world(static_config());
                     let speed = (worker + 1) as f32;
                     let body = world.spawn(BodyDesc::sphere(0.2).velocity([speed, 0.0, 0.0]));
                     for frame in 0..12 {
@@ -191,7 +192,7 @@ fn cloned_contexts_step_query_rebuild_and_retire_worlds_concurrently() {
 
 #[test]
 fn apply_force_accelerates_and_consumes_within_one_step() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).mass(2.0));
     world.apply_force(ball, [0.0, 4.0, 0.0]);
     world.step(DT);
@@ -214,7 +215,7 @@ fn apply_force_accelerates_and_consumes_within_one_step() {
 
 #[test]
 fn apply_force_at_point_combines_linear_and_angular() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.apply_force_at_point(ball, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
     world.step(DT);
@@ -232,7 +233,7 @@ fn apply_force_at_point_combines_linear_and_angular() {
 
 #[test]
 fn apply_impulse_changes_linear_and_angular_exactly() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).mass(2.0));
     world.apply_impulse_at_point(ball, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]);
     world.step(DT);
@@ -249,7 +250,7 @@ fn apply_impulse_changes_linear_and_angular_exactly() {
 
 #[test]
 fn apply_torque_and_angular_impulse_match_closed_form() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     const STEPS: u32 = 5;
     for _ in 0..STEPS {
@@ -274,7 +275,7 @@ fn apply_torque_and_angular_impulse_match_closed_form() {
 
 #[test]
 fn velocity_and_position_patches_apply() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     world.step(DT);
     world.set_velocity(ball, [0.0, 3.0, 0.0]);
@@ -310,7 +311,7 @@ fn velocity_and_position_patches_apply() {
 
 #[test]
 fn angular_velocity_and_orientation_patches_apply() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     world.step(DT);
     world.set_angular_velocity(ball, [0.0, 1.0, 0.0]);
@@ -334,7 +335,7 @@ fn angular_velocity_and_orientation_patches_apply() {
 
 #[test]
 fn non_unit_orientation_patch_panics() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -352,7 +353,7 @@ fn non_unit_orientation_patch_panics() {
 
 #[test]
 fn set_mass_zero_freezes_then_mass_restores() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     world.step(DT);
     world.set_mass(ball, 0.0);
@@ -379,7 +380,7 @@ fn set_mass_zero_freezes_then_mass_restores() {
 
 #[test]
 fn kinematic_flag_round_trip() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = world.spawn(BodyDesc::sphere(0.5));
     world.set_kinematic(body, true);
     world.set_velocity(body, [2.0, 0.0, 0.0]);
@@ -400,7 +401,7 @@ fn kinematic_flag_round_trip() {
 
 #[test]
 fn config_accessors_round_trip() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     assert_eq!(world.config().gravity, [0.0, 0.0, 0.0]);
     world.set_gravity([0.0, -1.0, 0.0]);
     assert_eq!(world.config().gravity, [0.0, -1.0, 0.0]);
@@ -414,7 +415,7 @@ fn config_accessors_round_trip() {
 
 #[test]
 fn a_config_change_relevels_only_the_bodies_that_defer_to_it() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let deferring = world.spawn(BodyDesc::sphere(0.5).velocity([10.0, 0.0, 0.0]));
     let damped = world.spawn(
         BodyDesc::sphere(0.5)
@@ -440,7 +441,7 @@ fn a_config_change_relevels_only_the_bodies_that_defer_to_it() {
 
 #[test]
 fn a_body_layout_follows_its_description_alone() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5))).density(2.0));
     let single = world.read_state(body).inverse_mass;
     world.add_collider(
@@ -464,7 +465,7 @@ fn a_body_layout_follows_its_description_alone() {
 
 #[test]
 fn the_ccd_flag_reaches_the_pass_graph_from_the_description() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3));
     world.step(DT);
     world.wait();
@@ -494,7 +495,7 @@ fn settle_frames(world: &mut World, frames: usize) {
 
 #[test]
 fn mixed_static_and_dynamic_removal_keeps_world_consistent() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([50.0, 0.5, 50.0])
             .mass(0.0)
@@ -525,7 +526,7 @@ fn mixed_static_and_dynamic_removal_keeps_world_consistent() {
 
 #[test]
 fn a_spawn_burst_lands_every_identity_and_releases_it() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let mut handles = Vec::new();
     for index in 0..200 {
         let ball = world.spawn(BodyDesc::sphere(0.2).position([
@@ -553,7 +554,7 @@ fn a_spawn_burst_lands_every_identity_and_releases_it() {
 
 #[test]
 fn dynamic_spawn_shuttles_around_static_slots() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([50.0, 0.5, 50.0])
             .mass(0.0)
@@ -574,7 +575,7 @@ fn dynamic_spawn_shuttles_around_static_slots() {
 
 #[test]
 fn constraint_endpoints_survive_row_churn() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.2));
     let first = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 0.0, 0.0]));
@@ -617,7 +618,7 @@ fn constraint_endpoints_survive_row_churn() {
 
 #[test]
 fn body_constraints_track_constraint_removal() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let hub = world.spawn(BodyDesc::sphere(0.2));
     let leaves = (0..3)
         .map(|index| world.spawn(BodyDesc::sphere(0.2).position([index as f32 + 1.0, 0.0, 0.0])))
@@ -649,7 +650,7 @@ fn body_constraints_track_constraint_removal() {
 
 #[test]
 fn mass_migration_keeps_constraints_attached() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let pick = world.spawn(BodyDesc::sphere(0.2));
     let load = world.spawn(BodyDesc::sphere(0.2).position([0.0, -2.0, 0.0]));
     world.add_constraint(
@@ -681,7 +682,7 @@ fn mass_migration_keeps_constraints_attached() {
 
 #[test]
 fn id_space_grows_with_spawn_bursts() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let mut handles = Vec::new();
     for burst in [64, 192, 768] {
         for _ in 0..burst {
@@ -702,7 +703,7 @@ fn id_space_grows_with_spawn_bursts() {
 
 #[test]
 fn remove_then_spawn_reuses_slot_with_fresh_generation() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     let _second = world.spawn(BodyDesc::sphere(0.5).position([2.0, 0.0, 0.0]));
     let _third = world.spawn(BodyDesc::sphere(0.5).position([4.0, 0.0, 0.0]));
@@ -723,7 +724,7 @@ fn remove_then_spawn_reuses_slot_with_fresh_generation() {
 
 #[test]
 fn reallocation_preserves_kinematic_and_ccd_flags() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let platform = world.spawn(
         BodyDesc::cuboid([1.0, 0.2, 1.0])
             .position([0.0, 3.0, 0.0])
@@ -743,7 +744,7 @@ fn reallocation_preserves_kinematic_and_ccd_flags() {
 
 #[test]
 fn reallocation_preserves_collision_filters() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -767,7 +768,7 @@ fn reallocation_preserves_collision_filters() {
 
 #[test]
 fn reallocation_preserves_constraint_slots_and_breaks() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 6.0, 0.0]));
     let mut handles = vec![anchor];
     for index in 0..4 {
@@ -803,7 +804,7 @@ fn reallocation_preserves_constraint_slots_and_breaks() {
 
 #[test]
 fn apply_impulse_at_center_of_mass_spins_nothing() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let offset = world.spawn(
         BodyDesc::sphere(0.5)
             .mass(2.0)
@@ -831,7 +832,7 @@ fn apply_impulse_at_center_of_mass_spins_nothing() {
 
 #[test]
 fn apply_impulse_at_point_levers_about_the_center_of_mass() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(
         BodyDesc::sphere(0.5)
             .mass(2.0)
@@ -851,7 +852,7 @@ fn apply_impulse_at_point_levers_about_the_center_of_mass() {
 
 #[test]
 fn sleep_threshold_override_accepts_zero() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([0.0, 0.0, 0.0])
@@ -867,7 +868,7 @@ fn sleep_threshold_override_accepts_zero() {
 
 #[test]
 fn deterministic_rebuild_on_spawn_burst() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let a = world.spawn(BodyDesc::sphere(0.3));
     let _b = world.spawn(BodyDesc::sphere(0.3).position([5.0, 0.3, 0.0]));
     let _ = a;

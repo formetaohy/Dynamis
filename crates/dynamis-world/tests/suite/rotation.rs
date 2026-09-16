@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, static_config};
+use super::common::{DT, observed_world, static_config};
 use dynamis_model::math::{dot, length, normalize, quat_conjugate, quat_rotate};
 use dynamis_model::{BodyDesc, BodyHandle, BodyState, ColliderDesc, MassProperties, Shape};
 use dynamis_world::World;
@@ -85,7 +85,7 @@ fn assert_momentum_held(
 #[test]
 fn free_rotation_conserves_angular_momentum() {
     let mass = mass_properties();
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = spin_body(&mut world, NON_PRINCIPAL_SPIN);
     let initial = world.read_state(body);
     let momentum = body_momentum(&initial, &mass);
@@ -109,7 +109,7 @@ fn free_rotation_conserves_angular_momentum() {
 #[test]
 fn intermediate_axis_spin_tumbles_and_keeps_its_energy() {
     let mass = mass_properties();
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = spin_body(&mut world, TILTED_AXIS_SPIN);
     let initial = world.read_state(body);
     let momentum = body_momentum(&initial, &mass);
@@ -138,7 +138,7 @@ fn intermediate_axis_spin_tumbles_and_keeps_its_energy() {
 
 #[test]
 fn principal_axis_spin_stays_on_its_axis() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = spin_body(&mut world, [0.0, 0.0, 1.0]);
     for frame in 1..=FRAMES {
         world.step(DT);
@@ -162,7 +162,7 @@ fn principal_axis_spin_stays_on_its_axis() {
 
 #[test]
 fn isotropic_spin_is_exactly_untouched() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let spin = [1.0, 1.0, 1.0];
     let body = world.spawn(
         BodyDesc::sphere(0.5)
@@ -194,7 +194,7 @@ fn isotropic_spin_is_exactly_untouched() {
 #[test]
 fn an_angular_impulse_adds_exactly_its_momentum() {
     let mass = mass_properties();
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = spin_body(&mut world, NON_PRINCIPAL_SPIN);
     let impulse = [0.25, -0.5, 0.75];
     let base = body_momentum(&world.read_state(body), &mass);

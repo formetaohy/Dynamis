@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world};
+use super::common::{DT, gravity_config, observed_world};
 use dynamis_model::{BodyDesc, VehicleDesc, VehicleHandle, VehicleInput, WheelDesc};
 use dynamis_world::World;
 
@@ -54,7 +54,7 @@ fn drive(world: &mut World, vehicle: VehicleHandle, input: VehicleInput, frames:
 
 #[test]
 fn vehicle_rests_on_its_suspension() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     let body = world.vehicle_body(vehicle);
@@ -86,7 +86,7 @@ fn vehicle_rests_on_its_suspension() {
 
 #[test]
 fn vehicle_drives_forward() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     drive(&mut world, vehicle, VehicleInput::drive(1.0, 0.0), 120);
@@ -114,7 +114,7 @@ fn vehicle_drives_forward() {
 
 #[test]
 fn vehicle_steers_while_driving() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     drive(&mut world, vehicle, VehicleInput::drive(1.0, 1.0), 120);
@@ -133,7 +133,7 @@ fn vehicle_steers_while_driving() {
 
 #[test]
 fn vehicle_brakes_to_rest() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     drive(&mut world, vehicle, VehicleInput::drive(1.0, 0.0), 120);
@@ -164,7 +164,7 @@ fn vehicle_brakes_to_rest() {
 
 #[test]
 fn vehicle_falls_without_ground() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let vehicle = world.add_vehicle(car());
     for _ in 0..30 {
         world.step(DT);
@@ -184,7 +184,7 @@ fn vehicle_falls_without_ground() {
 
 #[test]
 fn vehicle_state_is_observable() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = world.add_vehicle(car());
     assert!(
@@ -209,7 +209,7 @@ fn vehicle_state_is_observable() {
 
 #[test]
 fn vehicle_survives_a_snapshot_round_trip() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     drive(&mut world, vehicle, VehicleInput::drive(1.0, 0.0), 30);
@@ -233,7 +233,7 @@ fn vehicle_survives_a_snapshot_round_trip() {
 
 #[test]
 fn vehicle_removal_frees_its_chassis() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     let body = world.vehicle_body(vehicle);
@@ -248,7 +248,7 @@ fn vehicle_removal_frees_its_chassis() {
 #[test]
 #[should_panic(expected = "is the chassis of a vehicle")]
 fn removing_a_vehicles_chassis_directly_panics() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = settled_vehicle(&mut world);
     let body = world.vehicle_body(vehicle);
@@ -281,7 +281,7 @@ fn six_wheeler() -> VehicleDesc {
 
 #[test]
 fn a_vehicle_carries_every_declared_wheel() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let vehicle = world.add_vehicle(six_wheeler());
     drive(&mut world, vehicle, VehicleInput::IDLE, 30);
@@ -307,7 +307,7 @@ fn a_vehicle_carries_every_declared_wheel() {
 
 #[test]
 fn a_new_vehicle_takes_over_the_wheel_span_of_a_retired_one() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let first = settled_vehicle(&mut world);
     world.remove_vehicle(first);

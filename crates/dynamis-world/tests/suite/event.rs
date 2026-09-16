@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, static_config};
+use super::common::{DT, observed_world, static_config};
 use dynamis_model::BodyHandle;
 use dynamis_model::{
     BodyDesc, ColliderDesc, ContactEvent, ContactEventKind, ContactEventMode, FluidMaterial, Shape,
@@ -7,7 +7,7 @@ use dynamis_model::{
 
 #[test]
 fn sensor_transit_emits_begin_then_end_and_never_blocks() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let sensor = world.spawn(
         BodyDesc::sphere(0.5)
             .sensor(true)
@@ -46,7 +46,7 @@ fn sensor_transit_emits_begin_then_end_and_never_blocks() {
 
 #[test]
 fn solid_begin_fires_on_landing_and_end_on_removal() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::static_sphere(10.0).position([0.0, -2.0, 0.0]));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 10.0, 0.0]));
     let mut began = false;
@@ -88,7 +88,7 @@ fn solid_begin_fires_on_landing_and_end_on_removal() {
 
 #[test]
 fn sensor_and_solid_events_carry_distinct_flags() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let sensor = world.spawn(
         BodyDesc::sphere(0.5)
             .sensor(true)
@@ -125,7 +125,7 @@ fn sensor_and_solid_events_carry_distinct_flags() {
 
 #[test]
 fn live_contacts_survive_row_moves() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::static_sphere(10.0).position([0.0, -2.0, 0.0]));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
     let touches = |event: &dynamis_model::ContactEvent| {
@@ -202,7 +202,7 @@ fn soft_solid_contact(
 
 #[test]
 fn a_soft_body_announces_its_landing_and_its_parting() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::sphere(10.0).mass(0.0).position([0.0, -9.0, 0.0]));
     let soft = world.add_soft_body(
         SoftBodyDesc::fluid(soft_particles(2, 2), 0.15, FluidMaterial::new(0.3, 0.36))
@@ -257,7 +257,7 @@ fn a_soft_body_announces_its_landing_and_its_parting() {
 
 #[test]
 fn a_soft_body_transits_a_sensor_without_being_deflected() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let sensor = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(1.0)).sensor(true))
             .mass(0.0)
@@ -299,7 +299,7 @@ fn a_soft_body_transits_a_sensor_without_being_deflected() {
 
 #[test]
 fn a_soft_body_without_events_stays_silent() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(BodyDesc::sphere(10.0).mass(0.0).position([0.0, -9.0, 0.0]));
     let soft = world.add_soft_body(
         SoftBodyDesc::fluid(soft_particles(2, 2), 0.15, FluidMaterial::new(0.3, 0.36))
@@ -323,7 +323,7 @@ fn a_soft_body_without_events_stays_silent() {
 
 #[test]
 fn a_soft_body_reports_each_persisting_step_once() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(10.0)).events(ContactEventMode::Persist))
             .mass(0.0)
@@ -370,7 +370,7 @@ fn a_soft_body_reports_each_persisting_step_once() {
 
 #[test]
 fn two_soft_bodies_announce_each_other() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     world.spawn(BodyDesc::sphere(10.0).mass(0.0).position([0.0, -9.0, 0.0]));
     let lower = world.add_soft_body(
         SoftBodyDesc::fluid(soft_particles(1, 1), 0.15, FluidMaterial::new(0.3, 0.36))

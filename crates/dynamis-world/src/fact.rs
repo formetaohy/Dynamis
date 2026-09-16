@@ -81,6 +81,7 @@ pub(crate) struct FactStore<K: Kind> {
     subscription: Vec<u32>,
     sequence: u64,
     publication: Publication<K::Manifest>,
+    published: Option<u64>,
     age: Option<u64>,
 }
 
@@ -92,6 +93,7 @@ impl<K: Kind> FactStore<K> {
             subscription: Vec::new(),
             sequence: 0,
             publication: Publication::new(label, depth),
+            published: None,
             age: None,
         }
     }
@@ -139,7 +141,7 @@ impl<K: Kind> FactStore<K> {
     }
 
     pub(crate) fn needs_publication(&self, step: u64) -> bool {
-        !self.watch.keys.is_empty() && self.age != step.checked_sub(1)
+        !self.watch.keys.is_empty() && (self.watch.dirty || self.published != step.checked_sub(1))
     }
 
     pub(crate) fn get(&self, id: u32) -> Option<&K::Value> {
@@ -185,6 +187,7 @@ impl<K: Kind> FactStore<K> {
     pub(crate) fn stop(&mut self) {
         self.watch.clear();
         self.mirrors.clear();
+        self.published = None;
         self.age = None;
     }
 
@@ -205,6 +208,7 @@ impl<K: Kind> FactStore<K> {
     ) {
         self.publication.reserve(device, budget);
         self.sequence += 1;
+        self.published = Some(K::step(&manifest));
         if let Some((manifest, bytes)) =
             self.publication
                 .declare(encoder, regions, self.sequence, manifest)

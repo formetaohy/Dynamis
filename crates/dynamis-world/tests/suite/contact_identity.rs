@@ -1,4 +1,4 @@
-use super::common::{DT, flat_mesh_floor, gravity_config, new_world, settle};
+use super::common::{DT, flat_mesh_floor, gravity_config, observed_world, settle};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, Shape};
 use dynamis_world::{ContactManifold, World};
 
@@ -56,7 +56,7 @@ fn wide_floor(world: &mut World, friction: f32) -> BodyHandle {
 
 #[test]
 fn sliding_contacts_hold_their_features() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let floor = wide_floor(&mut world, 0.0);
     let cube = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([0.5, 0.5, 0.5])).friction(0.0))
@@ -92,7 +92,7 @@ fn sliding_contacts_hold_their_features() {
 
 #[test]
 fn mesh_contacts_hold_their_triangle_features() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let floor = flat_mesh_floor(&mut world);
     let cube = world.spawn(BodyDesc::cuboid([0.5, 0.5, 0.5]).position([0.2, 0.5, -0.3]));
     settle(&mut world, 30);
@@ -114,7 +114,7 @@ fn mesh_contacts_hold_their_triangle_features() {
 
 #[test]
 fn manifold_points_hold_distinct_features() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _floor = wide_floor(&mut world, 0.8);
     let (vertices, faces) = cube_mesh();
     let hull = world.add_hull_from_mesh(&vertices, &faces);
@@ -163,7 +163,7 @@ fn manifold_points_hold_distinct_features() {
 
 #[test]
 fn sparse_iteration_stack_holds_through_contact_identity() {
-    let mut world = new_world(dynamis_model::PhysicsConfig {
+    let mut world = observed_world(dynamis_model::PhysicsConfig {
         solve_iterations: 2,
         position_iterations: 4,
         ..gravity_config()

@@ -33,6 +33,12 @@ pub fn new_world(config: PhysicsConfig) -> World {
     world
 }
 
+pub fn observed_world(config: PhysicsConfig) -> World {
+    let mut world = new_world(config);
+    world.observe_all_bodies();
+    world
+}
+
 pub fn static_config() -> PhysicsConfig {
     PhysicsConfig {
         gravity: [0.0, 0.0, 0.0],

@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, settle, static_config};
+use super::common::{DT, observed_world, settle, static_config};
 use dynamis_model::{
     BodyDesc, ConstraintDesc, ConstraintKind, ConstraintLimit, ConstraintMotor, DofDesc, JointDof,
 };
@@ -10,7 +10,7 @@ fn hinge_world() -> (
     dynamis_model::BodyHandle,
     dynamis_model::ConstraintHandle,
 ) {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0).position([0.0, 3.0, 0.0]));
     let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
     let joint = world.add_constraint(
@@ -96,7 +96,7 @@ fn revolute_limit_reports_the_bounded_coordinate() {
 
 #[test]
 fn prismatic_reports_the_slide() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let slider = world.spawn(
         BodyDesc::sphere(0.2)
@@ -125,7 +125,7 @@ fn prismatic_reports_the_slide() {
 
 #[test]
 fn prismatic_servo_reaches_the_reported_slide() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let slider = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.5]));
     let joint = world.add_constraint(
@@ -145,7 +145,7 @@ fn prismatic_servo_reaches_the_reported_slide() {
 
 #[test]
 fn distance_reports_the_separation() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.1).mass(0.0).position([0.0, 2.0, 0.0]));
     let weight = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let joint = world.add_constraint(
@@ -165,7 +165,7 @@ fn distance_reports_the_separation() {
 
 #[test]
 fn six_dof_reports_each_locked_dof() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let link = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.3]));
     let joint = world.add_constraint(
@@ -197,7 +197,7 @@ fn six_dof_reports_each_locked_dof() {
 
 #[test]
 fn six_dof_drive_reaches_the_reported_dof() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let link = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.3]));
     let joint = world.add_constraint(
@@ -266,7 +266,7 @@ fn a_removed_constraint_has_no_inspect_joint_state() {
 
 #[test]
 fn pulley_reports_a_held_rope_rate() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.2).position([2.0, 1.0, 0.0]));
     let joint = world.add_constraint(
@@ -288,7 +288,7 @@ fn pulley_reports_a_held_rope_rate() {
 
 #[test]
 fn every_joint_kind_reports_its_dof_layout() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let descs = [
         ConstraintDesc::ball([0.0; 3], [0.0; 3]),
         ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0),
@@ -411,7 +411,7 @@ fn a_single_joint_inspection_publishes_only_the_joint_it_names() {
 
 #[test]
 fn a_watched_joint_keeps_its_identity_across_row_churn() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let third = world.spawn(BodyDesc::sphere(0.2).position([0.0, 2.0, 0.0]));

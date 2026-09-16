@@ -1,5 +1,5 @@
 use super::common::{
-    DT, gravity_config, new_world, settle, settle_until, static_config, static_sphere_ground,
+    DT, gravity_config, observed_world, settle, settle_until, static_config, static_sphere_ground,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, QueryFilter, QueryTargets, Shape, SoftBodyDesc,
@@ -14,7 +14,7 @@ fn query_static(world: &mut World, radius: f32, position: [f32; 3]) -> dynamis_m
 
 #[test]
 fn ray_hits_nearest_and_reports_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let _far = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
     let query = world.ray_query(
@@ -38,7 +38,7 @@ fn ray_hits_nearest_and_reports_surface() {
 
 #[test]
 fn ray_miss_variants() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _target = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
     let short = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -50,7 +50,7 @@ fn ray_miss_variants() {
     world.wait();
     assert_eq!(world.query_hit(short), None, "out-of-range ray must miss");
 
-    let mut behind = new_world(static_config());
+    let mut behind = observed_world(static_config());
     query_static(&mut behind, 0.5, [0.0, 0.0, -5.0]);
     let backward = behind.ray_query(
         [0.0, 0.0, 0.0],
@@ -69,7 +69,7 @@ fn ray_miss_variants() {
 
 #[test]
 fn ray_from_inside_body_returns_exit_distance() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let query = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -89,7 +89,7 @@ fn ray_from_inside_body_returns_exit_distance() {
 
 #[test]
 fn sphere_query_reports_penetration_and_miss() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let overlap = world.sphere_query([0.0, 0.0, 0.8], 0.5, &QueryFilter::default());
     let miss = world.sphere_query([0.0, 0.0, 5.0], 0.5, &QueryFilter::default());
@@ -107,7 +107,7 @@ fn sphere_query_reports_penetration_and_miss() {
 
 #[test]
 fn cuboid_query_reports_overlap_and_outside() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     query_static(&mut world, 1.0, [0.0, 0.0, 0.0]);
     let inside = world.cuboid_query([0.0, 0.0, 0.0], [2.0, 2.0, 2.0], &QueryFilter::default());
     let outside = world.cuboid_query([0.0, 0.0, 10.0], [1.0, 1.0, 1.0], &QueryFilter::default());
@@ -128,7 +128,7 @@ fn down_ray(world: &mut World, kind: &str, start: [f32; 3]) -> QueryHit {
 
 #[test]
 fn sweep_query_stops_at_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let wall = query_static(&mut world, 2.0, [0.0, 0.0, 10.0]);
     let query = world.sweep_query(
         &Shape::sphere(0.3),
@@ -178,7 +178,7 @@ fn down_sweep(
 
 #[test]
 fn sweep_normals_and_depths_agree_across_every_floor_kind() {
-    let mut boxed = new_world(static_config());
+    let mut boxed = observed_world(static_config());
     boxed.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -192,7 +192,7 @@ fn sweep_normals_and_depths_agree_across_every_floor_kind() {
         20.0,
     );
 
-    let mut spherical = new_world(static_config());
+    let mut spherical = observed_world(static_config());
     spherical.spawn(BodyDesc::static_sphere(2.5).position([0.0, -2.5, 0.0]));
     let sphere_hit = down_sweep(
         &mut spherical,
@@ -202,7 +202,7 @@ fn sweep_normals_and_depths_agree_across_every_floor_kind() {
         20.0,
     );
 
-    let mut planed = new_world(static_config());
+    let mut planed = observed_world(static_config());
     planed.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
     let plane_hit = down_sweep(
         &mut planed,
@@ -212,7 +212,7 @@ fn sweep_normals_and_depths_agree_across_every_floor_kind() {
         20.0,
     );
 
-    let mut meshed = new_world(static_config());
+    let mut meshed = observed_world(static_config());
     let quad = meshed.add_mesh(
         &[
             [-5.0, 0.0, -5.0],
@@ -253,7 +253,7 @@ fn sweep_normals_and_depths_agree_across_every_floor_kind() {
 
 #[test]
 fn ray_normals_and_depths_agree_across_every_floor_kind() {
-    let mut boxed = new_world(static_config());
+    let mut boxed = observed_world(static_config());
     boxed.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -261,15 +261,15 @@ fn ray_normals_and_depths_agree_across_every_floor_kind() {
     );
     let boxed_hit = down_ray(&mut boxed, "cuboid", [0.0, 3.0, 0.0]);
 
-    let mut spherical = new_world(static_config());
+    let mut spherical = observed_world(static_config());
     spherical.spawn(BodyDesc::static_sphere(2.5).position([0.0, -2.5, 0.0]));
     let sphere_hit = down_ray(&mut spherical, "sphere", [0.0, 3.0, 0.0]);
 
-    let mut planed = new_world(static_config());
+    let mut planed = observed_world(static_config());
     planed.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
     let plane_hit = down_ray(&mut planed, "plane", [0.0, 3.0, 0.0]);
 
-    let mut meshed = new_world(static_config());
+    let mut meshed = observed_world(static_config());
     let quad = meshed.add_mesh(
         &[
             [-5.0, 0.0, -5.0],
@@ -283,7 +283,7 @@ fn ray_normals_and_depths_agree_across_every_floor_kind() {
     meshed.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(quad))).mass(0.0));
     let mesh_hit = down_ray(&mut meshed, "mesh", [0.0, 3.0, 0.0]);
 
-    let mut hulled = new_world(static_config());
+    let mut hulled = observed_world(static_config());
     let hull = hulled.add_hull(&slab_vertices(), &slab_triangles());
     hulled.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::hull(hull)))
@@ -328,7 +328,7 @@ fn side_ray(world: &mut World, height: f32) -> QueryHit {
 
 #[test]
 fn a_cylinder_cap_ray_lands_on_its_flat_end() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cylinder(1.0, 1.0)))
             .position([0.0, 0.0, 0.0])
@@ -356,7 +356,7 @@ fn a_cylinder_cap_ray_lands_on_its_flat_end() {
 
 #[test]
 fn a_cylinder_side_ray_lands_on_its_radius() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cylinder(1.0, 1.0)))
             .position([0.0, 0.0, 0.0])
@@ -380,7 +380,7 @@ fn a_cylinder_side_ray_lands_on_its_radius() {
 
 #[test]
 fn a_capsule_ray_reaches_every_cross_section() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::capsule(0.08, 2.0)))
             .position([0.0, 0.0, 0.0])
@@ -408,7 +408,7 @@ fn a_capsule_ray_reaches_every_cross_section() {
 
 #[test]
 fn a_scaled_primitive_ray_lands_on_its_scaled_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 1.0]))
             .position([0.0, 0.0, 0.0])
@@ -467,7 +467,7 @@ fn slab_triangles() -> Vec<[u32; 3]> {
 
 #[test]
 fn sweep_stops_at_the_floor_for_every_convex_probe() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
     let cuboid = down_sweep(
         &mut world,
@@ -509,7 +509,7 @@ fn sweep_stops_at_the_floor_for_every_convex_probe() {
 
 #[test]
 fn filters_skip_each_body_kind() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let kinematic = world.spawn(
         BodyDesc::sphere(0.5)
@@ -598,7 +598,7 @@ fn filters_skip_each_body_kind() {
 
 #[test]
 fn group_and_mask_filters_select_bodies() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let a = world.spawn(
         BodyDesc::static_sphere(0.5)
             .position([0.0, 0.0, 2.0])
@@ -654,7 +654,7 @@ fn group_and_mask_filters_select_bodies() {
 
 #[test]
 fn multi_hit_query_reports_all_in_distance_order() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     query_static(&mut world, 0.4, [0.0, 0.0, 2.0]);
     query_static(&mut world, 0.4, [0.0, 0.0, 2.7]);
     query_static(&mut world, 0.4, [0.0, 0.0, 3.4]);
@@ -689,7 +689,7 @@ fn multi_hit_query_reports_all_in_distance_order() {
 
 #[test]
 fn batched_queries_resolve_in_submission_order() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let near = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let far = query_static(&mut world, 0.5, [0.0, 0.0, 8.0]);
     let first = world.ray_query(
@@ -715,7 +715,7 @@ fn batched_queries_resolve_in_submission_order() {
 
 #[test]
 fn results_persist_until_slot_reused() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let query = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -733,7 +733,7 @@ fn results_persist_until_slot_reused() {
 
 #[test]
 fn an_observation_lapses_only_past_the_retention_window() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let first = world.ray_query(
         [0.0, 0.0, 0.0],
@@ -790,7 +790,7 @@ fn an_observation_lapses_only_past_the_retention_window() {
 
 #[test]
 fn handle_without_arrived_results_panics() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let pending = world.ray_query(
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
@@ -805,7 +805,7 @@ fn handle_without_arrived_results_panics() {
 
 #[test]
 fn raycast_resolves_against_latest_state() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     world.step(DT);
     world.wait();
@@ -827,7 +827,7 @@ fn raycast_resolves_against_latest_state() {
 
 #[test]
 fn query_validation_panics() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             world.sphere_query(
@@ -919,7 +919,7 @@ fn query_validation_panics() {
 
 #[test]
 fn point_query_detects_inside_and_outside() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     world.step(DT);
     world.wait();
@@ -943,7 +943,7 @@ fn point_query_detects_inside_and_outside() {
 
 #[test]
 fn overlap_query_accepts_any_convex_shape() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     world.add_collider(
         body,
@@ -973,7 +973,7 @@ fn overlap_query_accepts_any_convex_shape() {
 
 #[test]
 fn include_filter_limits_results_to_one_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = query_static(&mut world, 0.5, [0.0, 0.0, 0.0]);
     let second = query_static(&mut world, 0.5, [3.0, 0.0, 0.0]);
     world.step(DT);
@@ -997,7 +997,7 @@ fn include_filter_limits_results_to_one_body() {
 
 #[test]
 fn capsule_down_sweep_normal_is_vertical() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -1029,7 +1029,7 @@ fn capsule_down_sweep_normal_is_vertical() {
 
 #[test]
 fn capsule_sweep_stops_before_wall_face() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([0.25, 3.0, 4.0])
             .mass(0.0)
@@ -1064,7 +1064,7 @@ fn capsule_sweep_stops_before_wall_face() {
 
 #[test]
 fn query_after_teleport_sees_the_new_position() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
 
     world.set_position(body, [0.0, 0.0, 2.0]);
@@ -1092,7 +1092,7 @@ fn query_after_teleport_sees_the_new_position() {
 
 #[test]
 fn a_query_reaches_every_hit_it_asks_for() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let count = 40usize;
     let expected = (0..count)
         .map(|index| query_static(&mut world, 0.4, [0.0, 0.0, 2.0 + index as f32 * 2.0]))
@@ -1120,7 +1120,7 @@ fn a_query_reaches_every_hit_it_asks_for() {
 
 #[test]
 fn truncated_ray_query_keeps_the_closest_hits() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let nearest = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let middle = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
     let _farthest = query_static(&mut world, 0.5, [0.0, 0.0, 6.0]);
@@ -1159,7 +1159,7 @@ fn truncated_ray_query_keeps_the_closest_hits() {
 
 #[test]
 fn truncated_sweep_query_keeps_the_closest_obstacle() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _near_wall = world.spawn(
         BodyDesc::cuboid([0.25, 3.0, 4.0])
             .mass(0.0)
@@ -1194,7 +1194,7 @@ fn truncated_sweep_query_keeps_the_closest_obstacle() {
 
 #[test]
 fn exact_hit_count_reports_no_overflow_and_keeps_order() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let near = query_static(&mut world, 0.4, [0.0, 0.0, 2.0]);
     let middle = query_static(&mut world, 0.4, [0.0, 0.0, 2.7]);
     let far = query_static(&mut world, 0.4, [0.0, 0.0, 3.4]);
@@ -1234,7 +1234,7 @@ fn exact_hit_count_reports_no_overflow_and_keeps_order() {
 
 #[test]
 fn queries_do_not_inherit_candidates_from_earlier_queries() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first_target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let _second = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
     let _third = query_static(&mut world, 0.5, [0.0, 0.0, 6.0]);
@@ -1272,7 +1272,7 @@ fn queries_do_not_inherit_candidates_from_earlier_queries() {
 
 #[test]
 fn a_query_batch_that_fills_the_stream_keeps_every_result() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     let count = dynamis_domain::STREAM_FLOOR;
     let handles = (0..count)
@@ -1303,7 +1303,7 @@ fn a_query_batch_that_fills_the_stream_keeps_every_result() {
 
 #[test]
 fn a_query_run_preserves_pending_step_inputs() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _ground = static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.0, 0.0]));
     settle(&mut world, 2);
@@ -1328,7 +1328,7 @@ fn a_query_run_preserves_pending_step_inputs() {
 
 #[test]
 fn a_query_run_declares_the_passes_it_runs() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _target = query_static(&mut world, 0.5, [0.0, 0.0, 2.0]);
     settle(&mut world, 2);
     world.ray_query(
@@ -1359,7 +1359,7 @@ fn a_query_run_declares_the_passes_it_runs() {
 
 #[test]
 fn a_query_run_leaves_pending_inputs_for_the_next_step_once() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _ground = static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.0, 0.0]));
     settle(&mut world, 2);
@@ -1379,7 +1379,7 @@ fn a_query_run_leaves_pending_inputs_for_the_next_step_once() {
 
 #[test]
 fn a_query_run_wakes_a_sleeping_body_for_its_pending_force() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _floor = static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle_until(&mut world, 600, |world| world.read_state(ball).sleeping);
@@ -1408,7 +1408,7 @@ fn a_query_run_wakes_a_sleeping_body_for_its_pending_force() {
 
 #[test]
 fn a_patch_survives_both_a_query_run_and_a_step() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = query_static(&mut world, 0.5, [0.0, 0.0, 10.0]);
     world.set_position(body, [0.0, 0.0, 2.0]);
     world.point_query([0.0, 0.0, 2.0], &QueryFilter::default());
@@ -1432,7 +1432,7 @@ fn a_patch_survives_both_a_query_run_and_a_step() {
 
 #[test]
 fn a_query_wider_than_the_walk_budget_still_finds_a_distant_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let near = query_static(&mut world, 0.02, [0.0, 0.0, 0.0]);
     let far = query_static(&mut world, 0.02, [0.0, 0.0, 40.0]);
     let query = world.sphere_query([0.0, 0.0, 0.0], 100.0, &QueryFilter::default());
@@ -1451,7 +1451,7 @@ fn a_query_wider_than_the_walk_budget_still_finds_a_distant_body() {
 
 #[test]
 fn a_down_sweep_measures_the_same_gap_anywhere_on_a_large_floor() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([60.0, 0.5, 60.0])
             .mass(0.0)
@@ -1486,7 +1486,7 @@ fn two_particle_net(x: f32) -> SoftBodyDesc {
 
 #[test]
 fn a_scene_query_reaches_the_particles_a_soft_body_owns() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _first = world.add_soft_body(two_particle_net(2.0));
     let second = world.add_soft_body(two_particle_net(0.0));
     world.step(DT);
@@ -1526,7 +1526,7 @@ fn a_scene_query_reaches_the_particles_a_soft_body_owns() {
 
 #[test]
 fn a_query_that_turns_particles_away_reports_only_colliders() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = query_static(&mut world, 0.5, [0.0, 0.0, 4.0]);
     let _cloth = world.add_soft_body(two_particle_net(0.0));
     world.step(DT);
@@ -1577,7 +1577,7 @@ fn a_query_that_turns_particles_away_reports_only_colliders() {
 
 #[test]
 fn a_soft_body_filter_addresses_its_own_particles() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.add_soft_body(two_particle_net(0.0));
     let second = world.add_soft_body(two_particle_net(0.5));
     world.step(DT);
@@ -1615,7 +1615,7 @@ fn a_soft_body_filter_addresses_its_own_particles() {
 
 #[test]
 fn a_sweep_query_stops_at_a_soft_particle() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let cloth = world.add_soft_body(two_particle_net(0.0));
     world.step(DT);
     world.wait();
@@ -1641,7 +1641,7 @@ fn a_sweep_query_stops_at_a_soft_particle() {
 
 #[test]
 fn a_query_on_a_soft_body_alone_resolves_without_a_rigid_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let cloth = world.add_soft_body(two_particle_net(0.0));
     assert_eq!(world.count(), 0, "the scene holds no rigid body");
     world.step(DT);
@@ -1662,7 +1662,7 @@ fn a_query_on_a_soft_body_alone_resolves_without_a_rigid_body() {
 
 #[test]
 fn a_query_hit_names_the_collider_its_own_body_owns() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let vertices = vec![
         [-3.0f32, 0.0, -4.0],
         [3.0, 0.0, -4.0],

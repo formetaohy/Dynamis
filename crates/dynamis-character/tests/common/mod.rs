@@ -19,8 +19,9 @@ pub fn gpu() -> GpuContext {
 }
 
 pub fn new_world(config: PhysicsConfig) -> World {
-    let world = World::new(gpu(), config);
+    let mut world = World::new(gpu(), config);
     world.warmup(WarmupBudget::All);
+    world.observe_all_bodies();
     world
 }
 

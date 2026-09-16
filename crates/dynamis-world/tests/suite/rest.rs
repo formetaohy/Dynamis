@@ -1,4 +1,4 @@
-use super::common::{DT, asleep, distance, gravity_config, new_world, settle, settle_until};
+use super::common::{DT, asleep, distance, gravity_config, observed_world, settle, settle_until};
 use dynamis_abi::{
     COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_SOFT_ACTIVE, COUNTER_SOFT_SLEPT,
     COUNTER_SOFT_WOKE, COUNTER_WOKE,
@@ -35,7 +35,7 @@ fn mean_height(positions: &[[f32; 3]]) -> f32 {
 
 #[test]
 fn a_settled_soft_body_leaves_the_simulation_domain() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let _cloth = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world) && soft_asleep(world));
@@ -51,7 +51,7 @@ fn a_settled_soft_body_leaves_the_simulation_domain() {
 
 #[test]
 fn a_falling_soft_body_keeps_the_simulation_domain_awake() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(cloth([0.0, 8.0, 0.0]));
     let before = world.inspect_soft_particles(handle);
     settle(&mut world, 30);
@@ -74,7 +74,7 @@ fn a_falling_soft_body_keeps_the_simulation_domain_awake() {
 
 #[test]
 fn a_sleeping_soft_body_holds_the_pose_it_slept_at() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world) && soft_asleep(world));
@@ -90,7 +90,7 @@ fn a_sleeping_soft_body_holds_the_pose_it_slept_at() {
 
 #[test]
 fn a_moving_rigid_body_wakes_the_sleeping_soft_body_it_meets() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let _cloth = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     quiet(&mut world);
@@ -106,7 +106,7 @@ fn a_moving_rigid_body_wakes_the_sleeping_soft_body_it_meets() {
 
 #[test]
 fn a_moved_platform_wakes_the_sleeping_soft_body_it_holds() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let platform = world.spawn(
         BodyDesc::cuboid([2.0, 0.1, 2.0])
             .position([0.0, 0.1, 0.0])
@@ -129,7 +129,7 @@ fn a_moved_platform_wakes_the_sleeping_soft_body_it_holds() {
 
 #[test]
 fn a_global_parameter_change_wakes_the_sleeping_simulation() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let ball = world.spawn(BodyDesc::sphere(0.3).position([3.0, 0.3, 0.0]));
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
@@ -156,7 +156,7 @@ fn a_global_parameter_change_wakes_the_sleeping_simulation() {
 
 #[test]
 fn a_scene_level_wake_reaches_a_world_that_holds_only_deformables() {
-    let mut world = new_world(super::common::static_config());
+    let mut world = observed_world(super::common::static_config());
     let handle = world.add_soft_body(cloth([0.0, 4.0, 0.0]));
     quiet(&mut world);
     let resting = mean_height(&world.inspect_soft_particles(handle));
@@ -178,7 +178,7 @@ fn a_scene_level_wake_reaches_a_world_that_holds_only_deformables() {
 
 #[test]
 fn a_scene_level_wake_rides_its_own_pass_and_compiles_no_body_command() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let mut balls = Vec::new();
     for index in 0..24 {
@@ -231,7 +231,7 @@ fn a_scene_level_wake_rides_its_own_pass_and_compiles_no_body_command() {
 
 #[test]
 fn a_settled_soft_body_reports_one_sleep_transition() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let _cloth = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     let mut slept = 0;
@@ -248,14 +248,14 @@ fn a_settled_soft_body_reports_one_sleep_transition() {
 
 #[test]
 fn a_restored_world_keeps_the_soft_body_asleep() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let handle = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
     quiet(&mut world);
     let slept = world.inspect_soft_particles(handle);
     let snapshot = world.snapshot();
 
-    let mut restored = new_world(gravity_config());
+    let mut restored = observed_world(gravity_config());
     restored.restore(&snapshot);
     settle(&mut restored, 90);
     assert!(

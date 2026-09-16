@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, static_config};
+use super::common::{DT, gravity_config, observed_world, static_config};
 use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, PhysicsConfig};
 use dynamis_world::World;
 
@@ -23,7 +23,7 @@ fn reaction_of(world: &mut World, constraint: dynamis_model::ConstraintHandle) -
 
 #[test]
 fn a_hanging_distance_joint_reports_the_weight_it_carries() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let (_, _) = hanging_load(&mut world, 2.0, 2.0);
     let constraint = world.constraints()[0];
     for _ in 0..180 {
@@ -53,7 +53,7 @@ fn a_hanging_distance_joint_reports_the_weight_it_carries() {
 
 #[test]
 fn an_unloaded_joint_reports_no_reaction() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(BodyDesc::sphere(0.2).position([0.0, 1.0, 0.0]));
     let constraint = world.add_constraint(
@@ -74,7 +74,7 @@ fn an_unloaded_joint_reports_no_reaction() {
 #[test]
 fn a_joint_reaction_is_the_same_under_any_substep_budget() {
     for substeps in [1u32, 8] {
-        let mut world = new_world(PhysicsConfig {
+        let mut world = observed_world(PhysicsConfig {
             substeps,
             ..gravity_config()
         });
@@ -96,7 +96,7 @@ fn a_joint_reaction_is_the_same_under_any_substep_budget() {
 fn a_break_verdict_ignores_the_substep_budget() {
     let weight = 2.0 * 9.81;
     for substeps in [1u32, 8] {
-        let mut world = new_world(PhysicsConfig {
+        let mut world = observed_world(PhysicsConfig {
             substeps,
             ..gravity_config()
         });
@@ -107,7 +107,7 @@ fn a_break_verdict_ignores_the_substep_budget() {
             load,
             ConstraintDesc::distance([0.0; 3], [0.0; 3], 2.0).break_threshold(weight * 0.5, 0.0),
         );
-        let mut carrying = new_world(PhysicsConfig {
+        let mut carrying = observed_world(PhysicsConfig {
             substeps,
             ..gravity_config()
         });
@@ -136,7 +136,7 @@ fn a_break_verdict_ignores_the_substep_budget() {
 
 #[test]
 fn a_ball_chain_holds_its_anchors_at_a_hundred_to_one_mass_ratio() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let mut previous = anchor;
     let mut links = Vec::new();

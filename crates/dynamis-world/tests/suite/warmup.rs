@@ -6,7 +6,9 @@ use std::time::Duration;
 
 fn cold_world() -> World {
     let context = pollster::block_on(GpuContext::open(&GpuRequest::default())).expect("test gpu");
-    World::new(context, PhysicsConfig::default())
+    let mut world = World::new(context, PhysicsConfig::default());
+    world.observe_all_bodies();
+    world
 }
 
 fn falling_scene(world: &mut World) {

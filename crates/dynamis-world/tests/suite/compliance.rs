@@ -1,4 +1,4 @@
-use super::common::{gravity_config, new_world, settle};
+use super::common::{gravity_config, observed_world, settle};
 use dynamis_model::{BodyDesc, SurfaceDesc};
 use dynamis_world::World;
 
@@ -24,7 +24,7 @@ fn soft_floor(world: &mut World, frequency: f32) {
 
 #[test]
 fn a_soft_contact_rests_at_its_relaxation_depth() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     soft_floor(&mut world, FREQUENCY);
     let sphere = world.spawn(
         BodyDesc::sphere(0.5)
@@ -43,7 +43,7 @@ fn a_soft_contact_rests_at_its_relaxation_depth() {
 
 #[test]
 fn a_critically_damped_contact_holds_the_same_depth() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([10.0, 0.5, 10.0])
             .mass(0.0)
@@ -68,7 +68,7 @@ fn a_critically_damped_contact_holds_the_same_depth() {
 fn a_soft_contact_sinks_the_same_depth_under_any_mass() {
     let expected = relaxation_depth(FREQUENCY, FREQUENCY);
     for mass in [0.2f32, 5.0, 200.0] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         soft_floor(&mut world, FREQUENCY);
         let sphere = world.spawn(
             BodyDesc::sphere(0.5)
@@ -88,7 +88,7 @@ fn a_soft_contact_sinks_the_same_depth_under_any_mass() {
 
 #[test]
 fn a_stacked_pair_compresses_each_soft_contact_equally() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let single = relaxation_depth(FREQUENCY, FREQUENCY);
     soft_floor(&mut world, FREQUENCY);
     let lower = world.spawn(
@@ -120,7 +120,7 @@ fn a_stacked_pair_compresses_each_soft_contact_equally() {
 
 #[test]
 fn contact_softness_combines_in_series() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     soft_floor(&mut world, FREQUENCY);
     world.spawn(
         BodyDesc::sphere(0.5)
@@ -140,7 +140,7 @@ fn contact_softness_combines_in_series() {
 
 #[test]
 fn a_rigid_contact_never_softens() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([10.0, 0.5, 10.0])
             .mass(0.0)

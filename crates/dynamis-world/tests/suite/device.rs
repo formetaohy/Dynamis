@@ -1,8 +1,7 @@
-use super::common::{DT, gravity_config, new_world, static_sphere_ground};
+use super::common::{DT, gravity_config, new_world, observed_world, static_sphere_ground};
 use dynamis_abi::{COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_STEP};
 use dynamis_model::{BodyDesc, SoftBodyDesc, SoftBodyHandle};
 use dynamis_world::World;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn hanging_net(world: &mut World) -> SoftBodyHandle {
     world.add_soft_body(SoftBodyDesc::net(
@@ -13,7 +12,7 @@ fn hanging_net(world: &mut World) -> SoftBodyHandle {
 
 #[test]
 fn collecting_facts_never_opens_a_submission() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ground = static_sphere_ground(&mut world, 1.0);
     let _ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.4, 0.0]));
     world.step(DT);
@@ -32,10 +31,11 @@ fn collecting_facts_never_opens_a_submission() {
 }
 
 #[test]
-fn a_retirement_delivers_every_fact_of_the_step_and_leaves_the_states_on_the_device() {
+fn a_retirement_delivers_every_fact_of_the_step() {
     let mut world = new_world(gravity_config());
     let _ground = static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.4, 0.0]));
+    world.observe_bodies(&[ball]);
     world.step(DT);
     assert_eq!(
         world.measured()[COUNTER_STEP],
@@ -57,14 +57,6 @@ fn a_retirement_delivers_every_fact_of_the_step_and_leaves_the_states_on_the_dev
         world.measured()[COUNTER_CONTACTS] > 0,
         "a retirement must deliver the contacts of the step it reads"
     );
-    assert!(
-        world.try_state(ball).is_none(),
-        "a retirement must not declare an observation"
-    );
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| world.read_state(ball))).is_err(),
-        "a retirement must leave the body states on the device"
-    );
     world.wait();
     let landed = world.read_state(ball);
     assert_eq!(
@@ -80,7 +72,7 @@ fn a_retirement_delivers_every_fact_of_the_step_and_leaves_the_states_on_the_dev
 
 #[test]
 fn an_inspection_retires_the_step_it_reads() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let net = hanging_net(&mut world);
     world.step(DT);
     assert_eq!(world.measured()[COUNTER_STEP], 0);
@@ -99,7 +91,7 @@ fn an_inspection_retires_the_step_it_reads() {
 
 #[test]
 fn a_snapshot_retires_the_facts_it_captures() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.0, 0.0]));
     world.step(DT);
     let snapshot = world.snapshot();

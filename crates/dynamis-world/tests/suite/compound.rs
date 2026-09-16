@@ -1,11 +1,11 @@
-use super::common::{DT, new_world, settle, static_config};
+use super::common::{DT, observed_world, settle, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
 const NESTED_COLLIDERS: usize = 64;
 
 #[test]
 fn compound_support_many_colliders() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let mut desc = BodyDesc::cuboid([0.4, 0.4, 0.4]);
     for index in 0..NESTED_COLLIDERS {
         let lattice = |step: usize| (index / step % 4) as f32 - 1.5;
@@ -33,7 +33,7 @@ fn compound_support_many_colliders() {
 
 #[test]
 fn runtime_added_collider_supports_falling_body() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let base = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]).mass(0.0));
     world.add_collider(
         base,
@@ -50,7 +50,7 @@ fn runtime_added_collider_supports_falling_body() {
 
 #[test]
 fn add_collider_then_query_detects_it() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
     world.add_collider(
         body,
@@ -79,7 +79,7 @@ fn add_collider_then_query_detects_it() {
 
 #[test]
 fn removed_collider_stops_colliding() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.0, 0.0]));
     world.add_collider(
         body,
@@ -107,7 +107,7 @@ fn removed_collider_stops_colliding() {
 
 #[test]
 fn removed_body_leaves_no_ghost_collider() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ghost = world.spawn(BodyDesc::static_sphere(0.75).position([0.0, 0.0, 0.0]));
     let filter = QueryFilter::default();
     let probe = world.sphere_query([0.0; 3], 0.5, &filter);
@@ -129,7 +129,7 @@ fn removed_body_leaves_no_ghost_collider() {
 
 #[test]
 fn remove_last_collider_panics() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(0.3));
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

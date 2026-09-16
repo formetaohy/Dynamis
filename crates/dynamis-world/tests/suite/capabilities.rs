@@ -1,5 +1,5 @@
 use super::common::{
-    DT, asleep, gravity_config, new_world, settle, settle_until, static_config,
+    DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
 use dynamis_model::{
@@ -9,7 +9,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
 fn cylinder_stacks_flat_on_cylinder() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let base = world.spawn(
         BodyDesc::cylinder(0.5, 0.5)
             .position([0.0, 0.5, 0.0])
@@ -30,7 +30,7 @@ fn cylinder_stacks_flat_on_cylinder() {
 
 #[test]
 fn hull_cube_stacks_stable() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let cube = vec![
         [-0.5, -0.5, -0.5],
         [0.5, -0.5, -0.5],
@@ -77,7 +77,7 @@ fn hull_cube_stacks_stable() {
 
 #[test]
 fn hull_rests_on_mesh_floor() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let cube = vec![
         [-0.5, -0.5, -0.5],
         [0.5, -0.5, -0.5],
@@ -116,7 +116,7 @@ fn hull_rests_on_mesh_floor() {
 
 #[test]
 fn inspect_contacts_surface_contact_points() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle(&mut world, 30);
@@ -147,7 +147,7 @@ fn inspect_contacts_surface_contact_points() {
 
 #[test]
 fn constraint_patch_updates_motor_speed() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.4).mass(0.0));
     let arm = world.spawn(BodyDesc::sphere(0.4).position([0.0, 1.0, 0.0]));
     let joint = world.add_constraint(
@@ -168,7 +168,7 @@ fn constraint_patch_updates_motor_speed() {
 
 #[test]
 fn constraint_break_emits_handle_event() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0).position([0.0, 3.0, 0.0]));
     let weight = world.spawn(BodyDesc::sphere(0.3).position([0.0, 3.0, 0.0]).mass(50.0));
@@ -191,7 +191,7 @@ fn constraint_break_emits_handle_event() {
 
 #[test]
 fn collider_level_filter_controls_collisions() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).filter(CollisionFilter::new(0x2, 0x2)))
             .position([0.0, -0.4, 0.0])
@@ -212,7 +212,7 @@ fn collider_level_filter_controls_collisions() {
 
 #[test]
 fn per_body_damping_overrides_global() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let loose = world.spawn(
         BodyDesc::sphere(0.2)
             .position([0.0, 10.0, 0.0])
@@ -235,7 +235,7 @@ fn per_body_damping_overrides_global() {
 
 #[test]
 fn gravity_scale_zero_ignores_gravity() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let floating = world.spawn(
         BodyDesc::sphere(0.2)
             .position([0.0, 10.0, 0.0])
@@ -257,7 +257,7 @@ fn gravity_scale_zero_ignores_gravity() {
 
 #[test]
 fn density_sets_mass_from_volume() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(1.0).density(1.0));
     let state = world.read_state(body);
     let sphere_volume = 4.0 / 3.0 * std::f32::consts::PI;
@@ -270,7 +270,7 @@ fn density_sets_mass_from_volume() {
 
 #[test]
 fn rolling_and_spin_friction_damp_rotation() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let braked = world.spawn(
         BodyDesc::new(
@@ -303,7 +303,7 @@ fn rolling_and_spin_friction_damp_rotation() {
 
 #[test]
 fn prev_position_tracks_last_step() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 10.0, 0.0]));
     world.step(DT);
     world.wait();
@@ -325,7 +325,7 @@ fn prev_position_tracks_last_step() {
 
 #[test]
 fn update_drives_substeps_with_interpolation_alpha() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 10.0, 0.0]));
     world.update(DT * 0.5, DT, 8);
     assert_eq!(world.count(), 1);
@@ -346,7 +346,7 @@ fn update_drives_substeps_with_interpolation_alpha() {
 
 #[test]
 fn query_filter_excludes_own_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _ground = static_sphere_ground(&mut world, 1.0);
     let hit = world.spawn(BodyDesc::sphere(0.5).position([5.0, 0.0, 5.0]));
     let _miss = world.spawn(BodyDesc::sphere(0.5).position([5.0, 0.0, -5.0]));
@@ -376,7 +376,7 @@ fn query_filter_excludes_own_body() {
 
 #[test]
 fn remove_shape_invalidates_handle() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let source = world.add_mesh(
         &[[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 1.0]],
         &[[0, 2, 1]],
@@ -394,7 +394,7 @@ fn remove_shape_invalidates_handle() {
 
 #[test]
 fn update_height_field_reshapes_terrain() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let source = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0], None);
     let _floor =
         world.spawn(BodyDesc::new(ColliderDesc::new(Shape::height_field(source))).mass(0.0));
@@ -424,7 +424,7 @@ fn sleep_thresholds_override_global_speed() {
         sleep_time: 0.05,
         ..static_config()
     };
-    let mut world = new_world(config);
+    let mut world = observed_world(config);
     let lazy = world.spawn(
         BodyDesc::sphere(0.2)
             .position([0.0, 0.0, 0.0])

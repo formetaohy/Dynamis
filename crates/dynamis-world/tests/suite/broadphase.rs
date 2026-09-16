@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle, settle_until, static_config};
+use super::common::{DT, gravity_config, observed_world, settle, settle_until, static_config};
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
 };
@@ -30,7 +30,7 @@ fn crowd_above(world: &mut dynamis_world::World, height: f32, radius: f32) {
 
 #[test]
 fn a_wide_static_floor_pairs_only_the_bodies_inside_its_bounds() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     wide_static_floor(&mut world);
     crowd_above(&mut world, 40.0, 0.4);
     world.step(DT);
@@ -53,7 +53,7 @@ fn a_wide_static_floor_pairs_only_the_bodies_inside_its_bounds() {
 
 #[test]
 fn a_wide_static_floor_still_carries_a_dense_crowd() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     wide_static_floor(&mut world);
     crowd_above(&mut world, 1.2, 0.4);
     settle_until(&mut world, 240, |world| {
@@ -73,7 +73,7 @@ fn a_wide_static_floor_still_carries_a_dense_crowd() {
 
 #[test]
 fn a_body_beyond_a_wide_collider_bounds_never_pairs_with_it() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([WIDE, 0.5, WIDE])
             .mass(0.0)
@@ -95,7 +95,7 @@ fn a_body_beyond_a_wide_collider_bounds_never_pairs_with_it() {
 
 #[test]
 fn a_coarse_collider_links_to_finer_neighbours_across_levels() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let terrain = world.spawn(
         BodyDesc::cuboid([200.0, 0.5, 200.0])
             .mass(0.0)
@@ -125,7 +125,7 @@ fn a_coarse_collider_links_to_finer_neighbours_across_levels() {
 
 #[test]
 fn a_narrow_ray_reaches_a_coarse_static_collider() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let terrain = world.spawn(
         BodyDesc::cuboid([200.0, 0.5, 200.0])
             .mass(0.0)
@@ -165,7 +165,7 @@ fn a_narrow_ray_reaches_a_coarse_static_collider() {
 
 #[test]
 fn a_query_on_a_sleeping_world_still_reaches_a_coarse_collider() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let terrain = world.spawn(
         BodyDesc::cuboid([200.0, 0.5, 200.0])
             .mass(0.0)
@@ -189,7 +189,7 @@ fn a_query_on_a_sleeping_world_still_reaches_a_coarse_collider() {
 
 #[test]
 fn a_coarse_collider_has_an_entry_span_within_budget() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     for index in 0..4 {
         let offset = index as f32 * 400.0;
         world.spawn(
@@ -212,7 +212,7 @@ fn a_coarse_collider_has_an_entry_span_within_budget() {
 
 #[test]
 fn overlapping_coarse_colliders_repel_each_other() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::new(
             ColliderDesc::new(Shape::cuboid([64.0, 0.5, 64.0]))
@@ -240,7 +240,7 @@ fn overlapping_coarse_colliders_repel_each_other() {
 
 #[test]
 fn a_teleported_static_collider_pairs_at_its_new_pose() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let platform = world.spawn(
         BodyDesc::cuboid([0.5, 0.5, 0.5])
             .mass(0.0)
@@ -259,7 +259,7 @@ fn a_teleported_static_collider_pairs_at_its_new_pose() {
 
 #[test]
 fn a_reoriented_static_collider_pairs_at_its_new_pose() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let rod = world.spawn(
         BodyDesc::cuboid([2.0, 0.05, 0.05])
             .mass(0.0)
@@ -291,7 +291,7 @@ fn a_reoriented_static_collider_pairs_at_its_new_pose() {
 #[test]
 fn a_collider_pair_enters_the_candidate_stream_exactly_once() {
     for offset in [0.05f32, 0.2, 0.35, 0.5, 0.65] {
-        let mut world = new_world(static_config());
+        let mut world = observed_world(static_config());
         world.spawn(BodyDesc::sphere(0.35).mass(0.0).position([0.0, 0.0, 0.0]));
         world.spawn(BodyDesc::sphere(0.35).position([offset, 0.0, 0.0]));
         world.step(DT);
@@ -308,7 +308,7 @@ fn a_collider_pair_enters_the_candidate_stream_exactly_once() {
 
 #[test]
 fn a_chain_of_colliders_emits_one_pair_per_touching_neighbour() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     for index in 0..16 {
         world.spawn(BodyDesc::sphere(0.4).position([index as f32 * 0.5, 0.0, 0.0]));
     }
@@ -324,7 +324,7 @@ fn a_chain_of_colliders_emits_one_pair_per_touching_neighbour() {
 
 #[test]
 fn a_coarse_collider_emits_one_pair_per_covered_collider() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([WIDE, 0.5, WIDE])
             .mass(0.0)
@@ -347,7 +347,7 @@ fn a_coarse_collider_emits_one_pair_per_covered_collider() {
 
 #[test]
 fn a_dense_pile_fits_the_planned_pair_stream_from_its_first_collapse() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([WIDE, 0.5, WIDE])
             .mass(0.0)
@@ -390,7 +390,7 @@ fn dense_grains(world: &mut dynamis_world::World, side: usize) {
 }
 
 fn candidate_pairs(side: usize) -> (usize, u32) {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     dense_grains(&mut world, side);
     for _ in 0..3 {
         world.step(DT);
@@ -416,7 +416,7 @@ fn a_dense_grain_cluster_pairs_with_its_neighbours_only() {
 
 #[test]
 fn a_dense_grain_cluster_never_spills_its_pair_stream() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     dense_grains(&mut world, 10);
     for frame in 0..6 {
         world.step(DT);
@@ -431,7 +431,7 @@ fn a_dense_grain_cluster_never_spills_its_pair_stream() {
 
 #[test]
 fn a_wide_query_reaches_grains_finer_than_the_query() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     sparse_grains(&mut world, 6, 1.0);
     world.step(DT);
     world.wait();
@@ -455,7 +455,7 @@ fn a_wide_query_reaches_grains_finer_than_the_query() {
 
 #[test]
 fn a_plane_carries_grains_far_below_its_grid_resolution() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::plane())).mass(0.0));
     let far = world.spawn(
         BodyDesc::sphere(0.0005)
@@ -494,7 +494,7 @@ fn clumped_spheres(
 
 #[test]
 fn a_saturated_pair_stream_never_stores_more_candidates_than_it_holds() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     clumped_spheres(&mut world, 10, 0.02, 0.1);
     let mut refused = 0;
     for frame in 0..8 {
@@ -523,7 +523,7 @@ fn a_saturated_pair_stream_never_stores_more_candidates_than_it_holds() {
 
 #[test]
 fn a_fluid_never_drops_grid_entries() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     wide_static_floor(&mut world);
     let fluid = fluid_lattice(&mut world);
     for step in 0..40 {

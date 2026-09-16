@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle, static_config};
+use super::common::{DT, gravity_config, observed_world, settle, static_config};
 use dynamis_abi::{COUNTER_IMPACTS, COUNTER_REFUSED_IMPACTS};
 use dynamis_model::{BodyDesc, ColliderDesc, Shape};
 
@@ -12,7 +12,7 @@ fn armed_ground(world: &mut dynamis_world::World, threshold: f32) -> dynamis_mod
 
 #[test]
 fn a_landing_body_reports_the_impulse_it_delivers() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     armed_ground(&mut world, 1.0);
     let mass = 2.0;
     let speed = 3.0;
@@ -51,7 +51,7 @@ fn a_landing_body_reports_the_impulse_it_delivers() {
 
 #[test]
 fn a_silent_collider_never_reports() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -77,7 +77,7 @@ fn a_silent_collider_never_reports() {
 
 #[test]
 fn either_collider_of_a_pair_arms_the_report() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -95,7 +95,7 @@ fn either_collider_of_a_pair_arms_the_report() {
         "the strict threshold of the armed collider must hold"
     );
 
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -118,7 +118,7 @@ fn either_collider_of_a_pair_arms_the_report() {
 #[test]
 fn a_gentle_touch_below_the_threshold_stays_silent() {
     let gentle = |threshold: f32| {
-        let mut world = new_world(static_config());
+        let mut world = observed_world(static_config());
         armed_ground(&mut world, threshold);
         world.spawn(
             BodyDesc::sphere(0.5)
@@ -144,7 +144,7 @@ fn a_gentle_touch_below_the_threshold_stays_silent() {
 
 #[test]
 fn a_sustained_load_reports_its_impact_once() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     armed_ground(&mut world, 1.0);
     world.spawn(BodyDesc::sphere(0.5).mass(2.0).position([0.0, 1.5, 0.0]));
 
@@ -171,7 +171,7 @@ fn a_sustained_load_reports_its_impact_once() {
 
 #[test]
 fn a_slept_body_stays_silent() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     armed_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle(&mut world, 400);
@@ -190,7 +190,7 @@ fn a_slept_body_stays_silent() {
 
 #[test]
 fn a_sensor_reports_no_impact() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([20.0, 0.5, 20.0])).sensor(true)).mass(0.0),
     );
@@ -209,7 +209,7 @@ fn a_sensor_reports_no_impact() {
 
 #[test]
 fn an_impact_flood_widens_the_stream_before_it_spills() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let floor = world.stream_capacity().rigid.impacts;
     let side = 7.0f32;
     let center = side * 0.7 * 0.5;
@@ -255,7 +255,7 @@ fn an_impact_flood_widens_the_stream_before_it_spills() {
 
 #[test]
 fn an_armed_cluster_reports_its_collisions_and_its_removal() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ground = armed_ground(&mut world, 1.0);
     let ball = world.spawn(
         BodyDesc::sphere(0.5)

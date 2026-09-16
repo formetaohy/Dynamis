@@ -67,6 +67,9 @@ impl World {
             .push(BodyCommand::Add { row: slot, state });
         self.encode_body(handle);
         self.record_state(handle, &state);
+        if self.observed.observes_whole_body_set() {
+            self.observe_body(handle);
+        }
         handle
     }
 
@@ -197,7 +200,7 @@ impl World {
         self.validate(handle);
         assert!(
             self.body_current(handle.id),
-            "a body state older than the last step requires wait() or an observation of that body"
+            "body {handle:?} carries no state for the last step; observe it with observe_bodies or observe_all_bodies before waiting"
         );
         *self
             .observed

@@ -1,4 +1,4 @@
-use super::common::{DT, distance, gravity_config, new_world, settle};
+use super::common::{DT, distance, gravity_config, observed_world, settle};
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, Shape, SoftAttachment, SoftBodyDesc};
 use dynamis_world::World;
 
@@ -33,7 +33,7 @@ fn hanging_chain(
 
 #[test]
 fn an_attachment_holds_a_soft_body_to_its_anchor() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
     settle(&mut world, 180);
@@ -52,7 +52,7 @@ fn an_attachment_holds_a_soft_body_to_its_anchor() {
 
 #[test]
 fn an_attachment_carries_a_soft_body_with_a_moving_anchor() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let carrier = world.spawn(
         BodyDesc::cuboid([0.1; 3])
             .kinematic(true)
@@ -89,7 +89,7 @@ fn an_attachment_carries_a_soft_body_with_a_moving_anchor() {
 
 #[test]
 fn a_moving_anchor_wakes_a_sleeping_soft_body() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let carrier = world.spawn(
         BodyDesc::cuboid([0.1; 3])
             .kinematic(true)
@@ -119,7 +119,7 @@ fn a_moving_anchor_wakes_a_sleeping_soft_body() {
 
 #[test]
 fn a_restored_attachment_still_anchors_its_soft_body() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
     settle(&mut world, 60);
@@ -142,7 +142,7 @@ fn a_restored_attachment_still_anchors_its_soft_body() {
 
 #[test]
 fn an_attachment_follows_its_anchor_through_a_row_move() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let neighbour = world.spawn(BodyDesc::cuboid([0.1; 3]).position([9.0, 0.0, 0.0]));
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
@@ -164,7 +164,7 @@ fn an_attachment_follows_its_anchor_through_a_row_move() {
 
 #[test]
 fn removing_a_soft_body_releases_its_anchors() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
     world.remove_soft_body(soft);
@@ -175,7 +175,7 @@ fn removing_a_soft_body_releases_its_anchors() {
 #[test]
 #[should_panic(expected = "anchors a soft attachment")]
 fn a_body_that_still_anchors_a_soft_body_refuses_removal() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = sensor_anchor(&mut world, [0.0, 8.0, 0.0]);
     let _soft = hanging_chain(&mut world, anchor, [0.0, 8.0, 0.0]);
     world.remove(anchor);

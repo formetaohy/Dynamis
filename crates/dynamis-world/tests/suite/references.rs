@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, static_config};
+use super::common::{DT, observed_world, static_config};
 use dynamis_model::{
     BodyDesc, BodyHandle, CharacterDesc, CharacterHandle, CharacterInput, ConstraintDesc,
     VehicleDesc, VehicleHandle, WheelDesc,
@@ -52,7 +52,7 @@ fn inherited(body: BodyHandle, world: &mut World) -> BodyHandle {
 
 #[test]
 fn a_body_a_live_constraint_holds_refuses_removal() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.4));
     let second = world.spawn(BodyDesc::sphere(0.4).position([0.0, 1.0, 0.0]));
     world.add_constraint(
@@ -68,7 +68,7 @@ fn a_body_a_live_constraint_holds_refuses_removal() {
 
 #[test]
 fn a_body_a_live_character_drives_refuses_removal() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let character = character(&mut world);
     let body = world.character_body(character);
     refuses_removal(&mut world, body, "a body a live character drives");
@@ -77,7 +77,7 @@ fn a_body_a_live_character_drives_refuses_removal() {
 
 #[test]
 fn a_retired_character_hands_its_recycled_body_to_its_next_owner() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let character = character(&mut world);
     let body = world.character_body(character);
     for _ in 0..8 {
@@ -100,7 +100,7 @@ fn a_retired_character_hands_its_recycled_body_to_its_next_owner() {
 
 #[test]
 fn a_retired_vehicle_hands_its_recycled_body_to_its_next_owner() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let vehicle = vehicle(&mut world);
     let chassis = world.vehicle_body(vehicle);
     for _ in 0..4 {
@@ -118,7 +118,7 @@ fn a_retired_vehicle_hands_its_recycled_body_to_its_next_owner() {
 
 #[test]
 fn a_released_body_owner_keeps_its_own_observation_alone() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = character(&mut world);
     let second = character(&mut world);
     world.set_character_input(first, CharacterInput::moving([1.0, 0.0, 0.0]));

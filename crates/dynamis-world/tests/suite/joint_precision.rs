@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, static_config};
+use super::common::{DT, gravity_config, observed_world, static_config};
 use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, DofDesc};
 use dynamis_world::World;
 
@@ -30,7 +30,7 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 #[test]
 fn ball_joint_holds_anchor_across_mass_ratio() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2));
     let second = world.spawn(
         BodyDesc::cuboid([0.2, 0.2, 0.2])
@@ -63,7 +63,7 @@ fn ball_joint_holds_anchor_across_mass_ratio() {
 
 #[test]
 fn prismatic_joint_holds_lateral_axis() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
     let slider = world.spawn(BodyDesc::sphere(0.1).position([0.0, 1.0, 0.0]));
     let desc =
@@ -92,7 +92,7 @@ fn prismatic_joint_holds_lateral_axis() {
 
 #[test]
 fn six_dof_locked_holds_pose_under_load() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let second = world.spawn(BodyDesc::cuboid([0.2, 0.2, 0.2]).position([0.5, 0.4, 0.3]));
     let desc = ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0])
@@ -120,7 +120,7 @@ fn six_dof_locked_holds_pose_under_load() {
 
 #[test]
 fn hanging_chain_holds_every_anchor() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.05));
     let mut previous = anchor;
     let mut links = Vec::new();

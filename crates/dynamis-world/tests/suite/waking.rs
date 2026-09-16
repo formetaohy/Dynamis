@@ -1,4 +1,6 @@
-use super::common::{DT, asleep, gravity_config, new_world, settle, settle_until, static_config};
+use super::common::{
+    DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
+};
 use dynamis_abi::COUNTER_WOKE;
 use dynamis_model::{BodyDesc, BodyHandle, SoftBodyDesc, SoftMaterial};
 use dynamis_world::World;
@@ -27,7 +29,7 @@ fn woken_bodies_over(world: &mut World, frames: usize) -> u32 {
 
 #[test]
 fn a_driven_body_pushes_the_sleeping_body_it_touches() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
     sleep_until_quiet(&mut world);
@@ -50,7 +52,7 @@ fn a_driven_body_pushes_the_sleeping_body_it_touches() {
 
 #[test]
 fn a_driven_body_wakes_and_lifts_a_sleeping_stack_as_one_island() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let platform = world.spawn(
         BodyDesc::cuboid([1.0, 0.1, 1.0])
@@ -84,7 +86,7 @@ fn a_driven_body_wakes_and_lifts_a_sleeping_stack_as_one_island() {
 
 #[test]
 fn a_teleported_static_body_wakes_its_sleeping_neighbour() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
     sleep_until_quiet(&mut world);
@@ -105,7 +107,7 @@ fn a_teleported_static_body_wakes_its_sleeping_neighbour() {
 
 #[test]
 fn a_teleported_driven_body_wakes_its_sleeping_neighbour() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let box_body = world.spawn(BodyDesc::cuboid([0.4; 3]).position([0.0, 0.4, 0.0]));
     sleep_until_quiet(&mut world);
@@ -130,7 +132,7 @@ fn a_teleported_driven_body_wakes_its_sleeping_neighbour() {
 
 #[test]
 fn waking_a_body_wakes_the_resting_island_it_belongs_to() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let lower = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
     let upper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
@@ -151,7 +153,7 @@ fn waking_a_body_wakes_the_resting_island_it_belongs_to() {
 
 #[test]
 fn a_soft_body_wakes_the_sleeping_body_it_pushes() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let box_body = world.spawn(BodyDesc::cuboid([0.3; 3]).position([0.0, 0.3, 0.0]));
     sleep_until_quiet(&mut world);
@@ -176,7 +178,7 @@ fn a_soft_body_wakes_the_sleeping_body_it_pushes() {
 
 #[test]
 fn a_soft_body_wakes_the_sleeping_island_it_pushes() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let lower = world.spawn(
         BodyDesc::cuboid([0.3; 3])
@@ -213,7 +215,7 @@ fn a_soft_body_wakes_the_sleeping_island_it_pushes() {
 
 #[test]
 fn a_resting_island_keeps_every_member_asleep_together() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let bodies = (0..3)
         .map(|level| {
@@ -239,7 +241,7 @@ fn a_resting_island_keeps_every_member_asleep_together() {
 
 #[test]
 fn a_host_patched_body_keeps_its_sleep_timer_reset() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     ground(&mut world);
     let ball = world.spawn(
         BodyDesc::sphere(0.3)
@@ -268,7 +270,7 @@ fn a_host_patched_body_keeps_its_sleep_timer_reset() {
 
 #[test]
 fn a_spawned_body_wakes_the_sleeping_body_it_overlaps() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     sleep_until_quiet(&mut world);
     assert!(world.read_state(ball).sleeping);
@@ -287,7 +289,7 @@ fn a_spawned_body_wakes_the_sleeping_body_it_overlaps() {
 
 #[test]
 fn a_spawned_static_body_wakes_the_sleeping_body_it_overlaps() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     sleep_until_quiet(&mut world);
     assert!(world.read_state(ball).sleeping);

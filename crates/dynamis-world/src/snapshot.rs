@@ -87,7 +87,11 @@ impl World {
     }
 
     fn abandon_observations(&mut self) {
+        let observes_whole_body_set = self.observed.observes_whole_body_set();
         self.observed.reset();
+        if observes_whole_body_set {
+            self.observe_all_bodies();
+        }
         self.events.contact.clear();
         self.impacts.impact.clear();
         self.queries.pending.clear();

@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle, static_config};
+use super::common::{DT, gravity_config, observed_world, settle, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape, SurfaceDesc, SurfaceTable};
 use dynamis_world::{ContactManifold, ContactPoint, World};
 
@@ -67,7 +67,7 @@ fn drop_ball(world: &mut World, position: [f32; 3]) -> dynamis_model::BodyHandle
 
 #[test]
 fn a_triangle_surface_supplies_the_contact_material() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     flat_mesh(&mut world, 0.0, &[0]);
     drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);
@@ -97,7 +97,7 @@ fn a_triangle_surface_supplies_the_contact_material() {
 
 #[test]
 fn each_triangle_carries_its_own_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = two_patches();
     let palette = palette();
     let mesh = world.add_mesh(
@@ -148,7 +148,7 @@ fn each_triangle_carries_its_own_surface() {
 
 #[test]
 fn the_deepest_triangle_supplies_the_manifold_material() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let (vertices, triangles) = two_patches();
     let palette = palette();
     let mesh = world.add_mesh(
@@ -179,7 +179,7 @@ fn the_deepest_triangle_supplies_the_manifold_material() {
 
 #[test]
 fn an_unsurfaced_mesh_keeps_the_collider_material() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let vertices = patch(0.0, 0.0);
     let triangles = vec![[0u32, 1, 2]];
     let floor = world.add_mesh(&vertices, &triangles, None);
@@ -208,7 +208,7 @@ fn an_unsurfaced_mesh_keeps_the_collider_material() {
 
 #[test]
 fn a_height_field_carries_one_surface_per_cell() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let heights = [0.0f32, 0.0, 0.0, 0.0, 0.0, 1.0];
     let palette = palette();
     let field = world.add_height_field(
@@ -245,7 +245,7 @@ fn a_height_field_carries_one_surface_per_cell() {
 
 #[test]
 fn a_convex_hit_reports_no_triangle() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.spawn(BodyDesc::sphere(0.5).mass(0.0).position([0.0, 0.0, 0.0]));
     let query = world.ray_query(
         [0.0, 5.0, 0.0],
@@ -261,7 +261,7 @@ fn a_convex_hit_reports_no_triangle() {
 
 #[test]
 fn surface_resolution_survives_a_snapshot() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     flat_mesh(&mut world, 0.0, &[0]);
     drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);
@@ -284,7 +284,7 @@ fn surface_resolution_survives_a_snapshot() {
 
 #[test]
 fn an_out_of_range_surface_index_is_refused() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let vertices = patch(0.0, 0.0);
     let triangles = vec![[0u32, 1, 2]];
     let palette = palette();
@@ -311,7 +311,7 @@ fn an_out_of_range_surface_index_is_refused() {
 
 #[test]
 fn a_height_field_refuses_a_surface_table_of_the_wrong_size() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let palette = palette();
     let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         world.add_height_field(
@@ -330,7 +330,7 @@ fn a_height_field_refuses_a_surface_table_of_the_wrong_size() {
 
 #[test]
 fn a_hull_refuses_a_surface_table() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let vertices = vec![
         [0.0f32, 0.0, 0.0],
         [1.0, 0.0, 0.0],
@@ -374,7 +374,7 @@ fn a_hull_refuses_a_surface_table() {
 
 #[test]
 fn a_reshaped_mesh_replaces_its_surfaces() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let floor = flat_mesh(&mut world, 0.0, &[0]);
     let ball = drop_ball(&mut world, [0.5, 0.31, -1.0]);
     settle(&mut world, 8);

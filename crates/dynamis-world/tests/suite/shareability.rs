@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world};
+use super::common::{DT, gravity_config, observed_world};
 use dynamis_model::BodyDesc;
 use dynamis_world::World;
 
@@ -10,7 +10,7 @@ fn the_engine_moves_between_threads_and_serves_shared_reads() {
     assert_send::<World>();
     assert_sync::<World>();
 
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.0, 0.0]));
     for _ in 0..4 {
         world.step(DT);

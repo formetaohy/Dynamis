@@ -1,4 +1,6 @@
-use super::common::{distance, gravity_config, new_world, settle, settle_until, static_config};
+use super::common::{
+    distance, gravity_config, observed_world, settle, settle_until, static_config,
+};
 use dynamis_abi::COUNTER_COARSE_NEIGHBOURS;
 use dynamis_model::{
     BodyDesc, ColliderDesc, FluidMaterial, PhysicsConfig, Shape, SoftBodyDesc, SoftBodyHandle,
@@ -74,7 +76,7 @@ fn floor(world: &mut World, half: [f32; 3]) -> dynamis_model::BodyHandle {
 
 #[test]
 fn a_compressed_fluid_reaches_its_rest_spacing() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::fluid(
         lattice([3, 3, 3], 0.2, [-0.2, 0.0, -0.2]),
         0.09,
@@ -100,7 +102,7 @@ fn a_compressed_fluid_reaches_its_rest_spacing() {
 fn a_fluid_holds_its_spacing_where_a_plain_particle_cloud_packs_solid() {
     let mut spans = Vec::new();
     for fluid in [false, true] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         floor(&mut world, [1.5, 0.25, 1.5]);
         let particles = lattice([4, 4, 4], SPACING, [-0.45, 0.6, -0.45]);
         let handle = if fluid {
@@ -130,7 +132,7 @@ fn a_fluid_holds_its_spacing_where_a_plain_particle_cloud_packs_solid() {
 
 #[test]
 fn a_fluid_impact_never_sinks_through_the_floor() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     floor(&mut world, [2.0, 0.25, 2.0]);
     let handle = fluid_block(&mut world, SPACING, [-0.45, 3.0, -0.45]);
     settle(&mut world, 240);
@@ -145,7 +147,7 @@ fn a_fluid_impact_never_sinks_through_the_floor() {
 
 #[test]
 fn a_fluid_pushes_a_body_it_rests_on() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     floor(&mut world, [2.0, 0.25, 2.0]);
     let carrier = world.spawn(BodyDesc::cuboid([0.4, 0.1, 0.4]).position([0.0, 0.1, 0.0]));
     let _fluid = fluid_block(&mut world, SPACING, [-0.45, 1.6, -0.45]);
@@ -158,7 +160,7 @@ fn a_fluid_pushes_a_body_it_rests_on() {
 fn identical_fluids_observe_identical_positions() {
     let mut worlds = Vec::new();
     for _ in 0..2 {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         floor(&mut world, [1.5, 0.25, 1.5]);
         let handle = fluid_block(&mut world, SPACING, [-0.45, 1.0, -0.45]);
         settle(&mut world, 120);
@@ -177,7 +179,7 @@ fn identical_fluids_observe_identical_positions() {
 
 #[test]
 fn a_removed_fluid_leaves_the_world_steppable() {
-    let mut world = new_world(PhysicsConfig::default());
+    let mut world = observed_world(PhysicsConfig::default());
     let handle = fluid_block(&mut world, SPACING, [-0.45, 0.5, -0.45]);
     settle(&mut world, 30);
     world.remove_soft_body(handle);

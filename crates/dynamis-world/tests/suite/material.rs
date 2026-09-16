@@ -1,4 +1,4 @@
-use super::common::{DT, asleep, gravity_config, new_world, settle_until, static_config};
+use super::common::{DT, asleep, gravity_config, observed_world, settle_until, static_config};
 use dynamis_model::{
     BodyDesc, BodyHandle, ColliderDesc, MaterialCombine, PhysicsConfig, QueryFilter, Shape,
 };
@@ -6,7 +6,7 @@ use dynamis_world::World;
 
 #[test]
 fn friction_combine_modes_scale_grip() {
-    let mut grip = new_world(gravity_config());
+    let mut grip = observed_world(gravity_config());
     let ball = grip.spawn(BodyDesc::sphere(0.5).position([0.0, 2.0, 0.0]));
     let _floor = grip.spawn(
         BodyDesc::new(
@@ -26,7 +26,7 @@ fn friction_combine_modes_scale_grip() {
         grip_state.velocity
     );
 
-    let mut slick = new_world(PhysicsConfig {
+    let mut slick = observed_world(PhysicsConfig {
         friction_combine: MaterialCombine::Min,
         ..gravity_config()
     });
@@ -49,7 +49,7 @@ fn friction_combine_modes_scale_grip() {
 
 #[test]
 fn set_friction_updates_collider_material() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.45, 0.0]));
     let _floor = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([5.0, 0.5, 5.0])))
@@ -68,7 +68,7 @@ fn set_friction_updates_collider_material() {
 
 #[test]
 fn plane_floor_supports_resting_contact() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.45, 0.0]));
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
@@ -86,7 +86,7 @@ fn plane_floor_supports_resting_contact() {
 
 #[test]
 fn tilted_plane_keeps_contact_normal() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.8, 0.0]));
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()).rotation([
@@ -112,7 +112,7 @@ fn tilted_plane_keeps_contact_normal() {
 
 #[test]
 fn ray_hits_plane_and_reports_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
@@ -135,7 +135,7 @@ fn ray_hits_plane_and_reports_surface() {
 
 #[test]
 fn sweep_over_plane_stops_at_surface() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
@@ -162,7 +162,7 @@ fn sweep_over_plane_stops_at_surface() {
 
 #[test]
 fn scaled_cuboid_collides_at_scaled_extent() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
             .position([-8.0, 0.0, 0.0])
@@ -187,7 +187,7 @@ fn scaled_cuboid_collides_at_scaled_extent() {
 
 #[test]
 fn scaled_mesh_ray_hit_uses_local_scale() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let vertices = vec![
         [-1.0f32, 0.0, -1.0],
         [1.0, 0.0, -1.0],
@@ -221,7 +221,7 @@ fn scaled_mesh_ray_hit_uses_local_scale() {
 
 #[test]
 fn plane_ccd_stops_fast_ball() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _plane = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::plane()))
             .position([0.0, 0.0, 0.0])
@@ -273,7 +273,7 @@ fn dragged(world: &mut World, body: BodyHandle, force: f32) {
 
 #[test]
 fn friction_holds_a_body_dragged_inside_the_coulomb_cone() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = sliding_pair(&mut world);
     for _ in 0..240 {
         dragged(&mut world, body, 0.5 * coulomb_limit());
@@ -290,7 +290,7 @@ fn friction_holds_a_body_dragged_inside_the_coulomb_cone() {
 
 #[test]
 fn friction_lets_a_body_slide_beyond_the_coulomb_cone() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = sliding_pair(&mut world);
     for _ in 0..240 {
         dragged(&mut world, body, 1.2 * coulomb_limit());
@@ -312,7 +312,7 @@ fn friction_lets_a_body_slide_beyond_the_coulomb_cone() {
 
 #[test]
 fn sliding_friction_decelerates_at_the_coulomb_limit() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let body = sliding_pair(&mut world);
     world.set_velocity(body, [3.0, 0.0, 0.0]);
     let per_step = COULOMB_FRICTION * GRAVITY * DT;

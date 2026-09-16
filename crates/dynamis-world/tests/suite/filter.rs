@@ -1,4 +1,4 @@
-use super::common::{gravity_config, new_world, settle, static_config};
+use super::common::{gravity_config, observed_world, settle, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, Shape, SoftBodyDesc};
 
 const BARRIER: CollisionFilter = CollisionFilter::new(0b0010, 0b0010);
@@ -33,13 +33,13 @@ fn mean_height(positions: &[[f32; 3]]) -> f32 {
 
 #[test]
 fn a_soft_body_falls_through_a_body_its_filter_excludes() {
-    let mut excluded = new_world(gravity_config());
+    let mut excluded = observed_world(gravity_config());
     excluded.spawn(slab(BARRIER));
     let handle = excluded.add_soft_body(net(1.0, CollisionFilter::DEFAULT));
     settle(&mut excluded, 90);
     let through = mean_height(&excluded.inspect_soft_particles(handle));
 
-    let mut admitted = new_world(gravity_config());
+    let mut admitted = observed_world(gravity_config());
     admitted.spawn(slab(CollisionFilter::DEFAULT));
     let handle = admitted.add_soft_body(net(1.0, CollisionFilter::DEFAULT));
     settle(&mut admitted, 90);
@@ -57,7 +57,7 @@ fn a_soft_body_falls_through_a_body_its_filter_excludes() {
 
 #[test]
 fn a_soft_body_honours_the_filter_of_the_collider_it_meets() {
-    let mut excluded = new_world(gravity_config());
+    let mut excluded = observed_world(gravity_config());
     excluded.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::cuboid([5.0, 0.5, 5.0])).filter(BARRIER))
             .mass(0.0)
@@ -67,7 +67,7 @@ fn a_soft_body_honours_the_filter_of_the_collider_it_meets() {
     settle(&mut excluded, 90);
     let through = mean_height(&excluded.inspect_soft_particles(handle));
 
-    let mut admitted = new_world(gravity_config());
+    let mut admitted = observed_world(gravity_config());
     admitted.spawn(
         BodyDesc::new(
             ColliderDesc::new(Shape::cuboid([5.0, 0.5, 5.0])).filter(CollisionFilter::DEFAULT),
@@ -114,7 +114,7 @@ fn closest(first: &[[f32; 3]], second: &[[f32; 3]]) -> f32 {
 
 #[test]
 fn soft_bodies_only_push_when_their_filters_intersect() {
-    let mut excluded = new_world(static_config());
+    let mut excluded = observed_world(static_config());
     let first = excluded.add_soft_body(cloud([0.0, 0.0, 0.0], CollisionFilter::new(1, 1)));
     let second = excluded.add_soft_body(cloud([0.02, 0.0, 0.0], BARRIER));
     settle(&mut excluded, 20);
@@ -123,7 +123,7 @@ fn soft_bodies_only_push_when_their_filters_intersect() {
         &excluded.inspect_soft_particles(second),
     );
 
-    let mut admitted = new_world(static_config());
+    let mut admitted = observed_world(static_config());
     let first = admitted.add_soft_body(cloud([0.0, 0.0, 0.0], CollisionFilter::new(1, 1)));
     let second = admitted.add_soft_body(cloud([0.02, 0.0, 0.0], CollisionFilter::DEFAULT));
     settle(&mut admitted, 20);
@@ -143,7 +143,7 @@ fn soft_bodies_only_push_when_their_filters_intersect() {
 }
 
 fn ccd_approach(joint: bool) -> f32 {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::static_sphere(0.5).position([0.0, 0.0, 0.0]));
     let bullet = world.spawn(
         BodyDesc::sphere(0.5)
@@ -178,7 +178,7 @@ fn ccd_retreats_only_pairs_no_joint_has_closed_to_contacts() {
 
 #[test]
 fn a_runtime_filter_rewrites_the_pair_it_owns() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(net(1.0, CollisionFilter::DEFAULT));
     let ground = world.spawn(slab(CollisionFilter::DEFAULT));
     world.set_collision_filter(ground, BARRIER);

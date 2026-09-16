@@ -1,4 +1,4 @@
-use super::common::{asleep, new_world, settle_until, static_config};
+use super::common::{asleep, observed_world, settle_until, static_config};
 use dynamis_hull::DecomposeSettings;
 use dynamis_model::BodyDesc;
 
@@ -39,7 +39,7 @@ fn l_prism() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
 
 #[test]
 fn decomposition_splits_concave_mesh_into_convex_parts() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(
         &vertices,
@@ -59,7 +59,7 @@ fn decomposition_splits_concave_mesh_into_convex_parts() {
 
 #[test]
 fn decomposed_body_rests_on_ground() {
-    let mut world = super::common::new_world(super::common::gravity_config());
+    let mut world = super::common::observed_world(super::common::gravity_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, DecomposeSettings::default());
     let desc = BodyDesc::compound(&parts).position([2.0, 3.0, 2.0]);
@@ -85,7 +85,7 @@ fn decomposed_body_rests_on_ground() {
 
 #[test]
 fn shape_source_refcount_blocks_removal_while_live() {
-    let mut world = super::common::new_world(static_config());
+    let mut world = super::common::observed_world(static_config());
     let (vertices, triangles) = l_prism();
     let parts = world.add_decomposed_mesh(&vertices, &triangles, DecomposeSettings::default());
     let body = world.spawn(BodyDesc::compound(&parts));

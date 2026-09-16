@@ -1,4 +1,4 @@
-use super::common::{DT, new_world, static_config};
+use super::common::{DT, observed_world, static_config};
 use dynamis_model::{BodyDesc, ColliderDesc, ContactEventKind, ContactEventMode, Shape};
 
 fn falling_ball_scene() -> (
@@ -6,7 +6,7 @@ fn falling_ball_scene() -> (
     dynamis_model::BodyHandle,
     dynamis_model::BodyHandle,
 ) {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     let ground = world.spawn(
         BodyDesc::new(
             ColliderDesc::new(Shape::cuboid([20.0, 0.5, 20.0])).events(ContactEventMode::Persist),
@@ -23,7 +23,7 @@ fn falling_ball_scene() -> (
 
 #[test]
 fn disabled_events_silence_contacts() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ground = world.spawn(
         BodyDesc::new(ColliderDesc::new(Shape::sphere(1.0)).events(ContactEventMode::None))
             .mass(0.0)
@@ -95,7 +95,7 @@ fn persist_without_both_opt_in_stays_silent() {
 
 #[test]
 fn a_widening_step_keeps_only_real_events() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ground = world.spawn(BodyDesc::static_sphere(1.0));
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.2, 0.0]));
     world.step(DT);

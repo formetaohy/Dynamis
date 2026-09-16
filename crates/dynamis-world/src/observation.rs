@@ -307,6 +307,7 @@ pub(crate) struct ObservationStore {
     pub(crate) characters: FactStore<CharacterFacts>,
     pub(crate) vehicles: FactStore<VehicleFacts>,
     pub(crate) soft: FactStore<SoftFacts>,
+    whole_body_set: bool,
 }
 
 impl ObservationStore {
@@ -317,7 +318,26 @@ impl ObservationStore {
             characters: FactStore::new("character state observation", DEPTH),
             vehicles: FactStore::new("vehicle state observation", DEPTH),
             soft: FactStore::new("soft particle observation", SOFT_DEPTH),
+            whole_body_set: false,
         }
+    }
+
+    pub(crate) fn observe_body(&mut self, id: u32) {
+        self.bodies.watch(id);
+    }
+
+    pub(crate) fn observe_whole_body_set(&mut self, ids: impl IntoIterator<Item = u32>) {
+        self.whole_body_set = true;
+        self.bodies.watch_all(ids);
+    }
+
+    pub(crate) fn observes_whole_body_set(&self) -> bool {
+        self.whole_body_set
+    }
+
+    pub(crate) fn stop_observing_whole_body_set(&mut self) {
+        self.whole_body_set = false;
+        self.bodies.stop();
     }
 
     pub(crate) fn reset(&mut self) {
@@ -326,6 +346,7 @@ impl ObservationStore {
         self.characters.reset();
         self.vehicles.reset();
         self.soft.reset();
+        self.whole_body_set = false;
     }
 }
 
@@ -338,87 +359,46 @@ impl World {
         self.sync(Facts::Landed);
     }
 
-    pub(crate) fn mirror_body_states(&mut self) {
-        if self.states_current() {
-            return;
-        }
-        let live = self.bodies.pool.len();
-        let device = self.backend.measured[dynamis_abi::COUNTER_BODIES];
-        if live == 0 && device == 0 {
-            return;
-        }
-        let rows = live.max(device) as usize;
-        let stale = self
-            .bodies
-            .pool
-            .alive()
-            .iter()
-            .copied()
-            .filter(|handle| !self.body_current(handle.id))
-            .collect::<Vec<_>>();
-        if stale.is_empty() {
-            return;
-        }
-        let identities = self.bodies.pool.ids();
-        let state_stream = &self.backend.streams.state.body_states;
-        let row_stream = &self.backend.streams.state.body_row_of_id;
-        let state_stride = state_stream.stride();
-        let row_stride = row_stream.stride();
-        let state_buffer = state_stream.buffer().clone();
-        let row_buffer = row_stream.buffer().clone();
-        let raw = self.read_regions(
-            "body state mirror",
-            &[
-                (row_buffer, 0, u64::from(identities) * row_stride),
-                (state_buffer, 0, rows as u64 * state_stride),
-            ],
-        );
-        let (row_bytes, state_bytes) = raw.split_at(identities as usize * row_stride as usize);
-        let device_rows = dynamis_abi::decode::<u32>(row_bytes);
-        let (records, remainder) = state_bytes.as_chunks::<{ size_of::<BodyStateRecord>() }>();
-        assert!(
-            remainder.is_empty(),
-            "a state mirror must read whole body records"
-        );
-        assert_eq!(
-            records.len(),
-            rows,
-            "a state mirror must read every live row"
-        );
-        assert_eq!(
-            device_rows.len(),
-            identities as usize,
-            "a state mirror must read the device row of every identity"
-        );
-        let step = self.clock.step;
-        for handle in stale {
-            let row = device_rows[handle.id as usize] as usize;
-            let record: BodyStateRecord = bytemuck::pod_read_unaligned(
-                records
-                    .get(row)
-                    .unwrap_or_else(|| panic!("body {handle:?} has no device row to mirror")),
-            );
-            assert!(
-                record.body_id == handle.id && record.generation == handle.generation,
-                "the device row of body {handle:?} holds another identity"
-            );
-            let descriptor = self.bodies.records[handle.id as usize];
-            self.observed
-                .bodies
-                .insert(handle.id, step, record.state(&descriptor, step));
-        }
-    }
-
     pub fn try_state(&mut self, handle: BodyHandle) -> Option<BodyState> {
         self.validate(handle);
-        self.observed.bodies.watch(handle.id);
+        self.observe_body(handle);
         self.observed.bodies.age()?;
         self.observed.bodies.get(handle.id).copied()
     }
 
+    pub fn observe_bodies(&mut self, handles: &[BodyHandle]) {
+        for handle in handles {
+            self.observe_body(*handle);
+        }
+    }
+
+    pub fn observe_all_bodies(&mut self) {
+        let ids = self
+            .bodies
+            .pool
+            .alive()
+            .iter()
+            .map(|handle| handle.id)
+            .collect::<Vec<_>>();
+        self.observed.observe_whole_body_set(ids);
+    }
+
+    pub fn stop_observing_all_bodies(&mut self) {
+        self.observed.stop_observing_whole_body_set();
+    }
+
     pub fn stop_observing_body(&mut self, handle: BodyHandle) {
         self.validate(handle);
+        assert!(
+            !self.observed.observes_whole_body_set(),
+            "the whole live body set is observed; stop observing the whole set instead"
+        );
         self.observed.bodies.stop_watching(handle.id);
+    }
+
+    pub(crate) fn observe_body(&mut self, handle: BodyHandle) {
+        self.validate(handle);
+        self.observed.observe_body(handle.id);
     }
 
     pub fn try_joint_states(&mut self) -> Option<Observation<Vec<(ConstraintHandle, JointState)>>> {
@@ -667,14 +647,6 @@ impl World {
         self.sync(Facts::Retired);
         self.execute(dynamis_pass::Run::Publish);
         self.retire_device_facts();
-    }
-
-    pub(crate) fn states_current(&self) -> bool {
-        self.bodies
-            .pool
-            .alive()
-            .iter()
-            .all(|handle| self.body_current(handle.id))
     }
 
     pub(crate) fn body_current(&self, id: u32) -> bool {

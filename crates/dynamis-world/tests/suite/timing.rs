@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, new_world, settle};
+use super::common::{DT, gravity_config, observed_world, settle};
 use dynamis_model::{BodyDesc, ConstraintDesc, SoftBodyDesc};
 
 const QUERY_RUN: &[&str] = &["update_query_aabbs"];
@@ -7,7 +7,7 @@ const SCENE_INDEX: &[&str] = &["update_soft_bounds", "emit_soft_entries"];
 
 #[test]
 fn a_stepped_world_reports_one_duration_per_pass() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     for index in 0..32 {
         world.spawn(BodyDesc::sphere(0.4).mass(1.0).position([
             (index % 8) as f32 * 0.9,
@@ -53,7 +53,7 @@ fn a_stepped_world_reports_one_duration_per_pass() {
 
 #[test]
 fn a_rigid_step_profiles_no_pass_of_an_absent_domain() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     for index in 0..8 {
         world.spawn(BodyDesc::sphere(0.4).position([index as f32, 2.0, 0.0]));
     }
@@ -75,7 +75,7 @@ fn a_rigid_step_profiles_no_pass_of_an_absent_domain() {
 
 #[test]
 fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.add_soft_body(
         SoftBodyDesc::net(
             vec![
@@ -122,7 +122,7 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
 
 #[test]
 fn a_full_scene_profiles_every_pass_of_a_step() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(BodyDesc::sphere(0.4).position([0.0, 4.0, 0.0]).ccd(true));
     let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 3.0, 0.0]));
     let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
@@ -170,7 +170,7 @@ fn a_full_scene_profiles_every_pass_of_a_step() {
 
 #[test]
 fn a_profiled_world_keeps_reporting_after_a_snapshot() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     for index in 0..8 {
         world.spawn(BodyDesc::sphere(0.4).position([index as f32, 2.0, 0.0]));
     }
@@ -190,7 +190,7 @@ fn a_profiled_world_keeps_reporting_after_a_snapshot() {
 
 #[test]
 fn a_query_on_a_sleeping_world_profiles_only_the_index() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)

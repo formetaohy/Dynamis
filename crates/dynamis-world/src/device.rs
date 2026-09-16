@@ -61,13 +61,6 @@ impl World {
         }
         self.retire_device_facts();
         self.settle();
-        if level >= Facts::Landed {
-            self.mirror_body_states();
-            assert!(
-                self.states_current(),
-                "a landing must land the state of every live body"
-            );
-        }
     }
 
     fn settle(&mut self) {
@@ -78,11 +71,18 @@ impl World {
     }
 
     fn publish_observations(&mut self) {
-        if self.observed.characters.needs_publication(self.clock.step)
-            || self.observed.vehicles.needs_publication(self.clock.step)
-        {
-            self.execute(dynamis_pass::Run::Publish);
+        if self.completed_step().is_none() {
+            return;
         }
+        let stale = self.observed.bodies.needs_publication(self.clock.step)
+            || self.observed.characters.needs_publication(self.clock.step)
+            || self.observed.vehicles.needs_publication(self.clock.step);
+        if !stale {
+            return;
+        }
+        self.settle();
+        self.flush_observed();
+        self.execute(dynamis_pass::Run::Publish);
     }
 
     pub(crate) fn read<T: Pod + StreamRecord>(&mut self, label: &str, region: Region) -> Vec<T> {

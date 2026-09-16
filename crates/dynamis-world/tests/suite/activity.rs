@@ -1,4 +1,6 @@
-use super::common::{DT, asleep, gravity_config, new_world, settle, settle_until, static_config};
+use super::common::{
+    DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
+};
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_LIVE, COUNTER_PAIRS,
     COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_SLEPT, COUNTER_WOKE,
@@ -9,7 +11,7 @@ use dynamis_model::{
 };
 
 fn rest_scene() -> (dynamis_world::World, BodyHandle) {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -65,7 +67,7 @@ fn a_pile_at_rest_leaves_the_simulation_domain() {
 
 #[test]
 fn a_slept_constrained_island_leaves_the_simulation_domain() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -145,7 +147,7 @@ fn resting_contacts_survive_sleep_and_recycle_their_slots() {
 
 #[test]
 fn sleeping_a_pair_never_ends_its_contact() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -177,7 +179,7 @@ fn sleeping_a_pair_never_ends_its_contact() {
 
 #[test]
 fn sleep_and_wake_transitions_are_counted_once() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     settle(&mut world, 40);
     assert!(world.read_state(ball).sleeping);
@@ -197,7 +199,7 @@ fn sleep_and_wake_transitions_are_counted_once() {
 
 #[test]
 fn static_pairs_never_reach_the_pair_stream() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     assert!(PhysicsConfig::default().gravity[1] < 0.0);
     for index in 0..32 {
         world.spawn(BodyDesc::static_sphere(6.0).position([index as f32 * 0.5, 0.0, 0.0]));
@@ -239,7 +241,7 @@ impl ContactTally {
 }
 
 fn sleeping_ball_on_ground(collider: ColliderDesc) -> (dynamis_world::World, BodyHandle) {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -283,7 +285,7 @@ fn reviving_a_resting_pair_reports_no_second_begin() {
 
 #[test]
 fn reviving_a_resting_pair_reports_no_second_begin_once_the_id_space_outgrows_the_live_colliders() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -344,7 +346,7 @@ fn reviving_a_resting_pair_reports_no_second_begin_once_the_id_space_outgrows_th
 #[test]
 fn reviving_a_resting_pair_resumes_its_persist_stream() {
     let persist = |shape| ColliderDesc::new(shape).events(ContactEventMode::Persist);
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::new(persist(Shape::cuboid([5.0, 0.5, 5.0])))
             .mass(0.0)
@@ -375,7 +377,7 @@ fn reviving_a_resting_pair_resumes_its_persist_stream() {
 
 #[test]
 fn an_impact_revives_a_resting_pair_without_a_new_begin() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ground = world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -422,7 +424,7 @@ fn an_impact_revives_a_resting_pair_without_a_new_begin() {
 
 #[test]
 fn removing_a_body_ends_only_its_own_resting_contacts() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -456,7 +458,7 @@ fn removing_a_body_ends_only_its_own_resting_contacts() {
 
 #[test]
 fn an_explicitly_slept_body_holds_the_pose_it_was_slept_at() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.4)
             .position([0.0, 0.0, 0.0])
@@ -486,7 +488,7 @@ fn falling_asleep_holds_the_pose_the_body_slept_at() {
         sleep_time: 0.1,
         ..static_config()
     };
-    let mut world = new_world(config);
+    let mut world = observed_world(config);
     let ball = world.spawn(BodyDesc::sphere(0.4).velocity([0.15, 0.0, 0.0]));
     let mut frozen = None;
     for _ in 0..120 {
@@ -516,7 +518,7 @@ fn falling_asleep_holds_the_pose_the_body_slept_at() {
 
 #[test]
 fn the_live_set_holds_exactly_the_simulated_bodies() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)

@@ -1,5 +1,5 @@
 use super::common::{
-    DT, flat_mesh_floor, gravity_config, new_world, settle, settle_until, static_config,
+    DT, flat_mesh_floor, gravity_config, observed_world, settle, settle_until, static_config,
     static_sphere_ground,
 };
 use dynamis_abi::{
@@ -27,7 +27,7 @@ fn sphere_pile(world: &mut World) -> Vec<BodyHandle> {
 
 #[test]
 fn the_rigid_shape_follows_the_live_scene_while_the_streams_hold_a_peak() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let floor = world.stream_capacity();
     let quiet = world.rigid_shape();
 
@@ -100,7 +100,7 @@ fn cloth(side: usize) -> SoftBodyDesc {
 
 #[test]
 fn a_domain_plans_from_its_own_live_data_alone() {
-    let mut soft_world = new_world(static_config());
+    let mut soft_world = observed_world(static_config());
     let soft_floor = soft_world.stream_capacity();
     soft_world.add_soft_body(cloth(10));
     settle(&mut soft_world, 8);
@@ -118,7 +118,7 @@ fn a_domain_plans_from_its_own_live_data_alone() {
         "a soft body may not shape the state streams"
     );
 
-    let mut rigid_world = new_world(static_config());
+    let mut rigid_world = observed_world(static_config());
     let rigid_floor = rigid_world.stream_capacity();
     for index in 0..48 {
         rigid_world.spawn(BodyDesc::sphere(6.0).position([
@@ -141,7 +141,7 @@ fn a_domain_plans_from_its_own_live_data_alone() {
 
 #[test]
 fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let floor = world.stream_capacity();
     sphere_pile(&mut world);
 
@@ -172,7 +172,7 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
 
 #[test]
 fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_scene() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let bodies = sphere_pile(&mut world);
     for _ in 0..4 {
         world.step(DT);
@@ -209,7 +209,7 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
 
 #[test]
 fn a_kept_reservation_serves_a_whole_scene_without_a_second_allocation() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([6.0, 0.5, 6.0])
             .mass(0.0)
@@ -247,7 +247,7 @@ fn a_kept_reservation_serves_a_whole_scene_without_a_second_allocation() {
 
 #[test]
 fn a_widening_scene_reaches_its_reservation_by_doubling() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([9.0, 0.5, 9.0])
             .mass(0.0)
@@ -280,7 +280,7 @@ fn a_widening_scene_reaches_its_reservation_by_doubling() {
 
 #[test]
 fn the_declared_collider_fact_counts_the_live_colliders_alone() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     world.step(DT);
     world.wait();
     assert_eq!(
@@ -316,7 +316,7 @@ fn the_declared_collider_fact_counts_the_live_colliders_alone() {
 
 #[test]
 fn an_idle_scene_sheds_the_room_its_colliders_never_used() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     for index in 0..512 {
         world.spawn(BodyDesc::static_sphere(0.2).position([index as f32 * 4.0, 0.0, 0.0]));
     }
@@ -343,7 +343,7 @@ fn an_idle_scene_sheds_the_room_its_colliders_never_used() {
 
 #[test]
 fn a_narrowed_world_still_resolves_recycled_body_identities() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let pile = sphere_pile(&mut world);
     for _ in 0..3 {
         world.step(DT);
@@ -385,7 +385,7 @@ fn a_narrowed_world_still_resolves_recycled_body_identities() {
 
 #[test]
 fn widening_one_stream_leaves_the_other_streams_allocated() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let bodies = (0..PILE)
         .map(|index| world.spawn(BodyDesc::sphere(6.0).position(spread_position(index, 20.0))))
         .collect::<Vec<_>>();
@@ -449,7 +449,7 @@ fn lifted_mesh() -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
 
 #[test]
 fn a_plan_transition_lands_the_edits_of_its_own_frame() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.3)
             .position([0.0, 0.0, 0.0])
@@ -493,7 +493,7 @@ fn floor_hit_height(world: &mut World) -> Option<f32> {
 
 #[test]
 fn a_shape_stream_swap_keeps_uploaded_geometry() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     flat_mesh_floor(&mut world);
     settle(&mut world, 2);
     let plan = world.stream_capacity().state.shapes;
@@ -522,7 +522,7 @@ fn a_shape_stream_swap_keeps_uploaded_geometry() {
 
 #[test]
 fn the_contact_store_follows_the_contacts_not_the_swept_candidates() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let floor = world.stream_capacity();
     let sweepers = (0..512)
         .map(|index| {
@@ -571,7 +571,7 @@ fn the_contact_store_follows_the_contacts_not_the_swept_candidates() {
 
 #[test]
 fn the_resting_pool_never_shrinks_below_its_watermark() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)

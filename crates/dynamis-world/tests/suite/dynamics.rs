@@ -1,5 +1,5 @@
 use super::common::{
-    DT, asleep, distance, gravity_config, new_world, settle, settle_until, static_config,
+    DT, asleep, distance, gravity_config, observed_world, settle, settle_until, static_config,
     static_sphere_ground, symplectic_fall,
 };
 use dynamis_model::{BodyDesc, ConstraintDesc, PhysicsConfig};
@@ -9,7 +9,7 @@ const GRAVITY: f32 = 9.81;
 
 #[test]
 fn free_fall_matches_closed_form() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ball = world.spawn(
         BodyDesc::sphere(0.1)
             .position([0.0, 10.0, 0.0])
@@ -31,7 +31,7 @@ fn free_fall_matches_closed_form() {
 
 #[test]
 fn gravity_change_mid_flight_resumes_closed_form() {
-    let mut world = new_world(PhysicsConfig {
+    let mut world = observed_world(PhysicsConfig {
         gravity: [0.0, -4.0, 0.0],
         damping: 0.0,
         angular_damping: 0.0,
@@ -61,7 +61,7 @@ fn gravity_change_mid_flight_resumes_closed_form() {
 
 #[test]
 fn ball_rests_on_ground_and_stays_asleep() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
     settle_until(&mut world, 90, |world| asleep(world));
@@ -80,7 +80,7 @@ fn ball_rests_on_ground_and_stays_asleep() {
 
 #[test]
 fn overlapping_bodies_separate() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.5).position([0.0, -0.4, 0.0]));
     let second = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.4, 0.0]));
     settle(&mut world, 16);
@@ -90,7 +90,7 @@ fn overlapping_bodies_separate() {
 
 #[test]
 fn restitution_bounces_fast_and_calms_slow_impact() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     static_sphere_ground(&mut world, 1.0);
     let bouncing = world.spawn(
         BodyDesc::sphere(0.5)
@@ -104,7 +104,7 @@ fn restitution_bounces_fast_and_calms_slow_impact() {
     assert!(bounce.velocity[1] > 1.2, "fast impact must bounce upward");
     assert!(bounce.position[1] > 1.4);
 
-    let mut calm = new_world(static_config());
+    let mut calm = observed_world(static_config());
     static_sphere_ground(&mut calm, 1.0);
     let gentle = calm.spawn(
         BodyDesc::sphere(0.5)
@@ -123,7 +123,7 @@ fn restitution_bounces_fast_and_calms_slow_impact() {
 
 #[test]
 fn friction_free_slides_then_grip_rolls() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 100.0);
     let ball = world.spawn(
         BodyDesc::sphere(0.5)
@@ -162,7 +162,7 @@ fn friction_free_slides_then_grip_rolls() {
 
 #[test]
 fn stacked_bodies_do_not_collapse() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     static_sphere_ground(&mut world, 1.0);
     let lower = world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     let upper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 2.5, 0.0]));
@@ -175,7 +175,7 @@ fn stacked_bodies_do_not_collapse() {
 
 #[test]
 fn a_resting_tower_holds_its_spacing() {
-    let mut world = new_world(PhysicsConfig::default());
+    let mut world = observed_world(PhysicsConfig::default());
     world.spawn(
         BodyDesc::cuboid([40.0, 0.5, 40.0])
             .mass(0.0)
@@ -214,7 +214,7 @@ fn a_resting_tower_holds_its_spacing() {
 #[test]
 fn a_dropped_body_settles_within_the_contact_margin() {
     let margin = 0.02;
-    let mut world = new_world(PhysicsConfig {
+    let mut world = observed_world(PhysicsConfig {
         contact_margin: margin,
         ..PhysicsConfig::default()
     });
@@ -240,7 +240,7 @@ fn a_dropped_body_settles_within_the_contact_margin() {
 
 #[test]
 fn ccd_flag_stops_bullet_that_would_tunnel() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     static_sphere_ground(&mut world, 0.2);
     let bullet = world.spawn(
         BodyDesc::sphere(0.3)
@@ -255,7 +255,7 @@ fn ccd_flag_stops_bullet_that_would_tunnel() {
         world.read_state(bullet).position[0]
     );
 
-    let mut guarded = new_world(static_config());
+    let mut guarded = observed_world(static_config());
     static_sphere_ground(&mut guarded, 0.2);
     let bullet = guarded.spawn(
         BodyDesc::sphere(0.3)
@@ -275,7 +275,7 @@ fn ccd_flag_stops_bullet_that_would_tunnel() {
 
 #[test]
 fn ccd_stops_an_elongated_body_by_its_leading_face() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let _wall = world.spawn(
         BodyDesc::cuboid([0.05, 5.0, 5.0])
             .mass(0.0)
@@ -309,7 +309,7 @@ fn ccd_stops_an_elongated_body_by_its_leading_face() {
 
 #[test]
 fn ccd_bullet_stops_at_the_nearest_obstacle_of_a_chain() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let mut nearest = f32::MAX;
     for index in 0..81 {
         let x = -2.0 + index as f32 * 0.05;
@@ -337,7 +337,7 @@ fn ccd_bullet_stops_at_the_nearest_obstacle_of_a_chain() {
 
 #[test]
 fn kinematic_platform_carries_ball_and_ignores_gravity() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let platform = world.spawn(
         BodyDesc::cuboid([2.0, 0.2, 2.0])
             .position([0.0, 2.0, 0.0])
@@ -368,7 +368,7 @@ fn kinematic_platform_carries_ball_and_ignores_gravity() {
 
 #[test]
 fn idle_body_sleeps_and_impact_wakes() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let _ = ground;
     let target = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
@@ -392,7 +392,7 @@ fn idle_body_sleeps_and_impact_wakes() {
 
 #[test]
 fn sleeping_body_wakes_and_shares_the_impact() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let target = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
     settle(&mut world, 40);
     assert!(world.read_state(target).sleeping);
@@ -420,7 +420,7 @@ fn sleeping_body_wakes_and_shares_the_impact() {
 
 #[test]
 fn sleep_and_wake_commands_toggle_state() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     settle(&mut world, 5);
     world.sleep(ball);
@@ -433,7 +433,7 @@ fn sleep_and_wake_commands_toggle_state() {
 
 #[test]
 fn patches_and_impulses_wake_sleeping_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let ball = world.spawn(BodyDesc::sphere(0.5));
     settle_until(&mut world, 40, |world| asleep(world));
     assert!(world.read_state(ball).sleeping);
@@ -449,7 +449,7 @@ fn patches_and_impulses_wake_sleeping_body() {
 
 #[test]
 fn constraint_linked_bodies_sleep_and_wake_together() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.3));
     let second = world.spawn(BodyDesc::sphere(0.3).position([2.0, 0.0, 0.0]));
     world.add_constraint(
@@ -472,7 +472,7 @@ fn constraint_linked_bodies_sleep_and_wake_together() {
 
 #[test]
 fn distant_idle_bodies_sleep_independently() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.3));
     let second = world.spawn(BodyDesc::sphere(0.3).position([50.0, 0.0, 0.0]));
     settle_until(&mut world, 50, |world| asleep(world));
@@ -487,7 +487,7 @@ fn distant_idle_bodies_sleep_independently() {
 
 #[test]
 fn driven_contact_island_stays_awake() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let lower = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
     let upper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.3, 0.0]));
@@ -507,7 +507,7 @@ fn driven_contact_island_stays_awake() {
 
 #[test]
 fn resting_contact_carries_warm_start_impulse() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let _ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 4.5, 0.0]));
     settle_until(&mut world, 60, |world| asleep(world));
@@ -546,7 +546,7 @@ fn resting_contact_carries_warm_start_impulse() {
 
 #[test]
 fn settled_stack_drifts_nothing_across_frames() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let _ground = world.spawn(BodyDesc::static_sphere(5.0).position([0.0, -1.0, 0.0]));
     let mut stack = Vec::new();
     for index in 0..3 {
@@ -590,7 +590,7 @@ fn settled_stack_drifts_nothing_across_frames() {
 
 #[test]
 fn kinematic_capsule_overlap_pushes_dynamic_box() {
-    let mut world = super::common::new_world(super::common::gravity_config());
+    let mut world = super::common::observed_world(super::common::gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -624,7 +624,7 @@ fn kinematic_capsule_overlap_pushes_dynamic_box() {
 
 #[test]
 fn a_sphere_swallowed_by_a_flat_box_escapes_through_the_nearest_face() {
-    let mut world = new_world(super::common::gravity_config());
+    let mut world = observed_world(super::common::gravity_config());
     world.spawn(BodyDesc::cuboid([2.0, 0.5, 2.0]).mass(0.0));
     let ball = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.2, 0.0]));
     settle_until(&mut world, 240, |world| asleep(world));
@@ -643,7 +643,7 @@ fn a_sphere_swallowed_by_a_flat_box_escapes_through_the_nearest_face() {
 
 #[test]
 fn clearing_the_ccd_flag_restores_tunneling() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     static_sphere_ground(&mut world, 0.2);
     let bullet = world.spawn(
         BodyDesc::sphere(0.3)
@@ -663,7 +663,7 @@ fn clearing_the_ccd_flag_restores_tunneling() {
 
 #[test]
 fn a_leaning_tower_holds_through_friction() {
-    let mut world = new_world(PhysicsConfig::default());
+    let mut world = observed_world(PhysicsConfig::default());
     world.spawn(
         BodyDesc::cuboid([40.0, 0.5, 40.0])
             .mass(0.0)
@@ -700,7 +700,7 @@ fn a_leaning_tower_holds_through_friction() {
 
 #[test]
 fn a_ball_rests_on_the_face_of_a_floor_far_wider_than_it_is_deep() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([60.0, 0.5, 60.0])
             .mass(0.0)

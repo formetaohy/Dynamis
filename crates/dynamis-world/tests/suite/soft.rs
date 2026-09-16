@@ -1,4 +1,4 @@
-use super::common::{DT, distance, gravity_config, new_world, settle, static_config};
+use super::common::{DT, distance, gravity_config, observed_world, settle, static_config};
 use dynamis_abi::COUNTER_SOFT_ACTIVE;
 use dynamis_model::{BodyDesc, PhysicsConfig, SoftBodyDesc, SoftElement, SoftMaterial};
 
@@ -26,7 +26,7 @@ fn link_lengths(positions: &[[f32; 3]]) -> [f32; 3] {
 
 #[test]
 fn a_free_soft_body_keeps_its_link_lengths_while_it_falls() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(chain());
     let before = world.inspect_soft_particles(handle);
     assert_eq!(before.len(), 4, "every particle must be observed");
@@ -47,7 +47,7 @@ fn a_free_soft_body_keeps_its_link_lengths_while_it_falls() {
 
 #[test]
 fn a_soft_body_rests_on_static_ground() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -99,7 +99,7 @@ fn a_soft_body_rests_on_static_ground() {
 
 #[test]
 fn a_soft_body_pushes_a_dynamic_body() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let box_body = world.spawn(
         BodyDesc::cuboid([0.4, 0.4, 0.4])
             .position([0.0, 0.0, 0.0])
@@ -127,7 +127,7 @@ fn a_soft_body_pushes_a_dynamic_body() {
 
 #[test]
 fn a_removed_soft_body_leaves_the_world_steppable() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([20.0, 0.5, 20.0])
             .mass(0.0)
@@ -144,7 +144,7 @@ fn a_removed_soft_body_leaves_the_world_steppable() {
 #[test]
 fn a_soft_body_rests_on_mesh_and_plane_geometry() {
     for world_geometry in ["mesh", "plane"] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         if world_geometry == "mesh" {
             super::common::flat_mesh_floor(&mut world);
         } else {
@@ -181,7 +181,7 @@ fn a_soft_body_rests_on_mesh_and_plane_geometry() {
 
 #[test]
 fn a_wider_soft_body_widens_the_soft_streams() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let floor = world.stream_capacity().soft;
     world.add_soft_body(SoftBodyDesc::lattice([5, 5, 5], 0.3, SoftMaterial::rigid()).radius(0.1));
     world.step(DT);
@@ -199,8 +199,8 @@ fn a_wider_soft_body_widens_the_soft_streams() {
 
 #[test]
 fn two_identical_soft_bodies_observe_identical_positions() {
-    let mut first = new_world(gravity_config());
-    let mut second = new_world(gravity_config());
+    let mut first = observed_world(gravity_config());
+    let mut second = observed_world(gravity_config());
     let desc = SoftBodyDesc::lattice([3, 3, 3], 0.3, SoftMaterial::new(0.001, 0.001, 0.0, 0.0001))
         .radius(0.15)
         .position([0.0, 2.0, 0.0]);
@@ -222,7 +222,7 @@ fn two_identical_soft_bodies_observe_identical_positions() {
 
 #[test]
 fn overlapping_particles_of_a_body_push_apart() {
-    let mut world = new_world(super::common::static_config());
+    let mut world = observed_world(super::common::static_config());
     let handle = world.add_soft_body(
         SoftBodyDesc::new(vec![[-0.3, 0.0, 0.0], [0.3, 0.0, 0.0]], Vec::new()).radius(0.5),
     );
@@ -237,7 +237,7 @@ fn overlapping_particles_of_a_body_push_apart() {
 
 #[test]
 fn overlapping_soft_bodies_push_apart() {
-    let mut world = new_world(super::common::static_config());
+    let mut world = observed_world(super::common::static_config());
     let first =
         world.add_soft_body(SoftBodyDesc::new(vec![[-0.3, 0.0, 0.0]], Vec::new()).radius(0.5));
     let second =
@@ -257,7 +257,7 @@ fn overlapping_soft_bodies_push_apart() {
 fn a_cloth_holds_its_area_while_a_distance_net_sags_flat() {
     let mut sags = Vec::new();
     for shear in [false, true] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         let mut desc = if shear {
             SoftBodyDesc::cloth([5, 5], 1.0, SoftMaterial::rigid())
                 .radius(0.05)
@@ -311,7 +311,7 @@ fn a_cloth_holds_its_area_while_a_distance_net_sags_flat() {
 #[test]
 fn a_compliant_distance_element_stretches_by_its_hookean_elongation() {
     let compliance = 0.01;
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(
         SoftBodyDesc::new(
             vec![[0.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
@@ -334,7 +334,7 @@ fn the_compliant_equilibrium_is_independent_of_the_iteration_count() {
     let compliance = 0.01;
     let mut elongations = Vec::new();
     for soft_iterations in [2u32, 8] {
-        let mut world = new_world(dynamis_model::PhysicsConfig {
+        let mut world = observed_world(dynamis_model::PhysicsConfig {
             soft_iterations,
             ..gravity_config()
         });
@@ -358,7 +358,7 @@ fn the_compliant_equilibrium_is_independent_of_the_iteration_count() {
 fn a_tetrahedral_lattice_keeps_its_shape_while_an_axis_only_net_shears_away() {
     let mut heights = Vec::new();
     for braced in [false, true] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         world.spawn(
             BodyDesc::cuboid([20.0, 0.5, 20.0])
                 .mass(0.0)
@@ -417,7 +417,7 @@ fn a_tetrahedral_lattice_keeps_its_shape_while_an_axis_only_net_shears_away() {
 
 #[test]
 fn a_volume_element_holds_its_tetrahedron_against_gravity() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(probe_tetrahedron(0.0));
     settle(&mut world, 400);
     let positions = world.inspect_soft_particles(handle);
@@ -435,7 +435,7 @@ fn a_volume_element_holds_its_tetrahedron_against_gravity() {
 #[test]
 fn a_compliant_volume_element_reaches_its_hookean_volume_deficit() {
     let compliance = 0.0002;
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(probe_tetrahedron(compliance));
     settle(&mut world, 200);
     let mut deficit = 0.0;
@@ -457,7 +457,7 @@ fn a_compliant_volume_element_reaches_its_hookean_volume_deficit() {
 fn a_volume_compliance_softens_the_lattice_under_load() {
     let mut heights = Vec::new();
     for volume in [0.0, 0.001] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         let handle = world.add_soft_body(
             SoftBodyDesc::lattice([3, 3, 3], 0.4, SoftMaterial::new(0.002, 0.002, 0.0, volume))
                 .radius(0.0)
@@ -475,7 +475,7 @@ fn a_volume_compliance_softens_the_lattice_under_load() {
 
 #[test]
 fn an_area_element_holds_its_triangle_against_gravity() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(probe_triangle(0.0));
     settle(&mut world, 400);
     let positions = world.inspect_soft_particles(handle);
@@ -493,7 +493,7 @@ fn an_area_element_holds_its_triangle_against_gravity() {
 #[test]
 fn a_compliant_area_element_reaches_its_hookean_area_deficit() {
     let compliance = 0.005;
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(probe_triangle(compliance));
     settle(&mut world, 200);
     let mut deficit = 0.0;
@@ -515,7 +515,7 @@ fn a_compliant_area_element_reaches_its_hookean_area_deficit() {
 fn a_bend_element_holds_its_dihedral_angle_against_gravity() {
     let mut folds = Vec::new();
     for compliance in [0.0, 0.05] {
-        let mut world = new_world(gravity_config());
+        let mut world = observed_world(gravity_config());
         let handle = world.add_soft_body(probe_hinge(compliance));
         settle(&mut world, 200);
         let mut apex = 0.0;
@@ -541,7 +541,7 @@ fn a_bend_element_holds_its_dihedral_angle_against_gravity() {
 
 #[test]
 fn a_fast_soft_body_never_sinks_into_a_solid_collider() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])
             .mass(0.0)
@@ -663,7 +663,7 @@ fn hanging_link(element: SoftElement) -> SoftBodyDesc {
 #[test]
 fn a_yielding_link_keeps_the_stretch_it_creeps_into() {
     let compliance = 0.05;
-    let mut world = new_world(dynamis_model::PhysicsConfig {
+    let mut world = observed_world(dynamis_model::PhysicsConfig {
         damping: 2.0,
         ..gravity_config()
     });
@@ -712,7 +712,7 @@ fn a_yielding_link_keeps_the_stretch_it_creeps_into() {
 
 #[test]
 fn a_link_loaded_past_its_break_strain_tears() {
-    let mut world = new_world(dynamis_model::PhysicsConfig {
+    let mut world = observed_world(dynamis_model::PhysicsConfig {
         damping: 2.0,
         ..gravity_config()
     });
@@ -746,7 +746,7 @@ fn a_link_loaded_past_its_break_strain_tears() {
 
 #[test]
 fn a_lattice_fractures_where_its_material_fails() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let material = SoftMaterial::new(0.01, 0.01, 0.0, 0.001)
         .yielding(0.05, 0.5)
         .fracturing(0.1);
@@ -772,8 +772,8 @@ fn a_lattice_fractures_where_its_material_fails() {
 
 #[test]
 fn a_yielding_body_stays_bit_identical_across_worlds() {
-    let mut first = new_world(gravity_config());
-    let mut second = new_world(gravity_config());
+    let mut first = observed_world(gravity_config());
+    let mut second = observed_world(gravity_config());
     let desc = hanging_link(
         SoftElement::distance(0, 1, 1.0)
             .compliance(0.05)
@@ -805,7 +805,7 @@ fn a_yielding_body_stays_bit_identical_across_worlds() {
 
 #[test]
 fn two_element_bodies_keep_their_own_particles() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let bodies = [
         world.add_soft_body(
             SoftBodyDesc::lattice([2, 2, 2], 0.5, SoftMaterial::rigid())
@@ -839,7 +839,7 @@ fn two_element_bodies_keep_their_own_particles() {
 
 #[test]
 fn a_snapshot_keeps_the_material_state_a_body_crept_into() {
-    let mut world = new_world(dynamis_model::PhysicsConfig {
+    let mut world = observed_world(dynamis_model::PhysicsConfig {
         damping: 2.0,
         ..gravity_config()
     });
@@ -893,7 +893,7 @@ fn lattice(side: u32) -> (Vec<[f32; 3]>, Vec<[u32; 2]>) {
 
 #[test]
 fn a_fresh_soft_body_replaces_the_run_a_removed_one_retires() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let (vertices, links) = lattice(24);
     let retired =
         world.add_soft_body(SoftBodyDesc::net(vertices, links).position([0.0, 20.0, 0.0]));
@@ -923,7 +923,7 @@ fn a_fresh_soft_body_replaces_the_run_a_removed_one_retires() {
 
 #[test]
 fn a_body_force_accelerates_a_soft_body_within_one_step_and_is_consumed() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
     let force = [2.0, 0.0, 0.0];
     let substeps = PhysicsConfig::default().soft_substeps as f32;
@@ -950,7 +950,7 @@ fn a_body_force_accelerates_a_soft_body_within_one_step_and_is_consumed() {
 
 #[test]
 fn a_body_force_spreads_over_the_dynamic_mass_of_its_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(
         SoftBodyDesc::new(vec![[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]], Vec::new())
             .inverse_masses(vec![1.0, 0.5]),
@@ -976,7 +976,7 @@ fn a_body_force_spreads_over_the_dynamic_mass_of_its_body() {
 
 #[test]
 fn a_body_force_wakes_a_sleeping_soft_body() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
     settle(&mut world, 60);
     assert_eq!(
@@ -995,7 +995,7 @@ fn a_body_force_wakes_a_sleeping_soft_body() {
 
 #[test]
 fn a_pinned_particle_holds_its_pose_until_it_is_released() {
-    let mut world = new_world(gravity_config());
+    let mut world = observed_world(gravity_config());
     let handle = world.add_soft_body(SoftBodyDesc::net(
         vec![[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
         vec![[0, 1]],
@@ -1036,7 +1036,7 @@ fn a_pinned_particle_holds_its_pose_until_it_is_released() {
 
 #[test]
 fn a_particle_radius_edit_reshapes_the_contacts_its_body_makes() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let first = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
     let second = world.add_soft_body(SoftBodyDesc::new(vec![[0.3, 0.0, 0.0]], Vec::new()));
     settle(&mut world, 5);
@@ -1064,7 +1064,7 @@ fn a_particle_radius_edit_reshapes_the_contacts_its_body_makes() {
 
 #[test]
 fn a_soft_body_refuses_removal_while_its_edits_are_pending() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
     world.set_soft_particle_radius(handle, 0, 0.5);
     let removed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1078,7 +1078,7 @@ fn a_soft_body_refuses_removal_while_its_edits_are_pending() {
 
 #[test]
 fn a_wide_edit_burst_widens_the_soft_edit_stream() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::net(
         (0..128).map(|row| [0.0, row as f32 * 0.2, 0.0]).collect(),
         (0..127).map(|row| [row, row + 1]).collect(),
@@ -1098,7 +1098,7 @@ fn a_wide_edit_burst_widens_the_soft_edit_stream() {
 
 #[test]
 fn a_body_input_burst_widens_the_soft_body_edit_stream() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let floor = world.stream_capacity().soft;
     let bodies = (0..128)
         .map(|_| world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new())))
@@ -1117,8 +1117,8 @@ fn a_body_input_burst_widens_the_soft_body_edit_stream() {
 
 #[test]
 fn a_query_run_leaves_a_pending_body_input_for_the_step() {
-    let mut driven = new_world(static_config());
-    let queried = new_world(static_config());
+    let mut driven = observed_world(static_config());
+    let queried = observed_world(static_config());
     let mut queried = queried;
     let desc = || SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new());
     let driven_body = driven.add_soft_body(desc());
@@ -1141,7 +1141,7 @@ fn a_query_run_leaves_a_pending_body_input_for_the_step() {
 
 #[test]
 fn a_removed_soft_body_takes_its_pending_inputs_with_it() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let desc = || SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new());
     let first = world.add_soft_body(desc());
     world.apply_soft_force(first, [4.0, 0.0, 0.0]);
@@ -1162,8 +1162,8 @@ fn a_removed_soft_body_takes_its_pending_inputs_with_it() {
 
 #[test]
 fn identical_input_streams_drive_identical_soft_bodies() {
-    let mut first = new_world(gravity_config());
-    let mut second = new_world(gravity_config());
+    let mut first = observed_world(gravity_config());
+    let mut second = observed_world(gravity_config());
     let desc =
         || SoftBodyDesc::net(vec![[0.0, 0.0, 0.0], [0.0, 0.5, 0.0]], vec![[0, 1]]).radius(0.1);
     let first_body = first.add_soft_body(desc());
@@ -1186,11 +1186,11 @@ fn identical_input_streams_drive_identical_soft_bodies() {
 
 #[test]
 fn a_snapshot_replays_the_inputs_a_soft_body_was_driven_with() {
-    let mut world = new_world(static_config());
+    let mut world = observed_world(static_config());
     let handle = world.add_soft_body(SoftBodyDesc::new(vec![[0.0, 0.0, 0.0]], Vec::new()));
     world.apply_soft_force(handle, [2.0, 0.0, 0.0]);
     let snapshot = world.snapshot();
-    let mut restored = new_world(static_config());
+    let mut restored = observed_world(static_config());
     restored.restore(&snapshot);
     settle(&mut world, 4);
     settle(&mut restored, 4);
