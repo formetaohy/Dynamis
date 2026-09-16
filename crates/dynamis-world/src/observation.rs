@@ -836,7 +836,7 @@ impl World {
                 let joint = self.joint(handle);
                 ConstraintRow {
                     handle,
-                    kind: joint.desc.kind,
+                    kind: joint.desc.kind(),
                     first: BodyHandle {
                         id: joint.first,
                         generation: self.bodies.pool.generation(joint.first),

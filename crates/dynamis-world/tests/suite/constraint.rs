@@ -2,7 +2,8 @@ use super::common::{
     DT, converged, distance, gravity_config, observed_world, settle, settle_until, static_config,
 };
 use dynamis_model::{
-    BodyDesc, ConstraintBreak, ConstraintDesc, ConstraintMotor, DofDesc, PhysicsConfig,
+    BodyDesc, ConstraintBreak, ConstraintDesc, ConstraintLimit, ConstraintMotor, ConstraintSpring,
+    ConstraintSwing, DofDesc, PhysicsConfig,
 };
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -587,8 +588,13 @@ fn cone_constraint_caps_swing_angle() {
     world.add_constraint(
         anchor,
         tip,
-        ConstraintDesc::cone([0.0; 3], [2.0, 0.0, 0.0], [-1.0, 0.0, 0.0], 0.35)
-            .axis_b([1.0, 0.0, 0.0]),
+        ConstraintDesc::cone(
+            [0.0; 3],
+            [2.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            0.35,
+        ),
     );
     world.set_velocity(tip, [0.0, 1.2, 0.0]);
     for _ in 0..240 {
@@ -605,7 +611,7 @@ fn six_dof_locked_acts_as_fixed_constraint() {
     let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.5));
     let link = world.spawn(BodyDesc::sphere(0.5).position([1.5, 0.0, 0.0]));
-    let desc = ConstraintDesc::six_dof([0.0; 3], [1.5, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.5, 0.0, 0.0], [0.0, 0.0, 1.0])
         .dofs([DofDesc::locked(); 6]);
     world.add_constraint(base, link, desc);
     for _ in 0..120 {
@@ -655,8 +661,7 @@ fn six_dof_linear_limit_caps_separation() {
         DofDesc::locked(),
         DofDesc::locked(),
     ];
-    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
-        .dofs(dofs);
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]).dofs(dofs);
     world.add_constraint(first, second, desc);
     let mut previous = f32::INFINITY;
     settle_until(&mut world, 180, |world| {
@@ -690,8 +695,7 @@ fn six_dof_servo_spins_to_target() {
         DofDesc::locked(),
         DofDesc::locked(),
     ];
-    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
-        .dofs(dofs);
+    let desc = ConstraintDesc::six_dof([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]).dofs(dofs);
     world.add_constraint(anchor, arm, desc);
     for _ in 0..300 {
         world.step(DT);
@@ -821,21 +825,6 @@ fn pulley_patch_keeps_the_constraint_alive() {
         ConstraintDesc::pulley([0.0; 3], [0.0; 3], fixed_a, fixed_b, length),
     );
     let _ = base;
-    world.set_motor(joint, 2.0, 50.0);
-    world.set_limit(
-        joint,
-        Some(dynamis_model::ConstraintLimit {
-            min: -1.0,
-            max: 1.0,
-        }),
-    );
-    world.set_spring(
-        joint,
-        Some(dynamis_model::ConstraintSpring {
-            frequency: 2.0,
-            damping_ratio: 0.5,
-        }),
-    );
     world.set_break_threshold(
         joint,
         Some(dynamis_model::ConstraintBreak {
@@ -844,13 +833,6 @@ fn pulley_patch_keeps_the_constraint_alive() {
         }),
     );
     world.set_warm_start(joint, false);
-    world.set_swing_limits(
-        joint,
-        Some(dynamis_model::ConstraintSwing {
-            swing_a: 0.5,
-            swing_b: 0.5,
-        }),
-    );
     world.set_constraint_disable_collisions(joint, false);
     assert!(
         world.constraints().contains(&joint),
@@ -877,16 +859,14 @@ fn limited_dof_stays_driven_inside_its_limit() {
     world.add_constraint(
         base,
         arm,
-        ConstraintDesc::six_dof([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs(
-            [
-                DofDesc::free(),
-                DofDesc::limited(-0.6, 0.6).motor(velocity_motor(3.0, 120.0)),
-                DofDesc::free(),
-                DofDesc::locked(),
-                DofDesc::locked(),
-                DofDesc::locked(),
-            ],
-        ),
+        ConstraintDesc::six_dof([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]).dofs([
+            DofDesc::free(),
+            DofDesc::limited(-0.6, 0.6).motor(velocity_motor(3.0, 120.0)),
+            DofDesc::free(),
+            DofDesc::locked(),
+            DofDesc::locked(),
+            DofDesc::locked(),
+        ]),
     );
     for _ in 0..30 {
         world.step(DT);
@@ -916,7 +896,7 @@ fn limited_angular_dof_stays_driven_inside_its_limit() {
     world.add_constraint(
         base,
         arm,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs([
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
             DofDesc::locked(),
             DofDesc::locked(),
             DofDesc::locked(),
@@ -949,8 +929,7 @@ fn dof_patches_drive_and_cap_a_live_constraint() {
     let joint = world.add_constraint(
         base,
         arm,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
-            .dofs([DofDesc::locked(); 6]),
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([DofDesc::locked(); 6]),
     );
     for _ in 0..10 {
         world.step(DT);
@@ -1138,15 +1117,98 @@ fn unloaded_joints_never_publish_breaks() {
 }
 
 #[test]
+fn a_joint_rejects_the_properties_its_kind_cannot_carry() {
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
+    let rope = world.add_constraint(base, arm, ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0));
+    let ball = world.add_constraint(base, arm, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    let fixed = world.add_constraint(base, arm, ConstraintDesc::fixed([0.0; 3], [0.0; 3]));
+    let refused_limit = ConstraintLimit { min: 0.0, max: 2.0 };
+    let refused_spring = ConstraintSpring {
+        frequency: 2.0,
+        damping_ratio: 0.5,
+    };
+    let refused_swing = ConstraintSwing {
+        swing_a: 0.1,
+        swing_b: 0.1,
+    };
+    assert!(
+        catch_unwind(AssertUnwindSafe(
+            || world.set_limit(rope, Some(refused_limit))
+        ))
+        .is_err(),
+        "a distance joint declares no limit"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.set_motor(ball, 1.0, 10.0))).is_err(),
+        "a ball joint declares no motor"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            world.set_spring(ball, Some(refused_spring))
+        }))
+        .is_err(),
+        "a ball joint declares no spring"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            world.set_swing_limits(rope, Some(refused_swing))
+        }))
+        .is_err(),
+        "a distance joint declares no swing limit"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.set_motor(fixed, 1.0, 10.0))).is_err(),
+        "a fixed joint declares no motor"
+    );
+    let hinge = world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]),
+    );
+    let swinger = world.add_constraint(base, arm, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    world.set_limit(
+        hinge,
+        Some(ConstraintLimit {
+            min: -1.0,
+            max: 1.0,
+        }),
+    );
+    world.set_motor(hinge, 1.0, 10.0);
+    world.set_swing_limits(
+        swinger,
+        Some(ConstraintSwing {
+            swing_a: 0.2,
+            swing_b: 0.3,
+        }),
+    );
+    world.set_limit(
+        swinger,
+        Some(ConstraintLimit {
+            min: -0.4,
+            max: 0.4,
+        }),
+    );
+    world.wait();
+}
+
+#[test]
 fn constraint_patches_rewrite_the_description_the_host_reads_back() {
     let mut world = observed_world(static_config());
     let base = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 0.0, 0.0]));
-    let joint = world.add_constraint(
+    let hinge = world.add_constraint(
         base,
         arm,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
-            .dofs([DofDesc::locked(); 6]),
+        ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]),
+    );
+    let rope = world.add_constraint(base, arm, ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0));
+    let swinger = world.add_constraint(base, arm, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
+    let drive = world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([DofDesc::locked(); 6]),
     );
     let limit = dynamis_model::ConstraintLimit {
         min: -0.5,
@@ -1161,43 +1223,41 @@ fn constraint_patches_rewrite_the_description_the_host_reads_back() {
         swing_b: 0.5,
     };
     let motor = velocity_motor(2.0, 50.0);
-    world.set_motor(joint, 2.0, 50.0);
+    world.set_motor(hinge, 2.0, 50.0);
     assert_eq!(
-        world.constraint_desc(joint).motor,
+        world.constraint_desc(hinge).motor_of(),
         Some(motor),
         "set_motor must rewrite the joint description"
     );
-    world.set_limit(joint, Some(limit));
-    assert_eq!(world.constraint_desc(joint).limit, Some(limit));
-    world.set_spring(joint, Some(spring));
-    assert_eq!(world.constraint_desc(joint).spring, Some(spring));
-    world.set_swing_limits(joint, Some(swing));
-    assert_eq!(world.constraint_desc(joint).swing, Some(swing));
+    world.set_limit(hinge, Some(limit));
+    assert_eq!(world.constraint_desc(hinge).limit_of(), Some(limit));
+    world.set_spring(rope, Some(spring));
+    assert_eq!(world.constraint_desc(rope).spring_of(), Some(spring));
+    world.set_swing_limits(swinger, Some(swing));
+    assert_eq!(world.constraint_desc(swinger).swing_of(), Some(swing));
     world.set_break_threshold(
-        joint,
+        hinge,
         Some(ConstraintBreak {
             force: 10.0,
             torque: 20.0,
         }),
     );
     assert_eq!(
-        world.constraint_desc(joint).break_threshold,
+        world.constraint_desc(hinge).break_threshold_of(),
         Some(ConstraintBreak {
             force: 10.0,
             torque: 20.0,
         })
     );
-    world.set_warm_start(joint, false);
-    assert!(!world.constraint_desc(joint).warm_start);
-    world.set_constraint_disable_collisions(joint, false);
-    assert!(!world.constraint_desc(joint).disable_collisions);
-    world.set_dof_locked(joint, 0, false);
-    world.set_dof_motor(joint, 3, Some(motor));
-    world.set_dof_limit(joint, 4, Some(limit));
-    let dofs = world
-        .constraint_desc(joint)
-        .dofs
-        .expect("dof patches keep the dof layout");
+    world.set_warm_start(hinge, false);
+    assert!(!world.constraint_desc(hinge).warm_start_of());
+    world.set_constraint_disable_collisions(hinge, false);
+    assert!(!world.constraint_desc(hinge).disable_collisions_of());
+    world.set_dof_locked(drive, 0, false);
+    world.set_dof_motor(drive, 3, Some(motor));
+    world.set_dof_limit(drive, 4, Some(limit));
+    let patched = world.constraint_desc(drive);
+    let dofs = patched.dofs_of().expect("dof patches keep the dof layout");
     assert!(!dofs[0].locked, "set_dof_locked must rewrite its dof");
     assert_eq!(
         dofs[3].motor,
@@ -1209,21 +1269,23 @@ fn constraint_patches_rewrite_the_description_the_host_reads_back() {
         Some(limit),
         "set_dof_limit must rewrite its dof"
     );
-    world.set_limit(joint, None);
-    world.set_spring(joint, None);
-    world.set_swing_limits(joint, None);
-    world.set_break_threshold(joint, None);
-    world.set_dof_limit(joint, 4, None);
-    world.set_dof_motor(joint, 3, None);
-    let cleared = world.constraint_desc(joint);
+    world.set_limit(hinge, None);
+    world.set_spring(rope, None);
+    world.set_swing_limits(swinger, None);
+    world.set_break_threshold(hinge, None);
+    world.set_dof_limit(drive, 4, None);
+    world.set_dof_motor(drive, 3, None);
+    let cleared = world.constraint_desc(hinge);
     assert_eq!(
-        cleared.limit, None,
+        cleared.limit_of(),
+        None,
         "clearing a limit must clear the description"
     );
-    assert_eq!(cleared.spring, None);
-    assert_eq!(cleared.swing, None);
-    assert_eq!(cleared.break_threshold, None);
-    let dofs = cleared.dofs.expect("dof patches keep the dof layout");
+    assert_eq!(world.constraint_desc(rope).spring_of(), None);
+    assert_eq!(world.constraint_desc(swinger).swing_of(), None);
+    assert_eq!(cleared.break_threshold_of(), None);
+    let patched = world.constraint_desc(drive);
+    let dofs = patched.dofs_of().expect("dof patches keep the dof layout");
     assert_eq!(dofs[3].motor, None);
     assert_eq!(dofs[4].limit, None);
 }
@@ -1231,18 +1293,6 @@ fn constraint_patches_rewrite_the_description_the_host_reads_back() {
 #[test]
 fn patched_and_declared_constraints_share_one_device_encoding() {
     let motor = velocity_motor(2.0, 50.0);
-    let limit = dynamis_model::ConstraintLimit {
-        min: -0.5,
-        max: 0.5,
-    };
-    let spring = dynamis_model::ConstraintSpring {
-        frequency: 3.0,
-        damping_ratio: 0.4,
-    };
-    let swing = dynamis_model::ConstraintSwing {
-        swing_a: 0.25,
-        swing_b: 0.5,
-    };
     let drive = |index: usize| {
         let mut dofs = [DofDesc::locked(); 6];
         dofs[index] = DofDesc::free().motor(motor);
@@ -1254,11 +1304,8 @@ fn patched_and_declared_constraints_share_one_device_encoding() {
     declared_world.add_constraint(
         declared_base,
         declared_arm,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0])
             .dofs(drive(3))
-            .limit(limit.min, limit.max)
-            .swing(swing.swing_a, swing.swing_b)
-            .spring(spring.frequency, spring.damping_ratio)
             .warm_start(false)
             .disable_collisions(false),
     );
@@ -1268,12 +1315,8 @@ fn patched_and_declared_constraints_share_one_device_encoding() {
     let patched = patched_world.add_constraint(
         patched_base,
         patched_arm,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
-            .dofs([DofDesc::locked(); 6]),
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([DofDesc::locked(); 6]),
     );
-    patched_world.set_limit(patched, Some(limit));
-    patched_world.set_spring(patched, Some(spring));
-    patched_world.set_swing_limits(patched, Some(swing));
     patched_world.set_warm_start(patched, false);
     patched_world.set_constraint_disable_collisions(patched, false);
     patched_world.set_dof_locked(patched, 3, false);

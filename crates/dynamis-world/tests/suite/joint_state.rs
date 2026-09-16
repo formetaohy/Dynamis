@@ -171,7 +171,7 @@ fn six_dof_reports_each_locked_dof() {
     let joint = world.add_constraint(
         base,
         link,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs([
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
             DofDesc::free(),
             DofDesc::free(),
             DofDesc::limited(0.0, 1.0),
@@ -203,7 +203,7 @@ fn six_dof_drive_reaches_the_reported_dof() {
     let joint = world.add_constraint(
         base,
         link,
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]).dofs([
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
             DofDesc::free(),
             DofDesc::free(),
             DofDesc::driven(ConstraintMotor {
@@ -297,8 +297,8 @@ fn every_joint_kind_reports_its_dof_layout() {
         ConstraintDesc::fixed([0.0; 3], [0.0; 3]),
         ConstraintDesc::gear([0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 2.0),
         ConstraintDesc::pulley([0.0; 3], [0.0; 3], [1.0, 1.0, 0.0], [1.0, -1.0, 0.0], 1.0),
-        ConstraintDesc::cone([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], 0.5),
-        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]),
+        ConstraintDesc::cone([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 0.5),
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]),
     ];
     let expected = [
         ConstraintKind::Ball,
@@ -311,10 +311,10 @@ fn every_joint_kind_reports_its_dof_layout() {
         ConstraintKind::Cone,
         ConstraintKind::SixDof,
     ];
-    for (index, desc) in descs.into_iter().enumerate() {
+    for (index, desc) in descs.iter().enumerate() {
         let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
         let link = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.5]));
-        world.add_constraint(base, link, desc);
+        world.add_constraint(base, link, desc.clone());
         assert_eq!(
             world.constraints().len(),
             index + 1,

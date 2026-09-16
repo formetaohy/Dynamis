@@ -66,6 +66,7 @@ pub use constant::{
     SOLVER_BLOCK_CONSTRAINT, SOLVER_BLOCK_CONTACT, SOLVER_DELTA_WORDS, dof_driven, dof_limited,
     dof_locked, set_dof_driven, set_dof_limited, set_dof_locked,
 };
+pub use constraint::kind_code;
 pub use counter::device::{
     COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_BLOCKS, COUNTER_BREAKS, COUNTER_COARSE_ACTIVE,
     COUNTER_COARSE_NEIGHBOURS, COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_ENTRIES,

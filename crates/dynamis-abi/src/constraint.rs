@@ -6,184 +6,235 @@ use crate::constant::{
     CONSTRAINT_WARM_START, set_dof_driven, set_dof_limited, set_dof_locked,
 };
 use crate::{ConstraintDescriptorRecord, ConstraintRuntimeRecord};
-use dynamis_model::{ConstraintDesc, ConstraintMotor, DofDesc};
+use dynamis_model::{ConstraintData, ConstraintDesc, ConstraintKind, ConstraintMotor, DofDesc};
+
+pub const fn kind_code(kind: ConstraintKind) -> u32 {
+    match kind {
+        ConstraintKind::Ball => CONSTRAINT_BALL,
+        ConstraintKind::Distance => CONSTRAINT_DISTANCE,
+        ConstraintKind::Revolute => CONSTRAINT_REVOLUTE,
+        ConstraintKind::Prismatic => CONSTRAINT_PRISMATIC,
+        ConstraintKind::Fixed => CONSTRAINT_FIXED,
+        ConstraintKind::Gear => CONSTRAINT_GEAR,
+        ConstraintKind::Pulley => CONSTRAINT_PULLEY,
+        ConstraintKind::Cone => CONSTRAINT_CONE,
+        ConstraintKind::SixDof => CONSTRAINT_SIXDOF,
+    }
+}
+
+const _: () = {
+    let mut seen = 0u32;
+    let mut index = 0;
+    while index < ConstraintKind::ALL.len() {
+        let code = kind_code(ConstraintKind::ALL[index]);
+        assert!(
+            code <= CONSTRAINT_SIXDOF,
+            "a joint kind must fit the declared device code space"
+        );
+        assert!(
+            seen & (1 << code) == 0,
+            "two joint kinds must not share a device code"
+        );
+        seen |= 1 << code;
+        index += 1;
+    }
+    assert!(
+        seen == (1 << (CONSTRAINT_SIXDOF + 1)) - 1,
+        "every device joint code must belong to exactly one kind"
+    );
+};
+
+pub(crate) fn emit_predicates(out: &mut String) {
+    out.push_str("fn constraint_dof_count(kind: u32) -> u32 {\n");
+    for kind in ConstraintKind::ALL {
+        out.push_str(&format!(
+            "    if (kind == {}u) {{ return {}u; }}\n",
+            kind_code(*kind),
+            kind.dofs().len(),
+        ));
+    }
+    out.push_str("    return 0u;\n}\n");
+}
+
+fn pack_motor(record: &mut ConstraintDescriptorRecord, motor: ConstraintMotor) {
+    record.motor_speed = motor.target_velocity;
+    record.motor_max_force = motor.max_force;
+    record.motor_target = motor.target_position.unwrap_or(0.0);
+    record.motor_stiffness = motor.stiffness;
+    record.motor_damping = motor.damping;
+}
+
+fn pack_dofs(record: &mut ConstraintDescriptorRecord, dofs: &[DofDesc; 6]) {
+    for (index, dof) in dofs.iter().enumerate() {
+        let flags = index as u32;
+        record.flags = set_dof_locked(record.flags, flags, dof.locked);
+        record.flags = set_dof_limited(record.flags, flags, dof.limit.is_some());
+        record.flags = set_dof_driven(record.flags, flags, dof.motor.is_some());
+        let lane = index % 3;
+        if let Some(limit) = dof.limit {
+            if index < 3 {
+                record.linear_limit_min[lane] = limit.min;
+                record.linear_limit_max[lane] = limit.max;
+            } else {
+                record.angular_limit_min[lane] = limit.min;
+                record.angular_limit_max[lane] = limit.max;
+            }
+        }
+        let Some(motor) = dof.motor else { continue };
+        let target = motor.target_position.unwrap_or(motor.target_velocity);
+        if index < 3 {
+            record.linear_motor_target[lane] = target;
+            record.linear_motor_stiffness[lane] = motor.stiffness;
+            record.linear_motor_damping[lane] = motor.damping;
+            record.linear_motor_force[lane] = motor.max_force;
+        } else {
+            record.angular_motor_target[lane] = target;
+            record.angular_motor_stiffness[lane] = motor.stiffness;
+            record.angular_motor_damping[lane] = motor.damping;
+            record.angular_motor_force[lane] = motor.max_force;
+        }
+    }
+}
 
 impl ConstraintDescriptorRecord {
     pub fn build(desc: &ConstraintDesc, first_body_id: u32, second_body_id: u32) -> Self {
-        let kind = match desc.kind {
-            dynamis_model::ConstraintKind::Ball => CONSTRAINT_BALL,
-            dynamis_model::ConstraintKind::Distance => CONSTRAINT_DISTANCE,
-            dynamis_model::ConstraintKind::Revolute => CONSTRAINT_REVOLUTE,
-            dynamis_model::ConstraintKind::Prismatic => CONSTRAINT_PRISMATIC,
-            dynamis_model::ConstraintKind::Fixed => CONSTRAINT_FIXED,
-            dynamis_model::ConstraintKind::Gear => CONSTRAINT_GEAR,
-            dynamis_model::ConstraintKind::Pulley => CONSTRAINT_PULLEY,
-            dynamis_model::ConstraintKind::Cone => CONSTRAINT_CONE,
-            dynamis_model::ConstraintKind::SixDof => CONSTRAINT_SIXDOF,
-        };
-        let mut flags = 0;
-        if desc.disable_collisions {
-            flags |= CONSTRAINT_DISABLE_COLLISIONS;
-        }
-        if desc.limit.is_some() {
-            flags |= CONSTRAINT_HAS_LIMIT;
-        }
-        if desc.swing.is_some() {
-            flags |= CONSTRAINT_HAS_SWING;
-        }
-        if desc.motor.is_some() {
-            flags |= CONSTRAINT_HAS_MOTOR;
-        }
-        if desc.spring.is_some() {
-            flags |= CONSTRAINT_IS_SPRING;
-        }
-        if desc.break_threshold.is_some() {
-            flags |= CONSTRAINT_HAS_BREAK;
-        }
-        if desc.warm_start {
-            flags |= CONSTRAINT_WARM_START;
-        }
-        let dofs = desc.dofs.unwrap_or([DofDesc::free(); 6]);
-        for (index, dof) in dofs.iter().enumerate() {
-            let index = index as u32;
-            flags = set_dof_locked(flags, index, dof.locked);
-            flags = set_dof_limited(flags, index, dof.limit.is_some());
-            flags = set_dof_driven(flags, index, dof.motor.is_some());
-        }
-        let motor = |motor: &Option<ConstraintMotor>| {
-            (
-                motor.map_or(0.0, |m| m.target_velocity),
-                motor.map_or(0.0, |m| m.max_force),
-                motor.map_or(0.0, |m| m.target_position.unwrap_or(0.0)),
-                motor.map_or(0.0, |m| m.stiffness),
-                motor.map_or(0.0, |m| m.damping),
-            )
-        };
-        let (motor_speed, motor_max_force, motor_target, motor_stiffness, motor_damping) =
-            motor(&desc.motor);
-        let generic_motor = |dofs: &[DofDesc; 6]| {
-            let mut target = [0.0f32; 3];
-            let mut stiffness = [0.0f32; 3];
-            let mut damping = [0.0f32; 3];
-            let mut force = [0.0f32; 3];
-            let mut angular_target = [0.0f32; 3];
-            let mut angular_stiffness = [0.0f32; 3];
-            let mut angular_damping = [0.0f32; 3];
-            let mut angular_force = [0.0f32; 3];
-            for (index, dof) in dofs.iter().enumerate() {
-                let Some(motor) = dof.motor else { continue };
-                if index < 3 {
-                    target[index] = motor.target_position.unwrap_or(motor.target_velocity);
-                    stiffness[index] = motor.stiffness;
-                    damping[index] = motor.damping;
-                    force[index] = motor.max_force;
-                } else {
-                    angular_target[index - 3] =
-                        motor.target_position.unwrap_or(motor.target_velocity);
-                    angular_stiffness[index - 3] = motor.stiffness;
-                    angular_damping[index - 3] = motor.damping;
-                    angular_force[index - 3] = motor.max_force;
-                }
-            }
-            (
-                target,
-                stiffness,
-                damping,
-                force,
-                angular_target,
-                angular_stiffness,
-                angular_damping,
-                angular_force,
-            )
-        };
-        let (
-            linear_motor_target,
-            linear_motor_stiffness,
-            linear_motor_damping,
-            linear_motor_force,
-            angular_motor_target,
-            angular_motor_stiffness,
-            angular_motor_damping,
-            angular_motor_force,
-        ) = generic_motor(&dofs);
-        let mut linear_limits: [[f32; 3]; 2] = [[0.0; 3]; 2];
-        let mut angular_limits: [[f32; 3]; 2] = [[0.0; 3]; 2];
-        for (index, dof) in dofs.iter().enumerate() {
-            let Some(limit) = dof.limit else { continue };
-            if index < 3 {
-                linear_limits[0][index] = limit.min;
-                linear_limits[1][index] = limit.max;
-            } else {
-                angular_limits[0][index - 3] = limit.min;
-                angular_limits[1][index - 3] = limit.max;
-            }
-        }
-        Self {
-            kind,
+        let data = desc.data();
+        let mut record = Self {
+            kind: kind_code(data.kind()),
             first_body_id,
             second_body_id,
-            flags,
-            anchor_a: desc.anchor_a,
-            _pad1: 0.0,
-            anchor_b: desc.anchor_b,
-            _pad2: 0.0,
-            axis_a: desc.axis_a,
-            _pad3: 0.0,
-            axis_b: desc.axis_b,
-            _pad4: 0.0,
-            distance: desc.rest_length,
-            limit_min: desc.limit.map_or(0.0, |limit| limit.min),
-            limit_max: desc.limit.map_or(0.0, |limit| limit.max),
-            swing_a: desc
-                .swing
-                .map_or(std::f32::consts::PI, |swing| swing.swing_a),
-            swing_b: desc
-                .swing
-                .map_or(std::f32::consts::PI, |swing| swing.swing_b),
-            motor_speed,
-            motor_max_force,
-            spring_frequency: desc.spring.map_or(0.0, |spring| spring.frequency),
-            spring_damping_ratio: desc.spring.map_or(0.0, |spring| spring.damping_ratio),
-            break_force: desc
-                .break_threshold
-                .map_or(0.0, |threshold| threshold.force),
-            break_torque: desc
-                .break_threshold
-                .map_or(0.0, |threshold| threshold.torque),
-            gear_ratio: desc.gear_ratio,
-            pulley_fixed_a: desc.pulley_fixed_a,
-            _pad_pulley_a: 0.0,
-            pulley_fixed_b: desc.pulley_fixed_b,
-            _pad_pulley_b: 0.0,
-            motor_target,
-            motor_stiffness,
-            motor_damping,
-            cone_angle: desc.cone_angle,
-            linear_limit_min: linear_limits[0],
-            _pad_lim_min: 0.0,
-            linear_limit_max: linear_limits[1],
-            _pad_lim_max: 0.0,
-            angular_limit_min: angular_limits[0],
-            _pad_ang_min: 0.0,
-            angular_limit_max: angular_limits[1],
-            _pad_ang_max: 0.0,
-            linear_motor_target,
-            _pad_lin_target: 0.0,
-            linear_motor_stiffness,
-            _pad_lin_stiff: 0.0,
-            linear_motor_damping,
-            _pad_lin_damp: 0.0,
-            angular_motor_target,
-            _pad_ang_target: 0.0,
-            angular_motor_stiffness,
-            _pad_ang_stiff: 0.0,
-            angular_motor_damping,
-            _pad_ang_damp: 0.0,
-            linear_motor_force,
-            _pad_lin_force: 0.0,
-            angular_motor_force,
-            _pad_ang_force: 0.0,
+            swing_a: std::f32::consts::PI,
+            swing_b: std::f32::consts::PI,
+            gear_ratio: 1.0,
+            ..bytemuck::Zeroable::zeroed()
+        };
+        if desc.disable_collisions_of() {
+            record.flags |= CONSTRAINT_DISABLE_COLLISIONS;
         }
+        if desc.warm_start_of() {
+            record.flags |= CONSTRAINT_WARM_START;
+        }
+        if let Some(threshold) = desc.break_threshold_of() {
+            record.flags |= CONSTRAINT_HAS_BREAK;
+            record.break_force = threshold.force;
+            record.break_torque = threshold.torque;
+        }
+        match data {
+            ConstraintData::Ball {
+                anchor_a,
+                anchor_b,
+                axis,
+                twist,
+                swing,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.axis_a = *axis;
+                if let Some(twist) = twist {
+                    record.flags |= CONSTRAINT_HAS_LIMIT;
+                    record.limit_min = twist.min;
+                    record.limit_max = twist.max;
+                }
+                if let Some(swing) = swing {
+                    record.flags |= CONSTRAINT_HAS_SWING;
+                    record.swing_a = swing.swing_a;
+                    record.swing_b = swing.swing_b;
+                }
+            }
+            ConstraintData::Distance {
+                anchor_a,
+                anchor_b,
+                length,
+                spring,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.distance = *length;
+                if let Some(spring) = spring {
+                    record.flags |= CONSTRAINT_IS_SPRING;
+                    record.spring_frequency = spring.frequency;
+                    record.spring_damping_ratio = spring.damping_ratio;
+                }
+            }
+            ConstraintData::Revolute {
+                anchor_a,
+                anchor_b,
+                axis,
+                limit,
+                motor,
+            }
+            | ConstraintData::Prismatic {
+                anchor_a,
+                anchor_b,
+                axis,
+                limit,
+                motor,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.axis_a = *axis;
+                if let Some(limit) = limit {
+                    record.flags |= CONSTRAINT_HAS_LIMIT;
+                    record.limit_min = limit.min;
+                    record.limit_max = limit.max;
+                }
+                if let Some(motor) = motor {
+                    record.flags |= CONSTRAINT_HAS_MOTOR;
+                    pack_motor(&mut record, *motor);
+                }
+            }
+            ConstraintData::Fixed { anchor_a, anchor_b } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+            }
+            ConstraintData::Gear {
+                axis_a,
+                axis_b,
+                ratio,
+            } => {
+                record.axis_a = *axis_a;
+                record.axis_b = *axis_b;
+                record.gear_ratio = *ratio;
+            }
+            ConstraintData::Pulley {
+                anchor_a,
+                anchor_b,
+                fixed_a,
+                fixed_b,
+                length,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.pulley_fixed_a = *fixed_a;
+                record.pulley_fixed_b = *fixed_b;
+                record.distance = *length;
+            }
+            ConstraintData::Cone {
+                anchor_a,
+                anchor_b,
+                axis_a,
+                axis_b,
+                half_angle,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.axis_a = *axis_a;
+                record.axis_b = *axis_b;
+                record.cone_angle = *half_angle;
+            }
+            ConstraintData::SixDof {
+                anchor_a,
+                anchor_b,
+                axis,
+                dofs,
+            } => {
+                record.anchor_a = *anchor_a;
+                record.anchor_b = *anchor_b;
+                record.axis_a = *axis;
+                pack_dofs(&mut record, dofs);
+            }
+        }
+        record
     }
 }
 

@@ -95,8 +95,8 @@ fn six_dof_locked_holds_pose_under_load() {
     let mut world = observed_world(static_config());
     let first = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let second = world.spawn(BodyDesc::cuboid([0.2, 0.2, 0.2]).position([0.5, 0.4, 0.3]));
-    let desc = ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0])
-        .dofs([DofDesc::locked(); 6]);
+    let desc =
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).dofs([DofDesc::locked(); 6]);
     world.add_constraint(first, second, desc);
     let mut worst = 0.0f32;
     for frame in 0..180 {

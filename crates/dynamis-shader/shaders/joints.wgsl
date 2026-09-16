@@ -1,16 +1,3 @@
-fn joint_dof_count(kind: u32) -> u32 {
-    if (kind == CONSTRAINT_FIXED || kind == CONSTRAINT_GEAR) {
-        return 0u;
-    }
-    if (kind == CONSTRAINT_BALL) {
-        return 3u;
-    }
-    if (kind == CONSTRAINT_SIXDOF) {
-        return 6u;
-    }
-    return 1u;
-}
-
 fn joint_hinge_local(constraint: ConstraintDescriptor) -> vec3f {
     return normalize(constraint.axis_a);
 }

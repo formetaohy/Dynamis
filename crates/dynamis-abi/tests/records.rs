@@ -1,18 +1,18 @@
 use dynamis_abi::{
     BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord,
-    BodyStateRecord, COLLIDER_SENSOR, CONSTRAINT_BALL, CONSTRAINT_DISABLE_COLLISIONS,
-    CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR, CONSTRAINT_HAS_BREAK,
-    CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING, CONSTRAINT_IS_SPRING,
-    CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE, ColliderRecord,
-    ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT,
-    EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE,
-    ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST,
-    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS,
-    QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
-    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
+    BodyStateRecord, COLLIDER_SENSOR, CONSTRAINT_BALL, CONSTRAINT_CONE,
+    CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
+    CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
+    CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
+    ColliderRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE,
+    EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE,
+    EDIT_WAKE, ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, EVENT_MODE_BEGIN_END,
+    EVENT_MODE_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
+    FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
+    PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
+    QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams,
+    RowStreamsRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
     SoftAnnouncementRecord, SoftBodyEditRecord, SoftElementInit, SoftElementRecord,
     SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord, TriangleRecord,
     dof_driven, dof_limited, dof_locked, event_flags,
@@ -22,8 +22,8 @@ use dynamis_abi::{
     SoftFactRecord,
 };
 use dynamis_model::{
-    BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintMotor, DofDesc,
-    PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind, SoftElementState,
+    BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind, ConstraintMotor,
+    DofDesc, PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind, SoftElementState,
     SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
@@ -210,6 +210,27 @@ fn contact_record_fills_its_alignment_room_with_the_carried_impulse() {
     assert_eq!(offset_of!(ContactRecord, damping_ratio), 80);
     assert_eq!(offset_of!(ContactRecord, points), 96);
     assert_eq!(size_of::<ContactRecord>(), 352);
+}
+
+#[test]
+fn every_joint_kind_answers_its_declared_dof_count_to_the_device() {
+    let source = dynamis_abi::constants_wgsl();
+    for kind in ConstraintKind::ALL {
+        let code = dynamis_abi::kind_code(*kind);
+        let clause = format!("if (kind == {code}u) {{ return {}u; }}", kind.dofs().len());
+        assert!(
+            source.contains(&clause),
+            "the emitted dof count must answer {kind:?} with the dofs the model declares"
+        );
+    }
+    assert!(
+        source.contains("fn constraint_dof_count(kind: u32) -> u32 {"),
+        "the device must read a generated dof count"
+    );
+    assert!(
+        !source.contains("joint_dof_count"),
+        "no stage may restate the dof layout of a joint kind"
+    );
 }
 
 #[test]
@@ -613,12 +634,21 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
     assert_eq!(pulley.distance, 4.0);
     assert_eq!(pulley.pulley_fixed_a, [0.0, 2.0, 0.0]);
     assert_eq!(pulley.pulley_fixed_b, [3.0, 2.0, 0.0]);
-    let dual_axis = ConstraintDescriptorRecord::build(
-        &ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).axis_b([0.0, 0.0, 1.0]),
+    let cone = ConstraintDescriptorRecord::build(
+        &ConstraintDesc::cone(
+            [0.0; 3],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            0.5,
+        ),
         0,
         1,
     );
-    assert_eq!(dual_axis.axis_b, [0.0, 0.0, 1.0]);
+    assert_eq!(cone.kind, CONSTRAINT_CONE);
+    assert_eq!(cone.axis_a, [0.0, 1.0, 0.0]);
+    assert_eq!(cone.axis_b, [0.0, 0.0, 1.0]);
+    assert_eq!(cone.cone_angle, 0.5);
 }
 
 #[test]
@@ -631,7 +661,7 @@ fn constraint_record_encodes_orthogonal_dofs() {
         damping: 0.0,
     };
     let record = ConstraintDescriptorRecord::build(
-        &ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]).dofs([
+        &ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).dofs([
             DofDesc::limited(-1.0, 1.0).motor(motor),
             DofDesc::locked(),
             DofDesc::free(),

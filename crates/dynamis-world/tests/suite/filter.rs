@@ -155,7 +155,7 @@ fn ccd_approach(joint: bool) -> f32 {
         world.add_constraint(
             anchor,
             bullet,
-            ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]),
+            ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]),
         );
     }
     settle(&mut world, 4);

@@ -21,8 +21,9 @@ pub use collider::{ColliderDesc, ContactEventMode};
 pub use collision::CollisionFilter;
 pub use config::{MaterialCombine, PhysicsConfig};
 pub use constraint::{
-    ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
-    ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc, JointDof, JointState,
+    ConstraintBreak, ConstraintData, ConstraintDesc, ConstraintHandle, ConstraintKind,
+    ConstraintLimit, ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc, JointDof,
+    JointState,
 };
 pub use event::{ContactEvent, ContactEventKind};
 pub use impact::ImpactEvent;

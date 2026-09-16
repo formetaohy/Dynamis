@@ -1,7 +1,7 @@
 use dynamis_model::{
-    BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, FluidMaterial,
-    MaterialCombine, PhysicsConfig, Shape, SoftAttachment, SoftBodyDesc, SoftElement,
-    SoftElementKind, SoftElementState, SoftMaterial,
+    BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind, DofDesc,
+    FluidMaterial, MaterialCombine, PhysicsConfig, Shape, SoftAttachment, SoftBodyDesc,
+    SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -42,6 +42,99 @@ fn collider_descs_validate_inputs() {
         .is_err()
     );
     assert!(catch_unwind(|| ColliderDesc::new(Shape::sphere(0.5)).friction(-1.0)).is_err());
+}
+
+#[test]
+fn a_joint_declares_only_the_properties_its_kind_carries() {
+    let anchor = || ([0.0; 3], [0.0; 3]);
+    let axis = || [0.0, 0.0, 1.0];
+    type Refused = (&'static str, fn() -> ConstraintDesc);
+    let unsupported: [Refused; 17] = [
+        ("distance limit", || {
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).limit(0.0, 1.0)
+        }),
+        ("distance motor", || {
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).motor(1.0)
+        }),
+        ("distance swing", || {
+            ConstraintDesc::distance([0.0; 3], [0.0; 3], 1.0).swing(0.1, 0.1)
+        }),
+        ("ball spring", || {
+            ConstraintDesc::ball([0.0; 3], [0.0; 3]).spring(1.0, 0.5)
+        }),
+        ("ball motor", || {
+            ConstraintDesc::ball([0.0; 3], [0.0; 3]).motor(1.0)
+        }),
+        ("revolute spring", || {
+            ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).spring(1.0, 0.5)
+        }),
+        ("prismatic swing", || {
+            ConstraintDesc::prismatic([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).swing(0.1, 0.1)
+        }),
+        ("cone limit", || {
+            ConstraintDesc::cone([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 0.5)
+                .limit(0.0, 1.0)
+        }),
+        ("gear motor", || {
+            ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.0).motor(1.0)
+        }),
+        ("pulley spring", || {
+            ConstraintDesc::pulley([0.0; 3], [0.0; 3], [0.0; 3], [1.0, 0.0, 0.0], 1.0)
+                .spring(1.0, 0.5)
+        }),
+        ("fixed limit", || {
+            ConstraintDesc::fixed([0.0; 3], [0.0; 3]).limit(-1.0, 1.0)
+        }),
+        ("six dof limit", || {
+            ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).limit(-1.0, 1.0)
+        }),
+        ("six dof swing", || {
+            ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).swing(0.1, 0.1)
+        }),
+        ("six dof spring", || {
+            ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).spring(1.0, 0.5)
+        }),
+        ("ball dofs", || {
+            ConstraintDesc::ball([0.0; 3], [0.0; 3]).dofs([DofDesc::locked(); 6])
+        }),
+        ("fixed dof", || {
+            ConstraintDesc::fixed([0.0; 3], [0.0; 3]).dof(0, DofDesc::locked())
+        }),
+        ("gear axis", || {
+            ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.0).axis([1.0, 0.0, 0.0])
+        }),
+    ];
+    for (property, build) in unsupported {
+        assert!(
+            catch_unwind(build).is_err(),
+            "{property} must be rejected at the joint it does not belong to"
+        );
+    }
+    let carried = [
+        ConstraintDesc::ball(anchor().0, anchor().1)
+            .axis(axis())
+            .limit(-0.5, 0.5)
+            .swing(0.7, 0.9),
+        ConstraintDesc::distance(anchor().0, anchor().1, 1.0).spring(1.0, 0.5),
+        ConstraintDesc::revolute(anchor().0, anchor().1, axis())
+            .limit(-0.5, 0.5)
+            .motor(1.0),
+        ConstraintDesc::prismatic(anchor().0, anchor().1, axis())
+            .limit(-0.5, 0.5)
+            .motor(1.0),
+        ConstraintDesc::fixed(anchor().0, anchor().1),
+        ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.0),
+        ConstraintDesc::pulley(anchor().0, anchor().1, [0.0; 3], [1.0, 0.0, 0.0], 1.0),
+        ConstraintDesc::cone(anchor().0, anchor().1, axis(), axis(), 0.5),
+        ConstraintDesc::six_dof(anchor().0, anchor().1, axis()).dofs([DofDesc::locked(); 6]),
+    ];
+    for desc in carried {
+        assert_eq!(desc.kind(), desc.data().kind());
+        assert_eq!(
+            desc.dofs_of().is_some(),
+            desc.kind() == ConstraintKind::SixDof
+        );
+    }
 }
 
 #[test]
@@ -90,17 +183,28 @@ fn combine_modes_and_constraint_apis() {
     let motor = ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0])
         .motor(3.0)
         .motor_force(50.0);
-    assert_eq!(motor.motor.unwrap().target_velocity, 3.0);
-    assert_eq!(motor.motor.unwrap().max_force, 50.0);
+    assert_eq!(motor.motor_of().unwrap().target_velocity, 3.0);
+    assert_eq!(motor.motor_of().unwrap().max_force, 50.0);
     let broken = ConstraintDesc::ball([0.0; 3], [0.0; 3]).break_threshold(100.0, 10.0);
-    assert_eq!(broken.break_threshold.unwrap().force, 100.0);
+    assert_eq!(broken.break_threshold_of().unwrap().force, 100.0);
     let swiveling = ConstraintDesc::ball([0.0; 3], [0.0; 3])
         .limit(-0.5, 0.5)
         .swing(0.7, 0.9);
-    assert_eq!(swiveling.swing.unwrap().swing_a, 0.7);
+    assert_eq!(swiveling.swing_of().unwrap().swing_a, 0.7);
+    assert_eq!(swiveling.limit_of().unwrap().max, 0.5);
     let gear = ConstraintDesc::gear([0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 2.5);
-    assert_eq!(gear.gear_ratio, 2.5);
-    assert_eq!(gear.axis_b, [0.0, 0.0, 1.0]);
+    match gear.data() {
+        dynamis_model::ConstraintData::Gear {
+            axis_a,
+            axis_b,
+            ratio,
+        } => {
+            assert_eq!(*axis_a, [0.0, 1.0, 0.0]);
+            assert_eq!(*axis_b, [0.0, 0.0, 1.0]);
+            assert_eq!(*ratio, 2.5);
+        }
+        other => panic!("a gear joint must carry a gear payload, got {other:?}"),
+    }
     let pulley = ConstraintDesc::pulley(
         [0.0; 3],
         [1.0, 0.0, 0.0],
@@ -108,8 +212,15 @@ fn combine_modes_and_constraint_apis() {
         [2.0, 2.0, 0.0],
         3.0,
     );
-    assert_eq!(pulley.rest_length, 3.0);
-    assert_eq!(pulley.pulley_fixed_a, [0.0, 2.0, 0.0]);
+    match pulley.data() {
+        dynamis_model::ConstraintData::Pulley {
+            length, fixed_a, ..
+        } => {
+            assert_eq!(*length, 3.0);
+            assert_eq!(*fixed_a, [0.0, 2.0, 0.0]);
+        }
+        other => panic!("a pulley joint must carry a pulley payload, got {other:?}"),
+    }
     let invalid = catch_unwind(AssertUnwindSafe(|| {
         ConstraintDesc::gear([0.0; 3], [0.0, 1.0, 0.0], 1.0)
     }));

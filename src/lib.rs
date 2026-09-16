@@ -22,7 +22,7 @@ pub use dynamis_gpu::{GpuPassTiming, GpuTimer};
 pub use dynamis_hull::DecomposeSettings;
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, CharacterDesc, CharacterHandle, CharacterInput,
-    CharacterState, ColliderDesc, CollisionFilter, ConstraintBreak, ConstraintDesc,
+    CharacterState, ColliderDesc, CollisionFilter, ConstraintBreak, ConstraintData, ConstraintDesc,
     ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
     ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, FluidMaterial,
     ImpactEvent, JointDof, JointState, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter,
