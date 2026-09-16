@@ -1,4 +1,5 @@
 use super::World;
+use super::device::Facts;
 use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
 use dynamis_abi::{QueryRecord, ShapeRole};
 use dynamis_model::{QueryFilter, Shape};
@@ -176,13 +177,7 @@ impl World {
     }
 
     pub fn wait_query(&mut self, handle: QueryHandle) {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        if self.query_state(handle) != QueryState::Retired {
-            for (batch, bytes) in self.backend.readback.queries.drain() {
-                self.collect_query_batch(batch, &bytes);
-            }
-        }
+        self.sync(Facts::Retired);
         self.validate_query(handle);
     }
 

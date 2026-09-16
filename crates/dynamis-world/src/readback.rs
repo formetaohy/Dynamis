@@ -1,5 +1,6 @@
 use super::World;
 use super::backend::segment::{Arrival, SegmentKind};
+use super::device::Facts;
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
@@ -76,7 +77,7 @@ impl World {
     }
 
     pub fn inspect_contacts(&mut self) -> Vec<ContactManifold> {
-        self.wait();
+        self.sync(Facts::Landed);
         let step = self.clock.step.saturating_sub(1);
         let active = self.backend.measured[COUNTER_CONTACTS] as usize;
         let capacity =
@@ -121,41 +122,6 @@ impl World {
             }
         }
         manifolds
-    }
-
-    pub(crate) fn read_regions(
-        &mut self,
-        label: &str,
-        regions: &[(wgpu::Buffer, u64, u64)],
-    ) -> Vec<u8> {
-        let bytes: u64 = regions.iter().map(|region| region.2).sum();
-        assert!(
-            bytes > 0 && bytes.is_multiple_of(4),
-            "an inspection read must cover a positive word aligned length"
-        );
-        let device = self.backend.gpu.device().clone();
-        let mut readback = match self.backend.inspect.take() {
-            Some(readback) if readback.size() >= bytes => readback,
-            _ => dynamis_gpu::Readback::new(&device, "world inspection readback", bytes, 1),
-        };
-        let borrowed = regions
-            .iter()
-            .map(|(buffer, offset, bytes)| (buffer, *offset, *bytes))
-            .collect::<Vec<_>>();
-        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, label);
-        assert!(
-            readback
-                .enqueue_regions(&mut encoder, &borrowed, 0)
-                .is_none(),
-            "an inspection read requires an idle readback"
-        );
-        self.submit(encoder);
-        let entry = readback
-            .drain()
-            .pop()
-            .expect("an inspection read retires exactly once");
-        self.backend.inspect = Some(readback);
-        entry.1
     }
 
     pub(crate) fn collect_readbacks(&mut self) {

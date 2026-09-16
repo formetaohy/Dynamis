@@ -1,4 +1,5 @@
 use super::World;
+use super::device::Facts;
 use crate::backend::registry::HostWork;
 use crate::command::Consumption;
 use dynamis_abi::DeclaredCounters;
@@ -22,8 +23,7 @@ struct Declarations {
 
 impl World {
     pub(crate) fn execute(&mut self, run: Run) {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
+        self.sync(Facts::Arrived);
         let census = self.census();
         let live = self.live(&census);
         self.apply_plan(&live);

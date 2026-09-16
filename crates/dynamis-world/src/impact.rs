@@ -1,4 +1,5 @@
 use super::World;
+use super::device::Facts;
 use dynamis_abi::ImpactEventRecord;
 use dynamis_model::{BodyHandle, ImpactEvent};
 
@@ -15,14 +16,12 @@ impl ImpactStore {
 
 impl World {
     pub fn collect_impacts(&mut self) -> Vec<ImpactEvent> {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
+        self.sync(Facts::Arrived);
         std::mem::take(&mut self.impacts.impact)
     }
 
     pub fn drain_impacts(&mut self) -> Vec<ImpactEvent> {
-        self.backend.gpu.assert_alive();
-        self.retire_device_facts();
+        self.sync(Facts::Retired);
         std::mem::take(&mut self.impacts.impact)
     }
 

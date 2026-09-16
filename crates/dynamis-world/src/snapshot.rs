@@ -5,6 +5,7 @@ use super::character::CharacterStore;
 use super::clock::Clock;
 use super::collider::ColliderStore;
 use super::constraint::ConstraintStore;
+use super::device::Facts;
 use super::query_pool::QueryPool;
 use super::shape::ShapeStore;
 use super::soft::SoftBodyStore;
@@ -57,7 +58,7 @@ pub struct Snapshot {
 
 impl World {
     pub fn snapshot(&mut self) -> Snapshot {
-        self.backend.gpu.assert_alive();
+        self.sync(Facts::Retired);
         let regions = self.backend.streams.durable_regions();
         let bytes = self.read_regions("dynamis snapshot", &regions);
         Snapshot {
@@ -69,8 +70,7 @@ impl World {
     }
 
     pub fn restore(&mut self, snapshot: &Snapshot) {
-        self.backend.gpu.assert_alive();
-        self.retire_device_facts();
+        self.sync(Facts::Retired);
         self.config = snapshot.config;
         self.clock = snapshot.clock;
         self.wake_all = false;

@@ -1,6 +1,7 @@
 use super::World;
 use super::arena::{Cleared, Mirror, Run};
 use super::command::Consumption;
+use super::device::{Facts, Region};
 use super::journal::EditJournal;
 use super::pool::Pool;
 use dynamis_abi::{
@@ -597,21 +598,10 @@ impl World {
     }
 
     pub fn inspect_soft_particles(&mut self, handle: SoftBodyHandle) -> Vec<[f32; 3]> {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.flush_rows();
+        self.sync(Facts::Retired);
         let run = self.soft.run_of(handle);
-        let stride = self.backend.streams.soft.particles.stride();
-        let bytes = run.len as u64 * stride;
-        let buffer = self.backend.streams.soft.particles.buffer().clone();
-        let raw = self.read_regions(
-            "soft body particles",
-            &[(buffer, run.offset as u64 * stride, bytes)],
-        );
-        let records = dynamis_abi::decode::<SoftParticleRecord>(&raw);
+        let region = Region::of(&self.backend.streams.soft.particles, run.offset, run.len);
+        let records = self.read::<SoftParticleRecord>("soft body particles", region);
         assert!(
             records
                 .iter()
@@ -625,25 +615,18 @@ impl World {
     }
 
     pub fn inspect_soft_elements(&mut self, handle: SoftBodyHandle) -> Vec<SoftElementState> {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.flush_rows();
+        self.sync(Facts::Retired);
         let runs = self.soft.runs_of(handle);
         if runs.elements.len == 0 {
             return Vec::new();
         }
-        let stride = self.backend.streams.soft.elements.stride();
-        let bytes = runs.elements.len as u64 * stride;
-        let buffer = self.backend.streams.soft.elements.buffer().clone();
-        let raw = self.read_regions(
-            "soft body elements",
-            &[(buffer, runs.elements.offset as u64 * stride, bytes)],
+        let region = Region::of(
+            &self.backend.streams.soft.elements,
+            runs.elements.offset,
+            runs.elements.len,
         );
-        let records = dynamis_abi::decode::<SoftElementRecord>(&raw);
-        let states = records
+        let states = self
+            .read::<SoftElementRecord>("soft body elements", region)
             .iter()
             .map(SoftElementRecord::state)
             .collect::<Vec<_>>();

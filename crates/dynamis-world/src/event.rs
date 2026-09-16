@@ -1,4 +1,5 @@
 use super::World;
+use super::device::Facts;
 use dynamis_abi::ContactEventRecord;
 use dynamis_model::{ContactEvent, ContactEventKind};
 use dynamis_scene::scene_target;
@@ -18,14 +19,12 @@ impl EventStore {
 
 impl World {
     pub fn collect_events(&mut self) -> Vec<ContactEvent> {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
+        self.sync(Facts::Arrived);
         std::mem::take(&mut self.events.contact)
     }
 
     pub fn drain_events(&mut self) -> Vec<ContactEvent> {
-        self.backend.gpu.assert_alive();
-        self.retire_device_facts();
+        self.sync(Facts::Retired);
         std::mem::take(&mut self.events.contact)
     }
 

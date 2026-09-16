@@ -6,6 +6,7 @@ mod clock;
 mod collider;
 mod command;
 mod constraint;
+mod device;
 mod event;
 mod fact;
 mod id;

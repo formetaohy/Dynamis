@@ -1,4 +1,5 @@
 use super::World;
+use super::device::{Facts, Region};
 use super::fact::{FactStore, Kind};
 use super::id::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
@@ -330,31 +331,14 @@ impl ObservationStore {
 
 impl World {
     pub fn poll(&mut self) {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
+        self.sync(Facts::Arrived);
     }
 
     pub fn wait(&mut self) {
-        self.backend.gpu.assert_alive();
-        self.resolve_queries();
-        self.retire_device_facts();
-        if self.observed.characters.needs_publication(self.clock.step)
-            || self.observed.vehicles.needs_publication(self.clock.step)
-        {
-            self.execute(dynamis_pass::Run::Publish);
-            self.retire_device_facts();
-        }
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.mirror_body_states();
-        assert!(
-            self.states_current(),
-            "a sync must land the state of every live body"
-        );
+        self.sync(Facts::Landed);
     }
 
-    fn mirror_body_states(&mut self) {
+    pub(crate) fn mirror_body_states(&mut self) {
         if self.states_current() {
             return;
         }
@@ -551,24 +535,13 @@ impl World {
     }
 
     pub fn inspect_character_state(&mut self, handle: CharacterHandle) -> CharacterState {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.flush_rows();
-        let slot = self.characters.slot_of(handle);
-        let states = &self.backend.streams.rigid.character_states;
-        let stride = states.stride();
-        let buffer = states.buffer().clone();
-        let raw = self.read_regions(
-            "character state",
-            &[(buffer, u64::from(slot) * stride, stride)],
+        self.sync(Facts::Retired);
+        let region = Region::of(
+            &self.backend.streams.rigid.character_states,
+            self.characters.slot_of(handle),
+            1,
         );
-        let record = dynamis_abi::decode::<CharacterStateRecord>(&raw)
-            .first()
-            .copied()
-            .expect("a character readback retires exactly one state");
+        let record = self.read_one::<CharacterStateRecord>("character state", region);
         assert!(
             record.owns(handle.id, handle.generation),
             "a character readback must return its own state"
@@ -596,24 +569,13 @@ impl World {
     }
 
     pub fn inspect_vehicle_state(&mut self, handle: VehicleHandle) -> VehicleState {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.flush_rows();
-        let slot = self.vehicles.slot_of(handle);
-        let states = &self.backend.streams.rigid.vehicle_states;
-        let stride = states.stride();
-        let buffer = states.buffer().clone();
-        let raw = self.read_regions(
-            "vehicle state",
-            &[(buffer, u64::from(slot) * stride, stride)],
+        self.sync(Facts::Retired);
+        let region = Region::of(
+            &self.backend.streams.rigid.vehicle_states,
+            self.vehicles.slot_of(handle),
+            1,
         );
-        let record = dynamis_abi::decode::<VehicleStateRecord>(&raw)
-            .first()
-            .copied()
-            .expect("a vehicle readback retires exactly one state");
+        let record = self.read_one::<VehicleStateRecord>("vehicle state", region);
         assert!(
             record.owns(handle.id, handle.generation),
             "a vehicle readback must return its own state"
@@ -702,12 +664,7 @@ impl World {
     }
 
     fn inspect_facts(&mut self) {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
-        let census = self.census();
-        let live = self.live(&census);
-        self.apply_plan(&live);
-        self.flush_rows();
+        self.sync(Facts::Retired);
         self.execute(dynamis_pass::Run::Publish);
         self.retire_device_facts();
     }

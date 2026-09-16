@@ -32,7 +32,6 @@ impl World {
 
     pub fn step(&mut self, dt: f32) {
         assert!(dt > 0.0, "timestep must be strictly positive");
-        self.backend.gpu.assert_alive();
         self.clock.sub_dt = dt;
         self.execute(dynamis_pass::Run::Step);
         self.clock.step += 1;

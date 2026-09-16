@@ -12,6 +12,7 @@ pub mod contact_events;
 pub mod contact_identity;
 pub mod decompose;
 pub mod determinism;
+pub mod device;
 pub mod dynamics;
 pub mod event;
 pub mod filter;

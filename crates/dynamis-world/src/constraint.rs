@@ -1,5 +1,6 @@
 use super::World;
 use super::command::ConstraintCommand;
+use super::device::Facts;
 use super::pool::{Pool, Retired};
 use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
@@ -306,14 +307,12 @@ impl World {
     }
 
     pub fn collect_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
-        self.backend.gpu.assert_alive();
-        self.collect_readbacks();
+        self.sync(Facts::Arrived);
         std::mem::take(&mut self.constraints.broken)
     }
 
     pub fn drain_constraint_breaks(&mut self) -> Vec<ConstraintHandle> {
-        self.backend.gpu.assert_alive();
-        self.retire_device_facts();
+        self.sync(Facts::Retired);
         std::mem::take(&mut self.constraints.broken)
     }
 
