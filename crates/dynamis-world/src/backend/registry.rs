@@ -146,6 +146,7 @@ impl World {
             observed_joints: self.observed.joints.len(),
             observed_joint_demand: self.observed.joints.demand(),
             queries: self.queries.pending.len() as u32,
+            query_hits: self.queries.pending_hits,
             body_commands: self.bodies.commands.len() as u32,
             constraint_commands: self.constraints.commands.len() as u32,
             pending_soft_edits: self.soft.pending_edits(),
@@ -196,6 +197,7 @@ impl World {
             },
             scene: dynamis_scene::SceneInputs {
                 queries: census.queries,
+                hits: census.query_hits,
             },
         }
     }

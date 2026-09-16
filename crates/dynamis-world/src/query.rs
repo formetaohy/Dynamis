@@ -1,10 +1,11 @@
 use super::World;
 use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
-use dynamis_abi::{MAX_HITS_PER_QUERY, QueryRecord};
+use dynamis_abi::QueryRecord;
 use dynamis_model::{QueryFilter, Shape};
 
 pub(crate) struct Queries {
     pub(crate) pending: Vec<QueryRecord>,
+    pub(crate) pending_hits: u32,
     pub(crate) next_batch: u64,
     pub(crate) pool: QueryPool,
 }
@@ -13,10 +14,35 @@ impl Queries {
     pub(crate) fn new() -> Self {
         Self {
             pending: Vec::new(),
+            pending_hits: 0,
             next_batch: 0,
             pool: QueryPool::new(),
         }
     }
+}
+
+pub(crate) fn write_inert_queries(
+    queue: &wgpu::Queue,
+    sweeps: &dynamis_gpu::Stream,
+    hits: &dynamis_gpu::Stream,
+    at: u32,
+    width: u32,
+) {
+    let records = (0..width)
+        .map(|lane| {
+            let mut sweep = dynamis_abi::inert_sweep();
+            sweep.hit_base = at + lane;
+            sweep
+        })
+        .collect::<Vec<_>>();
+    let offset = u64::from(at) * u64::from(width);
+    sweeps.write_at(
+        queue,
+        offset * sweeps.stride(),
+        bytemuck::cast_slice(&records),
+    );
+    let bytes = (u64::from(width) * hits.stride()) as usize;
+    hits.write_at(queue, offset * hits.stride(), &vec![0u8; bytes]);
 }
 
 impl World {
@@ -94,12 +120,16 @@ impl World {
         ))
     }
 
-    fn submit_query(&mut self, record: QueryRecord) -> QueryHandle {
-        assert!(
-            record.max_hits <= MAX_HITS_PER_QUERY,
-            "a query returns at most {MAX_HITS_PER_QUERY} hits"
-        );
+    fn submit_query(&mut self, mut record: QueryRecord) -> QueryHandle {
+        assert!(record.max_hits > 0, "a query must ask for at least one hit");
+        let bound = record.hit_bound();
         let index = self.queries.pending.len() as u32;
+        record.hit_base = self.queries.pending_hits;
+        self.queries.pending_hits = self
+            .queries
+            .pending_hits
+            .checked_add(bound)
+            .expect("a query batch exceeds the device index space");
         self.queries.pending.push(record);
         QueryHandle {
             batch: self.queries.next_batch,

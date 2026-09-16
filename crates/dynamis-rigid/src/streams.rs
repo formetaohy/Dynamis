@@ -2,7 +2,7 @@ use crate::RigidDomain;
 use dynamis_abi::{
     AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
     CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
-    ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryRecord, QueryResultRecord,
+    ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryHitRecord, QueryRecord,
     SOLVER_BLOCK_CONSTRAINT, VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord,
     VehicleWheelRecord,
 };
@@ -80,13 +80,13 @@ streams! {
         character_inputs, CharacterInputs: "character inputs", CharacterInputRecord, 1, Contents::Durable, demand.characters;
         character_states, CharacterStates: "character states", CharacterStateRecord, 1, Contents::Durable, demand.characters;
         character_sweeps, CharacterSweeps: "character sweeps", QueryRecord, 1, Contents::Durable, demand.character_sweeps();
-        character_hits, CharacterHits: "character sweep hits", QueryResultRecord, 1, Contents::Durable, demand.character_sweeps();
+        character_hits, CharacterHits: "character sweep hits", QueryHitRecord, 1, Contents::Durable, demand.character_sweeps();
         vehicles, Vehicles: "vehicles", VehicleRecord, 1, Contents::Durable, demand.vehicles;
         vehicle_wheels, VehicleWheels: "vehicle wheels", VehicleWheelRecord, 1, Contents::Durable, demand.vehicle_wheels();
         vehicle_inputs, VehicleInputs: "vehicle inputs", VehicleInputRecord, 1, Contents::Durable, demand.vehicles;
         vehicle_states, VehicleStates: "vehicle states", VehicleStateRecord, 1, Contents::Durable, demand.vehicles;
         vehicle_sweeps, VehicleSweeps: "vehicle sweeps", QueryRecord, 1, Contents::Durable, demand.vehicle_wheels();
-        vehicle_hits, VehicleHits: "vehicle wheel hits", QueryResultRecord, 1, Contents::Durable, demand.vehicle_wheels();
+        vehicle_hits, VehicleHits: "vehicle wheel hits", QueryHitRecord, 1, Contents::Durable, demand.vehicle_wheels();
     }
 }
 

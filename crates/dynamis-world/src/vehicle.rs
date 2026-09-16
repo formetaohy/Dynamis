@@ -2,7 +2,6 @@ use super::World;
 use super::pool::Pool;
 use dynamis_abi::{
     VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord,
-    inert_sweep,
 };
 use dynamis_model::{BodyHandle, VehicleDesc, VehicleHandle, VehicleInput};
 use dynamis_rigid::RigidStreams;
@@ -200,17 +199,12 @@ fn write_wheels(
 }
 
 fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
-    let sweeps = [inert_sweep(); VEHICLE_WHEELS as usize];
-    streams.vehicle_sweeps.write_at(
+    crate::query::write_inert_queries(
         queue,
-        u64::from(slot) * u64::from(VEHICLE_WHEELS) * streams.vehicle_sweeps.stride(),
-        bytemuck::cast_slice(&sweeps),
-    );
-    let hits = vec![0u8; VEHICLE_WHEELS as usize * streams.vehicle_hits.stride() as usize];
-    streams.vehicle_hits.write_at(
-        queue,
-        u64::from(slot) * u64::from(VEHICLE_WHEELS) * streams.vehicle_hits.stride(),
-        &hits,
+        &streams.vehicle_sweeps,
+        &streams.vehicle_hits,
+        slot,
+        VEHICLE_WHEELS,
     );
 }
 

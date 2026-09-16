@@ -85,6 +85,7 @@ census! {
         live_characters,
         live_vehicles,
         queries,
+        query_hits,
         adjacency,
         body_commands,
         constraint_commands,

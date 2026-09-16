@@ -2,7 +2,7 @@
 @group(0) @binding(1) var<storage, read> character_inputs: array<CharacterInput>;
 @group(0) @binding(2) var<storage, read_write> character_states: array<CharacterState>;
 @group(0) @binding(3) var<storage, read_write> character_sweeps: array<Query>;
-@group(0) @binding(4) var<storage, read_write> character_hits: array<QueryResult>;
+@group(0) @binding(4) var<storage, read_write> character_hits: array<QueryHit>;
 @group(0) @binding(5) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(6) var<storage, read> row_of_body: array<u32>;
 @group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
@@ -31,10 +31,10 @@ fn character_up(gravity: vec3f) -> vec3f {
 
 fn character_sweep(index: u32, lane: u32) -> CharacterSweep {
     let base = index * CHARACTER_SWEEPS + lane;
-    if (atomicLoad(&character_hits[base].header.count) == 0u) {
+    if (character_sweeps[base].count == 0u) {
         return CharacterSweep(false, NO_HIT, vec3f(0.0));
     }
-    let hit = character_hits[base].hits[0];
+    let hit = character_hits[base];
     return CharacterSweep(true, hit.distance, hit.normal);
 }
 
@@ -63,7 +63,7 @@ fn forward_blocked(forward: CharacterSweep, forward_low: CharacterSweep, up: vec
     return !floor_like(select(forward_low.normal, forward.normal, forward.hit), up);
 }
 
-fn character_query(character: Character, origin: vec3f, direction: vec3f, extent: f32) -> Query {
+fn character_query(character: Character, base: u32, origin: vec3f, direction: vec3f, extent: f32) -> Query {
     var query: Query;
     query.kind = QUERY_SWEEP;
     query.shape_kind = SHAPE_SPHERE;
@@ -73,6 +73,7 @@ fn character_query(character: Character, origin: vec3f, direction: vec3f, extent
     query.filters.mask = 0xFFFFFFFFu;
     query.source = 0u;
     query.max_hits = 1u;
+    query.hit_base = base;
     query.filters.exclude_id = character.body_id;
     query.filters.exclude_generation = character.generation;
     query.filters.include_id = NO_BODY;
@@ -172,9 +173,9 @@ fn work(index: u32) {
     let bottom = position - up * character.half_height;
     let top = position + up * character.half_height;
     let lifted = position + up * character.step_height;
-    character_sweeps[base + SWEEP_FORWARD] = character_query(character, position, forward_dir, forward_length);
-    character_sweeps[base + SWEEP_FORWARD_LOW] = character_query(character, bottom, forward_dir, forward_length);
-    character_sweeps[base + SWEEP_LIFTED_FORWARD] = character_query(character, lifted, forward_dir, forward_length);
-    character_sweeps[base + SWEEP_DOWN] = character_query(character, bottom, -up, down_length);
-    character_sweeps[base + SWEEP_CEILING] = character_query(character, top, up, up_length);
+    character_sweeps[base + SWEEP_FORWARD] = character_query(character, base + SWEEP_FORWARD, position, forward_dir, forward_length);
+    character_sweeps[base + SWEEP_FORWARD_LOW] = character_query(character, base + SWEEP_FORWARD_LOW, bottom, forward_dir, forward_length);
+    character_sweeps[base + SWEEP_LIFTED_FORWARD] = character_query(character, base + SWEEP_LIFTED_FORWARD, lifted, forward_dir, forward_length);
+    character_sweeps[base + SWEEP_DOWN] = character_query(character, base + SWEEP_DOWN, bottom, -up, down_length);
+    character_sweeps[base + SWEEP_CEILING] = character_query(character, base + SWEEP_CEILING, top, up, up_length);
 }

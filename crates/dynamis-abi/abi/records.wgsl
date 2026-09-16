@@ -2,7 +2,7 @@ const CONTACT_MAX_POINTS: u32 = 4u;
 const CONSTRAINT_ACCUMULATOR_SLOTS: u32 = 16u;
 const ELEMENT_PARTICLES: u32 = 4u;
 const JOINT_DOF: u32 = 6u;
-const MAX_HITS_PER_QUERY: u32 = 16u;
+const QUERY_CANDIDATES: u32 = 4096u;
 const CHARACTER_SWEEPS: u32 = 5u;
 const VEHICLE_WHEELS: u32 = 4u;
 
@@ -430,16 +430,11 @@ struct Query {
     extent: f32,
     radius: f32,
     half_height: f32,
-    _pad1: f32,
-    _pad2: f32,
+    count: u32,
+    hit_base: u32,
     half_extents: vec3f,
-    _pad3: f32,
+    overflow: u32,
     orientation: vec4f,
-}
-
-struct QueryResultHeader {
-    count: atomic<u32>,
-    overflow: atomic<u32>,
 }
 
 struct QueryHit {
@@ -451,11 +446,6 @@ struct QueryHit {
     triangle: u32,
     normal: vec3f,
     surface: u32,
-}
-
-struct QueryResult {
-    header: QueryResultHeader,
-    hits: array<QueryHit, MAX_HITS_PER_QUERY>,
 }
 
 struct ContactEvent {

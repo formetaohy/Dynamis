@@ -14,7 +14,7 @@ impl SceneCast {
         context: &GpuContext,
         streams: &impl Resources,
         queries: SlotRef,
-        results: SlotRef,
+        hits: SlotRef,
     ) -> Self {
         let slots = [
             ("queries", queries),
@@ -25,7 +25,7 @@ impl SceneCast {
             ("entry_order", BroadphaseStream::EntryOrder.whole()),
             ("entries", BroadphaseStream::Entries.whole()),
             ("counters", StateStream::Counters.whole()),
-            ("query_results", results),
+            ("query_hits", hits),
             ("params", StateStream::Params.whole()),
             ("collider_owners", StateStream::ColliderOwners.whole()),
             ("particles", SoftStream::Particles.whole()),

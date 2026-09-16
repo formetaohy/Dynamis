@@ -95,6 +95,9 @@ fn shape_fields(record: &mut QueryRecord, shape: &Shape) {
 }
 
 impl QueryRecord {
+    pub fn hit_bound(&self) -> u32 {
+        self.max_hits.min(crate::QUERY_CANDIDATES)
+    }
     pub fn ray(origin: [f32; 3], direction: [f32; 3], max_t: f32, filter: &QueryFilter) -> Self {
         let mut record = query_record(QUERY_RAY, filter);
         record.origin = origin;

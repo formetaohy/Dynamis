@@ -1,35 +1,35 @@
-@group(0) @binding(4) var<storage, read> queries: array<Query>;
+@group(0) @binding(4) var<storage, read_write> queries: array<Query>;
 @group(0) @binding(5) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(6) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(7) var<storage, read> colliders: array<Collider>;
-@group(0) @binding(8) var<storage, read_write> query_results: array<QueryResult>;
+@group(0) @binding(8) var<storage, read_write> query_hits: array<QueryHit>;
 @group(0) @binding(9) var<uniform> params: StepParams;
 @group(0) @binding(10) var<storage, read> collider_owners: array<u32>;
 @group(0) @binding(11) var<storage, read> particles: array<SoftParticle>;
 @group(0) @binding(12) var<storage, read> soft_bodies: array<SoftBody>;
 
-const CANDIDATES_PER_QUERY: u32 = 4096u;
-
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
 }
 
-var<workgroup> candidates: array<u32, CANDIDATES_PER_QUERY>;
+var<workgroup> candidates: array<u32, QUERY_CANDIDATES>;
 var<workgroup> candidate_count: atomic<u32>;
 var<workgroup> overflow_flag: atomic<u32>;
-var<workgroup> valid_count: atomic<u32>;
 var<workgroup> pick_key: atomic<u32>;
 var<workgroup> pick_slot: atomic<u32>;
+var<workgroup> hit_total: atomic<u32>;
+var<workgroup> threshold_key: u32;
+var<workgroup> threshold_slot: u32;
 
 fn sort_width(candidate_total: u32) -> u32 {
     var width = WORKGROUP_SIZE;
     loop {
-        if (width >= candidate_total || width >= CANDIDATES_PER_QUERY) {
+        if (width >= candidate_total || width >= QUERY_CANDIDATES) {
             break;
         }
         width = width * 2u;
     }
-    return min(width, CANDIDATES_PER_QUERY);
+    return min(width, QUERY_CANDIDATES);
 }
 
 fn bitonic_sort(local_invocation: u32, width: u32) {
@@ -98,7 +98,7 @@ fn collect_entry(entry: u32, query_box: Aabb, whole: bool, query: Query) {
         return;
     }
     let slot = atomicAdd(&candidate_count, 1u);
-    if (slot >= CANDIDATES_PER_QUERY) {
+    if (slot >= QUERY_CANDIDATES) {
         atomicStore(&overflow_flag, 1u);
         return;
     }
@@ -107,7 +107,7 @@ fn collect_entry(entry: u32, query_box: Aabb, whole: bool, query: Query) {
 
 fn collect_whole_slice(slice: GridSlice, query_box: Aabb, invocation: u32, query: Query) {
     var entry = slice.first + invocation;
-    while (entry < slice.end && atomicLoad(&candidate_count) <= CANDIDATES_PER_QUERY) {
+    while (entry < slice.end && atomicLoad(&candidate_count) <= QUERY_CANDIDATES) {
         collect_entry(entry, query_box, true, query);
         entry = entry + WORKGROUP_SIZE;
     }
@@ -379,48 +379,12 @@ fn hit_key(distance: f32) -> u32 {
     return bits | 0x80000000u;
 }
 
-fn keep_nearest(
-    keys: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
-    slots: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
-    stored: ptr<function, u32>,
-    capacity: u32,
-    key: u32,
-    slot: u32,
-) {
-    if (capacity == 0u || (*stored) >= capacity && key >= (*keys)[capacity - 1u]) {
-        return;
-    }
-    var position = min(*stored, capacity - 1u);
-    loop {
-        if (position == 0u) {
-            break;
-        }
-        let previous_key = (*keys)[position - 1u];
-        let previous_slot = (*slots)[position - 1u];
-        if (previous_key < key || (previous_key == key && previous_slot < slot)) {
-            break;
-        }
-        (*keys)[position] = previous_key;
-        (*slots)[position] = previous_slot;
-        position = position - 1u;
-    }
-    (*keys)[position] = key;
-    (*slots)[position] = slot;
-    if ((*stored) < capacity) {
-        (*stored) = (*stored) + 1u;
-    }
+fn eligible(key: u32, slot: u32) -> bool {
+    return key > threshold_key || (key == threshold_key && slot > threshold_slot);
 }
 
-fn drop_nearest(
-    keys: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
-    slots: ptr<function, array<u32, MAX_HITS_PER_QUERY>>,
-    stored: ptr<function, u32>,
-) {
-    for (var index = 1u; index < (*stored); index = index + 1u) {
-        (*keys)[index - 1u] = (*keys)[index];
-        (*slots)[index - 1u] = (*slots)[index];
-    }
-    (*stored) = (*stored) - 1u;
+fn nearer(key: u32, slot: u32, key_now: u32, slot_now: u32) -> bool {
+    return key < key_now || (key == key_now && slot < slot_now);
 }
 
 fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
@@ -473,9 +437,12 @@ fn main(
 ) {
     let batch = workgroup_id.y * WORKGROUPS_PER_ROW + workgroup_id.x;
     let query = queries[batch];
+    let capacity = min(query.max_hits, QUERY_CANDIDATES);
+    let base = query.hit_base;
     if (invocation_id.x == 0u) {
-        atomicStore(&query_results[batch].header.count, 0u);
-        atomicStore(&query_results[batch].header.overflow, 0u);
+        threshold_key = 0u;
+        threshold_slot = NO_CANDIDATE;
+        atomicStore(&hit_total, 0u);
     }
     workgroupBarrier();
     atomicStore(&candidate_count, 0u);
@@ -484,10 +451,7 @@ fn main(
     let query_box = query_world_aabb(query);
     collect_candidates(query_box, invocation_id.x, query);
     workgroupBarrier();
-    if (invocation_id.x == 0u && atomicLoad(&overflow_flag) != 0u) {
-        atomicStore(&query_results[batch].header.overflow, 1u);
-    }
-    let candidate_total = min(atomicLoad(&candidate_count), CANDIDATES_PER_QUERY);
+    let candidate_total = min(atomicLoad(&candidate_count), QUERY_CANDIDATES);
     let width = sort_width(candidate_total);
     for (var index = invocation_id.x; index < width; index = index + WORKGROUP_SIZE) {
         if (index >= candidate_total) {
@@ -497,70 +461,71 @@ fn main(
     workgroupBarrier();
     bitonic_sort(invocation_id.x, width);
     workgroupBarrier();
-    let capacity = min(query.max_hits, MAX_HITS_PER_QUERY);
-    var nearest_key: array<u32, MAX_HITS_PER_QUERY>;
-    var nearest_slot: array<u32, MAX_HITS_PER_QUERY>;
-    var stored = 0u;
-    var resolved = 0u;
-    var candidate_index = invocation_id.x;
-    while (candidate_index < candidate_total) {
-        let candidate = candidates[candidate_index];
-        let duplicate = candidate_index > 0u && candidate == candidates[candidate_index - 1u];
-        if (!duplicate && candidate_passes_filters(query, candidate)) {
-            var normal = vec3f(0.0);
-            let hit = resolve_candidate_hit(query, candidate, &normal);
-            if (hit.distance < NO_HIT) {
-                resolved = resolved + 1u;
-                keep_nearest(&nearest_key, &nearest_slot, &stored, capacity, hit_key(hit.distance), candidate);
-            }
-        }
-        candidate_index = candidate_index + WORKGROUP_SIZE;
-    }
-    if (invocation_id.x == 0u) {
-        atomicStore(&valid_count, 0u);
-    }
-    workgroupBarrier();
-    atomicAdd(&valid_count, resolved);
-    workgroupBarrier();
-    let total_hits = atomicLoad(&valid_count);
-    let emitted_total = min(total_hits, capacity);
+    var emitted = 0u;
     var round = 0u;
     loop {
-        if (round >= emitted_total) {
+        if (emitted >= capacity) {
             break;
+        }
+        var mine_key = NO_KEY;
+        var mine_slot = NO_CANDIDATE;
+        var mine_hit = no_hit();
+        var resolved = 0u;
+        var candidate_index = invocation_id.x;
+        while (candidate_index < candidate_total) {
+            let candidate = candidates[candidate_index];
+            let duplicate = candidate_index > 0u && candidate == candidates[candidate_index - 1u];
+            if (!duplicate && candidate_passes_filters(query, candidate)) {
+                var normal = vec3f(0.0);
+                let hit = resolve_candidate_hit(query, candidate, &normal);
+                if (hit.distance < NO_HIT) {
+                    if (round == 0u) {
+                        resolved = resolved + 1u;
+                    }
+                    let key = hit_key(hit.distance);
+                    if (eligible(key, candidate) && nearer(key, candidate, mine_key, mine_slot)) {
+                        mine_key = key;
+                        mine_slot = candidate;
+                        mine_hit = hit;
+                    }
+                }
+            }
+            candidate_index = candidate_index + WORKGROUP_SIZE;
+        }
+        if (round == 0u) {
+            atomicAdd(&hit_total, resolved);
         }
         if (invocation_id.x == 0u) {
             atomicStore(&pick_key, NO_KEY);
-            atomicStore(&pick_slot, NO_KEY);
+            atomicStore(&pick_slot, NO_CANDIDATE);
         }
         workgroupBarrier();
-        var head_key = NO_KEY;
-        var head_slot = NO_KEY;
-        if (stored > 0u) {
-            head_key = nearest_key[0];
-            head_slot = nearest_slot[0];
-        }
-        atomicMin(&pick_key, head_key);
+        atomicMin(&pick_key, mine_key);
         workgroupBarrier();
         let chosen_key = atomicLoad(&pick_key);
-        if (head_key == chosen_key) {
-            atomicMin(&pick_slot, head_slot);
+        if (mine_key == chosen_key) {
+            atomicMin(&pick_slot, mine_slot);
         }
         workgroupBarrier();
         let chosen_slot = atomicLoad(&pick_slot);
-        if (head_key == chosen_key && head_slot == chosen_slot) {
-            var normal = vec3f(0.0);
-            let hit = resolve_candidate_hit(query, chosen_slot, &normal);
-            let owner = candidate_owner(chosen_slot);
-            query_results[batch].hits[round] = QueryHit(owner.x, owner.y, hit.distance, chosen_slot, hit.point, hit.triangle, hit.normal, candidate_surface(chosen_slot, hit.triangle));
-            drop_nearest(&nearest_key, &nearest_slot, &stored);
+        if (mine_key == chosen_key && mine_slot == chosen_slot && chosen_key != NO_KEY) {
+            let owner = candidate_owner(mine_slot);
+            query_hits[base + emitted] = QueryHit(owner.x, owner.y, mine_hit.distance, mine_slot, mine_hit.point, mine_hit.triangle, mine_hit.normal, candidate_surface(mine_slot, mine_hit.triangle));
+            threshold_key = chosen_key;
+            threshold_slot = chosen_slot;
         }
-        round = round + 1u;
         workgroupBarrier();
+        let found = chosen_key != NO_KEY;
+        emitted = emitted + select(0u, 1u, found);
+        round = round + 1u;
+        if (!found) {
+            break;
+        }
     }
     if (invocation_id.x == 0u) {
         let spilling = atomicLoad(&overflow_flag) != 0u;
-        atomicStore(&query_results[batch].header.count, emitted_total);
-        atomicStore(&query_results[batch].header.overflow, select(0u, 1u, spilling || emitted_total < total_hits));
+        let total_hits = atomicLoad(&hit_total);
+        queries[batch].count = emitted;
+        queries[batch].overflow = select(0u, 1u, spilling || emitted < total_hits);
     }
 }

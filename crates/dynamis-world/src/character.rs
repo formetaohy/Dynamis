@@ -170,18 +170,12 @@ fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &
 }
 
 fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
-    let sweeps = [dynamis_abi::inert_sweep(); CHARACTER_SWEEPS as usize];
-    streams.character_sweeps.write_at(
+    crate::query::write_inert_queries(
         queue,
-        u64::from(slot) * u64::from(CHARACTER_SWEEPS) * streams.character_sweeps.stride(),
-        bytemuck::cast_slice(&sweeps),
-    );
-    let hits =
-        vec![0u8; u64::from(CHARACTER_SWEEPS) as usize * streams.character_hits.stride() as usize];
-    streams.character_hits.write_at(
-        queue,
-        u64::from(slot) * u64::from(CHARACTER_SWEEPS) * streams.character_hits.stride(),
-        &hits,
+        &streams.character_sweeps,
+        &streams.character_hits,
+        slot,
+        CHARACTER_SWEEPS,
     );
 }
 

@@ -834,13 +834,13 @@ fn query_validation_panics() {
                 [0.0, 0.0, 0.0],
                 1.0,
                 &QueryFilter {
-                    max_hits: 32,
+                    max_hits: 0,
                     ..QueryFilter::default()
                 },
             );
         }))
         .is_err(),
-        "a request above the hit lane count must fail fast"
+        "a query that asks for no hits must fail fast"
     );
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -1088,6 +1088,34 @@ fn query_after_teleport_sees_the_new_position() {
         world.query_hit(stale).is_none(),
         "stale entries must not answer for the old position"
     );
+}
+
+#[test]
+fn a_query_reaches_every_hit_it_asks_for() {
+    let mut world = new_world(static_config());
+    let count = 40usize;
+    let expected = (0..count)
+        .map(|index| query_static(&mut world, 0.4, [0.0, 0.0, 2.0 + index as f32 * 2.0]))
+        .collect::<Vec<_>>();
+    let handle = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        200.0,
+        &QueryFilter {
+            max_hits: count as u32,
+            ..QueryFilter::default()
+        },
+    );
+    world.step(DT);
+    world.wait();
+    let hits = world.query_hits(handle);
+    assert_eq!(hits.len(), count, "every requested hit must be reported");
+    assert_eq!(
+        hits.iter().map(|hit| hit.body()).collect::<Vec<_>>(),
+        expected,
+        "hits beyond the workgroup lane must stay in distance order"
+    );
+    assert!(!world.query_overflow(handle));
 }
 
 #[test]

@@ -19,7 +19,7 @@ impl PassRuntime<SceneFrame> for Query {
                 context,
                 streams,
                 SceneStream::QueryRecords.whole(),
-                SceneStream::QueryResults.whole(),
+                SceneStream::QueryHits.whole(),
             ),
         }
     }

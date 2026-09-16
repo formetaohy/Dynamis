@@ -2,7 +2,7 @@ use super::World;
 use crate::backend::registry::HostWork;
 use crate::commands::Consumption;
 use dynamis_abi::DeclaredCounters;
-use dynamis_abi::QueryResultRecord;
+use dynamis_abi::QueryHitRecord;
 use dynamis_domain::StepFacts;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_pass::Run;
@@ -11,7 +11,8 @@ use std::mem::size_of;
 #[derive(Clone, Copy)]
 struct Batch {
     id: u64,
-    bytes: u64,
+    queries: u32,
+    hits: u32,
 }
 
 struct Declarations {
@@ -134,6 +135,7 @@ impl World {
             return None;
         }
         let id = self.queries.next_batch;
+        let hits = self.queries.pending_hits;
         self.backend.streams.scene.query_records.write(
             self.backend.gpu.queue(),
             bytemuck::cast_slice(&self.queries.pending),
@@ -141,9 +143,11 @@ impl World {
         self.queries.pool.submit(id, self.clock.step, width);
         self.queries.next_batch += 1;
         self.queries.pending.clear();
+        self.queries.pending_hits = 0;
         Some(Batch {
             id,
-            bytes: width as u64 * size_of::<QueryResultRecord>() as u64,
+            queries: width as u32,
+            hits,
         })
     }
 
@@ -168,11 +172,15 @@ impl World {
         encoder: &mut SubmissionEncoder,
         batch: Batch,
     ) -> Option<(u64, Vec<u8>)> {
-        let regions = [(
-            self.backend.streams.scene.query_results.buffer(),
-            0,
-            batch.bytes,
-        )];
+        let records = &self.backend.streams.scene.query_records;
+        let regions = [
+            (records.buffer(), 0, batch.queries as u64 * records.stride()),
+            (
+                self.backend.streams.scene.query_hits.buffer(),
+                0,
+                batch.hits as u64 * size_of::<QueryHitRecord>() as u64,
+            ),
+        ];
         self.backend
             .readback
             .queries

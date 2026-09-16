@@ -1,9 +1,8 @@
-use dynamis_abi::{
-    MAX_HITS_PER_QUERY, NO_SURFACE, NO_TRIANGLE, QueryResultHeaderRecord, QueryResultRecord,
-};
+use dynamis_abi::{NO_SURFACE, NO_TRIANGLE, QueryHitRecord, QueryRecord};
 use dynamis_model::{BodyHandle, SceneTarget, SoftBodyHandle, SurfaceDesc};
 use dynamis_scene::{scene_slot, scene_target};
 use std::collections::VecDeque;
+use std::mem::size_of;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueryHandle {
@@ -154,20 +153,20 @@ impl QueryPool {
             .find(|batch| batch.batch == batch_id)
             .unwrap_or_else(|| panic!("no query batch is registered for batch {batch_id}"));
         let step = batch.step;
-        let records = dynamis_abi::decode::<QueryResultRecord>(bytes);
-        let mut hits = vec![Vec::new(); batch.width];
-        let mut overflow = vec![false; batch.width];
-        for (index, result) in records.iter().take(batch.width).enumerate() {
-            let QueryResultHeaderRecord {
-                count,
-                overflow: spilled,
-                ..
-            } = result.header;
+        let width = batch.width;
+        let record_bytes = width * size_of::<QueryRecord>();
+        let records = dynamis_abi::decode::<QueryRecord>(&bytes[..record_bytes]);
+        let hits = dynamis_abi::decode::<QueryHitRecord>(&bytes[record_bytes..]);
+        let mut span = vec![Vec::new(); width];
+        let mut overflow = vec![false; width];
+        let mut base = 0usize;
+        for (index, record) in records.iter().enumerate() {
+            let count = record.count as usize;
             assert!(
-                count <= MAX_HITS_PER_QUERY,
-                "GPU query result exceeds the hit lane count"
+                count <= record.hit_bound() as usize,
+                "a query outcome exceeds the hit span it declared"
             );
-            hits[index] = result.hits[..count as usize]
+            span[index] = hits[record.hit_base as usize..record.hit_base as usize + count]
                 .iter()
                 .map(|record| QueryHit {
                     target: scene_target(
@@ -186,9 +185,18 @@ impl QueryPool {
                     step,
                 })
                 .collect();
-            overflow[index] = spilled != 0;
+            overflow[index] = record.overflow != 0;
+            base += record.hit_bound() as usize;
         }
-        batch.outcome = Some(QueryOutcome { hits, overflow });
+        assert_eq!(
+            base,
+            hits.len(),
+            "a query batch must cover every declared hit span"
+        );
+        batch.outcome = Some(QueryOutcome {
+            hits: span,
+            overflow,
+        });
         while self.batches.len() > dynamis_gpu::FACT_LAG {
             self.batches.pop_front();
         }

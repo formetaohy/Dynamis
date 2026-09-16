@@ -3,7 +3,7 @@
 @group(0) @binding(2) var<storage, read> vehicle_inputs: array<VehicleInput>;
 @group(0) @binding(3) var<storage, read_write> vehicle_states: array<VehicleState>;
 @group(0) @binding(4) var<storage, read_write> vehicle_sweeps: array<Query>;
-@group(0) @binding(5) var<storage, read_write> vehicle_hits: array<QueryResult>;
+@group(0) @binding(5) var<storage, read_write> vehicle_hits: array<QueryHit>;
 @group(0) @binding(6) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(7) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(8) var<storage, read> row_of_body: array<u32>;
@@ -25,14 +25,14 @@ struct WheelLoad {
 }
 
 fn wheel_hit(id: u32) -> WheelHit {
-    if (atomicLoad(&vehicle_hits[id].header.count) == 0u) {
+    if (vehicle_sweeps[id].count == 0u) {
         return WheelHit(false, NO_HIT, vec3f(0.0, 1.0, 0.0));
     }
-    let record = vehicle_hits[id].hits[0];
+    let record = vehicle_hits[id];
     return WheelHit(true, record.distance, record.normal);
 }
 
-fn wheel_query(vehicle: Vehicle, wheel: VehicleWheel, origin: vec3f, axis: vec3f) -> Query {
+fn wheel_query(vehicle: Vehicle, base: u32, wheel: VehicleWheel, origin: vec3f, axis: vec3f) -> Query {
     var query: Query;
     query.kind = QUERY_SWEEP;
     query.shape_kind = SHAPE_SPHERE;
@@ -42,6 +42,7 @@ fn wheel_query(vehicle: Vehicle, wheel: VehicleWheel, origin: vec3f, axis: vec3f
     query.filters.mask = 0xFFFFFFFFu;
     query.source = 0u;
     query.max_hits = 1u;
+    query.hit_base = base;
     query.filters.exclude_id = vehicle.body_id;
     query.filters.exclude_generation = vehicle.generation;
     query.filters.include_id = NO_BODY;
@@ -162,7 +163,7 @@ fn work(index: u32) {
         force = force + lane_load.force;
         torque = torque + lane_load.torque;
         grounded = grounded + lane_load.grounded;
-        vehicle_sweeps[index * VEHICLE_WHEELS + lane] = wheel_query(vehicle, wheel, origin, axis);
+        vehicle_sweeps[index * VEHICLE_WHEELS + lane] = wheel_query(vehicle, index * VEHICLE_WHEELS + lane, wheel, origin, axis);
     }
     body.force = body.force + force;
     body.torque = body.torque + torque;
