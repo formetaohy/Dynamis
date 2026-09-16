@@ -1,4 +1,4 @@
-use super::common::{gravity_config, new_world, settle};
+use super::common::{DT, gravity_config, new_world, settle};
 use dynamis_model::{BodyDesc, ConstraintDesc, SoftBodyDesc};
 
 const QUERY_RUN: &[&str] = &["update_query_aabbs"];
@@ -146,6 +146,9 @@ fn a_full_scene_profiles_every_pass_of_a_step() {
         .position([0.0, 2.0, 0.0]),
     );
     settle(&mut world, 12);
+    world.set_gravity([0.0, -10.0, 0.0]);
+    world.step(DT);
+    world.wait();
     let mut declared: Vec<&str> = world
         .pass_labels()
         .into_iter()

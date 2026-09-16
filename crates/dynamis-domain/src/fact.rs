@@ -9,9 +9,15 @@ pub struct StepFacts {
 }
 
 impl StepFacts {
-    pub fn of(config: &PhysicsConfig, dt: f32, census: Census, rows: RowStreams) -> Self {
+    pub fn of(
+        config: &PhysicsConfig,
+        dt: f32,
+        census: Census,
+        rows: RowStreams,
+        wake_all: bool,
+    ) -> Self {
         Self {
-            params: StepParamsRecord::new(config, dt, census),
+            params: StepParamsRecord::new(config, dt, census, wake_all),
             census,
             rows,
         }

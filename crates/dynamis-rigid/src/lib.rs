@@ -15,6 +15,7 @@ mod solver;
 mod sort;
 mod streams;
 mod vehicle;
+mod wake;
 
 use commit::OBSERVED_JOINTS_EXECUTION;
 use dynamis_abi::{Census, RowStreams, StepParamsRecord};
@@ -97,6 +98,7 @@ use live::Live;
 use narrowphase::Narrowphase;
 use solver::{SolveSubsteps, SolverPrepare};
 use vehicle::{SweepVehicles, Vehicle};
+use wake::{WAKE_ALL_EXECUTION, WakeAll};
 
 pub use capacity::{RigidCapacity, RigidInputs, capacity, floor, plan};
 pub use ccd::{CcdApply, CcdPasses, CcdRuntime, CcdSweep};
@@ -108,12 +110,13 @@ domain_passes!(
     RigidRuntime,
     RigidFrame,
     apply_commands: ApplyCommands => Execution::GRAPH => &[],
+    wake_all: WakeAll => WAKE_ALL_EXECUTION => &["apply_commands"],
     character: Character => Execution::STEP.and(Execution::AWAKE) => &["apply_commands"],
     prepare: Prepare => Execution::INDEXING.and(Execution::STEP) => &["apply_commands", "character"],
     update_query_aabbs: UpdateQueryAabbs => Execution::QUERY => &["apply_commands"],
     vehicle: Vehicle => Execution::STEP.and(Execution::AWAKE) => &["apply_commands"],
     emit_entries: EmitEntries => Execution::INDEXING => {
-        &["prepare", "update_query_aabbs", "update_soft_bounds"]
+        &["prepare", "update_query_aabbs", "update_soft_bounds", "wake_all"]
     },
     narrowphase: Narrowphase => Execution::AWAKE => &["broadphase"],
     build_islands: BuildIslands => Execution::AWAKE => &["narrowphase"],

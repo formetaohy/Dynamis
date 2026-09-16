@@ -280,12 +280,6 @@ impl SoftBodyStore {
         self.commands.push(slot, command);
     }
 
-    pub(crate) fn wake_all(&mut self) {
-        for handle in self.pool.alive() {
-            self.body_commands.push(handle.id, SoftBodyCommand::Wake);
-        }
-    }
-
     pub(crate) fn runs_of(&self, handle: SoftBodyHandle) -> SoftRuns {
         self.validate(handle);
         self.runs[handle.id as usize]

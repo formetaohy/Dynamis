@@ -29,7 +29,13 @@ impl World {
         self.apply_plan(&live);
         self.flush_observed();
         let work = self.prepare(run);
-        let facts = StepFacts::of(&self.config, self.clock.sub_dt, census, self.row_streams());
+        let facts = StepFacts::of(
+            &self.config,
+            self.clock.sub_dt,
+            census,
+            self.row_streams(),
+            self.wake_all,
+        );
         self.write_step_records(facts.params);
         let frames = self.frames_of(&live, work.as_ref(), &facts, run);
         let device = self.backend.gpu.device().clone();
@@ -197,10 +203,14 @@ impl World {
     }
 
     fn finish(&mut self, run: Run) {
-        if run == Run::Query {
-            let census = self.census();
-            let live = self.live(&census);
-            self.apply_plan(&live);
+        match run {
+            Run::Step => self.wake_all = false,
+            Run::Query => {
+                let census = self.census();
+                let live = self.live(&census);
+                self.apply_plan(&live);
+            }
+            Run::Publish => {}
         }
     }
 }

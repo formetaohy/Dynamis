@@ -1,5 +1,8 @@
 use super::common::{DT, asleep, distance, gravity_config, new_world, settle, settle_until};
-use dynamis_abi::{COUNTER_SOFT_ACTIVE, COUNTER_SOFT_SLEPT, COUNTER_SOFT_WOKE};
+use dynamis_abi::{
+    COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_SOFT_ACTIVE, COUNTER_SOFT_SLEPT,
+    COUNTER_SOFT_WOKE, COUNTER_WOKE,
+};
 use dynamis_model::{BodyDesc, SoftBodyDesc, SoftMaterial};
 use dynamis_world::World;
 
@@ -149,6 +152,81 @@ fn a_global_parameter_change_wakes_the_sleeping_simulation() {
         lifted > resting + 0.3,
         "inverted gravity must lift the sleeping soft body, {resting} -> {lifted}"
     );
+}
+
+#[test]
+fn a_scene_level_wake_reaches_a_world_that_holds_only_deformables() {
+    let mut world = new_world(super::common::static_config());
+    let handle = world.add_soft_body(cloth([0.0, 4.0, 0.0]));
+    quiet(&mut world);
+    let resting = mean_height(&world.inspect_soft_particles(handle));
+    world.set_gravity([0.0, -9.81, 0.0]);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_SOFT_WOKE],
+        1,
+        "a scene level wake must reach a world without rigid bodies"
+    );
+    settle(&mut world, 30);
+    let fallen = mean_height(&world.inspect_soft_particles(handle));
+    assert!(
+        fallen < resting - 0.3,
+        "a scene level wake must move the sleeping deformable, {resting} -> {fallen}"
+    );
+}
+
+#[test]
+fn a_scene_level_wake_rides_its_own_pass_and_compiles_no_body_command() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let mut balls = Vec::new();
+    for index in 0..24 {
+        balls.push(world.spawn(BodyDesc::sphere(0.3).position([
+            (index % 8) as f32 * 1.2 - 4.0,
+            0.3,
+            (index / 8) as f32 * 1.2 - 1.5,
+        ])));
+    }
+    let _cloth = world.add_soft_body(cloth([0.0, 0.6, 4.0]));
+    settle_until(&mut world, 300, |world| asleep(world) && soft_asleep(world));
+
+    world.set_gravity([0.0, 9.81, 0.0]);
+    world.step(DT);
+    let ran = world.ran_passes();
+    for pass in ["wake_all", "soft_wake_all"] {
+        assert!(
+            ran.contains(&pass),
+            "a scene level wake must ride {pass}, ran {ran:?}"
+        );
+    }
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_BODY_EDITS],
+        0,
+        "a scene level wake must not compile one body edit per entity"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_BODY_MOVES],
+        0,
+        "a scene level wake must not move any body row"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_WOKE] as usize,
+        balls.len(),
+        "every sleeping body must report its wake transition"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_SOFT_WOKE],
+        1,
+        "a sleeping soft body must report its wake transition"
+    );
+    for ball in balls {
+        assert!(
+            !world.read_state(ball).sleeping,
+            "a scene level wake must wake every body it declares"
+        );
+    }
 }
 
 #[test]

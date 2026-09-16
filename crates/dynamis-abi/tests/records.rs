@@ -312,6 +312,7 @@ fn step_params_record_maps_config() {
             vehicles: 3,
             ..Census::default()
         },
+        false,
     );
     assert_eq!(record.gravity, [0.0, -9.81, 3.0, 0.0]);
     assert_eq!(record.dt, 1.0 / 60.0);
@@ -892,7 +893,7 @@ fn every_declared_count_bounds_its_own_step_field() {
         soft_edits: 24,
         soft_body_edits: 25,
     };
-    let params = StepParamsRecord::new(&PhysicsConfig::default(), 1.0 / 60.0, census);
+    let params = StepParamsRecord::new(&PhysicsConfig::default(), 1.0 / 60.0, census, false);
     let declared = Count::ALL
         .iter()
         .map(|count| (count.bound().expression(), count.rows(&params, &rows)))

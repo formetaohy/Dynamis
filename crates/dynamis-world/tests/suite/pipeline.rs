@@ -3,6 +3,7 @@ use dynamis_model::BodyDesc;
 
 const STEP: &[&str] = &[
     "apply_commands",
+    "wake_all",
     "character",
     "prepare",
     "update_query_aabbs",
@@ -20,6 +21,7 @@ const STEP: &[&str] = &[
     "ccd_sweep",
     "ccd_apply",
     "apply_soft_inputs",
+    "soft_wake_all",
     "soft_settle",
     "solve_soft_substeps",
     "emit_contact_facts",

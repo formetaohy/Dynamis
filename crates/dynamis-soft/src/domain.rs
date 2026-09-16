@@ -1,4 +1,5 @@
 use crate::capacity::floor;
+use crate::passes::WAKE_ALL_GATE;
 use crate::{
     SoftCapacity, SoftDemand, SoftFrame, SoftInputs, SoftPasses, SoftRuntime, SoftStreams,
 };
@@ -8,7 +9,7 @@ use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
 use dynamis_gpu::ResourceSource;
-use dynamis_pass::{PassGroup, Pipeline};
+use dynamis_pass::{Execution, PassGroup, Pipeline};
 
 pub struct SoftDomain;
 
@@ -17,6 +18,7 @@ pub struct SoftWork {
     pub uploads: bool,
     pub body_edits: u32,
     pub edits: u32,
+    pub wake_all: bool,
 }
 
 impl Domain for SoftDomain {
@@ -44,7 +46,7 @@ impl Domain for SoftDomain {
     }
 
     fn pending(work: &SoftWork) -> bool {
-        work.uploads || work.body_edits > 0 || work.edits > 0
+        work.uploads || work.body_edits > 0 || work.edits > 0 || work.wake_all
     }
 
     fn active(measured: &Counters) -> bool {
@@ -67,7 +69,10 @@ impl Domain for SoftDomain {
         SoftRuntime::build(context, streams, passes)
     }
 
-    fn gates(_: &SoftFrame) -> u16 {
+    fn gates(frame: &SoftFrame) -> u16 {
+        if frame.params.wake_all != 0 {
+            return Execution::gate(WAKE_ALL_GATE).bits();
+        }
         0
     }
 

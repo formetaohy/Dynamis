@@ -31,7 +31,6 @@ use body::BodyStore;
 use character::CharacterStore;
 use clock::Clock;
 use collider::ColliderStore;
-use command::BodyCommand;
 use constraint::ConstraintStore;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
@@ -56,6 +55,7 @@ pub use snapshot::Snapshot;
 
 pub struct World {
     config: PhysicsConfig,
+    wake_all: bool,
 
     clock: Clock,
     backend: Backend,
@@ -79,6 +79,7 @@ impl World {
         let backend = Backend::new(gpu);
         Self {
             config,
+            wake_all: false,
             clock: Clock::new(),
             backend,
             bodies: BodyStore::new(),
@@ -111,10 +112,7 @@ impl World {
     }
 
     fn wake_all(&mut self) {
-        for row in 0..self.bodies.pool.len() {
-            self.bodies.commands.push(BodyCommand::Wake { row });
-        }
-        self.soft.wake_all();
+        self.wake_all = true;
     }
 
     pub fn stream_capacity(&self) -> StreamCapacity {

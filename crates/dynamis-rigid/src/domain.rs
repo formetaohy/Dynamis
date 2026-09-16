@@ -27,6 +27,7 @@ pub struct RigidWork {
     pub constraint_commands: u32,
     pub character_inputs: bool,
     pub vehicle_inputs: bool,
+    pub wake_all: bool,
 }
 
 impl Domain for RigidDomain {
@@ -58,6 +59,7 @@ impl Domain for RigidDomain {
             || work.constraint_commands > 0
             || work.character_inputs
             || work.vehicle_inputs
+            || work.wake_all
     }
 
     fn active(measured: &Counters) -> bool {
@@ -87,6 +89,9 @@ impl Domain for RigidDomain {
         }
         if frame.observed_joints > 0 {
             gates |= Execution::gate(crate::commit::OBSERVED_JOINTS_GATE).bits();
+        }
+        if frame.params.wake_all != 0 {
+            gates |= Execution::gate(crate::wake::WAKE_ALL_GATE).bits();
         }
         gates
     }

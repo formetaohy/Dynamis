@@ -73,6 +73,7 @@ impl World {
         self.retire_device_facts();
         self.config = snapshot.config;
         self.clock = snapshot.clock;
+        self.wake_all = false;
         snapshot.scene.restore(self);
         self.abandon_observations();
         self.restart_measures();

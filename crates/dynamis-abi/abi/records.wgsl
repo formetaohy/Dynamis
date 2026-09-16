@@ -42,6 +42,7 @@ struct StepParams {
     observed_joint_count: u32,
     character_count: u32,
     vehicle_count: u32,
+    wake_all: u32,
 }
 
 struct RowStreams {

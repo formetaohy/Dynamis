@@ -103,7 +103,7 @@ census! {
 }
 
 impl StepParamsRecord {
-    pub fn new(config: &PhysicsConfig, dt: f32, census: Census) -> Self {
+    pub fn new(config: &PhysicsConfig, dt: f32, census: Census, wake_all: bool) -> Self {
         let mut record = Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,
@@ -128,6 +128,7 @@ impl StepParamsRecord {
             restitution_combine: combine_code(config.restitution_combine),
             soft_substep_dt: dt / config.soft_substeps as f32,
             settle_velocity: config.settle_velocity,
+            wake_all: u32::from(wake_all),
             ..Self::zeroed()
         };
         record.absorb_census(&census);

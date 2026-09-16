@@ -213,11 +213,13 @@ impl World {
                 constraint_commands: self.constraints.last_commands + self.constraints.last_moves,
                 character_inputs: self.characters.last_inputs > 0,
                 vehicle_inputs: self.vehicles.last_inputs > 0,
+                wake_all: self.wake_all,
             },
             soft: dynamis_soft::SoftWork {
                 uploads: self.soft.uploaded,
                 body_edits: self.soft.last_body_edits,
                 edits: self.soft.last_edits,
+                wake_all: self.wake_all,
             },
             scene: dynamis_scene::SceneWork {
                 queries: self.queries.pending.len() as u32,

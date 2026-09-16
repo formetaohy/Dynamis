@@ -239,6 +239,48 @@ impl PassRuntime<SoftFrame> for ApplySoftInputs {
     }
 }
 
+pub const WAKE_ALL_GATE: u32 = 0;
+
+pub const WAKE_ALL_EXECUTION: Execution = Execution::STEP
+    .and(Execution::AWAKE)
+    .and(Execution::gate(WAKE_ALL_GATE));
+
+pub struct WakeAll {
+    wake: Stage,
+}
+
+impl PassRuntime<SoftFrame> for WakeAll {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
+        Self {
+            wake: Stage::build(
+                context,
+                "soft_wake_all",
+                rows(
+                    context,
+                    include_str!("../shaders/soft_wake_all.wgsl"),
+                    CORE,
+                    Count::SoftBodies.bound(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("bodies", SoftStream::BodyStates.whole()),
+                ],
+                &[],
+            ),
+        }
+    }
+
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl ResourceSource,
+        frame: &SoftFrame,
+    ) {
+        self.wake.record_rows(recorder, streams, frame.bodies());
+    }
+}
+
 pub struct SoftSettle {
     activity: Stage,
     wake: Stage,
@@ -658,7 +700,8 @@ domain_passes!(
     update_soft_bounds: UpdateSoftBounds => Execution::INDEXING => &[],
     emit_soft_entries: EmitSoftEntries => Execution::INDEXING => &["update_soft_bounds", "prepare"],
     apply_soft_inputs: ApplySoftInputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
-    soft_settle: SoftSettle => Execution::AWAKE => &["apply_soft_inputs"],
+    soft_wake_all: WakeAll => WAKE_ALL_EXECUTION => &["apply_soft_inputs"],
+    soft_settle: SoftSettle => Execution::AWAKE => &["apply_soft_inputs", "soft_wake_all"],
     solve_soft_substeps: SolveSoftSubsteps => Execution::AWAKE => &["soft_settle"],
     emit_contact_facts: EmitContactFacts => Execution::AWAKE => &["solve_soft_substeps"],
 );
