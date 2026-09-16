@@ -4,7 +4,6 @@ const ELEMENT_PARTICLES: u32 = 4u;
 const JOINT_DOF: u32 = 6u;
 const QUERY_CANDIDATES: u32 = 4096u;
 const CHARACTER_SWEEPS: u32 = 5u;
-const VEHICLE_WHEELS: u32 = 4u;
 
 struct StepParams {
     gravity: vec4f,
@@ -42,6 +41,7 @@ struct StepParams {
     observed_joint_count: u32,
     character_count: u32,
     vehicle_count: u32,
+    vehicle_wheel_count: u32,
     wake_all: u32,
 }
 
@@ -519,12 +519,12 @@ struct VehicleWheel {
 struct Vehicle {
     body_id: u32,
     generation: u32,
+    wheel_base: u32,
     wheel_count: u32,
     driving_count: u32,
     max_steer: f32,
     drive_force: f32,
     brake_force: f32,
-    _pad0: f32,
 }
 
 struct VehicleInput {

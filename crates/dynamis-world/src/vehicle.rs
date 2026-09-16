@@ -1,8 +1,7 @@
 use super::World;
+use super::arena::{Cleared, Mirror, Run};
 use super::pool::Pool;
-use dynamis_abi::{
-    VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord,
-};
+use dynamis_abi::{VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord};
 use dynamis_model::{BodyHandle, VehicleDesc, VehicleHandle, VehicleInput};
 use dynamis_rigid::RigidStreams;
 
@@ -23,11 +22,16 @@ impl Slot {
     };
 }
 
+impl Cleared for VehicleWheelRecord {
+    const CLEARED: Self = Self::cleared();
+}
+
 #[derive(Clone)]
 pub(crate) struct VehicleStore {
     pub(crate) pool: Pool<VehicleHandle>,
     slots: Vec<Slot>,
-    wheels: Vec<VehicleWheelRecord>,
+    runs: Vec<Run>,
+    wheels: Mirror<VehicleWheelRecord>,
     pending_inputs: u32,
     pub(crate) last_inputs: u32,
 }
@@ -37,7 +41,8 @@ impl VehicleStore {
         Self {
             pool: Pool::vacate("vehicle"),
             slots: Vec::new(),
-            wheels: Vec::new(),
+            runs: Vec::new(),
+            wheels: Mirror::new(),
             pending_inputs: 0,
             last_inputs: 0,
         }
@@ -49,6 +54,10 @@ impl VehicleStore {
 
     pub(crate) fn slots(&self) -> u32 {
         self.pool.ids()
+    }
+
+    pub(crate) fn wheel_count(&self) -> u32 {
+        self.wheels.used()
     }
 
     pub(crate) fn pending(&self) -> bool {
@@ -97,32 +106,26 @@ impl VehicleStore {
     pub(crate) fn spawn(
         &mut self,
         body: BodyHandle,
-        record: VehicleRecord,
+        desc: &VehicleDesc,
         wheels: &[VehicleWheelRecord],
         position: [f32; 3],
     ) -> VehicleHandle {
-        assert!(
-            wheels.len() <= VEHICLE_WHEELS as usize,
-            "a vehicle carries at most {VEHICLE_WHEELS} wheels"
-        );
+        assert!(!wheels.is_empty(), "a vehicle carries at least one wheel");
         let handle = self.pool.acquire();
         let slot = self.pool.insert(handle) as usize;
+        let run = self.wheels.take(wheels.len() as u32);
+        self.wheels.records_mut()[run.span()].copy_from_slice(wheels);
         if self.slots.len() <= slot {
             self.slots.resize(slot + 1, Slot::RETIRED);
+            self.runs.resize(slot + 1, Run::EMPTY);
         }
         self.slots[slot] = Slot {
             body: Some(body),
-            record,
+            record: VehicleRecord::build(desc, body.id, body.generation, run.offset),
             input: VehicleInputRecord::idle(),
             state: VehicleStateRecord::spawn(handle.id, handle.generation, position),
         };
-        let run = slot * VEHICLE_WHEELS as usize;
-        if self.wheels.len() < run + VEHICLE_WHEELS as usize {
-            self.wheels
-                .resize(run + VEHICLE_WHEELS as usize, VehicleWheelRecord::cleared());
-        }
-        self.wheels[run..run + VEHICLE_WHEELS as usize].fill(VehicleWheelRecord::cleared());
-        self.wheels[run..run + wheels.len()].copy_from_slice(wheels);
+        self.runs[slot] = run;
         handle
     }
 
@@ -135,24 +138,24 @@ impl VehicleStore {
 
     pub(crate) fn retire(&mut self, handle: VehicleHandle) {
         let slot = self.pool.retire(handle).row as usize;
+        self.wheels.retire(self.runs[slot]);
         self.slots[slot] = Slot::RETIRED;
-        let run = slot * VEHICLE_WHEELS as usize;
-        self.wheels[run..run + VEHICLE_WHEELS as usize].fill(VehicleWheelRecord::cleared());
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &RigidStreams) {
         for slot in self.pool.take_retired() {
-            reset_scratch(queue, streams, slot);
+            reset_scratch(queue, streams, self.runs[slot as usize]);
             write_slot(queue, streams, slot, &Slot::RETIRED);
         }
         for slot in self.pool.take_fresh() {
-            reset_scratch(queue, streams, slot);
+            reset_scratch(queue, streams, self.runs[slot as usize]);
             write_slot(queue, streams, slot, &self.slots[slot as usize]);
-            write_wheels(queue, streams, slot, &self.wheels);
         }
         for slot in self.pool.take_dirty() {
             write_input(queue, streams, slot, &self.slots[slot as usize]);
         }
+        self.wheels
+            .flush(|offset, records| write_wheels(queue, streams, offset, records));
     }
 }
 
@@ -186,25 +189,23 @@ fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &
 fn write_wheels(
     queue: &wgpu::Queue,
     streams: &RigidStreams,
-    slot: u32,
+    offset: u32,
     wheels: &[VehicleWheelRecord],
 ) {
-    let run = slot as usize * VEHICLE_WHEELS as usize;
-    let at = slot as u64 * u64::from(VEHICLE_WHEELS) * streams.vehicle_wheels.stride();
     streams.vehicle_wheels.write_at(
         queue,
-        at,
-        bytemuck::cast_slice(&wheels[run..run + VEHICLE_WHEELS as usize]),
+        u64::from(offset) * streams.vehicle_wheels.stride(),
+        bytemuck::cast_slice(wheels),
     );
 }
 
-fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
+fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, run: Run) {
     crate::query::write_inert_queries(
         queue,
         &streams.vehicle_sweeps,
         &streams.vehicle_hits,
-        slot,
-        VEHICLE_WHEELS,
+        run.offset,
+        run.len,
     );
 }
 
@@ -217,9 +218,8 @@ impl World {
             .iter()
             .map(VehicleWheelRecord::build)
             .collect::<Vec<_>>();
-        let record = VehicleRecord::build(&desc, body.id, body.generation);
         self.vehicles
-            .spawn(body, record, &wheels, desc.chassis.position)
+            .spawn(body, &desc, &wheels, desc.chassis.position)
     }
 
     pub fn remove_vehicle(&mut self, handle: VehicleHandle) {

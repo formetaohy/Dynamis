@@ -326,6 +326,7 @@ fn step_params_record_maps_config() {
             observed_joints: 8,
             characters: 2,
             vehicles: 3,
+            vehicle_wheels: 14,
             ..Census::default()
         },
         false,
@@ -346,6 +347,7 @@ fn step_params_record_maps_config() {
     assert_eq!(record.element_count, 19);
     assert_eq!(record.attachment_count, 21);
     assert_eq!(record.soft_body_count, 23);
+    assert_eq!(record.vehicle_wheel_count, 14);
     assert_eq!(record.settle_velocity, 0.001);
     assert_eq!(record.solve_iterations, 7);
     assert_eq!(record.position_iterations, 5);
@@ -902,6 +904,7 @@ fn every_declared_count_bounds_its_own_step_field() {
         observed_joints: 10,
         characters: 11,
         vehicles: 12,
+        vehicle_wheels: 13,
         ..Census::default()
     };
     let rows = RowStreams {
@@ -928,7 +931,7 @@ fn every_declared_count_bounds_its_own_step_field() {
     values.sort_unstable();
     assert_eq!(
         values,
-        (1..=12).chain(21..=25).collect::<Vec<_>>(),
+        (1..=13).chain(21..=25).collect::<Vec<_>>(),
         "every declared count must resolve to the census field it was declared from, got {declared:?}"
     );
 }

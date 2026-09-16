@@ -25,17 +25,17 @@ pub(crate) fn write_inert_queries(
     queue: &wgpu::Queue,
     sweeps: &dynamis_gpu::Stream,
     hits: &dynamis_gpu::Stream,
-    at: u32,
+    base: u32,
     width: u32,
 ) {
     let records = (0..width)
         .map(|lane| {
             let mut sweep = dynamis_abi::inert_sweep();
-            sweep.hit_base = at + lane;
+            sweep.hit_base = base + lane;
             sweep
         })
         .collect::<Vec<_>>();
-    let offset = u64::from(at) * u64::from(width);
+    let offset = u64::from(base);
     sweeps.write_at(
         queue,
         offset * sweeps.stride(),

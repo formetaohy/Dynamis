@@ -133,7 +133,7 @@ fn work(index: u32) {
         return;
     }
     let input = vehicle_inputs[index];
-    let wheels = min(vehicle.wheel_count, VEHICLE_WHEELS);
+    let wheels = vehicle.wheel_count;
     let mass = 1.0 / desc.inverse_mass;
     let steer = clamp(input.steering, -1.0, 1.0) * vehicle.max_steer;
     let up = quat_rotate(body.orientation, vec3f(0.0, 1.0, 0.0));
@@ -141,7 +141,7 @@ fn work(index: u32) {
     var torque = vec3f(0.0);
     var grounded = 0u;
     for (var lane = 0u; lane < wheels; lane = lane + 1u) {
-        let wheel = vehicle_wheels[index * VEHICLE_WHEELS + lane];
+        let wheel = vehicle_wheels[vehicle.wheel_base + lane];
         if (wheel.radius <= 0.0) {
             continue;
         }
@@ -156,14 +156,14 @@ fn work(index: u32) {
             wheels,
             steer,
             input,
-            wheel_hit(index * VEHICLE_WHEELS + lane),
+            wheel_hit(vehicle.wheel_base + lane),
             origin,
             axis,
         );
         force = force + lane_load.force;
         torque = torque + lane_load.torque;
         grounded = grounded + lane_load.grounded;
-        vehicle_sweeps[index * VEHICLE_WHEELS + lane] = wheel_query(vehicle, index * VEHICLE_WHEELS + lane, wheel, origin, axis);
+        vehicle_sweeps[vehicle.wheel_base + lane] = wheel_query(vehicle, vehicle.wheel_base + lane, wheel, origin, axis);
     }
     body.force = body.force + force;
     body.torque = body.torque + torque;

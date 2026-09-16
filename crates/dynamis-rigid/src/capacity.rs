@@ -29,6 +29,7 @@ pub struct RigidInputs {
     pub impacts: bool,
     pub characters: u32,
     pub vehicles: u32,
+    pub vehicle_wheels: u32,
 }
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {
@@ -105,6 +106,12 @@ pub fn plan(
             MIN_SLOTS,
             release,
         ),
+        wheels: settled(
+            current.vehicle_wheels.slots(),
+            inputs.vehicle_wheels,
+            MIN_SLOTS,
+            release,
+        ),
     }
 }
 
@@ -121,5 +128,6 @@ pub fn floor(pairs: u32) -> RigidDemand {
         sort: RigidDemand::sort_slots(pairs, MIN_SLOTS).max(MIN_SLOTS),
         characters: MIN_SLOTS,
         vehicles: MIN_SLOTS,
+        wheels: MIN_SLOTS,
     }
 }

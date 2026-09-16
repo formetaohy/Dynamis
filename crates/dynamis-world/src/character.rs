@@ -174,7 +174,7 @@ fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
         queue,
         &streams.character_sweeps,
         &streams.character_hits,
-        slot,
+        slot * CHARACTER_SWEEPS,
         CHARACTER_SWEEPS,
     );
 }

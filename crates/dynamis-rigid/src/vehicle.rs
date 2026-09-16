@@ -1,6 +1,6 @@
 use super::streams::RigidStream;
 use crate::RigidFrame;
-use dynamis_abi::{Count, VEHICLE_WHEELS};
+use dynamis_abi::Count;
 use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_scene::SceneCast;
@@ -78,9 +78,7 @@ impl PassRuntime<RigidFrame> for SweepVehicles {
         streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
-        let sweeps = Count::Vehicles
-            .rows(&frame.params, &frame.rows)
-            .saturating_mul(VEHICLE_WHEELS);
+        let sweeps = Count::VehicleWheels.rows(&frame.params, &frame.rows);
         self.cast.record(recorder, streams, sweeps);
     }
 }

@@ -6,22 +6,17 @@ use crate::constant::NO_BODY;
 use dynamis_model::{VehicleDesc, VehicleInput, VehicleState, WheelDesc};
 
 impl VehicleRecord {
-    pub fn build(desc: &VehicleDesc, body_id: u32, generation: u32) -> Self {
+    pub fn build(desc: &VehicleDesc, body_id: u32, generation: u32, wheel_base: u32) -> Self {
         desc.assert_valid();
-        assert!(
-            desc.wheels.len() <= crate::VEHICLE_WHEELS as usize,
-            "a vehicle carries at most {} wheels",
-            crate::VEHICLE_WHEELS,
-        );
         Self {
             body_id,
             generation,
+            wheel_base,
             wheel_count: desc.wheels.len() as u32,
             driving_count: desc.driving_wheels(),
             max_steer: desc.max_steer,
             drive_force: desc.drive_force,
             brake_force: desc.brake_force,
-            _pad0: 0.0,
         }
     }
 
@@ -29,12 +24,12 @@ impl VehicleRecord {
         Self {
             body_id: NO_BODY,
             generation: 0,
+            wheel_base: 0,
             wheel_count: 0,
             driving_count: 0,
             max_steer: 0.0,
             drive_force: 0.0,
             brake_force: 0.0,
-            _pad0: 0.0,
         }
     }
 

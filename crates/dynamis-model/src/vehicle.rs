@@ -1,7 +1,5 @@
 use crate::body::BodyDesc;
 
-pub const WHEELS: usize = 4;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VehicleHandle {
     pub id: u32,
@@ -128,10 +126,6 @@ impl VehicleDesc {
         assert!(
             !self.wheels.is_empty(),
             "a vehicle carries at least one wheel"
-        );
-        assert!(
-            self.wheels.len() <= WHEELS,
-            "a vehicle carries at most {WHEELS} wheels"
         );
         for wheel in &self.wheels {
             assert!(

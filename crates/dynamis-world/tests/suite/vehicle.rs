@@ -254,3 +254,81 @@ fn removing_a_vehicles_chassis_directly_panics() {
     let body = world.vehicle_body(vehicle);
     world.remove(body);
 }
+
+fn six_wheeler() -> VehicleDesc {
+    let wheels = [
+        WheelDesc::new([0.8, -0.2, 1.6], RADIUS)
+            .steering()
+            .driving(),
+        WheelDesc::new([-0.8, -0.2, 1.6], RADIUS)
+            .steering()
+            .driving(),
+        WheelDesc::new([0.8, -0.2, 0.0], RADIUS).driving(),
+        WheelDesc::new([-0.8, -0.2, 0.0], RADIUS).driving(),
+        WheelDesc::new([0.8, -0.2, -1.6], RADIUS).driving(),
+        WheelDesc::new([-0.8, -0.2, -1.6], RADIUS).driving(),
+    ]
+    .into_iter()
+    .map(|wheel| wheel.suspension(0.3, 1.5, 0.7))
+    .collect();
+    VehicleDesc::new(
+        BodyDesc::cuboid([0.9, 0.3, 2.2])
+            .mass(MASS)
+            .position([0.0, 0.75, 0.0]),
+        wheels,
+    )
+}
+
+#[test]
+fn a_vehicle_carries_every_declared_wheel() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let vehicle = world.add_vehicle(six_wheeler());
+    drive(&mut world, vehicle, VehicleInput::IDLE, 30);
+    let state = world.inspect_vehicle_state(vehicle);
+    assert_eq!(
+        state.wheels_grounded, 6,
+        "every declared wheel must touch flat ground, got {state:?}"
+    );
+    let body = world.vehicle_body(vehicle);
+    let height = world.read_state(body).position[1];
+    assert!(
+        (0.68..0.80).contains(&height),
+        "a six wheeled chassis must ride at its static height, got {height}"
+    );
+    drive(&mut world, vehicle, VehicleInput::drive(1.0, 0.0), 120);
+    let state = world.inspect_vehicle_state(vehicle);
+    assert!(
+        state.position[2] > 6.0,
+        "a six wheeled vehicle must drive on every axle, got {:?}",
+        state.position
+    );
+}
+
+#[test]
+fn a_new_vehicle_takes_over_the_wheel_span_of_a_retired_one() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let first = settled_vehicle(&mut world);
+    world.remove_vehicle(first);
+    let second = world.add_vehicle(car());
+    drive(&mut world, second, VehicleInput::IDLE, 30);
+    let state = world.inspect_vehicle_state(second);
+    assert_eq!(
+        state.wheels_grounded, 4,
+        "a successor must answer with its own wheels, got {state:?}"
+    );
+    let body = world.vehicle_body(second);
+    let height = world.read_state(body).position[1];
+    assert!(
+        (0.68..0.80).contains(&height),
+        "a successor must ride at its static height, got {height}"
+    );
+    drive(&mut world, second, VehicleInput::drive(1.0, 0.0), 120);
+    let state = world.inspect_vehicle_state(second);
+    assert!(
+        state.position[2] > 6.0,
+        "a successor must drive from the inherited wheel span, got {:?}",
+        state.position
+    );
+}

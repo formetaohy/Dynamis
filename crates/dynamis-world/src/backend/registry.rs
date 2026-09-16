@@ -141,6 +141,7 @@ impl World {
             characters: self.characters.slots(),
             live_characters: self.characters.count(),
             vehicles: self.vehicles.slots(),
+            vehicle_wheels: self.vehicles.wheel_count(),
             live_vehicles: self.vehicles.count(),
             observed: self.observed.bodies.len(),
             observed_joints: self.observed.joints.len(),
@@ -183,6 +184,7 @@ impl World {
                 impacts: self.colliders.impact_armed() > 0,
                 characters: census.characters,
                 vehicles: census.vehicles,
+                vehicle_wheels: census.vehicle_wheels,
             },
             soft: dynamis_soft::SoftInputs {
                 particles: census.particles,

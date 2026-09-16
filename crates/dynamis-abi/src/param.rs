@@ -77,6 +77,7 @@ census! {
         ObservedJoints: observed_joints = observed_joint_count,
         Characters: characters = character_count,
         Vehicles: vehicles = vehicle_count,
+        VehicleWheels: vehicle_wheels = vehicle_wheel_count,
     }
     host {
         body_ids,

@@ -69,12 +69,15 @@ impl<T: Cleared> Mirror<T> {
     }
 
     pub(crate) fn flush(&mut self, mut write: impl FnMut(u32, &[T])) {
+        let live = self.arena.used();
         let pending = std::mem::take(&mut self.pending);
         for run in pending {
-            if run.len == 0 {
+            let len = run.len.min(live.saturating_sub(run.offset));
+            if len == 0 {
                 continue;
             }
-            write(run.offset, &self.storage[run.span()]);
+            let start = run.offset as usize;
+            write(run.offset, &self.storage[start..start + len as usize]);
         }
     }
 }
