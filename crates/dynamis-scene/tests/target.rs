@@ -22,13 +22,7 @@ fn a_packed_collider_target_decodes_into_the_body_that_owns_it() {
         },
         |_, _| panic!("a collider target must not resolve a particle"),
     );
-    assert_eq!(
-        target,
-        SceneTarget::Collider {
-            body,
-            collider: 10,
-        }
-    );
+    assert_eq!(target, SceneTarget::Collider { body, collider: 10 });
 }
 
 #[test]
@@ -47,13 +41,7 @@ fn a_packed_particle_target_decodes_into_the_soft_body_that_owns_it() {
             slot * 3
         },
     );
-    assert_eq!(
-        target,
-        SceneTarget::Particle {
-            body,
-            particle: 27,
-        }
-    );
+    assert_eq!(target, SceneTarget::Particle { body, particle: 27 });
 }
 
 #[test]

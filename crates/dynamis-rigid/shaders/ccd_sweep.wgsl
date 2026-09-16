@@ -25,23 +25,16 @@ fn sweep_retreat(
     }
     let motion = moving.state.position - moving.state.prev_position;
     let sweep_length = length(motion);
-    let bound = min_radius(moving_collider) + min_radius(static_collider);
-    if (sweep_length <= bound * 0.5) {
+    if (sweep_length <= 0.0) {
         return 1.0;
     }
-    let moving_world = world_collider(moving.state, moving_collider);
     let static_world = world_collider(static_body.state, static_collider);
     if (static_world.kind == SHAPE_NONE) {
         return 1.0;
     }
-    let hit = convex_hit_at(
-        moving_world,
-        moving.state.prev_position,
-        motion / sweep_length,
-        static_world,
-        min_radius(moving_collider),
-        sweep_length,
-    );
+    var moving_world = world_collider(moving.state, moving_collider);
+    moving_world.center = moving_world.center - motion;
+    let hit = shape_sweep(moving_world, static_world, moving_world.center, motion / sweep_length, sweep_length);
     if (hit.distance <= 0.0 || hit.distance >= sweep_length) {
         return 1.0;
     }

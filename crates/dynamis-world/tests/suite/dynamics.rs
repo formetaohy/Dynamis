@@ -274,6 +274,40 @@ fn ccd_flag_stops_bullet_that_would_tunnel() {
 }
 
 #[test]
+fn ccd_stops_an_elongated_body_by_its_leading_face() {
+    let mut world = new_world(static_config());
+    let _wall = world.spawn(
+        BodyDesc::cuboid([0.05, 5.0, 5.0])
+            .mass(0.0)
+            .position([0.0, 0.0, 0.0]),
+    );
+    let rod = world.spawn(
+        BodyDesc::cuboid([1.0, 0.05, 0.05])
+            .position([-4.0, 0.0, 0.0])
+            .velocity([240.0, 0.0, 0.0])
+            .restitution(0.0),
+    );
+    world.set_ccd(rod, true);
+    world.step(DT);
+    world.wait();
+    let tip = world.read_state(rod).position[0] + 1.0;
+    assert!(
+        tip < 0.05,
+        "ccd must sweep the rod's leading face before it crosses the wall, tip reached {tip}"
+    );
+    settle(&mut world, 20);
+    let tip = world.read_state(rod).position[0] + 1.0;
+    assert!(
+        tip < 0.05,
+        "a ccd rod must never cross the wall it swept, tip reached {tip}"
+    );
+    assert!(
+        tip > -0.2,
+        "a ccd rod must come to rest against the wall, tip reached {tip}"
+    );
+}
+
+#[test]
 fn ccd_bullet_stops_at_the_nearest_obstacle_of_a_chain() {
     let mut world = new_world(static_config());
     let mut nearest = f32::MAX;

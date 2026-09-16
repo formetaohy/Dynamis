@@ -698,35 +698,6 @@ fn convex_sample_points(
     return 1u;
 }
 
-fn convex_hit_at(
-    moving: WorldShape,
-    start: vec3f,
-    direction: vec3f,
-    static_target: WorldShape,
-    expand: f32,
-    max_dist: f32,
-) -> ShapeHit {
-    if (static_target.kind == SHAPE_PLANE) {
-        let n = plane_normal(static_target);
-        let signed = dot(start - static_target.center, n);
-        let travel = dot(direction, n);
-        if (travel >= 0.0) {
-            return no_hit();
-        }
-        var time = (signed - expand) / travel;
-        if (time > max_dist) {
-            return no_hit();
-        }
-        time = max(time, 0.0);
-        let point = start + direction * time;
-        return ShapeHit(time, point, n, NO_TRIANGLE);
-    }
-    if (static_target.kind == SHAPE_HULL || static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
-        return scene_convex_sweep(static_target, moving, start, direction, max_dist);
-    }
-    return ray_scaled_shape(static_target, start, direction, NO_HIT, expand);
-}
-
 const EMPTY_RING_FACE: u32 = FEATURE_INDEX_LIMIT;
 const CYLINDER_CAP_POINTS: u32 = 8u;
 const CYLINDER_SIDE_POINTS: u32 = 16u;

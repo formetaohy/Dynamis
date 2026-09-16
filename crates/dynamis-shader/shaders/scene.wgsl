@@ -1,14 +1,25 @@
+const SWEEP_TOLERANCE: f32 = 1e-4;
+
+fn nearest_hit(held: ShapeHit, candidate: ShapeHit) -> ShapeHit {
+    if (candidate.distance < held.distance) {
+        return candidate;
+    }
+    return held;
+}
+
 fn ray_sphere(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, radius: f32) -> ShapeHit {
     let offset = origin - center;
-    let projection = dot(offset, direction);
-    let discriminant = projection * projection - (dot(offset, offset) - radius * radius);
-    if (discriminant < 0.0) {
+    let quadratic = dot(direction, direction);
+    let linear = dot(offset, direction);
+    let constant = dot(offset, offset) - radius * radius;
+    let discriminant = linear * linear - quadratic * constant;
+    if (quadratic <= 0.0 || discriminant < 0.0) {
         return no_hit();
     }
     let root = sqrt(discriminant);
-    var t = -projection - root;
+    var t = (-linear - root) / quadratic;
     if (t < 0.0) {
-        t = -projection + root;
+        t = (-linear + root) / quadratic;
     }
     if (t < 0.0 || t > extent) {
         return no_hit();
@@ -66,36 +77,183 @@ fn ray_box(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, q: vec4f
     return ShapeHit(tmin, point, normal, NO_TRIANGLE);
 }
 
-fn ray_segment(origin: vec3f, direction: vec3f, extent: f32, seg: Segment, radius: f32) -> ShapeHit {
+fn ray_quadratic_root(quadratic: f32, linear: f32, constant: f32) -> f32 {
+    let discriminant = linear * linear - quadratic * constant;
+    if (quadratic <= 0.0 || discriminant < 0.0) {
+        return NO_HIT;
+    }
+    let root = sqrt(discriminant);
+    let near = (-linear - root) / quadratic;
+    if (near >= 0.0) {
+        return near;
+    }
+    let far = (-linear + root) / quadratic;
+    if (far >= 0.0) {
+        return far;
+    }
+    return NO_HIT;
+}
+
+fn ray_sphere_candidate(
+    origin: vec3f,
+    direction: vec3f,
+    extent: f32,
+    center: vec3f,
+    radius: f32,
+    hemisphere: vec3f,
+) -> ShapeHit {
+    let offset = origin - center;
+    let t = ray_quadratic_root(dot(direction, direction), dot(offset, direction), dot(offset, offset) - radius * radius);
+    if (t == NO_HIT || t > extent) {
+        return no_hit();
+    }
+    let local = offset + direction * t;
+    if (length(hemisphere) > 0.0 && dot(local, hemisphere) < 0.0) {
+        return no_hit();
+    }
+    return ShapeHit(t, origin + direction * t, sign_normalize(local), NO_TRIANGLE);
+}
+
+fn ray_swept_segment(
+    origin: vec3f,
+    direction: vec3f,
+    extent: f32,
+    start: vec3f,
+    end: vec3f,
+    radius: f32,
+) -> ShapeHit {
+    let basis = end - start;
+    let basis_squared = dot(basis, basis);
+    if (basis_squared <= 0.0) {
+        return ray_sphere_candidate(origin, direction, extent, start, radius, vec3f(0.0));
+    }
+    let offset = origin - start;
+    let axial_offset = dot(basis, offset);
+    let axial_direction = dot(basis, direction);
+    let inverse_basis = 1.0 / basis_squared;
+    let perpendicular_offset = offset - basis * (axial_offset * inverse_basis);
+    let perpendicular_direction = direction - basis * (axial_direction * inverse_basis);
     var best = no_hit();
-    for (var sample = 0u; sample <= 8u; sample = sample + 1u) {
-        let t = f32(sample) * (1.0 / 8.0);
-        let sphere_center = seg.start + (seg.end - seg.start) * t;
-        let hit = ray_sphere(origin, direction, extent, sphere_center, radius);
-        if (hit.distance < best.distance) {
-            best = hit;
+    let side = ray_quadratic_root(
+        dot(perpendicular_direction, perpendicular_direction),
+        dot(perpendicular_offset, perpendicular_direction),
+        dot(perpendicular_offset, perpendicular_offset) - radius * radius,
+    );
+    if (side != NO_HIT && side <= extent) {
+        let axial = axial_offset + side * axial_direction;
+        if (axial >= 0.0 && axial <= basis_squared) {
+            let normal = sign_normalize(perpendicular_offset + perpendicular_direction * side);
+            best = nearest_hit(best, ShapeHit(side, origin + direction * side, normal, NO_TRIANGLE));
         }
     }
+    best = nearest_hit(best, ray_sphere_candidate(origin, direction, extent, start, radius, -basis));
+    best = nearest_hit(best, ray_sphere_candidate(origin, direction, extent, end, radius, basis));
     return best;
 }
 
 fn ray_capsule(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, axis: vec3f, half_height: f32, radius: f32) -> ShapeHit {
-    let seg = Segment(center - axis * half_height, center + axis * half_height);
-    return ray_segment(origin, direction, extent, seg, radius);
+    return ray_swept_segment(origin, direction, extent, center - axis * half_height, center + axis * half_height, radius);
 }
 
 fn ray_cylinder(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, axis: vec3f, half_height: f32, radius: f32) -> ShapeHit {
+    let start = center - axis * half_height;
+    let end = center + axis * half_height;
+    let basis = end - start;
+    let basis_squared = dot(basis, basis);
+    let radius_squared = radius * radius;
+    if (basis_squared <= 0.0) {
+        return ray_disc(origin, direction, extent, center, axis, radius_squared);
+    }
+    let offset = origin - start;
+    let axial_offset = dot(basis, offset);
+    let axial_direction = dot(basis, direction);
     var best = no_hit();
-    let seg = Segment(center - axis * half_height, center + axis * half_height);
-    for (var sample = 0u; sample <= 4u; sample = sample + 1u) {
-        let t = f32(sample) * (1.0 / 4.0);
-        let circle_center = seg.start + (seg.end - seg.start) * t;
-        let hit = ray_sphere(origin, direction, extent, circle_center, radius);
-        if (hit.distance < best.distance) {
-            best = hit;
+    let inverse_basis = 1.0 / basis_squared;
+    let perpendicular_offset = offset - basis * (axial_offset * inverse_basis);
+    let perpendicular_direction = direction - basis * (axial_direction * inverse_basis);
+    let side = ray_quadratic_root(
+        dot(perpendicular_direction, perpendicular_direction),
+        dot(perpendicular_offset, perpendicular_direction),
+        dot(perpendicular_offset, perpendicular_offset) - radius_squared,
+    );
+    if (side != NO_HIT && side <= extent) {
+        let axial = axial_offset + side * axial_direction;
+        if (axial >= 0.0 && axial <= basis_squared) {
+            let normal = sign_normalize(perpendicular_offset + perpendicular_direction * side);
+            best = nearest_hit(best, ShapeHit(side, origin + direction * side, normal, NO_TRIANGLE));
+        }
+    }
+    if (abs(axial_direction) > 0.0) {
+        for (var cap = 0u; cap < 2u; cap = cap + 1u) {
+            let cap_at = select(axial_offset, basis_squared - axial_offset, cap == 1u);
+            let t = cap_at / select(-axial_direction, axial_direction, cap == 1u);
+            if (t < 0.0 || t > extent) {
+                continue;
+            }
+            let local = offset + direction * t - basis * select(0.0, 1.0, cap == 1u);
+            if (dot(local, local) <= radius_squared) {
+                let normal = sign_normalize(select(-basis, basis, cap == 1u));
+                best = nearest_hit(best, ShapeHit(t, origin + direction * t, normal, NO_TRIANGLE));
+            }
         }
     }
     return best;
+}
+
+fn ray_disc(origin: vec3f, direction: vec3f, extent: f32, center: vec3f, axis: vec3f, radius_squared: f32) -> ShapeHit {
+    let travel = dot(direction, axis);
+    if (abs(travel) < 1e-8) {
+        return no_hit();
+    }
+    let t = dot(center - origin, axis) / travel;
+    if (t < 0.0 || t > extent) {
+        return no_hit();
+    }
+    let local = origin + direction * t - center;
+    if (dot(local, local) > radius_squared) {
+        return no_hit();
+    }
+    return ShapeHit(t, origin + direction * t, select(-axis, axis, travel < 0.0), NO_TRIANGLE);
+}
+
+fn shape_sweep(moving: WorldShape, static_target: WorldShape, start: vec3f, direction: vec3f, max_dist: f32) -> ShapeHit {
+    let heading = normalize(direction);
+    if (static_target.kind == SHAPE_PLANE) {
+        let normal = plane_normal(static_target);
+        let travel = dot(heading, normal);
+        if (travel >= 0.0) {
+            return no_hit();
+        }
+        let extent = dot(support(moving, -normal) - moving.center, -normal);
+        let offset = dot(start - static_target.center, normal);
+        let time = max((offset - extent) / (-travel), 0.0);
+        if (time > max_dist) {
+            return no_hit();
+        }
+        return ShapeHit(time, start + heading * time, normal, NO_TRIANGLE);
+    }
+    if (static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
+        return scene_convex_sweep(static_target, moving, start, direction, max_dist);
+    }
+    let tolerance = SWEEP_TOLERANCE;
+    var moved = moving;
+    var time = 0.0;
+    var normal = sign_normalize(moving.center - static_target.center);
+    var simplex: array<SimplexPoint, 4>;
+    var count = 0u;
+    for (var iteration = 0u; iteration < 8u; iteration = iteration + 1u) {
+        moved.center = start + heading * time;
+        let closest = convex_closest(moved, static_target, &simplex, &count);
+        if (closest.penetrating || closest.distance < tolerance) {
+            return ShapeHit(time, start + heading * time, normal, NO_TRIANGLE);
+        }
+        normal = -closest.normal;
+        time = time + closest.distance;
+        if (time > max_dist) {
+            return no_hit();
+        }
+    }
+    return no_hit();
 }
 
 fn ray_triangle(origin: vec3f, direction: vec3f, extent: f32, a: vec3f, b: vec3f, c: vec3f) -> ShapeHit {
@@ -416,36 +574,51 @@ fn scene_convex_sweep(
     return best;
 }
 
-fn ray_scaled_shape(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32, expand: f32) -> ShapeHit {
+fn shape_ray(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let heading = normalize(direction);
+    if (world.kind == SHAPE_PLANE) {
+        let normal = plane_normal(world);
+        let travel = dot(heading, normal);
+        if (abs(travel) < 1e-8) {
+            return no_hit();
+        }
+        let t = dot(world.center - origin, normal) / travel;
+        if (t < 0.0 || t > extent) {
+            return no_hit();
+        }
+        return ShapeHit(t, origin + heading * t, normal, NO_TRIANGLE);
+    }
+    if (world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD || world.kind == SHAPE_HULL) {
+        return ray_scene(world, origin, heading, extent);
+    }
     let unscaled = world.scale.x == 1.0 && world.scale.y == 1.0 && world.scale.z == 1.0;
     if (unscaled) {
         if (world.kind == SHAPE_SPHERE) {
-            return ray_sphere(origin, direction, extent, world.center, world.radius + expand);
+            return ray_sphere(origin, heading, extent, world.center, world.radius);
         }
         if (world.kind == SHAPE_CUBOID) {
-            return ray_box(origin, direction, extent, world.center, world.rotation, world.half_extents + vec3f(expand));
+            return ray_box(origin, heading, extent, world.center, world.rotation, world.half_extents);
         }
         if (world.kind == SHAPE_CAPSULE) {
-            let axis = shape_axis(world);
-            return ray_capsule(origin, direction, extent, world.center, axis, world.half_height, world.radius + expand);
+            return ray_capsule(origin, heading, extent, world.center, shape_axis(world), world.half_height, world.radius);
         }
         if (world.kind == SHAPE_CYLINDER) {
-            let axis = shape_axis(world);
-            return ray_cylinder(origin, direction, extent, world.center, axis, world.half_height, world.radius + expand);
+            return ray_cylinder(origin, heading, extent, world.center, shape_axis(world), world.half_height, world.radius);
         }
         return no_hit();
     }
     let inv_rotation = quat_conjugate(world.rotation);
     let unscale = 1.0 / world.scale;
     let local_origin = quat_rotate(inv_rotation, origin - world.center) * unscale;
-    let local_direction = quat_rotate(inv_rotation, direction) * unscale;
+    let local_direction = quat_rotate(inv_rotation, heading) * unscale;
+    let local_extent = extent * length(local_direction);
     var local: ShapeHit;
     if (world.kind == SHAPE_SPHERE) {
-        local = ray_sphere(local_origin, local_direction, extent, vec3f(0.0), world.radius + expand);
+        local = ray_sphere(local_origin, local_direction, local_extent, vec3f(0.0), world.radius);
     } else if (world.kind == SHAPE_CAPSULE) {
-        local = ray_capsule(local_origin, local_direction, extent, vec3f(0.0), vec3f(0.0, 1.0, 0.0), world.half_height, world.radius + expand);
+        local = ray_capsule(local_origin, local_direction, local_extent, vec3f(0.0), vec3f(0.0, 1.0, 0.0), world.half_height, world.radius);
     } else if (world.kind == SHAPE_CYLINDER) {
-        local = ray_cylinder(local_origin, local_direction, extent, vec3f(0.0), vec3f(0.0, 1.0, 0.0), world.half_height, world.radius + expand);
+        local = ray_cylinder(local_origin, local_direction, local_extent, vec3f(0.0), vec3f(0.0, 1.0, 0.0), world.half_height, world.radius);
     } else {
         return no_hit();
     }

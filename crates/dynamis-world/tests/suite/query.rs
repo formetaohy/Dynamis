@@ -312,6 +312,129 @@ fn ray_normals_and_depths_agree_across_every_floor_kind() {
     }
 }
 
+fn side_ray(world: &mut World, height: f32) -> QueryHit {
+    let handle = world.ray_query(
+        [-5.0, height, 0.0],
+        [1.0, 0.0, 0.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.step(DT);
+    world.wait();
+    world
+        .query_hit(handle)
+        .unwrap_or_else(|| panic!("a ray crossing the axis at {height} must hit"))
+}
+
+#[test]
+fn a_cylinder_cap_ray_lands_on_its_flat_end() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::cylinder(1.0, 1.0)))
+            .position([0.0, 0.0, 0.0])
+            .mass(0.0),
+    );
+    for offset in [0.0, 0.5, 0.9, 0.99] {
+        let hit = down_ray(&mut world, "cylinder", [offset, 5.0, 0.0]);
+        assert!(
+            (hit.distance - 4.0).abs() < 1e-3,
+            "a cylinder cap ray at {offset} must land on the cap plane (4.0), got {}",
+            hit.distance
+        );
+        assert!(
+            (hit.point[1] - 1.0).abs() < 1e-3 && (hit.point[0] - offset).abs() < 1e-3,
+            "a cylinder cap ray at {offset} must land on the cap at y=1.0, got {:?}",
+            hit.point
+        );
+        assert!(
+            (hit.normal[1] - 1.0).abs() < 1e-3,
+            "a cylinder cap ray at {offset} must report the cap axis (0, 1, 0), got {:?}",
+            hit.normal
+        );
+    }
+}
+
+#[test]
+fn a_cylinder_side_ray_lands_on_its_radius() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::cylinder(1.0, 1.0)))
+            .position([0.0, 0.0, 0.0])
+            .mass(0.0),
+    );
+    for height in [-1.0, -0.5, 0.0, 0.5, 0.99] {
+        let hit = side_ray(&mut world, height);
+        assert!(
+            (hit.distance - 4.0).abs() < 1e-3 && (hit.point[0] + 1.0).abs() < 1e-3,
+            "a cylinder side ray at {height} must land on the radius (4.0), got {} {:?}",
+            hit.distance,
+            hit.point
+        );
+        assert!(
+            (hit.normal[0] + 1.0).abs() < 1e-3,
+            "a cylinder side ray at {height} must report the radial normal (-1, 0, 0), got {:?}",
+            hit.normal
+        );
+    }
+}
+
+#[test]
+fn a_capsule_ray_reaches_every_cross_section() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::capsule(0.08, 2.0)))
+            .position([0.0, 0.0, 0.0])
+            .mass(0.0),
+    );
+    for height in [-2.0, -1.875, -0.75, -0.25, 0.125, 0.375, 1.0, 1.875] {
+        let hit = side_ray(&mut world, height);
+        assert!(
+            (hit.distance - 4.92).abs() < 1e-3,
+            "a capsule ray crossing the axis at {height} must land on the radius (4.92), got {}",
+            hit.distance
+        );
+        assert!(
+            (hit.point[0] + 0.08).abs() < 1e-3,
+            "a capsule ray crossing the axis at {height} must land on the surface, got {:?}",
+            hit.point
+        );
+        assert!(
+            (hit.normal[0] + 1.0).abs() < 1e-3,
+            "a capsule ray crossing the axis at {height} must report the radial normal, got {:?}",
+            hit.normal
+        );
+    }
+}
+
+#[test]
+fn a_scaled_primitive_ray_lands_on_its_scaled_surface() {
+    let mut world = new_world(static_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 1.0]))
+            .position([0.0, 0.0, 0.0])
+            .mass(0.0),
+    );
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::capsule(0.5, 1.0)).scale([2.0, 1.0, 1.0]))
+            .position([10.0, 0.0, 0.0])
+            .mass(0.0),
+    );
+    let sphere = down_ray(&mut world, "scaled sphere", [0.6, 5.0, 0.0]);
+    assert!(
+        (sphere.distance - 4.6).abs() < 1e-3 && (sphere.point[1] - 0.4).abs() < 1e-3,
+        "a scaled sphere ray must land on its ellipsoid (4.6), got {} {:?}",
+        sphere.distance,
+        sphere.point
+    );
+    let capsule = down_ray(&mut world, "scaled capsule", [10.6, 5.0, 0.0]);
+    assert!(
+        (capsule.distance - 3.6).abs() < 1e-3 && (capsule.point[1] - 1.4).abs() < 1e-3,
+        "a scaled capsule ray must land on its cap (3.6), got {} {:?}",
+        capsule.distance,
+        capsule.point
+    );
+}
+
 fn slab_vertices() -> Vec<[f32; 3]> {
     vec![
         [-5.0, 0.0, -5.0],

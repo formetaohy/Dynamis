@@ -437,22 +437,6 @@ fn shape_axis(world: WorldShape) -> vec3f {
     return quat_rotate(world.rotation, vec3f(0.0, 1.0, 0.0));
 }
 
-fn min_radius(collider: Collider) -> f32 {
-    if (collider.kind == SHAPE_SPHERE) {
-        return collider.radius;
-    }
-    if (collider.kind == SHAPE_CUBOID) {
-        return min(min(collider.half_extents.x, collider.half_extents.y), collider.half_extents.z);
-    }
-    if (collider.kind == SHAPE_CAPSULE) {
-        return collider.radius;
-    }
-    if (collider.kind == SHAPE_CYLINDER) {
-        return min(collider.radius, collider.half_height);
-    }
-    return 0.0;
-}
-
 fn world_shape_bounds(world: WorldShape) -> Aabb {
     let source = shape_sources[world.source];
     let local_center = (source.local_min + source.local_max) * 0.5;
