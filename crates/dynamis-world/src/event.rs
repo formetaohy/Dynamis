@@ -1,7 +1,7 @@
 use super::World;
-use super::scene::scene_target;
 use dynamis_abi::ContactEventRecord;
 use dynamis_model::{ContactEvent, ContactEventKind};
+use dynamis_scene::scene_target;
 
 #[derive(Clone)]
 pub(crate) struct Events {

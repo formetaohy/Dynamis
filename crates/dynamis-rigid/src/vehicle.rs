@@ -1,10 +1,10 @@
 use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::{Count, VEHICLE_WHEELS};
-use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
 use dynamis_pass::{PassRuntime, Stage};
-use dynamis_shader::{GEOMETRY_INDEX, rows, workgroups};
+use dynamis_scene::SceneCast;
+use dynamis_shader::rows;
 use dynamis_state::StateStream;
 
 pub struct Vehicle {
@@ -12,7 +12,7 @@ pub struct Vehicle {
 }
 
 pub struct VehicleSweeps {
-    sweeps: Stage,
+    cast: SceneCast,
 }
 
 impl PassRuntime<RigidFrame> for Vehicle {
@@ -63,27 +63,11 @@ impl PassRuntime<RigidFrame> for Vehicle {
 impl PassRuntime<RigidFrame> for VehicleSweeps {
     fn build(context: &GpuContext, streams: &impl Resources) -> Self {
         Self {
-            sweeps: Stage::build(
+            cast: SceneCast::build(
                 context,
-                "vehicle sweeps",
-                workgroups(context, dynamis_shader::SCENE_CAST, GEOMETRY_INDEX),
                 streams,
-                &[
-                    ("entry_keys", BroadphaseStream::EntryKeys.whole()),
-                    ("entry_order", BroadphaseStream::EntryOrder.whole()),
-                    ("entries", BroadphaseStream::Entries.whole()),
-                    ("counters", StateStream::Counters.whole()),
-                    ("queries", RigidStream::VehicleSweeps.whole()),
-                    ("body_states", StateStream::BodyStates.whole()),
-                    ("body_descs", StateStream::BodyDescriptors.whole()),
-                    ("colliders", StateStream::Colliders.whole()),
-                    ("query_results", RigidStream::VehicleHits.whole()),
-                    ("params", StateStream::Params.whole()),
-                    ("collider_owners", StateStream::ColliderOwners.whole()),
-                    ("particles", dynamis_soft::SoftStream::Particles.whole()),
-                    ("soft_bodies", dynamis_soft::SoftStream::BodyStates.whole()),
-                ],
-                &dynamis_state::shape_resources(),
+                RigidStream::VehicleSweeps.whole(),
+                RigidStream::VehicleHits.whole(),
             ),
         }
     }
@@ -97,6 +81,6 @@ impl PassRuntime<RigidFrame> for VehicleSweeps {
         let sweeps = Count::Vehicles
             .rows(&frame.params, &frame.rows)
             .saturating_mul(VEHICLE_WHEELS);
-        self.sweeps.record_workgroups(recorder, streams, sweeps);
+        self.cast.record(recorder, streams, sweeps);
     }
 }

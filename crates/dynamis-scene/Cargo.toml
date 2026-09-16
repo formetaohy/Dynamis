@@ -1,21 +1,21 @@
 [package]
-name = "dynamis-rigid"
+name = "dynamis-scene"
 version.workspace = true
 edition.workspace = true
-description = "Rigid body integration, islands, CCD, and constraint solving"
+description = "Scene targets and the shared scene cast kernel over rigid colliders and soft particles"
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 dynamis-abi = { workspace = true }
-dynamis-domain = { workspace = true }
 dynamis-broadphase = { workspace = true }
-dynamis-pass = { workspace = true }
+dynamis-domain = { workspace = true }
 dynamis-gpu = { workspace = true }
-dynamis-scene = { workspace = true }
+dynamis-model = { workspace = true }
+dynamis-pass = { workspace = true }
 dynamis-shader = { workspace = true }
+dynamis-soft = { workspace = true }
 dynamis-state = { workspace = true }
-dynamis-sort = { workspace = true }
 wgpu = { workspace = true }
 
 [lints]

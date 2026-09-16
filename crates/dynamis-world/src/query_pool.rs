@@ -1,8 +1,8 @@
 use dynamis_abi::{
-    ENTRY_INDEX_MASK, MAX_HITS_PER_QUERY, NO_SURFACE, NO_TRIANGLE, QueryResultHeaderRecord,
-    QueryResultRecord,
+    MAX_HITS_PER_QUERY, NO_SURFACE, NO_TRIANGLE, QueryResultHeaderRecord, QueryResultRecord,
 };
 use dynamis_model::{BodyHandle, SceneTarget, SoftBodyHandle, SurfaceDesc};
+use dynamis_scene::{scene_slot, scene_target};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +170,7 @@ impl QueryPool {
             hits[index] = result.hits[..count as usize]
                 .iter()
                 .map(|record| QueryHit {
-                    target: crate::scene::scene_target(
+                    target: scene_target(
                         record.scene_target,
                         record.body_id,
                         record.body_generation,
@@ -182,7 +182,7 @@ impl QueryPool {
                     normal: record.normal,
                     triangle: (record.triangle != NO_TRIANGLE).then_some(record.triangle),
                     surface: (record.surface != NO_SURFACE)
-                        .then(|| surface(record.scene_target & ENTRY_INDEX_MASK, record.surface)),
+                        .then(|| surface(scene_slot(record.scene_target), record.surface)),
                     step,
                 })
                 .collect();

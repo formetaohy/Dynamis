@@ -496,9 +496,25 @@ dependencies = [
  "dynamis-domain",
  "dynamis-gpu",
  "dynamis-pass",
+ "dynamis-scene",
+ "dynamis-shader",
+ "dynamis-sort",
+ "dynamis-state",
+ "wgpu",
+]
+
+[[package]]
+name = "dynamis-scene"
+version = "0.7.0"
+dependencies = [
+ "dynamis-abi",
+ "dynamis-broadphase",
+ "dynamis-domain",
+ "dynamis-gpu",
+ "dynamis-model",
+ "dynamis-pass",
  "dynamis-shader",
  "dynamis-soft",
- "dynamis-sort",
  "dynamis-state",
  "wgpu",
 ]
@@ -563,7 +579,7 @@ dependencies = [
  "dynamis-model",
  "dynamis-pass",
  "dynamis-rigid",
- "dynamis-shader",
+ "dynamis-scene",
  "dynamis-soft",
  "dynamis-state",
  "pollster",

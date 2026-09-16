@@ -5,6 +5,7 @@ use dynamis_domain::StepFacts;
 use dynamis_gpu::GpuContext;
 use dynamis_pass::{Pass, PipelineBuilder, Run, Schedule};
 use dynamis_rigid::RigidDomain;
+use dynamis_scene::SceneDomain;
 use dynamis_soft::SoftDomain;
 use dynamis_state::StateDomain;
 use wgpu::CommandEncoder;
@@ -14,7 +15,7 @@ dynamis_domain::domains! {
     broadphase: BroadphaseDomain,
     rigid: RigidDomain,
     soft: SoftDomain,
-    scene: crate::scene::SceneDomain,
+    scene: SceneDomain,
     [rigid <-> soft]
 }
 
@@ -51,7 +52,7 @@ impl Plan {
         );
         let state = dynamis_state::plan(&live.state, &streams.state, release);
         let soft = dynamis_soft::plan(measured, &live.soft, &streams.soft, release);
-        let scene = crate::scene::plan(&live.scene, &streams.scene, release);
+        let scene = dynamis_scene::plan(&live.scene, &streams.scene, release);
         Self {
             state,
             broadphase,
@@ -193,7 +194,7 @@ impl World {
                 material: self.soft.carries_strength(),
                 events: self.soft.carries_events(),
             },
-            scene: crate::scene::SceneInputs {
+            scene: dynamis_scene::SceneInputs {
                 queries: census.queries,
             },
         }
@@ -216,7 +217,7 @@ impl World {
                 body_edits: self.soft.last_body_edits,
                 edits: self.soft.last_edits,
             },
-            scene: crate::scene::SceneWork {
+            scene: dynamis_scene::SceneWork {
                 queries: self.queries.pending.len() as u32,
             },
         }

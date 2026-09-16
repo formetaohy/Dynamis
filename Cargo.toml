@@ -37,6 +37,7 @@ dynamis-sort = { version = "0.7.0", path = "crates/dynamis-sort" }
 dynamis-state = { version = "0.7.0", path = "crates/dynamis-state" }
 dynamis-rigid = { version = "0.7.0", path = "crates/dynamis-rigid" }
 dynamis-soft = { version = "0.7.0", path = "crates/dynamis-soft" }
+dynamis-scene = { version = "0.7.0", path = "crates/dynamis-scene" }
 dynamis-world = { version = "0.7.0", path = "crates/dynamis-world" }
 dynamis-character = { version = "0.7.0", path = "crates/dynamis-character" }
 dynamis = { path = "." }
