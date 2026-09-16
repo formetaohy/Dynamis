@@ -101,7 +101,6 @@ pub fn shape_solid(
         Shape::Hull(_) => {
             Some(source(shape).expect("a hull shape source must answer its solid geometry"))
         }
-        Shape::Mesh(_) | Shape::HeightField(_) | Shape::Plane => None,
         _ => analytic_solid(shape),
     }
 }

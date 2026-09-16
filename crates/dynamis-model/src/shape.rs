@@ -76,12 +76,4 @@ impl Shape {
     pub fn plane() -> Self {
         Self::Plane
     }
-
-    pub fn is_world_geometry(&self) -> bool {
-        matches!(self, Self::Mesh(_) | Self::HeightField(_) | Self::Plane)
-    }
-
-    pub fn is_convex(&self) -> bool {
-        !matches!(self, Self::Mesh(_) | Self::HeightField(_) | Self::Plane)
-    }
 }

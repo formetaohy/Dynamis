@@ -1,6 +1,6 @@
 use super::World;
 use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
-use dynamis_abi::QueryRecord;
+use dynamis_abi::{QueryRecord, ShapeRole};
 use dynamis_model::{QueryFilter, Shape};
 
 pub(crate) struct QueryStore {
@@ -93,7 +93,10 @@ impl World {
         filter: &QueryFilter,
     ) -> QueryHandle {
         self.assert_unit(orientation);
-        assert!(shape.is_convex(), "overlap queries require a convex shape");
+        assert!(
+            ShapeRole::of_shape(shape).convex(),
+            "overlap queries require a convex shape"
+        );
         self.submit_query(QueryRecord::convex(shape, orientation, position, filter))
     }
 
@@ -109,7 +112,10 @@ impl World {
         assert!(length > 0.0, "sweep length must be positive");
         assert!(direction != [0.0; 3], "sweep direction must be non-zero");
         self.assert_unit(orientation);
-        assert!(shape.is_convex(), "sweep queries require a convex shape");
+        assert!(
+            ShapeRole::of_shape(shape).convex(),
+            "sweep queries require a convex shape"
+        );
         self.submit_query(QueryRecord::sweep(
             shape,
             orientation,

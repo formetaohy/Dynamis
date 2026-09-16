@@ -5,7 +5,7 @@ use bytemuck::Zeroable;
 use dynamis_abi::{
     BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
     OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION,
-    PATCH_POSITION, PATCH_VELOCITY,
+    PATCH_POSITION, PATCH_VELOCITY, ShapeRole, shape_source_handle,
 };
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
@@ -225,7 +225,9 @@ impl World {
 
     fn validate_world_geometry(&self, desc: &BodyDesc) {
         for collider in &desc.colliders {
-            if collider.shape.is_world_geometry() && (desc.mass > 0.0 && !desc.kinematic) {
+            if ShapeRole::of_shape(&collider.shape).world_geometry()
+                && (desc.mass > 0.0 && !desc.kinematic)
+            {
                 panic!("world geometry colliders must be static or kinematic");
             }
         }
@@ -656,14 +658,14 @@ impl World {
     }
 
     fn retain_shape_ref(&mut self, shape: &Shape) {
-        if let Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) = shape {
-            self.shapes.pool.retain(*handle);
+        if let Some(handle) = shape_source_handle(shape) {
+            self.shapes.pool.retain(handle);
         }
     }
 
     fn release_shape_ref(&mut self, shape: &Shape) {
-        if let Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) = shape {
-            self.shapes.pool.release(*handle);
+        if let Some(handle) = shape_source_handle(shape) {
+            self.shapes.pool.release(handle);
         }
     }
 }
@@ -680,10 +682,7 @@ impl World {
     }
 
     pub(crate) fn collider_record(&self, desc: &ColliderDesc, slot: u32) -> ColliderRecord {
-        let source = match desc.shape {
-            Shape::Hull(handle) | Shape::Mesh(handle) | Shape::HeightField(handle) => handle.id,
-            _ => 0,
-        };
+        let source = shape_source_handle(&desc.shape).map_or(0, |handle| handle.id);
         ColliderRecord::build(desc, source, slot)
     }
 }

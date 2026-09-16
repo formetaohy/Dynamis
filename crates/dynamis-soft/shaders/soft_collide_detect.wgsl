@@ -74,7 +74,7 @@ fn particle_contact(
         return contact;
     }
     let probe = sphere_probe(center, radius);
-    if (world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD) {
+    if (shape_triangle_scene(world.kind)) {
         let closest = scene_convex_closest(world, probe, out_triangle);
         contact.separation = closest.distance;
         contact.normal = closest.normal;

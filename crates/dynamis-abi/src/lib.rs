@@ -9,6 +9,7 @@ mod event;
 mod param;
 mod query;
 mod row;
+mod shape;
 mod soft;
 mod surface;
 mod vehicle;
@@ -88,5 +89,9 @@ pub use event::event_flags;
 pub use param::{Bound, Census, Count, RowStreams};
 pub use query::inert_sweep;
 pub use records::*;
+pub use shape::{
+    SHAPE_ROLE_COUNT, SHAPE_ROLES, ShapePath, ShapeRole, ShapeScale, shape_code,
+    shape_source_handle,
+};
 pub use soft::{SoftAttachmentInit, SoftElementInit, SoftParticleInit};
 pub use wgsl::{constants_wgsl, step_reset_wgsl};

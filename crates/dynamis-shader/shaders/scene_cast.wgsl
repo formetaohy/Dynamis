@@ -392,7 +392,7 @@ fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
         return ray_hit(query, body, collider);
     }
     var normal = vec3f(0.0);
-    let is_world_geom = collider.kind == SHAPE_MESH || collider.kind == SHAPE_HEIGHTFIELD || collider.kind == SHAPE_PLANE;
+    let is_world_geom = shape_world_geometry(collider.kind);
     if (query.kind == QUERY_SWEEP) {
         let static_target = world_collider(body.state, collider);
         let hit = shape_sweep(query_shape_world(query, query.origin), static_target, query.origin, query.direction, query.extent);

@@ -1,4 +1,4 @@
-use crate::{constant, counter};
+use crate::{constant, counter, shape};
 
 macro_rules! declare_constants {
     ($($(#[$meta:meta])* pub const $name:ident: $ty:ty = $value:expr;)*) => {
@@ -33,6 +33,7 @@ pub fn constants_wgsl() -> String {
         constant::NO_HIT
     ));
     out.push_str(DOF_PREDICATES);
+    shape::emit_predicates(&mut out);
     out
 }
 

@@ -67,9 +67,6 @@ fn constraint_descs_validate_inputs() {
 
 #[test]
 fn plane_shape_and_scaled_colliders_validate() {
-    let plane = Shape::plane();
-    assert!(plane.is_world_geometry());
-    assert!(!plane.is_convex());
     let scaled = ColliderDesc::new(Shape::sphere(0.5)).scale([2.0, 1.0, 1.0]);
     assert_eq!(scaled.scale, [2.0, 1.0, 1.0]);
     let invalid = catch_unwind(AssertUnwindSafe(|| {

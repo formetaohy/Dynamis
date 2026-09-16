@@ -232,7 +232,7 @@ fn shape_sweep(moving: WorldShape, static_target: WorldShape, start: vec3f, dire
         }
         return ShapeHit(time, start + heading * time, normal, NO_TRIANGLE);
     }
-    if (static_target.kind == SHAPE_MESH || static_target.kind == SHAPE_HEIGHTFIELD) {
+    if (shape_triangle_scene(static_target.kind)) {
         return scene_convex_sweep(static_target, moving, start, direction, max_dist);
     }
     let tolerance = SWEEP_TOLERANCE;
@@ -588,7 +588,7 @@ fn shape_ray(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) ->
         }
         return ShapeHit(t, origin + heading * t, normal, NO_TRIANGLE);
     }
-    if (world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD || world.kind == SHAPE_HULL) {
+    if (shape_source(world.kind)) {
         return ray_scene(world, origin, heading, extent);
     }
     let unscaled = world.scale.x == 1.0 && world.scale.y == 1.0 && world.scale.z == 1.0;

@@ -1,9 +1,8 @@
 use crate::ColliderRecord;
 use crate::constant::{
-    COLLIDER_SENSOR, EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST, NO_COLLISION_FILTER, SHAPE_CAPSULE,
-    SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH, SHAPE_NONE,
-    SHAPE_PLANE, SHAPE_SPHERE,
+    COLLIDER_SENSOR, EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST, NO_COLLISION_FILTER, SHAPE_NONE,
 };
+use crate::shape::ShapeRole;
 use dynamis_model::{ColliderDesc, CollisionFilter, ContactEventMode, Shape};
 
 pub fn contact_relaxation(frequency: f32) -> f32 {
@@ -46,9 +45,8 @@ impl ColliderRecord {
     }
 
     pub fn build(collider: &ColliderDesc, source: u32, slot: u32) -> Self {
-        let kind = shape_kind(&collider.shape);
-        let uniform =
-            collider.scale[0] == collider.scale[1] && collider.scale[1] == collider.scale[2];
+        let role = ShapeRole::of_shape(&collider.shape);
+        let factor = role.scale.dimension_factor(collider.scale);
         let mut flags = if collider.sensor { COLLIDER_SENSOR } else { 0 };
         match collider.events {
             ContactEventMode::None => {}
@@ -59,41 +57,27 @@ impl ColliderRecord {
         }
         Self {
             slot,
-            kind,
+            kind: role.code,
             flags,
             radius: match collider.shape {
-                Shape::Sphere { radius } => {
-                    if uniform {
-                        radius * collider.scale[0]
-                    } else {
-                        radius
-                    }
-                }
+                Shape::Sphere { radius } => radius * factor[0],
                 Shape::Capsule { radius, .. } | Shape::Cylinder { radius, .. } => {
-                    if uniform {
-                        radius * collider.scale[0]
-                    } else {
-                        radius
-                    }
+                    radius * factor[0]
                 }
                 _ => 0.0,
             },
             half_height: match collider.shape {
                 Shape::Capsule { half_height, .. } | Shape::Cylinder { half_height, .. } => {
-                    if uniform {
-                        half_height * collider.scale[0]
-                    } else {
-                        half_height
-                    }
+                    half_height * factor[0]
                 }
                 _ => 0.0,
             },
             impact_force: collider.impact_force.unwrap_or(f32::INFINITY),
             half_extents: match collider.shape {
                 Shape::Cuboid { half_extents } => [
-                    half_extents[0] * collider.scale[0],
-                    half_extents[1] * collider.scale[1],
-                    half_extents[2] * collider.scale[2],
+                    half_extents[0] * factor[0],
+                    half_extents[1] * factor[1],
+                    half_extents[2] * factor[2],
                 ],
                 _ => [0.0; 3],
             },
@@ -109,32 +93,10 @@ impl ColliderRecord {
             restitution: collider.restitution,
             source,
             rolling_friction: collider.rolling_friction,
-            scale: baked_scale(collider, uniform),
+            scale: role.scale.record_scale(collider.scale),
             spin_friction: collider.spin_friction,
             relaxation: contact_relaxation(collider.contact_frequency),
             damping_ratio: collider.contact_damping_ratio,
         }
-    }
-}
-
-fn baked_scale(collider: &ColliderDesc, uniform: bool) -> [f32; 3] {
-    match collider.shape {
-        Shape::Cuboid { .. } | Shape::Plane => [1.0; 3],
-        Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) => collider.scale,
-        _ if uniform => [1.0; 3],
-        _ => collider.scale,
-    }
-}
-
-fn shape_kind(shape: &Shape) -> u32 {
-    match shape {
-        Shape::Sphere { .. } => SHAPE_SPHERE,
-        Shape::Cuboid { .. } => SHAPE_CUBOID,
-        Shape::Capsule { .. } => SHAPE_CAPSULE,
-        Shape::Cylinder { .. } => SHAPE_CYLINDER,
-        Shape::Hull(_) => SHAPE_HULL,
-        Shape::Mesh(_) => SHAPE_MESH,
-        Shape::HeightField(_) => SHAPE_HEIGHTFIELD,
-        Shape::Plane => SHAPE_PLANE,
     }
 }

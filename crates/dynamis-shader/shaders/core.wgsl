@@ -486,7 +486,7 @@ fn world_aabb_of(world: WorldShape) -> Aabb {
         plane_box.max = world.center + vec3f(1e6);
         return plane_box;
     }
-    if (world.kind == SHAPE_HULL || world.kind == SHAPE_MESH || world.kind == SHAPE_HEIGHTFIELD) {
+    if (shape_source(world.kind)) {
         let bounds = world_shape_bounds(world);
         let s = max(max(world.scale.x, world.scale.y), world.scale.z);
         let center = (bounds.min + bounds.max) * 0.5;

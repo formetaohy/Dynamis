@@ -623,8 +623,8 @@ fn work(index: u32) {
     var contact: Contact;
     var generated = false;
     let sensor = collider_is_sensor(first_collider) || collider_is_sensor(second_collider);
-    let first_world_geom = first_collider.kind == SHAPE_MESH || first_collider.kind == SHAPE_HEIGHTFIELD || first_collider.kind == SHAPE_PLANE;
-    let second_world_geom = second_collider.kind == SHAPE_MESH || second_collider.kind == SHAPE_HEIGHTFIELD || second_collider.kind == SHAPE_PLANE;
+    let first_world_geom = shape_world_geometry(first_collider.kind);
+    let second_world_geom = shape_world_geometry(second_collider.kind);
     if (first_world_geom && second_world_geom) {
         return;
     }
@@ -677,7 +677,7 @@ fn work(index: u32) {
                 manifold_from_hit(&contact, hit, margin);
             }
         }
-    } else if (first_collider.kind == SHAPE_CYLINDER || first_collider.kind == SHAPE_HULL || second_collider.kind == SHAPE_CYLINDER || second_collider.kind == SHAPE_HULL) {
+    } else if (!shape_analytic(first_collider.kind) || !shape_analytic(second_collider.kind)) {
         let world_first = world_collider(first.state, first_collider);
         let world_second = world_collider(second.state, second_collider);
         let hit = convex_hit(world_first, world_second);
@@ -729,7 +729,7 @@ fn work(index: u32) {
             let world_first = world_collider(first.state, first_collider);
             let world_second = world_collider(second.state, second_collider);
             let hit = convex_hit(world_first, world_second);
-            if (hit.distance <= 0.0) {
+            if (hit.distance <= margin) {
                 manifold_emit(&contact, hit.normal);
                 generated = true;
                 if (!convex_pair_manifold(world_first, world_second, hit.normal, &contact)) {
