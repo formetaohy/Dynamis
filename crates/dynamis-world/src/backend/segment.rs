@@ -1,6 +1,6 @@
 use super::registry::Streams;
 use dynamis_abi::{COUNTER_BREAKS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_SOFT_EVENTS, Counters};
-use dynamis_gpu::{SEGMENT_COUNT, Segments as SegmentRing, Stream, SubmissionEncoder};
+use dynamis_gpu::{SEGMENT_COUNT, SegmentRing, Stream, SubmissionEncoder};
 use wgpu::{BufferAddress, Device};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,11 +49,11 @@ pub(crate) struct Arrival {
     pub(crate) bytes: Vec<u8>,
 }
 
-pub(crate) struct Segments {
+pub(crate) struct SegmentTransport {
     rings: [SegmentRing; SegmentKind::ALL.len()],
 }
 
-impl Segments {
+impl SegmentTransport {
     pub(crate) fn new(device: &Device, streams: &Streams) -> Self {
         let mut segments = Self {
             rings: SegmentKind::ALL.map(|kind| SegmentRing::new(kind.label())),

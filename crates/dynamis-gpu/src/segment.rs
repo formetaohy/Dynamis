@@ -2,13 +2,13 @@ use crate::{Publication, SEGMENT_COUNT, Stream, SubmissionEncoder};
 use std::collections::VecDeque;
 use wgpu::{BufferAddress, Device};
 
-pub struct Segments {
+pub struct SegmentRing {
     label: &'static str,
     ring: Publication<(u64, u32)>,
     due: VecDeque<(u64, u32)>,
 }
 
-impl Segments {
+impl SegmentRing {
     pub const fn new(label: &'static str) -> Self {
         Self {
             label,

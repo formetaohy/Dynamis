@@ -1,5 +1,5 @@
 use dynamis_gpu::{
-    BindingKind, BindingSpec, PipelineHandle, Resources, SlotRef, StorageId, StreamElement,
+    BindingKind, BindingSpec, PipelineHandle, ResourceSource, SlotRef, StorageId, StreamElement,
     TypedSlot,
 };
 use dynamis_shader::ShaderBinding;
@@ -12,16 +12,16 @@ pub(crate) struct Binding {
 }
 
 impl Binding {
-    pub(crate) fn storage_id<R: Resources>(&self, resources: &R) -> StorageId {
+    pub(crate) fn storage_id<R: ResourceSource>(&self, resources: &R) -> StorageId {
         self.slot.resolve(resources).storage_id()
     }
 }
 
-pub struct Bindings {
+pub struct BindingTable {
     declarations: Vec<ShaderBinding>,
 }
 
-impl Bindings {
+impl BindingTable {
     pub fn new(declarations: Vec<ShaderBinding>) -> Self {
         Self { declarations }
     }

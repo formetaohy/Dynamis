@@ -61,7 +61,7 @@ impl SlotRef {
         }
     }
 
-    pub fn resolve<R: Resources>(self, resources: &R) -> TypedSlot<'_> {
+    pub fn resolve<R: ResourceSource>(self, resources: &R) -> TypedSlot<'_> {
         match self {
             Self::Whole { resource, .. } => {
                 TypedSlot::new(resources.whole(resource), self.element())
@@ -76,7 +76,7 @@ impl SlotRef {
     }
 }
 
-pub trait Resources {
+pub trait ResourceSource {
     fn slots(&self, resource: ResourceId) -> u32;
 
     fn whole(&self, resource: ResourceId) -> GpuSlot<'_>;

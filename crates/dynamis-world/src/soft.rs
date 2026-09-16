@@ -1,6 +1,6 @@
 use super::World;
 use super::arena::{Cleared, Mirror, Run};
-use super::commands::Consumption;
+use super::command::Consumption;
 use super::journal::EditJournal;
 use super::pool::Pool;
 use dynamis_abi::{
@@ -48,7 +48,7 @@ pub(crate) enum SoftBodyCommand {
 }
 
 #[derive(Clone)]
-pub(crate) struct SoftBodies {
+pub(crate) struct SoftBodyStore {
     pool: Pool<SoftBodyHandle>,
     runs: Vec<SoftRuns>,
     masses: Vec<f32>,
@@ -82,7 +82,7 @@ impl Cleared for u32 {
     const CLEARED: Self = u32::MAX;
 }
 
-impl SoftBodies {
+impl SoftBodyStore {
     pub(crate) fn new() -> Self {
         Self {
             pool: Pool::compact("soft body"),

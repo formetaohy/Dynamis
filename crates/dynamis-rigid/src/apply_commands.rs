@@ -4,14 +4,14 @@ use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_STEP_RESET_SLOTS, COUNTER_WOKE,
 };
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::workgroups_of;
 use dynamis_shader::{CORE, rows, workgroups};
 use dynamis_state::StateStream;
 
-pub struct Commands {
+pub struct ApplyCommands {
     reset_counters: Stage,
     clear_inputs: Stage,
     body_move_gather: Stage,
@@ -26,8 +26,8 @@ pub struct Commands {
     activity: Stage,
 }
 
-impl PassRuntime<RigidFrame> for Commands {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for ApplyCommands {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let reset = dynamis_abi::step_reset_wgsl();
         let reset_fragments = [reset.as_str()];
         Self {
@@ -269,7 +269,7 @@ impl PassRuntime<RigidFrame> for Commands {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.reset(recorder, streams);
@@ -298,8 +298,8 @@ impl PassRuntime<RigidFrame> for Commands {
     }
 }
 
-impl Commands {
-    fn reset(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources) {
+impl ApplyCommands {
+    fn reset(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl ResourceSource) {
         self.reset_counters.record_workgroups(
             recorder,
             streams,
@@ -310,7 +310,7 @@ impl Commands {
     fn record_moves(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.body_move_gather.record_rows(
@@ -348,7 +348,7 @@ impl Commands {
     fn record_edits(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.body_edits.record_rows(

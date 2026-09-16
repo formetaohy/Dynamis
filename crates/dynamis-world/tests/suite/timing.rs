@@ -1,9 +1,9 @@
 use super::common::{gravity_config, new_world, settle};
 use dynamis_model::{BodyDesc, ConstraintDesc, SoftBodyDesc};
 
-const QUERY_RUN: &[&str] = &["query_aabbs"];
+const QUERY_RUN: &[&str] = &["update_query_aabbs"];
 
-const SCENE_INDEX: &[&str] = &["soft_bounds", "soft_entries"];
+const SCENE_INDEX: &[&str] = &["update_soft_bounds", "emit_soft_entries"];
 
 #[test]
 fn a_stepped_world_reports_one_duration_per_pass() {
@@ -25,7 +25,13 @@ fn a_stepped_world_reports_one_duration_per_pass() {
         !timings.is_empty(),
         "a drained step must leave per-pass timings behind"
     );
-    for label in ["prepare", "broadphase", "narrowphase", "substeps", "commit"] {
+    for label in [
+        "prepare",
+        "broadphase",
+        "narrowphase",
+        "solve_substeps",
+        "commit",
+    ] {
         assert!(
             timings.iter().any(|timing| timing.label == label),
             "pass {label} must be attributed"
@@ -86,7 +92,9 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
     settle(&mut world, 30);
     let timings = world.gpu_pass_timings();
     assert!(
-        timings.iter().any(|timing| timing.label == "soft_substeps"),
+        timings
+            .iter()
+            .any(|timing| timing.label == "solve_soft_substeps"),
         "a free soft body must simulate"
     );
     for timing in timings {
@@ -94,14 +102,14 @@ fn a_soft_step_profiles_no_pass_of_an_absent_domain() {
             !matches!(
                 timing.label,
                 "narrowphase"
-                    | "islands"
+                    | "build_islands"
                     | "wake"
                     | "live"
                     | "solver_prepare"
-                    | "substeps"
+                    | "solve_substeps"
                     | "ccd_sweep"
                     | "ccd_apply"
-                    | "reactions"
+                    | "apply_reactions"
                     | "sleep"
                     | "resting_gather"
                     | "resting_index"
@@ -170,7 +178,9 @@ fn a_profiled_world_keeps_reporting_after_a_snapshot() {
     settle(&mut world, 12);
     let timings = world.gpu_pass_timings();
     assert!(
-        timings.iter().any(|timing| timing.label == "substeps"),
+        timings
+            .iter()
+            .any(|timing| timing.label == "solve_substeps"),
         "a restored world must keep profiling the passes it steps"
     );
 }
@@ -209,11 +219,11 @@ fn a_query_on_a_sleeping_world_profiles_only_the_index() {
             !matches!(
                 timing.label,
                 "narrowphase"
-                    | "islands"
+                    | "build_islands"
                     | "wake"
                     | "live"
                     | "solver_prepare"
-                    | "substeps"
+                    | "solve_substeps"
                     | "sleep"
                     | "resting_gather"
                     | "resting_index"

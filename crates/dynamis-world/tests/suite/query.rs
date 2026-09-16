@@ -1339,14 +1339,20 @@ fn a_query_run_declares_the_passes_it_runs() {
     );
     world.resolve_queries();
     let ran = world.ran_passes();
-    for pass in ["commands", "query_aabbs", "entries", "broadphase", "query"] {
+    for pass in [
+        "apply_commands",
+        "update_query_aabbs",
+        "emit_entries",
+        "broadphase",
+        "query",
+    ] {
         assert!(
             ran.contains(&pass),
             "a query resolve must run {pass}, ran {ran:?}"
         );
     }
     assert!(
-        !ran.contains(&"substeps"),
+        !ran.contains(&"solve_substeps"),
         "a query resolve must not advance the simulation, ran {ran:?}"
     );
 }

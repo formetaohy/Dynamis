@@ -76,7 +76,7 @@ struct Stored<V> {
     value: V,
 }
 
-pub(crate) struct Facts<K: Kind> {
+pub(crate) struct FactStore<K: Kind> {
     watch: Watch,
     declared: Vec<u32>,
     sequence: u64,
@@ -85,7 +85,7 @@ pub(crate) struct Facts<K: Kind> {
     age: Option<u64>,
 }
 
-impl<K: Kind> Facts<K> {
+impl<K: Kind> FactStore<K> {
     pub(crate) fn new(label: &'static str, depth: usize) -> Self {
         Self {
             watch: Watch::new(),

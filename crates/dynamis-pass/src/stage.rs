@@ -1,6 +1,6 @@
-use crate::bindings::{Binding, Bindings};
+use crate::binding::{Binding, BindingTable};
 use dynamis_gpu::{
-    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, Resources, SlotRef, StorageId,
+    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, ResourceSource, SlotRef, StorageId,
 };
 use dynamis_shader::{Dispatch, Program, workgroups_of};
 use wgpu::{BindGroup, BindGroupEntry, Device};
@@ -8,11 +8,16 @@ use wgpu::{BindGroup, BindGroupEntry, Device};
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
 
 pub trait PassRuntime<F> {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self
     where
         Self: Sized;
 
-    fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources, frame: &F);
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl ResourceSource,
+        frame: &F,
+    );
 }
 
 #[derive(Clone, Copy)]
@@ -28,7 +33,7 @@ struct Bound {
 }
 
 impl Bound {
-    fn of<R: Resources>(
+    fn of<R: ResourceSource>(
         pipeline: &PipelineHandle,
         device: &Device,
         resources: &R,
@@ -45,7 +50,12 @@ impl Bound {
         }
     }
 
-    fn holds<R: Resources>(&self, resources: &R, storage: &[Binding], shapes: &[Binding]) -> bool {
+    fn holds<R: ResourceSource>(
+        &self,
+        resources: &R,
+        storage: &[Binding],
+        shapes: &[Binding],
+    ) -> bool {
         self.ids.len() == storage.len() + shapes.len()
             && self.ids.iter().copied().eq(storage
                 .iter()
@@ -54,7 +64,11 @@ impl Bound {
     }
 }
 
-fn ids<R: Resources>(resources: &R, storage: &[Binding], shapes: &[Binding]) -> Vec<StorageId> {
+fn ids<R: ResourceSource>(
+    resources: &R,
+    storage: &[Binding],
+    shapes: &[Binding],
+) -> Vec<StorageId> {
     storage
         .iter()
         .chain(shapes)
@@ -62,7 +76,10 @@ fn ids<R: Resources>(resources: &R, storage: &[Binding], shapes: &[Binding]) -> 
         .collect()
 }
 
-fn entries<'a, R: Resources>(resources: &'a R, bindings: &[Binding]) -> Vec<BindGroupEntry<'a>> {
+fn entries<'a, R: ResourceSource>(
+    resources: &'a R,
+    bindings: &[Binding],
+) -> Vec<BindGroupEntry<'a>> {
     bindings
         .iter()
         .map(|binding| BindGroupEntry {
@@ -83,7 +100,7 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn build<R: Resources>(
+    pub fn build<R: ResourceSource>(
         context: &GpuContext,
         label: &str,
         program: Program,
@@ -92,7 +109,7 @@ impl Stage {
         shapes: &[(&'static str, SlotRef)],
     ) -> Self {
         let (source, declarations, dispatch, warm) = program.into_parts();
-        let bindings = Bindings::new(declarations);
+        let bindings = BindingTable::new(declarations);
         let storage = bindings.table(label, 0, slots);
         let shapes = if shapes.is_empty() {
             Vec::new()
@@ -125,7 +142,7 @@ impl Stage {
         }
     }
 
-    pub fn record_rows<R: Resources>(
+    pub fn record_rows<R: ResourceSource>(
         &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,
@@ -139,24 +156,32 @@ impl Stage {
         self.record(recorder, resources, Entry::Main, workgroups);
     }
 
-    pub fn record_stream<R: Resources>(&mut self, recorder: &mut ComputeRecorder, resources: &R) {
+    pub fn record_stream<R: ResourceSource>(
+        &mut self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+    ) {
         let workgroups = self.stream_workgroups(resources);
         self.record(recorder, resources, Entry::Main, workgroups);
     }
 
-    pub fn record_warm<R: Resources>(&mut self, recorder: &mut ComputeRecorder, resources: &R) {
+    pub fn record_warm<R: ResourceSource>(
+        &mut self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+    ) {
         let workgroups = self.stream_workgroups(resources);
         self.record(recorder, resources, Entry::Warm, workgroups);
     }
 
-    fn stream_workgroups<R: Resources>(&self, resources: &R) -> u32 {
+    fn stream_workgroups<R: ResourceSource>(&self, resources: &R) -> u32 {
         let Dispatch::Stream(resource) = self.dispatch else {
             panic!("a streaming stage declares its own stream extent");
         };
         workgroups_of(resources.slots(resource)).min(MAX_DISPATCH_WORKGROUPS)
     }
 
-    pub fn record_workgroups<R: Resources>(
+    pub fn record_workgroups<R: ResourceSource>(
         &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,
@@ -169,7 +194,7 @@ impl Stage {
         self.record(recorder, resources, Entry::Main, workgroups);
     }
 
-    fn record<R: Resources>(
+    fn record<R: ResourceSource>(
         &mut self,
         recorder: &mut ComputeRecorder,
         resources: &R,

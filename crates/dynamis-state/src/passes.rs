@@ -1,5 +1,5 @@
 use crate::streams::StateStream;
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 
 pub struct ConsumeStreams {
@@ -7,7 +7,7 @@ pub struct ConsumeStreams {
 }
 
 impl PassRuntime<()> for ConsumeStreams {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             consume: Stage::build(
                 context,
@@ -27,7 +27,12 @@ impl PassRuntime<()> for ConsumeStreams {
         }
     }
 
-    fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources, _: &()) {
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl ResourceSource,
+        _: &(),
+    ) {
         self.consume.record_workgroups(recorder, streams, 1);
     }
 }

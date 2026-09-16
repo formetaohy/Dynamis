@@ -1,4 +1,4 @@
-use super::ids::IdSpace;
+use super::id::IdSpace;
 
 pub(crate) trait Identity: Copy + PartialEq + std::fmt::Debug {
     fn id(self) -> u32;

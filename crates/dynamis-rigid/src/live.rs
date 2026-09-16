@@ -1,7 +1,7 @@
 use super::streams::RigidStream;
 use crate::RigidFrame;
 use dynamis_abi::{COUNTER_LIVE, COUNTER_LIVE_FAULTS, Count};
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows};
@@ -12,7 +12,7 @@ pub struct Live {
 }
 
 impl PassRuntime<RigidFrame> for Live {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             gather: Stage::build(
                 context,
@@ -40,7 +40,7 @@ impl PassRuntime<RigidFrame> for Live {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.gather.record_rows(

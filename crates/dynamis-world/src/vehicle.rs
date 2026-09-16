@@ -24,7 +24,7 @@ impl Slot {
 }
 
 #[derive(Clone)]
-pub(crate) struct Vehicles {
+pub(crate) struct VehicleStore {
     pub(crate) pool: Pool<VehicleHandle>,
     slots: Vec<Slot>,
     wheels: Vec<VehicleWheelRecord>,
@@ -32,7 +32,7 @@ pub(crate) struct Vehicles {
     pub(crate) last_inputs: u32,
 }
 
-impl Vehicles {
+impl VehicleStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::vacate("vehicle"),

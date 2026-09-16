@@ -1,7 +1,7 @@
 use crate::RigidFrame;
 use crate::RigidStream;
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_gpu::{ComputeRecorder, Resources};
+use dynamis_gpu::{ComputeRecorder, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_JOINTS, COUNTER_PAIRS, Count};
@@ -22,7 +22,7 @@ pub struct CcdApply {
 }
 
 impl PassRuntime<RigidFrame> for CcdSweep {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             sweep: Stage::build(
                 context,
@@ -58,7 +58,7 @@ impl PassRuntime<RigidFrame> for CcdSweep {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         _: &RigidFrame,
     ) {
         self.sweep.record_stream(recorder, streams);
@@ -66,7 +66,7 @@ impl PassRuntime<RigidFrame> for CcdSweep {
 }
 
 impl PassRuntime<RigidFrame> for CcdApply {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             apply: Stage::build(
                 context,
@@ -92,7 +92,7 @@ impl PassRuntime<RigidFrame> for CcdApply {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.apply.record_rows(
@@ -107,6 +107,6 @@ domain_passes!(
     CcdPasses,
     CcdRuntime,
     RigidFrame,
-    ccd_sweep: CcdSweep => CCD_EXECUTION => &["substeps"],
+    ccd_sweep: CcdSweep => CCD_EXECUTION => &["solve_substeps"],
     ccd_apply: CcdApply => CCD_EXECUTION => &["ccd_sweep"],
 );

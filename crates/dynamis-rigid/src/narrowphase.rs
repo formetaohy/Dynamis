@@ -4,7 +4,7 @@ use crate::RigidFrame;
 use crate::sort;
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_JOINTS, COUNTER_PAIRS, COUNTER_REFUSED_CONTACTS};
 use dynamis_broadphase::{BroadphaseStream, pair_capacity};
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, PassRuntime, Stage};
 use dynamis_shader::{CORE, stream, workgroups};
@@ -20,7 +20,7 @@ pub struct Narrowphase {
 }
 
 impl PassRuntime<RigidFrame> for Narrowphase {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             narrowphase: Stage::build(
                 context,
@@ -110,7 +110,7 @@ impl PassRuntime<RigidFrame> for Narrowphase {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         let words = frame.shape.collider_slot_words;

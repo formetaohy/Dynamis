@@ -2,28 +2,28 @@ use super::common::{gravity_config, new_world, settle, settle_until, static_sphe
 use dynamis_model::BodyDesc;
 
 const STEP: &[&str] = &[
-    "commands",
+    "apply_commands",
     "character",
     "prepare",
-    "query_aabbs",
+    "update_query_aabbs",
     "vehicle",
-    "soft_bounds",
-    "entries",
-    "soft_entries",
+    "update_soft_bounds",
+    "emit_entries",
+    "emit_soft_entries",
     "broadphase",
     "narrowphase",
-    "islands",
+    "build_islands",
     "wake",
     "live",
     "solver_prepare",
-    "substeps",
+    "solve_substeps",
     "ccd_sweep",
     "ccd_apply",
-    "soft_inputs",
+    "apply_soft_inputs",
     "soft_settle",
-    "soft_substeps",
-    "contact_facts",
-    "reactions",
+    "solve_soft_substeps",
+    "emit_contact_facts",
+    "apply_reactions",
     "sleep",
     "commit",
     "consume_streams",
@@ -32,11 +32,17 @@ const STEP: &[&str] = &[
     "resting_gather",
     "resting_index",
     "query",
-    "character_sweeps",
-    "vehicle_sweeps",
+    "sweep_characters",
+    "sweep_vehicles",
 ];
 
-const IDLE: &[&str] = &["commands", "commit", "consume_streams", "observe", "query"];
+const IDLE: &[&str] = &[
+    "apply_commands",
+    "commit",
+    "consume_streams",
+    "observe",
+    "query",
+];
 
 #[test]
 fn the_step_resolves_the_declared_domain_coupling() {
@@ -50,7 +56,13 @@ fn an_awake_world_runs_the_index_and_the_simulation() {
     world.spawn(BodyDesc::sphere(0.5).position([0.0, 5.0, 0.0]));
     settle(&mut world, 2);
     let ran = world.ran_passes();
-    for pass in ["entries", "broadphase", "narrowphase", "substeps", "sleep"] {
+    for pass in [
+        "emit_entries",
+        "broadphase",
+        "narrowphase",
+        "solve_substeps",
+        "sleep",
+    ] {
         assert!(
             ran.contains(&pass),
             "an awake step must run {pass}, ran {ran:?}"

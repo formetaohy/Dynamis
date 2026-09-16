@@ -1,5 +1,5 @@
 use super::World;
-use crate::commands::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
+use crate::command::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
 use dynamis_abi::StepParamsRecord;
 use dynamis_rigid::RigidShape;
 

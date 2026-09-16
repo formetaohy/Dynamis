@@ -1,6 +1,6 @@
 use crate::streams::BroadphaseStream;
 use dynamis_abi::COUNTER_ENTRIES;
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 use dynamis_shader::{GRID_INDEX, stream};
 use dynamis_sort::{RadixSort, SortChannels};
@@ -13,7 +13,7 @@ pub struct Broadphase {
 }
 
 impl Broadphase {
-    fn sort_entries(&mut self, recorder: &mut ComputeRecorder, streams: &impl Resources) {
+    fn sort_entries(&mut self, recorder: &mut ComputeRecorder, streams: &impl ResourceSource) {
         let count = dynamis_state::counter(COUNTER_ENTRIES).resolve(streams);
         let channels = SortChannels {
             count,
@@ -31,7 +31,7 @@ impl Broadphase {
 }
 
 impl PassRuntime<()> for Broadphase {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             sort: RadixSort::new(context),
             level_links: Stage::build(
@@ -79,7 +79,12 @@ impl PassRuntime<()> for Broadphase {
         }
     }
 
-    fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources, _: &()) {
+    fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl ResourceSource,
+        _: &(),
+    ) {
         self.sort_entries(recorder, streams);
         self.level_links.record_stream(recorder, streams);
         self.cell_pairs.record_stream(recorder, streams);
@@ -90,5 +95,5 @@ domain_passes!(
     BroadphasePasses,
     BroadphaseRuntime,
     (),
-    broadphase: Broadphase => Execution::INDEXING => &["entries", "soft_entries"],
+    broadphase: Broadphase => Execution::INDEXING => &["emit_entries", "emit_soft_entries"],
 );

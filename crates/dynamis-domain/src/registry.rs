@@ -255,7 +255,7 @@ macro_rules! domains {
             }
         }
 
-        impl dynamis_gpu::Resources for Streams {
+        impl dynamis_gpu::ResourceSource for Streams {
             fn slots(&self, resource: dynamis_gpu::ResourceId) -> u32 {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {
@@ -328,7 +328,7 @@ macro_rules! domains {
         impl PassRuntimes {
             pub(crate) fn build(
                 context: &dynamis_gpu::GpuContext,
-                resources: &impl dynamis_gpu::Resources,
+                resources: &impl dynamis_gpu::ResourceSource,
                 ids: PassIds,
             ) -> Self {
                 let PassIds { $( $field, )* } = ids;
@@ -348,7 +348,7 @@ macro_rules! domains {
                 pass: dynamis_pass::Pass,
                 index: u32,
                 recorder: &mut dynamis_gpu::ComputeRecorder<'_>,
-                resources: &impl dynamis_gpu::Resources,
+                resources: &impl dynamis_gpu::ResourceSource,
                 frames: &StepFrames,
             ) -> bool {
                 $(

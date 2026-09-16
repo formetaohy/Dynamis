@@ -326,7 +326,7 @@ macro_rules! domain_groups {
         impl $runtime {
             pub fn build(
                 context: &::dynamis_gpu::GpuContext,
-                streams: &impl ::dynamis_gpu::Resources,
+                streams: &impl ::dynamis_gpu::ResourceSource,
                 passes: $passes,
             ) -> Self {
                 let $passes { $( $field, )+ } = passes;
@@ -341,7 +341,7 @@ macro_rules! domain_groups {
                 &mut self,
                 pass: u32,
                 recorder: &mut ::dynamis_gpu::ComputeRecorder<'_>,
-                streams: &impl ::dynamis_gpu::Resources,
+                streams: &impl ::dynamis_gpu::ResourceSource,
                 frame: &$frame,
             ) -> bool {
                 $(
@@ -396,7 +396,7 @@ macro_rules! domain_passes {
         impl $runtime {
             pub fn build(
                 context: &::dynamis_gpu::GpuContext,
-                streams: &impl ::dynamis_gpu::Resources,
+                streams: &impl ::dynamis_gpu::ResourceSource,
                 passes: $name,
             ) -> Self {
                 Self {
@@ -411,7 +411,7 @@ macro_rules! domain_passes {
                 &mut self,
                 pass: u32,
                 recorder: &mut ::dynamis_gpu::ComputeRecorder<'_>,
-                streams: &impl ::dynamis_gpu::Resources,
+                streams: &impl ::dynamis_gpu::ResourceSource,
                 frame: &$frame,
             ) -> bool {
                 $(

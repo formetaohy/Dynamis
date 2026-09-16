@@ -3,14 +3,14 @@ use crate::query_pool::{QueryHandle, QueryHit, QueryPool, QueryState};
 use dynamis_abi::QueryRecord;
 use dynamis_model::{QueryFilter, Shape};
 
-pub(crate) struct Queries {
+pub(crate) struct QueryStore {
     pub(crate) pending: Vec<QueryRecord>,
     pub(crate) pending_hits: u32,
     pub(crate) next_batch: u64,
     pub(crate) pool: QueryPool,
 }
 
-impl Queries {
+impl QueryStore {
     pub(crate) fn new() -> Self {
         Self {
             pending: Vec::new(),
@@ -190,7 +190,7 @@ impl World {
             batch,
             bytes,
             |slot, index| shapes.source_surface(colliders[slot as usize].source, index),
-            |body, slot| crate::colliders::local_collider_of(bodies, pool, body, slot),
+            |body, slot| crate::collider::local_collider_of(bodies, pool, body, slot),
             |body, slot| soft.local_particle_of(body, slot),
         );
     }

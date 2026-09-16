@@ -5,7 +5,7 @@ use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct StateDomain;
@@ -55,7 +55,11 @@ impl Domain for StateDomain {
         StatePasses::resolve(pipeline)
     }
 
-    fn build(context: &GpuContext, streams: &impl Resources, passes: StatePasses) -> StateRuntime {
+    fn build(
+        context: &GpuContext,
+        streams: &impl ResourceSource,
+        passes: StatePasses,
+    ) -> StateRuntime {
         StateRuntime::build(context, streams, passes)
     }
 
@@ -73,7 +77,7 @@ impl Domain for StateDomain {
         runtime: &mut StateRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         _: &(),
     ) -> bool {
         runtime.record(pass, recorder, streams, &())

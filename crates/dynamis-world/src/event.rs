@@ -4,11 +4,11 @@ use dynamis_model::{ContactEvent, ContactEventKind};
 use dynamis_scene::scene_target;
 
 #[derive(Clone)]
-pub(crate) struct Events {
+pub(crate) struct EventStore {
     pub(crate) contact: Vec<ContactEvent>,
 }
 
-impl Events {
+impl EventStore {
     pub(crate) const fn new() -> Self {
         Self {
             contact: Vec::new(),
@@ -38,8 +38,7 @@ impl World {
         let bodies = &self.bodies;
         let pool = &self.colliders;
         let soft = &self.soft;
-        let collider_of =
-            |body, slot| crate::colliders::local_collider_of(bodies, pool, body, slot);
+        let collider_of = |body, slot| crate::collider::local_collider_of(bodies, pool, body, slot);
         let particle_of = |body, slot| soft.local_particle_of(body, slot);
         let mut fresh = Vec::with_capacity(records.len());
         for record in &records {

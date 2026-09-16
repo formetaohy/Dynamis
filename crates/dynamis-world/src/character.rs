@@ -24,14 +24,14 @@ impl Slot {
 }
 
 #[derive(Clone)]
-pub(crate) struct Characters {
+pub(crate) struct CharacterStore {
     pub(crate) pool: Pool<CharacterHandle>,
     slots: Vec<Slot>,
     pending_inputs: u32,
     pub(crate) last_inputs: u32,
 }
 
-impl Characters {
+impl CharacterStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::vacate("character"),

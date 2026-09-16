@@ -6,13 +6,13 @@ use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_EVENTS, COUNTER_RESTING,
     COUNTER_RESTING_INDEX, COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows, stream};
 use dynamis_state::StateStream;
 
-pub struct Islands {
+pub struct BuildIslands {
     contact_relay: Stage,
     contact_begin: Stage,
     island_init: Stage,
@@ -31,8 +31,8 @@ pub struct Sleep {
     island_sleep: Stage,
 }
 
-impl PassRuntime<RigidFrame> for Islands {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for BuildIslands {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             contact_relay: Stage::build(
                 context,
@@ -215,7 +215,7 @@ impl PassRuntime<RigidFrame> for Islands {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         let dynamic = Count::Dynamic.rows(&frame.params, &frame.rows);
@@ -236,7 +236,7 @@ impl PassRuntime<RigidFrame> for Islands {
 }
 
 impl PassRuntime<RigidFrame> for Wake {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             island_wake: Stage::build(
                 context,
@@ -268,7 +268,7 @@ impl PassRuntime<RigidFrame> for Wake {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.island_wake.record_rows(
@@ -280,7 +280,7 @@ impl PassRuntime<RigidFrame> for Wake {
 }
 
 impl PassRuntime<RigidFrame> for Sleep {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             island_sleep: Stage::build(
                 context,
@@ -309,7 +309,7 @@ impl PassRuntime<RigidFrame> for Sleep {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.island_sleep.record_rows(

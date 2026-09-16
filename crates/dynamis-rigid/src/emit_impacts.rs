@@ -2,18 +2,18 @@ use super::streams::RigidStream;
 use crate::CONTACT_COUNTERS;
 use crate::RigidFrame;
 use dynamis_abi::{COUNTER_CONTACTS, COUNTER_IMPACTS, COUNTER_REFUSED_IMPACTS};
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Stage;
 use dynamis_shader::stream;
 use dynamis_state::StateStream;
 
-pub struct Impacts {
+pub struct EmitImpacts {
     impacts: Stage,
 }
 
-impl Impacts {
-    pub fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl EmitImpacts {
+    pub fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             impacts: Stage::build(
                 context,
@@ -44,7 +44,7 @@ impl Impacts {
     pub fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         if !frame.impacts {

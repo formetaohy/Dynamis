@@ -1,5 +1,5 @@
 use super::World;
-use super::backend::segments::{Arrival, SegmentKind};
+use super::backend::segment::{Arrival, SegmentKind};
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,

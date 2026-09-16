@@ -2,7 +2,8 @@ mod common;
 
 use common::shared;
 use dynamis_gpu::{
-    Contents, SEGMENT_COUNT, STREAM, Segments, Stream, StreamDesc, StreamElement, SubmissionEncoder,
+    Retention, SEGMENT_COUNT, STREAM, SegmentRing, Stream, StreamDesc, StreamElement,
+    SubmissionEncoder,
 };
 
 const RECORD: u64 = 4;
@@ -18,13 +19,13 @@ fn source() -> Stream {
             element: StreamElement::new("u32", RECORD),
             elements_per_slot: 1,
             usage: STREAM,
-            contents: Contents::Scratch,
+            retention: Retention::Scratch,
         },
     )
 }
 
-fn transport(source: &Stream) -> Segments {
-    let mut segments = Segments::new("transport");
+fn transport(source: &Stream) -> SegmentRing {
+    let mut segments = SegmentRing::new("transport");
     segments.reserve(shared().device(), source.size() / SEGMENT_COUNT as u64);
     segments
 }
@@ -51,7 +52,7 @@ fn records(bytes: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-fn retire(segments: &mut Segments, source: &Stream, now: u64) -> Vec<(u64, u32, Vec<u8>)> {
+fn retire(segments: &mut SegmentRing, source: &Stream, now: u64) -> Vec<(u64, u32, Vec<u8>)> {
     let mut encoder = SubmissionEncoder::new(shared().device(), "segment copy");
     assert!(
         segments.copy(&mut encoder, source, now).is_empty(),

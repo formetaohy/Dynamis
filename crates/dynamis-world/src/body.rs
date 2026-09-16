@@ -1,5 +1,5 @@
 use super::World;
-use super::commands::BodyCommand;
+use super::command::BodyCommand;
 use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{
@@ -13,7 +13,7 @@ use dynamis_model::{
 };
 
 #[derive(Clone)]
-pub(crate) struct Bodies {
+pub(crate) struct BodyStore {
     pub(crate) pool: Pool<BodyHandle>,
     pub(crate) collider_descs: Vec<Vec<ColliderDesc>>,
     pub(crate) masses: Vec<f32>,
@@ -28,7 +28,7 @@ pub(crate) struct Bodies {
     pub(crate) last_edits: u32,
 }
 
-impl Bodies {
+impl BodyStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::compact("body"),

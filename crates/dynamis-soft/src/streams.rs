@@ -5,7 +5,7 @@ use dynamis_abi::{
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
-use dynamis_gpu::Contents;
+use dynamis_gpu::Retention;
 use dynamis_gpu::SEGMENT_COUNT;
 
 streams! {
@@ -21,17 +21,17 @@ streams! {
         events: u32,
     }
     streams {
-        particles, Particles: "soft particles", SoftParticleRecord, 1, Contents::Durable, demand.particles;
-        elements, Elements: "soft elements", SoftElementRecord, 1, Contents::Durable, demand.elements;
-        attachments, Attachments: "soft attachments", SoftAttachmentRecord, 1, Contents::Durable, demand.attachments;
-        adjacency, Adjacency: "soft adjacency", u32, 1, Contents::Durable, demand.adjacency;
-        bodies, BodyStates: "soft body states", SoftBodyRecord, 1, Contents::Durable, demand.soft_bodies;
-        edits, Edits: "soft particle edits", SoftEditRecord, 1, Contents::Scratch, demand.edits;
-        body_edits, BodyEdits: "soft body edits", SoftBodyEditRecord, 1, Contents::Scratch, demand.body_edits;
-        contributions, Contributions: "soft element contributions", [f32; 4], 1, Contents::Scratch, demand.element_contributions();
-        contacts, Contacts: "soft particle contacts", SoftContactRecord, 1, Contents::Scratch, demand.particles;
-        pressure, Pressure: "soft particle pressure", [f32; 4], 1, Contents::Scratch, demand.particles;
-        events, Events: "soft contact events", ContactEventRecord, 1, Contents::Scratch, demand.events.saturating_mul(SEGMENT_COUNT);
+        particles, Particles: "soft particles", SoftParticleRecord, 1, Retention::Durable, demand.particles;
+        elements, Elements: "soft elements", SoftElementRecord, 1, Retention::Durable, demand.elements;
+        attachments, Attachments: "soft attachments", SoftAttachmentRecord, 1, Retention::Durable, demand.attachments;
+        adjacency, Adjacency: "soft adjacency", u32, 1, Retention::Durable, demand.adjacency;
+        bodies, BodyStates: "soft body states", SoftBodyRecord, 1, Retention::Durable, demand.soft_bodies;
+        edits, Edits: "soft particle edits", SoftEditRecord, 1, Retention::Scratch, demand.edits;
+        body_edits, BodyEdits: "soft body edits", SoftBodyEditRecord, 1, Retention::Scratch, demand.body_edits;
+        contributions, Contributions: "soft element contributions", [f32; 4], 1, Retention::Scratch, demand.element_contributions();
+        contacts, Contacts: "soft particle contacts", SoftContactRecord, 1, Retention::Scratch, demand.particles;
+        pressure, Pressure: "soft particle pressure", [f32; 4], 1, Retention::Scratch, demand.particles;
+        events, Events: "soft contact events", ContactEventRecord, 1, Retention::Scratch, demand.events.saturating_mul(SEGMENT_COUNT);
     }
 }
 

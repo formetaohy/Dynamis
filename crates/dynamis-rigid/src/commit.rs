@@ -1,4 +1,4 @@
-use super::impacts::Impacts;
+use super::emit_impacts::EmitImpacts;
 use super::streams::RigidStream;
 use super::{CONTACT_ROW, IDENTITY};
 use crate::RigidFrame;
@@ -9,7 +9,7 @@ use dynamis_abi::{
     COUNTER_REFUSED_RESTING, COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX,
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE_DEFERRED,
 };
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Execution;
 use dynamis_pass::{PassRuntime, Stage};
@@ -23,7 +23,7 @@ pub const OBSERVED_JOINTS_EXECUTION: Execution =
     Execution::PUBLISH.and(Execution::gate(OBSERVED_JOINTS_GATE));
 
 pub struct Commit {
-    impacts: Impacts,
+    impacts: EmitImpacts,
     thaw_contacts: Stage,
     freeze_contacts: Stage,
     contact_archive: Stage,
@@ -50,9 +50,9 @@ pub struct ObserveJoints {
 }
 
 impl PassRuntime<RigidFrame> for Commit {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
-            impacts: Impacts::build(context, streams),
+            impacts: EmitImpacts::build(context, streams),
             thaw_contacts: Stage::build(
                 context,
                 "thaw_contacts",
@@ -184,7 +184,7 @@ impl PassRuntime<RigidFrame> for Commit {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.impacts.record(recorder, streams, frame);
@@ -207,7 +207,7 @@ impl PassRuntime<RigidFrame> for Commit {
 }
 
 impl PassRuntime<RigidFrame> for RestingGather {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             resting_gather: Stage::build(
                 context,
@@ -237,7 +237,7 @@ impl PassRuntime<RigidFrame> for RestingGather {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         _: &RigidFrame,
     ) {
         self.resting_gather.record_stream(recorder, streams);
@@ -245,7 +245,7 @@ impl PassRuntime<RigidFrame> for RestingGather {
 }
 
 impl PassRuntime<RigidFrame> for RestingIndex {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             resting_commit: Stage::build(
                 context,
@@ -275,7 +275,7 @@ impl PassRuntime<RigidFrame> for RestingIndex {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.resting_commit.record_workgroups(recorder, streams, 1);
@@ -292,7 +292,7 @@ impl PassRuntime<RigidFrame> for RestingIndex {
 }
 
 impl PassRuntime<RigidFrame> for Observe {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             observe: Stage::build(
                 context,
@@ -319,7 +319,7 @@ impl PassRuntime<RigidFrame> for Observe {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.observe
@@ -328,7 +328,7 @@ impl PassRuntime<RigidFrame> for Observe {
 }
 
 impl PassRuntime<RigidFrame> for ObserveJoints {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             observe_joints: Stage::build(
                 context,
@@ -369,7 +369,7 @@ impl PassRuntime<RigidFrame> for ObserveJoints {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.observe_joints

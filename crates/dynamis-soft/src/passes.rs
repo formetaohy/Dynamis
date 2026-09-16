@@ -3,7 +3,7 @@ use dynamis_abi::{
     COUNTER_REFUSED_SOFT_EVENTS, COUNTER_SOFT_EVENTS, Count, RowStreams, StepParamsRecord,
 };
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
@@ -77,12 +77,12 @@ impl SoftFrame {
     }
 }
 
-pub struct SoftBounds {
+pub struct UpdateSoftBounds {
     bounds: Stage,
 }
 
-impl PassRuntime<SoftFrame> for SoftBounds {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<SoftFrame> for UpdateSoftBounds {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             bounds: Stage::build(
                 context,
@@ -107,7 +107,7 @@ impl PassRuntime<SoftFrame> for SoftBounds {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         self.bounds
@@ -115,12 +115,12 @@ impl PassRuntime<SoftFrame> for SoftBounds {
     }
 }
 
-pub struct SoftEntries {
+pub struct EmitSoftEntries {
     entries: Stage,
 }
 
-impl PassRuntime<SoftFrame> for SoftEntries {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<SoftFrame> for EmitSoftEntries {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             entries: Stage::build(
                 context,
@@ -148,7 +148,7 @@ impl PassRuntime<SoftFrame> for SoftEntries {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         self.entries
@@ -156,14 +156,14 @@ impl PassRuntime<SoftFrame> for SoftEntries {
     }
 }
 
-pub struct SoftInputs {
+pub struct ApplySoftInputs {
     clear: Stage,
     body_edits: Stage,
     particle_edits: Stage,
 }
 
-impl PassRuntime<SoftFrame> for SoftInputs {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<SoftFrame> for ApplySoftInputs {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let bodies = SoftStream::BodyStates;
         Self {
             clear: Stage::build(
@@ -222,7 +222,7 @@ impl PassRuntime<SoftFrame> for SoftInputs {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         self.clear.record_rows(recorder, streams, frame.bodies());
@@ -247,7 +247,7 @@ pub struct SoftSettle {
 }
 
 impl PassRuntime<SoftFrame> for SoftSettle {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let particles = SoftStream::Particles;
         let bodies = SoftStream::BodyStates;
         Self {
@@ -336,7 +336,7 @@ impl PassRuntime<SoftFrame> for SoftSettle {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         let particles = frame.particles();
@@ -348,7 +348,7 @@ impl PassRuntime<SoftFrame> for SoftSettle {
     }
 }
 
-pub struct SoftSubsteps {
+pub struct SolveSoftSubsteps {
     reset: Stage,
     integrate: Stage,
     elements: Stage,
@@ -361,8 +361,8 @@ pub struct SoftSubsteps {
     material: Stage,
 }
 
-impl PassRuntime<SoftFrame> for SoftSubsteps {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<SoftFrame> for SolveSoftSubsteps {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let particles = SoftStream::Particles;
         let bodies = SoftStream::BodyStates;
         let reach = particle_fluid_index();
@@ -577,7 +577,7 @@ impl PassRuntime<SoftFrame> for SoftSubsteps {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         let particles = frame.particles();
@@ -602,12 +602,12 @@ impl PassRuntime<SoftFrame> for SoftSubsteps {
     }
 }
 
-pub struct ContactFacts {
+pub struct EmitContactFacts {
     announce: Stage,
 }
 
-impl PassRuntime<SoftFrame> for ContactFacts {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<SoftFrame> for EmitContactFacts {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let particles = SoftStream::Particles.whole();
         let bodies = SoftStream::BodyStates.whole();
         Self {
@@ -643,7 +643,7 @@ impl PassRuntime<SoftFrame> for ContactFacts {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) {
         self.announce
@@ -655,10 +655,10 @@ domain_passes!(
     SoftPasses,
     SoftRuntime,
     SoftFrame,
-    soft_bounds: SoftBounds => Execution::INDEXING => &[],
-    soft_entries: SoftEntries => Execution::INDEXING => &["soft_bounds", "prepare"],
-    soft_inputs: SoftInputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
-    soft_settle: SoftSettle => Execution::AWAKE => &["soft_inputs"],
-    soft_substeps: SoftSubsteps => Execution::AWAKE => &["soft_settle"],
-    contact_facts: ContactFacts => Execution::AWAKE => &["soft_substeps"],
+    update_soft_bounds: UpdateSoftBounds => Execution::INDEXING => &[],
+    emit_soft_entries: EmitSoftEntries => Execution::INDEXING => &["update_soft_bounds", "prepare"],
+    apply_soft_inputs: ApplySoftInputs => Execution::STEP.and(Execution::AWAKE) => &["ccd_apply"],
+    soft_settle: SoftSettle => Execution::AWAKE => &["apply_soft_inputs"],
+    solve_soft_substeps: SolveSoftSubsteps => Execution::AWAKE => &["soft_settle"],
+    emit_contact_facts: EmitContactFacts => Execution::AWAKE => &["solve_soft_substeps"],
 );

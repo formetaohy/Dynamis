@@ -2,7 +2,7 @@ mod common;
 
 use common::shared;
 use dynamis_gpu::{
-    Contents, GpuContext, Stream, StreamDesc, StreamElement, SubmissionEncoder, read_regions,
+    GpuContext, Retention, Stream, StreamDesc, StreamElement, SubmissionEncoder, read_regions,
 };
 use wgpu::BufferUsages;
 
@@ -16,7 +16,7 @@ fn stream(
     slots: u32,
     element: StreamElement,
     elements_per_slot: u64,
-    contents: Contents,
+    retention: Retention,
 ) -> Stream {
     Stream::new(
         context.device(),
@@ -27,7 +27,7 @@ fn stream(
             element,
             elements_per_slot,
             usage: STREAM_USAGE,
-            contents,
+            retention,
         },
     )
 }
@@ -66,7 +66,7 @@ fn a_preserving_stream_keeps_its_leading_slots_across_resizes() {
         4,
         StreamElement::new("u32", 4),
         1,
-        Contents::Durable,
+        Retention::Durable,
     );
     seed(&stream, &[7, 8, 9, 10]);
     assert!(!resized(&mut stream, 4));
@@ -86,7 +86,7 @@ fn a_reset_stream_drops_its_contents_across_resizes() {
         4,
         StreamElement::new("u32", 4),
         1,
-        Contents::Scratch,
+        Retention::Scratch,
     );
     seed(&stream, &[7, 8, 9, 10]);
     assert!(resized(&mut stream, 8));
@@ -102,7 +102,7 @@ fn a_seeded_stream_starts_with_its_head_word() {
         1,
         StreamElement::new("u32", 4),
         1,
-        Contents::Seeded(u32::MAX),
+        Retention::Seeded(u32::MAX),
     );
     assert_eq!(read(&stream, 1), vec![u32::MAX]);
 }
@@ -116,7 +116,7 @@ fn a_stream_reports_its_stride_and_bytes() {
         3,
         StreamElement::new("vec4f", 16),
         4,
-        Contents::Scratch,
+        Retention::Scratch,
     );
     assert_eq!(stream.slots(), 3);
     assert_eq!(stream.element(), StreamElement::new("vec4f", 16));
@@ -134,7 +134,7 @@ fn a_stream_refuses_an_empty_capacity() {
         0,
         StreamElement::new("u32", 4),
         1,
-        Contents::Scratch,
+        Retention::Scratch,
     );
 }
 
@@ -148,7 +148,7 @@ fn a_stream_refuses_an_empty_slot() {
         4,
         StreamElement::new("u32", 4),
         0,
-        Contents::Scratch,
+        Retention::Scratch,
     );
 }
 
@@ -162,7 +162,7 @@ fn a_stream_refuses_an_unaligned_record() {
         4,
         StreamElement::new("u32", 6),
         1,
-        Contents::Scratch,
+        Retention::Scratch,
     );
 }
 
@@ -176,6 +176,6 @@ fn a_stream_refuses_to_exceed_the_binding_limit() {
         u32::MAX,
         StreamElement::new("vec4f", 16),
         4,
-        Contents::Scratch,
+        Retention::Scratch,
     );
 }

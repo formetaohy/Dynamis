@@ -4,14 +4,14 @@ use crate::sort;
 use dynamis_abi::COUNTER_JOINTS;
 use dynamis_abi::COUNTER_LIVE;
 use dynamis_abi::Count;
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows, stream};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
-fn aabb(context: &GpuContext, streams: &impl Resources) -> Stage {
+fn aabb(context: &GpuContext, streams: &impl ResourceSource) -> Stage {
     Stage::build(
         context,
         "broadphase_aabb",
@@ -45,7 +45,7 @@ impl Prepare {
     fn sort_joints(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         if frame.params.constraint_count > 0 {
@@ -62,7 +62,7 @@ impl Prepare {
 }
 
 impl PassRuntime<RigidFrame> for Prepare {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             begin_step: Stage::build(
                 context,
@@ -89,7 +89,7 @@ impl PassRuntime<RigidFrame> for Prepare {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.sort_joints(recorder, streams, frame);
@@ -106,12 +106,12 @@ impl PassRuntime<RigidFrame> for Prepare {
     }
 }
 
-pub struct QueryAabbs {
+pub struct UpdateQueryAabbs {
     aabb: Stage,
 }
 
-impl PassRuntime<RigidFrame> for QueryAabbs {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for UpdateQueryAabbs {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             aabb: aabb(context, streams),
         }
@@ -120,7 +120,7 @@ impl PassRuntime<RigidFrame> for QueryAabbs {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.aabb.record_rows(
@@ -137,7 +137,7 @@ pub(crate) struct SubstepIntegrate {
 }
 
 impl SubstepIntegrate {
-    pub(crate) fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    pub(crate) fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             integrate: Stage::build(
                 context,
@@ -181,14 +181,18 @@ impl SubstepIntegrate {
         }
     }
 
-    pub(crate) fn record(&mut self, recorder: &mut ComputeRecorder<'_>, streams: &impl Resources) {
+    pub(crate) fn record(
+        &mut self,
+        recorder: &mut ComputeRecorder<'_>,
+        streams: &impl ResourceSource,
+    ) {
         self.integrate.record_stream(recorder, streams);
     }
 
     pub(crate) fn record_advance(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
     ) {
         self.advance.record_stream(recorder, streams);
     }

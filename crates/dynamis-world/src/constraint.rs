@@ -1,5 +1,5 @@
 use super::World;
-use super::commands::ConstraintCommand;
+use super::command::ConstraintCommand;
 use super::pool::{Pool, Retired};
 use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
@@ -8,7 +8,7 @@ use dynamis_model::{
 };
 
 #[derive(Clone)]
-pub(crate) struct Constraints {
+pub(crate) struct ConstraintStore {
     pub(crate) pool: Pool<ConstraintHandle>,
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
     pub(crate) attached: Vec<Vec<u32>>,
@@ -18,7 +18,7 @@ pub(crate) struct Constraints {
     pub(crate) broken: Vec<ConstraintHandle>,
 }
 
-impl Constraints {
+impl ConstraintStore {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::compact("constraint"),

@@ -1,5 +1,5 @@
 use dynamis_broadphase::BroadphaseStream;
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources, SlotRef};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource, SlotRef};
 use dynamis_pass::Stage;
 use dynamis_shader::{GEOMETRY_INDEX, SCENE_CAST, workgroups};
 use dynamis_soft::SoftStream;
@@ -12,7 +12,7 @@ pub struct SceneCast {
 impl SceneCast {
     pub fn build(
         context: &GpuContext,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         queries: SlotRef,
         hits: SlotRef,
     ) -> Self {
@@ -46,7 +46,7 @@ impl SceneCast {
     pub fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         workgroups: u32,
     ) {
         self.stage.record_workgroups(recorder, streams, workgroups);

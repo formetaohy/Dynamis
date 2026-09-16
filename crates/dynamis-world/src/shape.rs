@@ -5,13 +5,13 @@ use dynamis_hull::hull;
 use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
 
 #[derive(Clone)]
-pub(crate) struct Shapes {
+pub(crate) struct ShapeStore {
     pub(crate) pool: ShapePool,
     pub(crate) dirty: bool,
     pub(crate) uploaded: bool,
 }
 
-impl Shapes {
+impl ShapeStore {
     pub(crate) fn new() -> Self {
         Self {
             pool: ShapePool::new(),

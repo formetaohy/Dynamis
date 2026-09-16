@@ -1,6 +1,6 @@
 use super::World;
 use crate::backend::registry::HostWork;
-use crate::commands::Consumption;
+use crate::command::Consumption;
 use dynamis_abi::DeclaredCounters;
 use dynamis_abi::QueryHitRecord;
 use dynamis_domain::StepFacts;

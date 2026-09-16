@@ -1,9 +1,9 @@
-mod bindings;
+mod binding;
 mod order;
 mod schedule;
 mod stage;
 
-pub use bindings::Bindings;
+pub use binding::BindingTable;
 pub use order::{
     Execution, Pass, PassEdges, PassGroup, PassGroupEdges, PassSpec, Pipeline, PipelineBuilder,
     Run, assert_declared,

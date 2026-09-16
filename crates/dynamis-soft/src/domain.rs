@@ -7,7 +7,7 @@ use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct SoftDomain;
@@ -59,7 +59,11 @@ impl Domain for SoftDomain {
         SoftPasses::resolve(pipeline)
     }
 
-    fn build(context: &GpuContext, streams: &impl Resources, passes: SoftPasses) -> SoftRuntime {
+    fn build(
+        context: &GpuContext,
+        streams: &impl ResourceSource,
+        passes: SoftPasses,
+    ) -> SoftRuntime {
         SoftRuntime::build(context, streams, passes)
     }
 
@@ -83,7 +87,7 @@ impl Domain for SoftDomain {
         runtime: &mut SoftRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SoftFrame,
     ) -> bool {
         runtime.record(pass, recorder, streams, frame)

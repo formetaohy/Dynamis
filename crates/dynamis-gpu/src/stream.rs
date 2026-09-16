@@ -29,13 +29,13 @@ impl StreamElement {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Contents {
+pub enum Retention {
     Scratch,
     Durable,
     Seeded(u32),
 }
 
-impl Contents {
+impl Retention {
     pub const fn durable(self) -> bool {
         matches!(self, Self::Durable | Self::Seeded(_))
     }
@@ -55,7 +55,7 @@ pub struct Stream {
     stride: u64,
     element: StreamElement,
     usage: BufferUsages,
-    contents: Contents,
+    retention: Retention,
 }
 
 fn assert_fits(device: &Device, label: &str, bytes: BufferAddress) {
@@ -79,7 +79,7 @@ pub struct StreamDesc {
     pub element: StreamElement,
     pub elements_per_slot: u64,
     pub usage: BufferUsages,
-    pub contents: Contents,
+    pub retention: Retention,
 }
 
 #[derive(Clone, Copy)]
@@ -114,7 +114,7 @@ impl Stream {
             element,
             elements_per_slot,
             usage,
-            contents,
+            retention,
         } = desc;
         assert!(slots > 0, "stream {label:?} requires at least one slot");
         assert!(
@@ -136,9 +136,9 @@ impl Stream {
             stride,
             element,
             usage,
-            contents,
+            retention,
         };
-        if let Some(word) = contents.seed() {
+        if let Some(word) = retention.seed() {
             stream.write_at(queue, 0, &word.to_le_bytes());
         }
         stream
@@ -192,7 +192,7 @@ impl Stream {
         let bytes = slots as BufferAddress * self.stride;
         assert_fits(device, self.label, bytes);
         let next = GpuBuffer::new(device, self.label, bytes, self.usage);
-        if self.contents.durable() {
+        if self.retention.durable() {
             encoder.copy_buffer_to_buffer(
                 self.buffer.buffer(),
                 0,

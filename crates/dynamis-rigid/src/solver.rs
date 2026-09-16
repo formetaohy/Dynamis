@@ -3,7 +3,7 @@ use crate::RigidFrame;
 use crate::integrate::SubstepIntegrate;
 use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows, stream, stream_warm, workgroups};
@@ -33,7 +33,7 @@ pub struct SolverPrepare {
 }
 
 impl PassRuntime<RigidFrame> for SolverPrepare {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             reset: Stage::build(
                 context,
@@ -76,7 +76,7 @@ impl PassRuntime<RigidFrame> for SolverPrepare {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.reset.record_rows(
@@ -88,7 +88,7 @@ impl PassRuntime<RigidFrame> for SolverPrepare {
     }
 }
 
-pub struct Substeps {
+pub struct SolveSubsteps {
     integrate: SubstepIntegrate,
     blocks: Stage,
     block_solve: Stage,
@@ -97,8 +97,8 @@ pub struct Substeps {
     position_apply: Stage,
 }
 
-impl PassRuntime<RigidFrame> for Substeps {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for SolveSubsteps {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         let segments = RigidStream::SolverSegments.whole();
         let block_count = dynamis_state::counter(COUNTER_BLOCKS);
         Self {
@@ -237,7 +237,7 @@ impl PassRuntime<RigidFrame> for Substeps {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.blocks.record_stream(recorder, streams);

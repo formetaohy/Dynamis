@@ -1,18 +1,18 @@
 mod capacity;
-mod facts;
+mod fact;
 mod registry;
 mod streams;
 
 pub use capacity::{
     MIN_SLOTS, SETTLE_STEPS, STREAM_FLOOR, Settling, grown, product, settled, unreported,
 };
-pub use facts::StepFacts;
+pub use fact::StepFacts;
 pub use streams::DomainStreams;
 
 use dynamis_abi::Counters;
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_pass::{PassGroup, Pipeline};
 
 pub trait Domain {
@@ -43,8 +43,11 @@ pub trait Domain {
 
     fn resolve(pipeline: &Pipeline) -> Self::Passes;
 
-    fn build(context: &GpuContext, streams: &impl Resources, passes: Self::Passes)
-    -> Self::Runtime;
+    fn build(
+        context: &GpuContext,
+        streams: &impl ResourceSource,
+        passes: Self::Passes,
+    ) -> Self::Runtime;
 
     fn gates(frame: &Self::Frame) -> u16;
 
@@ -56,7 +59,7 @@ pub trait Domain {
         runtime: &mut Self::Runtime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &Self::Frame,
     ) -> bool;
 }

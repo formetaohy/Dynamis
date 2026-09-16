@@ -4,7 +4,7 @@ use crate::{
 };
 use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct SceneDomain;
@@ -54,7 +54,11 @@ impl Domain for SceneDomain {
         ScenePasses::resolve(pipeline)
     }
 
-    fn build(context: &GpuContext, streams: &impl Resources, passes: ScenePasses) -> SceneRuntime {
+    fn build(
+        context: &GpuContext,
+        streams: &impl ResourceSource,
+        passes: ScenePasses,
+    ) -> SceneRuntime {
         SceneRuntime::build(context, streams, passes)
     }
 
@@ -76,7 +80,7 @@ impl Domain for SceneDomain {
         runtime: &mut SceneRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SceneFrame,
     ) -> bool {
         runtime.record(pass, recorder, streams, frame)

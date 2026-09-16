@@ -263,10 +263,13 @@ fn a_pass_beyond_the_pipeline_is_refused() {
 
 #[test]
 fn a_declared_pass_graph_is_accepted() {
-    const RIGID: PassGroupEdges = &[("commands", &[]), ("entries", &["commands"])];
+    const RIGID: PassGroupEdges = &[
+        ("apply_commands", &[]),
+        ("emit_entries", &["apply_commands"]),
+    ];
     const SOFT: PassGroupEdges = &[
-        ("soft_bounds", &[]),
-        ("soft_entries", &["soft_bounds", "entries"]),
+        ("update_soft_bounds", &[]),
+        ("emit_soft_entries", &["update_soft_bounds", "emit_entries"]),
     ];
     const EDGES: PassEdges = &[RIGID, SOFT];
     assert_declared(&[EDGES]);

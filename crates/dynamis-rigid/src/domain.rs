@@ -7,7 +7,7 @@ use dynamis_abi::Counters;
 use dynamis_domain::{Domain, StepFacts};
 use dynamis_gpu::ComputeRecorder;
 use dynamis_gpu::GpuContext;
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_pass::{Execution, PassGroup, Pipeline, domain_groups};
 
 pub struct RigidDomain;
@@ -74,7 +74,7 @@ impl Domain for RigidDomain {
 
     fn build(
         context: &GpuContext,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         passes: RigidDomainPasses,
     ) -> RigidDomainRuntime {
         RigidDomainRuntime::build(context, streams, passes)
@@ -111,7 +111,7 @@ impl Domain for RigidDomain {
         runtime: &mut RigidDomainRuntime,
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) -> bool {
         runtime.record(pass, recorder, streams, frame)

@@ -1,6 +1,6 @@
 use crate::cast::SceneCast;
 use crate::streams::SceneStream;
-use dynamis_gpu::{ComputeRecorder, GpuContext, Resources};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, domain_passes};
 
 #[derive(Clone, Copy, Debug)]
@@ -13,7 +13,7 @@ pub struct Query {
 }
 
 impl PassRuntime<SceneFrame> for Query {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             cast: SceneCast::build(
                 context,
@@ -27,7 +27,7 @@ impl PassRuntime<SceneFrame> for Query {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &SceneFrame,
     ) {
         self.cast.record(recorder, streams, frame.query_count);

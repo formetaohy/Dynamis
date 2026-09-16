@@ -1,16 +1,16 @@
+mod apply_commands;
+mod apply_reactions;
 mod capacity;
 mod ccd;
 mod character;
-mod commands;
 mod commit;
 mod domain;
-mod entries;
-mod impacts;
+mod emit_entries;
+mod emit_impacts;
 mod integrate;
 mod islands;
 mod live;
 mod narrowphase;
-mod reactions;
 mod solver;
 mod sort;
 mod streams;
@@ -85,18 +85,18 @@ pub struct RigidFrame {
     pub impacts: bool,
 }
 
-use character::{Character, CharacterSweeps};
-use commands::Commands;
+use apply_commands::ApplyCommands;
+use apply_reactions::ApplyReactions;
+use character::{Character, SweepCharacters};
 use commit::{Commit, Observe, ObserveJoints, RestingGather, RestingIndex};
 use dynamis_pass::{Execution, domain_passes};
-use entries::Entries;
-use integrate::{Prepare, QueryAabbs};
-use islands::{Islands, Sleep, Wake};
+use emit_entries::EmitEntries;
+use integrate::{Prepare, UpdateQueryAabbs};
+use islands::{BuildIslands, Sleep, Wake};
 use live::Live;
 use narrowphase::Narrowphase;
-use reactions::Reactions;
-use solver::{SolverPrepare, Substeps};
-use vehicle::{Vehicle, VehicleSweeps};
+use solver::{SolveSubsteps, SolverPrepare};
+use vehicle::{SweepVehicles, Vehicle};
 
 pub use capacity::{RigidCapacity, RigidInputs, capacity, floor, plan};
 pub use ccd::{CcdApply, CcdPasses, CcdRuntime, CcdSweep};
@@ -107,31 +107,33 @@ domain_passes!(
     RigidPasses,
     RigidRuntime,
     RigidFrame,
-    commands: Commands => Execution::GRAPH => &[],
-    character: Character => Execution::STEP.and(Execution::AWAKE) => &["commands"],
-    prepare: Prepare => Execution::INDEXING.and(Execution::STEP) => &["commands", "character"],
-    query_aabbs: QueryAabbs => Execution::QUERY => &["commands"],
-    vehicle: Vehicle => Execution::STEP.and(Execution::AWAKE) => &["commands"],
-    entries: Entries => Execution::INDEXING => &["prepare", "query_aabbs", "soft_bounds"],
+    apply_commands: ApplyCommands => Execution::GRAPH => &[],
+    character: Character => Execution::STEP.and(Execution::AWAKE) => &["apply_commands"],
+    prepare: Prepare => Execution::INDEXING.and(Execution::STEP) => &["apply_commands", "character"],
+    update_query_aabbs: UpdateQueryAabbs => Execution::QUERY => &["apply_commands"],
+    vehicle: Vehicle => Execution::STEP.and(Execution::AWAKE) => &["apply_commands"],
+    emit_entries: EmitEntries => Execution::INDEXING => {
+        &["prepare", "update_query_aabbs", "update_soft_bounds"]
+    },
     narrowphase: Narrowphase => Execution::AWAKE => &["broadphase"],
-    islands: Islands => Execution::AWAKE => &["narrowphase"],
-    wake: Wake => Execution::AWAKE => &["islands"],
+    build_islands: BuildIslands => Execution::AWAKE => &["narrowphase"],
+    wake: Wake => Execution::AWAKE => &["build_islands"],
     live: Live => Execution::AWAKE => &["wake"],
     solver_prepare: SolverPrepare => Execution::AWAKE => &["live"],
-    substeps: Substeps => Execution::AWAKE => &["solver_prepare"],
-    reactions: Reactions => Execution::AWAKE => &["soft_substeps", "contact_facts"],
+    solve_substeps: SolveSubsteps => Execution::AWAKE => &["solver_prepare"],
+    apply_reactions: ApplyReactions => Execution::AWAKE => &["solve_soft_substeps", "emit_contact_facts"],
 );
 
 domain_passes!(
     RigidResolutionPasses,
     RigidResolutionRuntime,
     RigidFrame,
-    sleep: Sleep => Execution::AWAKE => &["reactions"],
+    sleep: Sleep => Execution::AWAKE => &["apply_reactions"],
     commit: Commit => Execution::STEP => &["sleep"],
     observe: Observe => Execution::PUBLISH => &["commit"],
     observe_joints: ObserveJoints => OBSERVED_JOINTS_EXECUTION => &["observe"],
     resting_gather: RestingGather => Execution::AWAKE => &["commit"],
     resting_index: RestingIndex => Execution::AWAKE => &["resting_gather"],
-    character_sweeps: CharacterSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
-    vehicle_sweeps: VehicleSweeps => Execution::STEP.and(Execution::AWAKE) => &["query"],
+    sweep_characters: SweepCharacters => Execution::STEP.and(Execution::AWAKE) => &["query"],
+    sweep_vehicles: SweepVehicles => Execution::STEP.and(Execution::AWAKE) => &["query"],
 );

@@ -3,11 +3,11 @@ use dynamis_abi::ImpactEventRecord;
 use dynamis_model::{BodyHandle, ImpactEvent};
 
 #[derive(Clone)]
-pub(crate) struct Impacts {
+pub(crate) struct ImpactStore {
     pub(crate) impact: Vec<ImpactEvent>,
 }
 
-impl Impacts {
+impl ImpactStore {
     pub(crate) const fn new() -> Self {
         Self { impact: Vec::new() }
     }

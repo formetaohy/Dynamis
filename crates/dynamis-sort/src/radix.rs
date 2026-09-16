@@ -2,7 +2,7 @@ use dynamis_gpu::{
     ComputePipeline, ComputeProgram, ComputeRecorder, GpuBuffer, GpuContext, GpuSlot,
     PipelineHandle, StorageId, StreamElement, TypedSlot,
 };
-use dynamis_pass::Bindings;
+use dynamis_pass::BindingTable;
 use dynamis_shader::reflect;
 use std::collections::BTreeMap;
 use wgpu::{BindGroup, Device};
@@ -35,12 +35,12 @@ fn words(buffer: &GpuBuffer) -> TypedSlot<'_> {
 struct Declared {
     label: String,
     handle: PipelineHandle,
-    bindings: Bindings,
+    bindings: BindingTable,
 }
 
 impl Declared {
     fn declare(context: &GpuContext, label: String, source: String, entry: &str) -> Self {
-        let bindings = Bindings::new(reflect(&source));
+        let bindings = BindingTable::new(reflect(&source));
         let specs = bindings.specs(0);
         let handle = context.declare(ComputeProgram::new(&label, source, entry, &[&specs]));
         Self {

@@ -43,7 +43,7 @@ macro_rules! streams {
         demand { $( $field:ident: $ty:ty, )* }
         streams {
             $(
-                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $contents:expr, $slots:expr $(, $usage:expr)?;
+                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $retention:expr, $slots:expr $(, $usage:expr)?;
             )*
         }
     ) => {
@@ -60,10 +60,10 @@ macro_rules! streams {
         impl $id {
             pub const ALL: &'static [Self] = &[ $( Self::$variant, )* ];
 
-            pub const CONTENTS: &'static [::dynamis_gpu::Contents] = &[ $( $contents ),* ];
+            pub const RETENTION: &'static [::dynamis_gpu::Retention] = &[ $( $retention ),* ];
 
-            pub const fn contents(self) -> ::dynamis_gpu::Contents {
-                Self::CONTENTS[self as usize]
+            pub const fn retention(self) -> ::dynamis_gpu::Retention {
+                Self::RETENTION[self as usize]
             }
 
             pub const fn label(self) -> &'static str {
@@ -84,7 +84,7 @@ macro_rules! streams {
             }
 
             pub const fn durable(self) -> bool {
-                self.contents().durable()
+                self.retention().durable()
             }
 
             pub const fn whole(self) -> ::dynamis_gpu::SlotRef {
@@ -136,7 +136,7 @@ macro_rules! streams {
                                 element: $id::$variant.element(),
                                 elements_per_slot: $per_slot as u64,
                                 usage: $crate::stream_usage!($($usage)?),
-                                contents: $contents,
+                                retention: $retention,
                             },
                         ),
                     )*
@@ -166,7 +166,7 @@ macro_rules! streams {
             ) -> bool {
                 let mut changed = false;
                 $(
-                    if $contents.durable() {
+                    if $retention.durable() {
                         let slots = floors($label).unwrap_or_else(|| {
                             panic!("a snapshot must answer the durable stream {:?}", $label)
                         });

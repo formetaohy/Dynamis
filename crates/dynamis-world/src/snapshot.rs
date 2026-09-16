@@ -1,27 +1,27 @@
 use super::World;
 use super::backend::archive::StreamArchive;
-use super::body::Bodies;
-use super::character::Characters;
+use super::body::BodyStore;
+use super::character::CharacterStore;
 use super::clock::Clock;
-use super::colliders::ColliderPool;
-use super::constraint::Constraints;
+use super::collider::ColliderStore;
+use super::constraint::ConstraintStore;
 use super::query_pool::QueryPool;
-use super::shape::Shapes;
-use super::soft::SoftBodies;
-use super::vehicle::Vehicles;
+use super::shape::ShapeStore;
+use super::soft::SoftBodyStore;
+use super::vehicle::VehicleStore;
 use dynamis_abi::COUNTER_COUNT;
 use dynamis_domain::Settling;
 use dynamis_model::PhysicsConfig;
 
 #[derive(Clone)]
 struct Scene {
-    bodies: Bodies,
-    colliders: ColliderPool,
-    constraints: Constraints,
-    shapes: Shapes,
-    soft: SoftBodies,
-    characters: Characters,
-    vehicles: Vehicles,
+    bodies: BodyStore,
+    colliders: ColliderStore,
+    constraints: ConstraintStore,
+    shapes: ShapeStore,
+    soft: SoftBodyStore,
+    characters: CharacterStore,
+    vehicles: VehicleStore,
 }
 
 impl Scene {

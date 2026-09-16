@@ -1,10 +1,10 @@
 use super::arena::{Arena, Run, merged};
-use super::body::Bodies;
+use super::body::BodyStore;
 use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK};
 use dynamis_model::BodyHandle;
 
 #[derive(Clone)]
-pub(crate) struct ColliderPool {
+pub(crate) struct ColliderStore {
     arena: Arena,
     records: Vec<ColliderRecord>,
     runs: Vec<Run>,
@@ -13,7 +13,7 @@ pub(crate) struct ColliderPool {
     armed: u32,
 }
 
-impl ColliderPool {
+impl ColliderStore {
     pub(crate) const fn new() -> Self {
         Self {
             arena: Arena::new(),
@@ -102,8 +102,8 @@ impl ColliderPool {
 }
 
 pub(crate) fn local_collider_of(
-    bodies: &Bodies,
-    pool: &ColliderPool,
+    bodies: &BodyStore,
+    pool: &ColliderStore,
     body: BodyHandle,
     slot: u32,
 ) -> u32 {

@@ -1,7 +1,7 @@
 pub(crate) mod archive;
 mod readback;
 pub(crate) mod registry;
-pub(crate) mod segments;
+pub(crate) mod segment;
 
 pub use registry::StreamCapacity;
 
@@ -11,7 +11,7 @@ use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
 use registry::{Activity, Live, Plan, Rest, StepPasses, Streams};
-use segments::{Arrival, Segments};
+use segment::{Arrival, SegmentTransport};
 use wgpu::SubmissionIndex;
 
 pub(crate) use registry::StepFrames;
@@ -22,7 +22,7 @@ pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
     pub(crate) streams: Streams,
     pub(crate) readback: ReadbackBuffers,
-    pub(crate) segments: Segments,
+    pub(crate) segments: SegmentTransport,
     pub(crate) passes: StepPasses,
     pub(crate) settling: Settling,
     pub(crate) measured: dynamis_abi::Counters,
@@ -41,7 +41,7 @@ impl Backend {
         let plan = Plan::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
         let readback = ReadbackBuffers::new(gpu.device(), &streams);
-        let segments = Segments::new(gpu.device(), &streams);
+        let segments = SegmentTransport::new(gpu.device(), &streams);
         let passes = StepPasses::new(&gpu, &streams);
         Self {
             gpu,

@@ -1,10 +1,10 @@
 use dynamis_gpu::TypedSlot;
-use dynamis_gpu::{Resources, SlotRef};
+use dynamis_gpu::{ResourceSource, SlotRef};
 use dynamis_sort::SortChannels;
 
 use crate::RigidStream;
 
-fn scratch<R: Resources>(resources: &R) -> [TypedSlot<'_>; 3] {
+fn scratch<R: ResourceSource>(resources: &R) -> [TypedSlot<'_>; 3] {
     [
         RigidStream::SortScratchMajor.whole().resolve(resources),
         RigidStream::SortScratchMinor.whole().resolve(resources),
@@ -12,7 +12,7 @@ fn scratch<R: Resources>(resources: &R) -> [TypedSlot<'_>; 3] {
     ]
 }
 
-pub(crate) fn keyed<'a, R: Resources>(
+pub(crate) fn keyed<'a, R: ResourceSource>(
     resources: &'a R,
     count: SlotRef,
     major: SlotRef,
@@ -31,7 +31,7 @@ pub(crate) fn keyed<'a, R: Resources>(
     }
 }
 
-pub(crate) fn lanes_dual<'a, R: Resources>(
+pub(crate) fn lanes_dual<'a, R: ResourceSource>(
     resources: &'a R,
     count: SlotRef,
     major: SlotRef,

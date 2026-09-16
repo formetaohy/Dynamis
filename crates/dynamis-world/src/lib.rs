@@ -3,12 +3,12 @@ mod backend;
 mod body;
 mod character;
 mod clock;
-mod colliders;
-mod commands;
+mod collider;
+mod command;
 mod constraint;
 mod event;
-mod facts;
-mod ids;
+mod fact;
+mod id;
 mod impact;
 mod journal;
 mod observation;
@@ -16,7 +16,7 @@ mod pool;
 mod query;
 mod query_pool;
 mod readback;
-mod rows;
+mod row;
 mod run;
 mod shape;
 mod shape_pool;
@@ -27,21 +27,21 @@ mod upload;
 mod vehicle;
 
 use backend::Backend;
-use body::Bodies;
-use character::Characters;
+use body::BodyStore;
+use character::CharacterStore;
 use clock::Clock;
-use colliders::ColliderPool;
-use commands::BodyCommand;
-use constraint::Constraints;
+use collider::ColliderStore;
+use command::BodyCommand;
+use constraint::ConstraintStore;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
-use event::Events;
-use impact::Impacts;
-use observation::Observations;
-use query::Queries;
-use shape::Shapes;
-use soft::SoftBodies;
-use vehicle::Vehicles;
+use event::EventStore;
+use impact::ImpactStore;
+use observation::ObservationStore;
+use query::QueryStore;
+use shape::ShapeStore;
+use soft::SoftBodyStore;
+use vehicle::VehicleStore;
 
 pub use backend::StreamCapacity;
 pub use dynamis_model::SceneTarget;
@@ -59,39 +59,39 @@ pub struct World {
 
     clock: Clock,
     backend: Backend,
-    bodies: Bodies,
-    colliders: ColliderPool,
-    constraints: Constraints,
-    shapes: Shapes,
-    queries: Queries,
-    characters: Characters,
-    events: Events,
-    impacts: Impacts,
-    observed: Observations,
-    soft: SoftBodies,
-    vehicles: Vehicles,
+    bodies: BodyStore,
+    colliders: ColliderStore,
+    constraints: ConstraintStore,
+    shapes: ShapeStore,
+    queries: QueryStore,
+    characters: CharacterStore,
+    events: EventStore,
+    impacts: ImpactStore,
+    observed: ObservationStore,
+    soft: SoftBodyStore,
+    vehicles: VehicleStore,
 }
 
 impl World {
     pub fn new(gpu: GpuContext, config: PhysicsConfig) -> Self {
         config.assert_valid();
-        let shapes = Shapes::new();
+        let shapes = ShapeStore::new();
         let backend = Backend::new(gpu);
         Self {
             config,
             clock: Clock::new(),
             backend,
-            bodies: Bodies::new(),
-            colliders: ColliderPool::new(),
-            constraints: Constraints::new(),
+            bodies: BodyStore::new(),
+            colliders: ColliderStore::new(),
+            constraints: ConstraintStore::new(),
             shapes,
-            queries: Queries::new(),
-            characters: Characters::new(),
-            events: Events::new(),
-            impacts: Impacts::new(),
-            observed: Observations::new(),
-            soft: SoftBodies::new(),
-            vehicles: Vehicles::new(),
+            queries: QueryStore::new(),
+            characters: CharacterStore::new(),
+            events: EventStore::new(),
+            impacts: ImpactStore::new(),
+            observed: ObservationStore::new(),
+            soft: SoftBodyStore::new(),
+            vehicles: VehicleStore::new(),
         }
     }
 

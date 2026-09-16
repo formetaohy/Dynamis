@@ -1,6 +1,6 @@
 use super::World;
-use super::facts::{Facts, Kind};
-use super::ids::IdSpace;
+use super::fact::{FactStore, Kind};
+use super::id::IdSpace;
 use super::readback::{ConstraintForce, constraint_force_of, joint_state_of};
 use super::soft::SoftRuns;
 use dynamis_abi::{
@@ -314,22 +314,22 @@ impl Kind for SoftFacts {
     }
 }
 
-pub(crate) struct Observations {
-    pub(crate) bodies: Facts<BodyFacts>,
-    pub(crate) joints: Facts<JointFacts>,
-    pub(crate) characters: Facts<CharacterFacts>,
-    pub(crate) vehicles: Facts<VehicleFacts>,
-    pub(crate) soft: Facts<SoftFacts>,
+pub(crate) struct ObservationStore {
+    pub(crate) bodies: FactStore<BodyFacts>,
+    pub(crate) joints: FactStore<JointFacts>,
+    pub(crate) characters: FactStore<CharacterFacts>,
+    pub(crate) vehicles: FactStore<VehicleFacts>,
+    pub(crate) soft: FactStore<SoftFacts>,
 }
 
-impl Observations {
+impl ObservationStore {
     pub(crate) fn new() -> Self {
         Self {
-            bodies: Facts::new("body state observation", DEPTH),
-            joints: Facts::new("joint state observation", DEPTH),
-            characters: Facts::new("character state observation", DEPTH),
-            vehicles: Facts::new("vehicle state observation", DEPTH),
-            soft: Facts::new("soft particle observation", SOFT_DEPTH),
+            bodies: FactStore::new("body state observation", DEPTH),
+            joints: FactStore::new("joint state observation", DEPTH),
+            characters: FactStore::new("character state observation", DEPTH),
+            vehicles: FactStore::new("vehicle state observation", DEPTH),
+            soft: FactStore::new("soft particle observation", SOFT_DEPTH),
         }
     }
 

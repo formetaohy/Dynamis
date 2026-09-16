@@ -1,18 +1,18 @@
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
-use dynamis_gpu::Resources;
+use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
 use dynamis_shader::{CORE, rows};
 use dynamis_state::StateStream;
 
-pub struct Reactions {
+pub struct ApplyReactions {
     apply: Stage,
 }
 
-impl PassRuntime<RigidFrame> for Reactions {
-    fn build(context: &GpuContext, streams: &impl Resources) -> Self {
+impl PassRuntime<RigidFrame> for ApplyReactions {
+    fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self {
         Self {
             apply: Stage::build(
                 context,
@@ -43,7 +43,7 @@ impl PassRuntime<RigidFrame> for Reactions {
     fn record(
         &mut self,
         recorder: &mut ComputeRecorder<'_>,
-        streams: &impl Resources,
+        streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
         self.apply.record_rows(

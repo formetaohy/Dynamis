@@ -1,6 +1,6 @@
 use dynamis_gpu::{
-    ComputeRecorder, Contents, GpuContext, GpuSlot, ResourceId, Resources, STREAM, SlotRef, Stream,
-    StreamDesc, StreamElement, WarmupBudget, read_regions,
+    ComputeRecorder, GpuContext, GpuSlot, ResourceId, ResourceSource, Retention, STREAM, SlotRef,
+    Stream, StreamDesc, StreamElement, WarmupBudget, read_regions,
 };
 use dynamis_pass::Stage;
 use dynamis_shader::{Dispatch, Program};
@@ -28,7 +28,7 @@ struct Slots {
     storage: Stream,
 }
 
-impl Resources for Slots {
+impl ResourceSource for Slots {
     fn slots(&self, resource: ResourceId) -> u32 {
         assert_eq!(resource, SLOT, "the stage names one stream");
         self.storage.slots()
@@ -99,7 +99,7 @@ fn a_stage_follows_the_storage_it_replaces() {
                 element: ELEMENT,
                 elements_per_slot: 1,
                 usage: STREAM,
-                contents: Contents::Durable,
+                retention: Retention::Durable,
             },
         ),
     };
@@ -143,7 +143,7 @@ fn an_empty_dispatch_resolves_no_kernel() {
                 element: ELEMENT,
                 elements_per_slot: 1,
                 usage: STREAM,
-                contents: Contents::Durable,
+                retention: Retention::Durable,
             },
         ),
     };
