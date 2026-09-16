@@ -352,33 +352,103 @@ impl World {
         self.backend.gpu.assert_alive();
         self.resolve_queries();
         self.retire_device_facts();
+        if self.observed.characters.needs_publication(self.clock.step)
+            || self.observed.vehicles.needs_publication(self.clock.step)
+        {
+            self.execute(dynamis_pass::Run::Publish);
+            self.retire_device_facts();
+        }
+        let census = self.census();
+        let live = self.live(&census);
+        self.apply_plan(&live);
+        self.mirror_body_states();
+        assert!(
+            self.states_current(),
+            "a sync must land the state of every live body"
+        );
+    }
+
+    fn mirror_body_states(&mut self) {
+        if self.states_current() {
+            return;
+        }
+        let live = self.bodies.pool.len();
+        let device = self.backend.measured[dynamis_abi::COUNTER_BODIES];
+        if live == 0 && device == 0 {
+            return;
+        }
+        let rows = live.max(device) as usize;
         let stale = self
             .bodies
             .pool
             .alive()
             .iter()
+            .copied()
             .filter(|handle| !self.body_current(handle.id))
-            .map(|handle| handle.id)
             .collect::<Vec<_>>();
-        let characters = self.observed.characters.needs_publication(self.clock.step);
-        let vehicles = self.observed.vehicles.needs_publication(self.clock.step);
-        if !stale.is_empty() || characters || vehicles {
-            let mut held = Vec::with_capacity(stale.len());
-            for id in stale {
-                if self.observed.bodies.watch(id) {
-                    held.push(id);
-                }
-            }
-            self.execute(dynamis_pass::Run::Publish);
-            self.retire_device_facts();
-            for id in held {
-                self.observed.bodies.forget(id);
-            }
+        if stale.is_empty() {
+            return;
         }
-        assert!(
-            self.states_current(),
-            "a publication must cover every live body"
+        let identities = self.bodies.pool.ids();
+        let state_stream = &self.backend.streams.state.body_states;
+        let row_stream = &self.backend.streams.state.body_row_of_id;
+        let state_stride = state_stream.stride();
+        let row_stride = row_stream.stride();
+        let state_buffer = state_stream.buffer().clone();
+        let row_buffer = row_stream.buffer().clone();
+        let raw = self.read_regions(
+            "body state mirror",
+            &[
+                (row_buffer, 0, u64::from(identities) * row_stride),
+                (state_buffer, 0, rows as u64 * state_stride),
+            ],
         );
+        let (row_bytes, state_bytes) = raw.split_at(identities as usize * row_stride as usize);
+        let device_rows = dynamis_abi::decode::<u32>(row_bytes);
+        let (records, remainder) = state_bytes.as_chunks::<{ size_of::<BodyStateRecord>() }>();
+        assert!(
+            remainder.is_empty(),
+            "a state mirror must read whole body records"
+        );
+        assert_eq!(
+            records.len(),
+            rows,
+            "a state mirror must read every live row"
+        );
+        assert_eq!(
+            device_rows.len(),
+            identities as usize,
+            "a state mirror must read the device row of every identity"
+        );
+        let step = self.clock.step;
+        for handle in stale {
+            let row = device_rows[handle.id as usize] as usize;
+            let record: BodyStateRecord = bytemuck::pod_read_unaligned(
+                records
+                    .get(row)
+                    .unwrap_or_else(|| panic!("body {handle:?} has no device row to mirror")),
+            );
+            assert!(
+                record.body_id == handle.id && record.generation == handle.generation,
+                "the device row of body {handle:?} holds another identity"
+            );
+            let descriptor = self.bodies.descriptors[handle.id as usize];
+            self.observed.bodies.insert(
+                handle.id,
+                step,
+                BodyState {
+                    position: record.position,
+                    prev_position: record.prev_position,
+                    orientation: record.orientation,
+                    velocity: record.velocity,
+                    angular_velocity: record.angular_velocity,
+                    inverse_mass: descriptor.inverse_mass,
+                    com: descriptor.com,
+                    sleeping: record.sleeping != 0,
+                    step,
+                },
+            );
+        }
     }
 
     pub fn try_state(&mut self, handle: BodyHandle) -> Option<BodyState> {

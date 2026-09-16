@@ -1,5 +1,4 @@
 use dynamis_gpu::{Publication, SubmissionEncoder};
-use std::collections::{BTreeMap, HashMap};
 use wgpu::{Buffer, Device};
 
 pub(crate) trait Kind {
@@ -16,57 +15,57 @@ pub(crate) trait Kind {
     ) -> Vec<(u32, Self::Value)>;
 }
 
+const ABSENT: u32 = u32::MAX;
+
+#[derive(Default)]
 struct Watch {
     keys: Vec<u32>,
-    slots: HashMap<u32, usize>,
+    slots: Vec<u32>,
     dirty: bool,
 }
 
 impl Watch {
-    fn new() -> Self {
-        Self {
-            keys: Vec::new(),
-            slots: HashMap::new(),
-            dirty: false,
+    fn slot(&self, id: u32) -> Option<usize> {
+        self.slots
+            .get(id as usize)
+            .copied()
+            .filter(|slot| *slot != ABSENT)
+            .map(|slot| slot as usize)
+    }
+
+    fn hold(&mut self, id: u32) {
+        let rows = id as usize + 1;
+        if rows > self.slots.len() {
+            self.slots.resize(rows, ABSENT);
         }
     }
 
-    fn watch(&mut self, id: u32) -> bool {
-        if self.slots.contains_key(&id) {
+    fn declare(&mut self, id: u32) -> bool {
+        if self.slot(id).is_some() {
             return false;
         }
-        self.slots.insert(id, self.keys.len());
+        self.hold(id);
+        self.slots[id as usize] = self.keys.len() as u32;
         self.keys.push(id);
         self.dirty = true;
         true
     }
 
     fn forget(&mut self, id: u32) {
-        let Some(slot) = self.slots.remove(&id) else {
+        let Some(slot) = self.slot(id) else {
             return;
         };
         self.keys.swap_remove(slot);
+        self.slots[id as usize] = ABSENT;
         if let Some(moved) = self.keys.get(slot) {
-            self.slots.insert(*moved, slot);
+            self.slots[*moved as usize] = slot as u32;
         }
         self.dirty = true;
     }
 
-    fn len(&self) -> u32 {
-        self.keys.len() as u32
-    }
-
-    fn is_empty(&self) -> bool {
-        self.keys.is_empty()
-    }
-
-    fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.dirty)
-    }
-
     fn clear(&mut self) {
         self.keys.clear();
-        self.slots.clear();
+        self.slots.fill(ABSENT);
         self.dirty = true;
     }
 }
@@ -78,37 +77,33 @@ struct Stored<V> {
 
 pub(crate) struct FactStore<K: Kind> {
     watch: Watch,
-    declared: Vec<u32>,
+    mirrors: Vec<Option<Stored<K::Value>>>,
+    subscription: Vec<u32>,
     sequence: u64,
     publication: Publication<K::Manifest>,
-    stored: BTreeMap<u32, Stored<K::Value>>,
     age: Option<u64>,
 }
 
 impl<K: Kind> FactStore<K> {
     pub(crate) fn new(label: &'static str, depth: usize) -> Self {
         Self {
-            watch: Watch::new(),
-            declared: Vec::new(),
+            watch: Watch::default(),
+            mirrors: Vec::new(),
+            subscription: Vec::new(),
             sequence: 0,
             publication: Publication::new(label, depth),
-            stored: BTreeMap::new(),
             age: None,
         }
     }
 
     pub(crate) fn watch(&mut self, id: u32) -> bool {
-        self.watch.watch(id)
+        self.watch.declare(id)
     }
 
     pub(crate) fn watch_all(&mut self, ids: impl IntoIterator<Item = u32>) {
         for id in ids {
-            self.watch.watch(id);
+            self.watch.declare(id);
         }
-    }
-
-    pub(crate) fn forget(&mut self, id: u32) {
-        self.watch.forget(id);
     }
 
     pub(crate) fn keys(&self) -> &[u32] {
@@ -116,27 +111,27 @@ impl<K: Kind> FactStore<K> {
     }
 
     pub(crate) fn len(&self) -> u32 {
-        self.watch.len()
+        self.watch.keys.len() as u32
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.watch.is_empty()
+        self.watch.keys.is_empty()
     }
 
     pub(crate) fn take_dirty(&mut self) -> bool {
-        self.watch.take_dirty()
+        std::mem::take(&mut self.watch.dirty)
     }
 
     pub(crate) fn declared(&self) -> &[u32] {
-        &self.declared
+        &self.subscription
     }
 
     pub(crate) fn set_declared(&mut self, ids: Vec<u32>) {
-        self.declared = ids;
+        self.subscription = ids;
     }
 
     pub(crate) fn demand(&self) -> u32 {
-        self.watch.len().max(self.declared.len() as u32)
+        self.watch.keys.len().max(self.subscription.len()) as u32
     }
 
     pub(crate) fn age(&self) -> Option<u64> {
@@ -144,45 +139,58 @@ impl<K: Kind> FactStore<K> {
     }
 
     pub(crate) fn needs_publication(&self, step: u64) -> bool {
-        !self.watch.is_empty() && self.age != step.checked_sub(1)
+        !self.watch.keys.is_empty() && self.age != step.checked_sub(1)
     }
 
     pub(crate) fn get(&self, id: u32) -> Option<&K::Value> {
-        self.stored.get(&id).map(|stored| &stored.value)
+        self.entry(id).map(|stored| &stored.value)
     }
 
     pub(crate) fn covered(&self, id: u32) -> Option<u64> {
-        self.stored.get(&id).map(|stored| stored.covered)
+        self.entry(id).map(|stored| stored.covered)
+    }
+
+    fn entry(&self, id: u32) -> Option<&Stored<K::Value>> {
+        self.mirrors.get(id as usize).and_then(Option::as_ref)
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (u32, &K::Value)> {
-        self.stored.iter().map(|(id, stored)| (*id, &stored.value))
+        self.mirrors
+            .iter()
+            .enumerate()
+            .filter_map(|(id, entry)| entry.as_ref().map(|stored| (id as u32, &stored.value)))
     }
 
     pub(crate) fn insert(&mut self, id: u32, covered: u64, value: K::Value) {
-        self.stored.insert(id, Stored { covered, value });
+        let rows = id as usize + 1;
+        if rows > self.mirrors.len() {
+            self.mirrors.resize_with(rows, || None);
+        }
+        self.mirrors[id as usize] = Some(Stored { covered, value });
     }
 
     pub(crate) fn patch(&mut self, id: u32, edit: impl FnOnce(&mut K::Value)) {
-        if let Some(stored) = self.stored.get_mut(&id) {
+        if let Some(stored) = self.mirrors.get_mut(id as usize).and_then(Option::as_mut) {
             edit(&mut stored.value);
         }
     }
 
     pub(crate) fn stop_watching(&mut self, id: u32) {
         self.watch.forget(id);
-        self.stored.remove(&id);
+        if let Some(slot) = self.mirrors.get_mut(id as usize) {
+            *slot = None;
+        }
     }
 
     pub(crate) fn stop(&mut self) {
         self.watch.clear();
-        self.stored.clear();
+        self.mirrors.clear();
         self.age = None;
     }
 
     pub(crate) fn reset(&mut self) {
         self.stop();
-        self.declared.clear();
+        self.subscription.clear();
         self.publication.clear();
     }
 
@@ -220,13 +228,7 @@ impl<K: Kind> FactStore<K> {
     fn accept(&mut self, context: K::Context<'_>, manifest: &K::Manifest, bytes: &[u8]) {
         let step = K::step(manifest);
         for (id, value) in K::decode(context, manifest, bytes) {
-            self.stored.insert(
-                id,
-                Stored {
-                    covered: step + 1,
-                    value,
-                },
-            );
+            self.insert(id, step + 1, value);
         }
         self.age = Some(self.age.map_or(step, |age| age.max(step)));
     }

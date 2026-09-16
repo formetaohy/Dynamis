@@ -565,7 +565,7 @@ fn a_repeated_sync_wait_publishes_nothing_new() {
 }
 
 #[test]
-fn a_sync_wait_releases_the_bodies_it_published() {
+fn a_sync_leaves_the_bodies_it_never_declared_out_of_its_mirror() {
     let mut world = new_world(gravity_config());
     let bodies = crowd(&mut world, 8);
     settle(&mut world, 4);
@@ -596,4 +596,84 @@ fn a_sync_wait_releases_the_bodies_it_published() {
         synced.step,
         "a sync must not leave its bodies observed"
     );
+}
+
+#[test]
+fn a_sync_mirrors_the_live_rows_without_declaring_them() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 192);
+    world.step(DT);
+    world.wait();
+    let declared = world.stream_capacity().state.observed;
+    for body in &bodies {
+        assert_eq!(
+            world.read_state(*body).step,
+            1,
+            "a sync must land every live row it did not declare"
+        );
+    }
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.stream_capacity().state.observed,
+        declared,
+        "a sync must leave the observation channel at its declared size"
+    );
+    for body in &bodies {
+        assert_eq!(world.read_state(*body).step, 2);
+    }
+}
+
+#[test]
+fn a_sync_serves_every_mirrored_row_without_a_submission() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 192);
+    settle(&mut world, 4);
+    let submissions = world.submissions();
+    for body in &bodies {
+        std::hint::black_box(world.read_state(*body));
+    }
+    assert_eq!(
+        world.submissions(),
+        submissions,
+        "a synced mirror must answer every live row without device work"
+    );
+}
+
+#[test]
+fn a_sync_reads_the_state_prefix_of_the_completed_step() {
+    let mut world = new_world(gravity_config());
+    let bodies = crowd(&mut world, 8);
+    world.step(DT);
+    world.wait();
+    let submissions = world.submissions();
+    assert!(bodies.iter().all(|body| world.read_state(*body).step == 1));
+    world.wait();
+    assert_eq!(
+        world.submissions(),
+        submissions,
+        "a sync over a covered world must not read the device at all"
+    );
+}
+
+#[test]
+fn a_sync_keeps_every_identity_through_a_row_move() {
+    let mut world = new_world(static_config());
+    let bodies = (0..16)
+        .map(|index| world.spawn(BodyDesc::static_sphere(0.1).position([index as f32, 0.0, 0.0])))
+        .collect::<Vec<_>>();
+    settle(&mut world, 2);
+    world.step(DT);
+    world.remove(bodies[3]);
+    world.wait();
+    for (index, body) in bodies.iter().enumerate() {
+        if index == 3 {
+            continue;
+        }
+        assert_eq!(
+            world.read_state(*body).position,
+            [index as f32, 0.0, 0.0],
+            "a sync must mirror the state of every identity across a row move"
+        );
+    }
 }
