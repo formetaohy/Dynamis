@@ -12,6 +12,7 @@ mod ids;
 mod impact;
 mod journal;
 mod observation;
+mod pool;
 mod query;
 mod query_pool;
 mod readback;
@@ -111,7 +112,7 @@ impl World {
     }
 
     fn wake_all(&mut self) {
-        for row in 0..self.bodies.alive.len() as u32 {
+        for row in 0..self.bodies.pool.len() {
             self.bodies.commands.push(BodyCommand::Wake { row });
         }
         self.soft.wake_all();
@@ -122,11 +123,11 @@ impl World {
     }
 
     pub fn bodies(&self) -> &[BodyHandle] {
-        &self.bodies.alive
+        self.bodies.pool.alive()
     }
 
     pub fn count(&self) -> usize {
-        self.bodies.alive.len()
+        self.bodies.pool.len() as usize
     }
 
     pub fn is_idle(&self) -> bool {

@@ -51,13 +51,25 @@ impl World {
         self.soft.upload(&queue, &self.backend.streams.soft);
         self.characters.upload(&queue, &self.backend.streams.rigid);
         self.vehicles.upload(&queue, &self.backend.streams.rigid);
-        self.bodies.dirty.sort_unstable();
-        self.bodies.dirty.dedup();
-        let dirty = std::mem::take(&mut self.bodies.dirty);
-        for run in contiguous_runs(&dirty) {
+        let rows = {
+            let mut rows = self
+                .bodies
+                .pool
+                .changed()
+                .into_iter()
+                .map(|id| self.bodies.pool.row_of_id(id))
+                .filter(|row| *row != u32::MAX)
+                .collect::<Vec<_>>();
+            rows.sort_unstable();
+            rows.dedup();
+            rows
+        };
+        for run in contiguous_runs(&rows) {
             let descriptors = run
                 .iter()
-                .map(|slot| self.bodies.descriptors[self.bodies.alive[*slot as usize].id as usize])
+                .map(|row| {
+                    self.bodies.descriptors[self.bodies.pool.handle_of_row(*row).id as usize]
+                })
                 .collect::<Vec<_>>();
             self.backend.streams.state.body_descriptors.write_at(
                 &queue,
@@ -65,14 +77,27 @@ impl World {
                 bytemuck::cast_slice(&descriptors),
             );
         }
-        self.upload_colliders(&queue, &dirty);
-        self.constraints.dirty.sort_unstable();
-        self.constraints.dirty.dedup();
-        for run in contiguous_runs(&std::mem::take(&mut self.constraints.dirty)) {
+        self.upload_colliders(&queue, &rows);
+        let rows = {
+            let mut rows = self
+                .constraints
+                .pool
+                .changed()
+                .into_iter()
+                .map(|id| self.constraints.pool.row_of_id(id))
+                .filter(|row| *row != u32::MAX)
+                .collect::<Vec<_>>();
+            rows.sort_unstable();
+            rows.dedup();
+            rows
+        };
+        for run in contiguous_runs(&rows) {
             let first = run[0];
             let records = run
                 .iter()
-                .map(|slot| self.constraints.records[*slot as usize])
+                .map(|row| {
+                    self.constraints.records[self.constraints.pool.handle_of_row(*row).id as usize]
+                })
                 .collect::<Vec<_>>();
             self.backend.streams.state.constraint_descriptors.write_at(
                 &queue,
@@ -109,7 +134,7 @@ impl World {
         }
         let mut placed = Vec::with_capacity(dirty.len());
         for slot in dirty {
-            let id = self.bodies.alive[*slot as usize].id;
+            let id = self.bodies.pool.handle_of_row(*slot).id;
             let run = self
                 .colliders
                 .run_of(id)

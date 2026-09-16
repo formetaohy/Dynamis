@@ -244,19 +244,13 @@ impl World {
     }
 
     pub(crate) fn accept_constraint_break(&mut self, constraint_id: u32, generation: u32) {
-        let id = constraint_id as usize;
-        if id >= self.constraints.ids.len() {
-            return;
-        }
-        if self.constraints.ids.generation(constraint_id) != generation
-            || self.constraints.index_of[id] == u32::MAX
-        {
-            return;
-        }
         let handle = ConstraintHandle {
             id: constraint_id,
             generation,
         };
+        if !self.constraints.is_alive(handle) {
+            return;
+        }
         self.constraints.broken.push(handle);
         self.remove_constraint(handle);
     }

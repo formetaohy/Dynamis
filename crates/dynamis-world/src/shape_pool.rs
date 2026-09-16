@@ -1,5 +1,5 @@
 use super::arena::{Arena, Run, merged};
-use super::ids::IdSpace;
+use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{BvhNodeRecord, SurfaceRecord, TriangleRecord};
 use dynamis_model::{ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
@@ -91,15 +91,11 @@ impl Source {
         bounds: ([0.0; 3], [0.0; 3]),
         solid: None,
     };
-
-    fn alive(&self) -> bool {
-        self.kind != 0
-    }
 }
 
 #[derive(Clone)]
 pub(crate) struct ShapePool {
-    ids: IdSpace,
+    pool: Pool<ShapeSourceHandle>,
     refs: Vec<u32>,
     sources: Vec<Source>,
     vertices: Geometry<[f32; 4]>,
@@ -111,7 +107,7 @@ pub(crate) struct ShapePool {
 impl ShapePool {
     pub(crate) const fn new() -> Self {
         Self {
-            ids: IdSpace::new(),
+            pool: Pool::vacate("shape source"),
             refs: Vec::new(),
             sources: Vec::new(),
             vertices: Geometry::new(),
@@ -132,9 +128,9 @@ impl ShapePool {
 
     pub(crate) fn source_surface(&self, source: u32, index: u32) -> SurfaceDesc {
         let source = self
-            .sources
-            .get(source as usize)
-            .filter(|source| source.alive())
+            .pool
+            .handle_of(source)
+            .map(|handle| &self.sources[handle.id as usize])
             .unwrap_or_else(|| panic!("shape source {source} is not alive"));
         assert!(
             index < source.palette.len,
@@ -150,19 +146,8 @@ impl ShapePool {
     }
 
     fn source(&self, handle: ShapeSourceHandle) -> &Source {
-        let source = self
-            .sources
-            .get(handle.id as usize)
-            .unwrap_or_else(|| panic!("shape source handle {handle:?} is out of range"));
-        assert!(
-            self.ids.generation(handle.id) == handle.generation,
-            "shape source handle {handle:?} is stale"
-        );
-        assert!(
-            source.alive(),
-            "shape source handle {handle:?} is not alive"
-        );
-        source
+        self.pool.validate(handle);
+        &self.sources[handle.id as usize]
     }
 
     fn grow_to(&mut self, id: u32) {
@@ -201,7 +186,7 @@ impl ShapePool {
         self.palettes
             .release(source.palette, SurfaceRecord::zeroed());
         self.sources[id] = Source::DEAD;
-        self.ids.release(handle.id);
+        self.pool.retire(handle);
     }
 
     pub(crate) fn allocate(
@@ -214,7 +199,8 @@ impl ShapePool {
         validate_geometry(kind, vertices, triangles, surfaces);
         let nodes = build_bvh(vertices, triangles);
         let bounds = bounds_of(vertices);
-        let (id, generation) = self.ids.acquire();
+        let handle = self.pool.acquire();
+        let id = handle.id;
         self.grow_to(id);
         let vertex_rows = vertex_rows(vertices);
         let triangle_rows = triangle_rows(triangles, surfaces);
@@ -234,7 +220,8 @@ impl ShapePool {
             bounds,
             solid: solid_of(kind, vertices, triangles),
         };
-        ShapeSourceHandle { id, generation }
+        self.pool.insert(handle);
+        handle
     }
 
     pub(crate) fn update_mesh(

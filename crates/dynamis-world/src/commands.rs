@@ -151,7 +151,7 @@ impl World {
                 }
             }
         }
-        let rows = self.bodies.alive.len() as u32;
+        let rows = self.bodies.pool.len();
         let moves = map.moves(rows);
         let mut edits = Vec::new();
         let mut runs = Vec::new();
@@ -199,7 +199,7 @@ impl World {
             }
         }
         CompiledConstraintCommands {
-            moves: map.moves(self.constraints.alive.len() as u32),
+            moves: map.moves(self.constraints.pool.len()),
             fresh,
         }
     }

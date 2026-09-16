@@ -1,6 +1,6 @@
 use super::World;
 use super::commands::BodyCommand;
-use super::ids::IdSpace;
+use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{
     BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
@@ -14,9 +14,7 @@ use dynamis_model::{
 
 #[derive(Clone)]
 pub(crate) struct Bodies {
-    pub(crate) alive: Vec<BodyHandle>,
-    pub(crate) ids: IdSpace,
-    pub(crate) index_of: Vec<u32>,
+    pub(crate) pool: Pool<BodyHandle>,
     pub(crate) collider_descs: Vec<Vec<ColliderDesc>>,
     pub(crate) masses: Vec<f32>,
     pub(crate) com_overrides: Vec<Option<[f32; 3]>>,
@@ -26,7 +24,6 @@ pub(crate) struct Bodies {
     pub(crate) kinematic: Vec<bool>,
     pub(crate) ccd_count: u32,
     pub(crate) commands: Vec<BodyCommand>,
-    pub(crate) dirty: Vec<u32>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
 }
@@ -34,9 +31,7 @@ pub(crate) struct Bodies {
 impl Bodies {
     pub(crate) const fn new() -> Self {
         Self {
-            alive: Vec::new(),
-            ids: IdSpace::new(),
-            index_of: Vec::new(),
+            pool: Pool::compact("body"),
             collider_descs: Vec::new(),
             masses: Vec::new(),
             com_overrides: Vec::new(),
@@ -46,28 +41,20 @@ impl Bodies {
             kinematic: Vec::new(),
             ccd_count: 0,
             commands: Vec::new(),
-            dirty: Vec::new(),
             last_moves: 0,
             last_edits: 0,
         }
     }
 
     pub(crate) fn handle_of(&self, id: u32) -> Option<BodyHandle> {
-        if (id as usize) >= self.ids.len() || self.index_of[id as usize] == u32::MAX {
-            return None;
-        }
-        Some(BodyHandle {
-            id,
-            generation: self.ids.generation(id),
-        })
+        self.pool.handle_of(id)
     }
 
     fn grow_to(&mut self, id: u32) {
         let rows = id as usize + 1;
-        if rows <= self.index_of.len() {
+        if rows <= self.collider_descs.len() {
             return;
         }
-        self.index_of.resize(rows, u32::MAX);
         self.collider_descs.resize(rows, Vec::new());
         self.masses.resize(rows, 1.0);
         self.com_overrides.resize(rows, None);
@@ -80,10 +67,9 @@ impl Bodies {
 
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
-        let (id, generation) = self.bodies.ids.acquire();
-        self.bodies.grow_to(id);
-        let handle = BodyHandle { id, generation };
-        let id = id as usize;
+        let handle = self.bodies.pool.acquire();
+        let id = handle.id as usize;
+        self.bodies.grow_to(handle.id);
         self.validate_world_geometry(&desc);
         let mass = desc.effective_mass(|shape| self.shape_solid(shape));
         let mut spawn_desc = desc.clone();
@@ -101,11 +87,8 @@ impl World {
             BodyDescriptorRecord::build(&spawn_desc, mass_properties, &self.config);
         self.record_state(id, &spawn_desc);
         self.repool_colliders(id as u32);
-        let state = BodyStateRecord::initial(&spawn_desc, id as u32, handle.generation);
-        let slot = self.bodies.alive.len() as u32;
-        self.bodies.index_of[id] = slot;
-        self.bodies.alive.push(handle);
-        self.bodies.dirty.push(slot);
+        let state = BodyStateRecord::initial(&spawn_desc, handle.id, handle.generation);
+        let slot = self.bodies.pool.insert(handle);
         self.bodies
             .commands
             .push(BodyCommand::Add { row: slot, state });
@@ -124,20 +107,19 @@ impl World {
     pub fn remove(&mut self, handle: BodyHandle) {
         self.validate(handle);
         self.assert_unreferenced(handle);
-        let id = handle.id as usize;
-        let slot = self.bodies.index_of[id];
+        let slot = self.bodies.pool.row_of(handle);
         if (slot as usize) < self.bodies.dynamic_count {
             let tail_dynamic = (self.bodies.dynamic_count - 1) as u32;
             if slot != tail_dynamic {
                 self.swap_slots(slot, tail_dynamic);
             }
             self.bodies.dynamic_count -= 1;
-            let last = (self.bodies.alive.len() - 1) as u32;
+            let last = self.bodies.pool.len() - 1;
             if tail_dynamic != last {
                 self.swap_slots(tail_dynamic, last);
             }
         } else {
-            let last = (self.bodies.alive.len() - 1) as u32;
+            let last = self.bodies.pool.len() - 1;
             if slot != last {
                 self.swap_slots(slot, last);
             }
@@ -146,13 +128,14 @@ impl World {
     }
 
     fn discard_tail(&mut self) {
-        let last = (self.bodies.alive.len() - 1) as u32;
-        let handle = self.bodies.alive[last as usize];
+        let last = self.bodies.pool.len() - 1;
+        let handle = self.bodies.pool.handle_of_row(last);
         let id = handle.id as usize;
-        self.bodies.index_of[id] = u32::MAX;
-        self.bodies.ids.release(handle.id);
-        self.bodies.alive.pop();
-        self.bodies.dirty.retain(|dirty| *dirty != last);
+        let retired = self.bodies.pool.retire(handle);
+        assert!(
+            retired.moved.is_none(),
+            "the tail row retires without a move"
+        );
         let removed = std::mem::take(&mut self.bodies.collider_descs[id]);
         for collider in &removed {
             self.release_shape_ref(&collider.shape);
@@ -171,20 +154,16 @@ impl World {
     }
 
     fn swap_slots(&mut self, first: u32, second: u32) {
-        self.bodies.alive.swap(first as usize, second as usize);
-        self.bodies.index_of[self.bodies.alive[first as usize].id as usize] = first;
-        self.bodies.index_of[self.bodies.alive[second as usize].id as usize] = second;
+        self.bodies.pool.swap_rows(first, second);
         self.bodies
             .commands
             .push(BodyCommand::Swap { first, second });
-        self.bodies.dirty.push(first);
-        self.bodies.dirty.push(second);
     }
 
     fn migrate_partition(&mut self, handle: BodyHandle) {
         let id = handle.id as usize;
         let static_now = self.is_static_id(id);
-        let slot = self.bodies.index_of[id];
+        let slot = self.bodies.pool.row_of(handle);
         let in_dynamic = (slot as usize) < self.bodies.dynamic_count;
         if static_now == !in_dynamic {
             return;
@@ -204,7 +183,7 @@ impl World {
                 state.velocity = [0.0; 3];
                 state.angular_velocity = [0.0; 3];
             });
-            self.bodies.dirty.push(tail);
+            self.bodies.pool.mark_row(tail);
         } else {
             let boundary = self.bodies.dynamic_count as u32;
             if slot != boundary {
@@ -212,7 +191,7 @@ impl World {
             }
             self.bodies.dynamic_count += 1;
         }
-        self.bodies.dirty.push(slot);
+        self.bodies.pool.mark_row(slot);
     }
 
     pub fn read_state(&self, handle: BodyHandle) -> BodyState {
@@ -282,9 +261,8 @@ impl World {
         edit: impl FnOnce(&mut BodyDescriptorRecord),
     ) {
         self.validate(handle);
-        let id = handle.id as usize;
-        edit(&mut self.bodies.descriptors[id]);
-        self.bodies.dirty.push(self.bodies.index_of[id]);
+        edit(&mut self.bodies.descriptors[handle.id as usize]);
+        self.bodies.pool.mark(handle);
     }
 
     fn refresh_descriptor(&mut self, handle: BodyHandle) {
@@ -303,7 +281,7 @@ impl World {
         descriptor.flags =
             (descriptor.flags & !BODY_KINEMATIC) | if kinematic { BODY_KINEMATIC } else { 0 };
         let row = *descriptor;
-        self.bodies.dirty.push(self.bodies.index_of[id]);
+        self.bodies.pool.mark(handle);
         self.observed.bodies.patch(id as u32, |state| {
             state.inverse_mass = row.inverse_mass;
             state.com = row.com;
@@ -316,8 +294,7 @@ impl World {
     }
 
     fn command_slot(&self, handle: BodyHandle) -> u32 {
-        self.validate(handle);
-        self.bodies.index_of[handle.id as usize]
+        self.bodies.pool.row_of(handle)
     }
 
     fn schedule_patch(&mut self, handle: BodyHandle, mask: u32, state: BodyStateRecord) {
@@ -338,9 +315,7 @@ impl World {
         let mut payload = BodyStateRecord::zeroed();
         payload.position = position;
         self.schedule_patch(handle, PATCH_POSITION, payload);
-        self.bodies
-            .dirty
-            .push(self.bodies.index_of[handle.id as usize]);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
@@ -352,9 +327,7 @@ impl World {
         let mut payload = BodyStateRecord::zeroed();
         payload.orientation = orientation;
         self.schedule_patch(handle, PATCH_ORIENTATION, payload);
-        self.bodies
-            .dirty
-            .push(self.bodies.index_of[handle.id as usize]);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
@@ -540,9 +513,7 @@ impl World {
         self.validate(handle);
         self.bodies.collider_descs[handle.id as usize][0].restitution = restitution;
         self.repool_colliders(handle.id);
-        self.bodies
-            .dirty
-            .push(self.bodies.index_of[handle.id as usize]);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
@@ -550,9 +521,7 @@ impl World {
         self.validate(handle);
         self.bodies.collider_descs[handle.id as usize][0].friction = friction;
         self.repool_colliders(handle.id);
-        self.bodies
-            .dirty
-            .push(self.bodies.index_of[handle.id as usize]);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn set_collider_events(
@@ -569,7 +538,7 @@ impl World {
         );
         self.bodies.collider_descs[id][index].events = events;
         self.repool_colliders(handle.id);
-        self.bodies.dirty.push(self.bodies.index_of[id]);
+        self.bodies.pool.mark(handle);
     }
 
     pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
@@ -647,16 +616,7 @@ impl World {
     }
 
     pub(super) fn validate(&self, handle: BodyHandle) {
-        let id = handle.id as usize;
-        if id >= self.bodies.ids.len() {
-            panic!("body handle {handle:?} is out of range");
-        }
-        if self.bodies.ids.generation(handle.id) != handle.generation {
-            panic!("body handle {handle:?} is stale");
-        }
-        if self.bodies.index_of[id] == u32::MAX {
-            panic!("body handle {handle:?} is not alive");
-        }
+        self.bodies.pool.validate(handle);
     }
 
     pub(super) fn assert_unit(&self, orientation: [f32; 4]) {

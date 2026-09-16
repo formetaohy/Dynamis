@@ -1,6 +1,6 @@
 use super::World;
 use super::commands::ConstraintCommand;
-use super::ids::IdSpace;
+use super::pool::{Pool, Retired};
 use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintKind, ConstraintLimit,
@@ -9,13 +9,10 @@ use dynamis_model::{
 
 #[derive(Clone)]
 pub(crate) struct Constraints {
-    pub(crate) alive: Vec<ConstraintHandle>,
-    pub(crate) ids: IdSpace,
-    pub(crate) index_of: Vec<u32>,
+    pub(crate) pool: Pool<ConstraintHandle>,
     pub(crate) records: Vec<ConstraintDescriptorRecord>,
     pub(crate) attached: Vec<Vec<u32>>,
     pub(crate) commands: Vec<ConstraintCommand>,
-    pub(crate) dirty: Vec<u32>,
     pub(crate) last_moves: u32,
     pub(crate) last_commands: u32,
     pub(crate) broken: Vec<ConstraintHandle>,
@@ -24,23 +21,13 @@ pub(crate) struct Constraints {
 impl Constraints {
     pub(crate) const fn new() -> Self {
         Self {
-            alive: Vec::new(),
-            ids: IdSpace::new(),
-            index_of: Vec::new(),
+            pool: Pool::compact("constraint"),
             records: Vec::new(),
             attached: Vec::new(),
             commands: Vec::new(),
-            dirty: Vec::new(),
             last_moves: 0,
             last_commands: 0,
             broken: Vec::new(),
-        }
-    }
-
-    fn grow_to(&mut self, id: u32) {
-        let rows = id as usize + 1;
-        if rows > self.index_of.len() {
-            self.index_of.resize(rows, u32::MAX);
         }
     }
 
@@ -68,29 +55,17 @@ impl Constraints {
     }
 
     fn attach(&mut self, handle: ConstraintHandle, record: ConstraintDescriptorRecord) -> u32 {
-        let slot = self.alive.len() as u32;
-        self.index_of[handle.id as usize] = slot;
-        self.alive.push(handle);
-        self.records.push(record);
+        let slot = self.pool.insert(handle);
+        if self.records.len() <= handle.id as usize {
+            self.records
+                .resize(handle.id as usize + 1, bytemuck::Zeroable::zeroed());
+        }
+        self.records[handle.id as usize] = record;
         slot
     }
 
-    fn detach(&mut self, slot: usize) -> bool {
-        let tail = self.alive.len() - 1;
-        self.alive.swap_remove(slot);
-        self.records.swap_remove(slot);
-        if slot == tail {
-            return false;
-        }
-        let moved = self.alive[slot];
-        self.index_of[moved.id as usize] = slot as u32;
-        true
-    }
-
     pub(crate) fn is_alive(&self, handle: ConstraintHandle) -> bool {
-        (handle.id as usize) < self.ids.len()
-            && self.ids.generation(handle.id) == handle.generation
-            && self.index_of[handle.id as usize] != u32::MAX
+        self.pool.contains(handle)
     }
 }
 
@@ -107,18 +82,15 @@ impl World {
             panic!("constraint bodies must be distinct");
         }
         self.validate_constraint_desc(&desc);
-        let (id, generation) = self.constraints.ids.acquire();
-        self.constraints.grow_to(id);
-        let handle = ConstraintHandle { id, generation };
+        let handle = self.constraints.pool.acquire();
         let record = ConstraintDescriptorRecord::build(&desc, first.id, second.id);
         let slot = self.constraints.attach(handle, record);
         self.constraints.attach_to(first.id, handle.id);
         self.constraints.attach_to(second.id, handle.id);
-        self.constraints.dirty.push(slot);
         self.constraints.commands.push(ConstraintCommand::Add {
             slot,
-            id,
-            generation,
+            id: handle.id,
+            generation: handle.generation,
         });
         handle
     }
@@ -126,15 +98,14 @@ impl World {
     pub fn update_constraint(&mut self, handle: ConstraintHandle, desc: ConstraintDesc) {
         self.validate_constraint(handle);
         self.validate_constraint_desc(&desc);
-        let slot = self.constraints.index_of[handle.id as usize] as usize;
-        let existing = self.constraints.records[slot];
+        let existing = self.constraints.records[handle.id as usize];
         let record = ConstraintDescriptorRecord::build(
             &desc,
             existing.first_body_id,
             existing.second_body_id,
         );
-        self.constraints.records[slot] = record;
-        self.constraints.dirty.push(slot as u32);
+        self.constraints.records[handle.id as usize] = record;
+        self.constraints.pool.mark(handle);
     }
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
@@ -337,9 +308,8 @@ impl World {
         change: impl FnOnce(&mut ConstraintDescriptorRecord),
     ) {
         self.validate_constraint(handle);
-        let slot = self.constraints.index_of[handle.id as usize] as usize;
-        change(&mut self.constraints.records[slot]);
-        self.constraints.dirty.push(slot as u32);
+        change(&mut self.constraints.records[handle.id as usize]);
+        self.constraints.pool.mark(handle);
     }
 
     fn assert_dof_index(&self, index: usize) {
@@ -352,24 +322,18 @@ impl World {
 
     pub fn remove_constraint(&mut self, handle: ConstraintHandle) {
         self.validate_constraint(handle);
-        let id = handle.id as usize;
-        let slot = self.constraints.index_of[id] as usize;
-        let record = self.constraints.records[slot];
+        let record = self.constraints.records[handle.id as usize];
         self.constraints
             .detach_from(record.first_body_id, handle.id);
         self.constraints
             .detach_from(record.second_body_id, handle.id);
-        let tail = self.constraints.alive.len() - 1;
-        if self.constraints.detach(slot) {
-            self.constraints.dirty.push(slot as u32);
+        let Retired { row, moved } = self.constraints.pool.retire(handle);
+        if moved.is_some() {
             self.constraints.commands.push(ConstraintCommand::Swap {
-                slot: slot as u32,
-                tail: tail as u32,
+                slot: row,
+                tail: self.constraints.pool.len(),
             });
         }
-        self.constraints.index_of[id] = u32::MAX;
-        self.constraints.ids.release(handle.id);
-        self.constraints.dirty.retain(|dirty| *dirty != tail as u32);
         self.observed.joints.stop_watching(handle.id);
     }
 
@@ -397,7 +361,7 @@ impl World {
     }
 
     pub fn constraints(&self) -> &[ConstraintHandle] {
-        &self.constraints.alive
+        self.constraints.pool.alive()
     }
 
     pub fn body_constraints(&self, handle: BodyHandle) -> Vec<ConstraintHandle> {
@@ -407,38 +371,28 @@ impl World {
             .iter()
             .map(|id| ConstraintHandle {
                 id: *id,
-                generation: self.constraints.ids.generation(*id),
+                generation: self.constraints.pool.generation(*id),
             })
             .collect()
     }
 
     pub fn constraint_bodies(&self, handle: ConstraintHandle) -> (BodyHandle, BodyHandle) {
         self.validate_constraint(handle);
-        let record =
-            self.constraints.records[self.constraints.index_of[handle.id as usize] as usize];
+        let record = self.constraints.records[handle.id as usize];
         (
             BodyHandle {
                 id: record.first_body_id,
-                generation: self.bodies.ids.generation(record.first_body_id),
+                generation: self.bodies.pool.generation(record.first_body_id),
             },
             BodyHandle {
                 id: record.second_body_id,
-                generation: self.bodies.ids.generation(record.second_body_id),
+                generation: self.bodies.pool.generation(record.second_body_id),
             },
         )
     }
 
     pub(crate) fn validate_constraint(&self, handle: ConstraintHandle) {
-        let id = handle.id as usize;
-        if id >= self.constraints.ids.len() {
-            panic!("constraint handle {handle:?} is out of range");
-        }
-        if self.constraints.ids.generation(handle.id) != handle.generation {
-            panic!("constraint handle {handle:?} is stale");
-        }
-        if self.constraints.index_of[id] == u32::MAX {
-            panic!("constraint handle {handle:?} is not alive");
-        }
+        self.constraints.pool.validate(handle);
     }
 
     fn validate_constraint_desc(&self, desc: &ConstraintDesc) {

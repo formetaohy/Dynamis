@@ -1,8 +1,8 @@
 use super::World;
 use super::arena::{Cleared, Mirror, Run};
 use super::commands::Consumption;
-use super::ids::IdSpace;
 use super::journal::EditJournal;
+use super::pool::Pool;
 use dynamis_abi::{
     ELEMENT_PARTICLES, ELEMENT_ROLE_BITS, NO_SLOT, SoftAttachmentInit, SoftAttachmentRecord,
     SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementInit, SoftElementRecord,
@@ -49,13 +49,11 @@ pub(crate) enum SoftBodyCommand {
 
 #[derive(Clone)]
 pub(crate) struct SoftBodies {
-    alive: Vec<SoftBodyHandle>,
-    ids: IdSpace,
-    index_of: Vec<u32>,
+    pool: Pool<SoftBodyHandle>,
     runs: Vec<SoftRuns>,
     masses: Vec<f32>,
     events: Vec<ContactEventMode>,
-    created: Vec<(u32, SoftBodyRecord)>,
+    records: Vec<SoftBodyRecord>,
     body_commands: EditJournal<u32, SoftBodyCommand>,
     commands: EditJournal<u32, SoftCommand>,
     pub(crate) last_body_edits: u32,
@@ -87,13 +85,11 @@ impl Cleared for u32 {
 impl SoftBodies {
     pub(crate) fn new() -> Self {
         Self {
-            alive: Vec::new(),
-            ids: IdSpace::new(),
-            index_of: Vec::new(),
+            pool: Pool::compact("soft body"),
             runs: Vec::new(),
             masses: Vec::new(),
             events: Vec::new(),
-            created: Vec::new(),
+            records: Vec::new(),
             body_commands: EditJournal::new(),
             commands: EditJournal::new(),
             last_body_edits: 0,
@@ -108,27 +104,29 @@ impl SoftBodies {
     }
 
     pub(crate) fn count(&self) -> usize {
-        self.alive.len()
+        self.pool.len() as usize
     }
 
     pub(crate) fn ids_len(&self) -> usize {
-        self.ids.len()
+        self.pool.ids() as usize
     }
 
     pub(crate) fn carries_strength(&self) -> bool {
-        self.alive
+        self.pool
+            .alive()
             .iter()
             .any(|handle| self.runs[handle.id as usize].strength)
     }
 
     pub(crate) fn carries_events(&self) -> bool {
-        self.alive
+        self.pool
+            .alive()
             .iter()
             .any(|handle| !matches!(self.events[handle.id as usize], ContactEventMode::None))
     }
 
     pub(crate) fn bodies(&self) -> &[SoftBodyHandle] {
-        &self.alive
+        self.pool.alive()
     }
 
     pub(crate) fn used(&self) -> (u32, u32, u32, u32) {
@@ -193,7 +191,7 @@ impl SoftBodies {
     }
 
     pub(crate) fn pending_uploads(&self) -> bool {
-        !self.created.is_empty() || !self.body_commands.is_empty() || !self.commands.is_empty()
+        self.pool.pending() || !self.body_commands.is_empty() || !self.commands.is_empty()
     }
 
     pub(crate) fn compile_body_commands(
@@ -283,7 +281,7 @@ impl SoftBodies {
     }
 
     pub(crate) fn wake_all(&mut self) {
-        for handle in &self.alive {
+        for handle in self.pool.alive() {
             self.body_commands.push(handle.id, SoftBodyCommand::Wake);
         }
     }
@@ -294,36 +292,22 @@ impl SoftBodies {
     }
 
     pub(crate) fn handle_of(&self, id: u32) -> Option<SoftBodyHandle> {
-        if (id as usize) >= self.ids.len() || self.index_of[id as usize] == u32::MAX {
-            return None;
-        }
-        Some(SoftBodyHandle {
-            id,
-            generation: self.ids.generation(id),
-        })
+        self.pool.handle_of(id)
     }
 
     pub(crate) fn validate(&self, handle: SoftBodyHandle) {
-        let id = handle.id as usize;
-        if id >= self.ids.len() {
-            panic!("soft body handle {handle:?} is out of range");
-        }
-        if self.ids.generation(handle.id) != handle.generation {
-            panic!("soft body handle {handle:?} is stale");
-        }
-        if self.index_of[id] == u32::MAX {
-            panic!("soft body handle {handle:?} is not alive");
-        }
+        self.pool.validate(handle);
     }
 
     fn grow_to(&mut self, id: u32) {
         if self.runs.len() > id as usize {
             return;
         }
-        self.index_of.resize(id as usize + 1, u32::MAX);
         self.runs.resize(id as usize + 1, SoftRuns::EMPTY);
         self.masses.resize(id as usize + 1, 0.0);
         self.events.resize(id as usize + 1, ContactEventMode::None);
+        self.records
+            .resize(id as usize + 1, SoftBodyRecord::cleared());
     }
 
     fn hold_attachment(&mut self, body: BodyHandle) {
@@ -344,11 +328,11 @@ impl SoftBodies {
     }
 
     pub(crate) fn spawn(&mut self, desc: &SoftBodyDesc) -> SoftBodyHandle {
-        let (id, generation) = self.ids.acquire();
+        let handle = self.pool.acquire();
+        let id = handle.id;
         self.grow_to(id);
         self.events[id as usize] = desc.events;
-        self.created
-            .push((id, SoftBodyRecord::awake(desc.filter, desc.events)));
+        self.records[id as usize] = SoftBodyRecord::awake(desc.filter, desc.events);
         self.masses[id as usize] = desc
             .inverse_masses
             .iter()
@@ -384,7 +368,7 @@ impl SoftBodies {
                     neighbour_offset: offset,
                     neighbour_count: count,
                     owner: id,
-                    generation,
+                    generation: handle.generation,
                 });
         }
         for (slot, element) in desc.elements.iter().enumerate() {
@@ -416,9 +400,7 @@ impl SoftBodies {
             adjacency,
             strength: desc.carries_strength(),
         };
-        let handle = SoftBodyHandle { id, generation };
-        self.index_of[id as usize] = self.alive.len() as u32;
-        self.alive.push(handle);
+        self.pool.insert(handle);
         handle
     }
 
@@ -433,7 +415,7 @@ impl SoftBodies {
             "soft body {handle:?} must consume its particle edits before it is removed"
         );
         self.body_commands.remove(handle.id);
-        self.created.push((handle.id, SoftBodyRecord::cleared()));
+        self.records[id] = SoftBodyRecord::cleared();
         for slot in runs.attachments.span() {
             self.release_attachment(self.attachments.records()[slot].body_id);
         }
@@ -443,13 +425,7 @@ impl SoftBodies {
         self.adjacency.retire(runs.adjacency);
         self.runs[id] = SoftRuns::EMPTY;
         self.events[id] = ContactEventMode::None;
-        let slot = self.index_of[id] as usize;
-        self.alive.swap_remove(slot);
-        if slot < self.alive.len() {
-            self.index_of[self.alive[slot].id as usize] = slot as u32;
-        }
-        self.index_of[id] = u32::MAX;
-        self.ids.release(handle.id);
+        self.pool.retire(handle);
     }
 
     pub(crate) fn consume(&mut self) {
@@ -458,13 +434,22 @@ impl SoftBodies {
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &SoftStreams) {
-        if !self.created.is_empty() {
+        if self.pool.pending() {
             self.uploaded = true;
             let stride = streams.bodies.stride();
-            for (id, record) in self.created.drain(..) {
-                streams
-                    .bodies
-                    .write_at(queue, u64::from(id) * stride, bytemuck::bytes_of(&record));
+            for id in self.pool.take_retired() {
+                streams.bodies.write_at(
+                    queue,
+                    u64::from(id) * stride,
+                    bytemuck::bytes_of(&SoftBodyRecord::cleared()),
+                );
+            }
+            for id in self.pool.changed() {
+                streams.bodies.write_at(
+                    queue,
+                    u64::from(id) * stride,
+                    bytemuck::bytes_of(&self.records[id as usize]),
+                );
             }
         }
         let particle_stride = streams.particles.stride();

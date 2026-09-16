@@ -1,5 +1,5 @@
 use super::World;
-use super::ids::IdSpace;
+use super::pool::Pool;
 use dynamis_abi::{CHARACTER_SWEEPS, CharacterInputRecord, CharacterRecord, CharacterStateRecord};
 use dynamis_model::{
     BodyDesc, BodyHandle, CharacterDesc, CharacterHandle, CharacterInput, ColliderDesc, Shape,
@@ -8,7 +8,6 @@ use dynamis_rigid::RigidStreams;
 
 #[derive(Clone, Copy)]
 struct Slot {
-    handle: Option<CharacterHandle>,
     body: Option<BodyHandle>,
     record: CharacterRecord,
     input: CharacterInputRecord,
@@ -17,7 +16,6 @@ struct Slot {
 
 impl Slot {
     const RETIRED: Self = Self {
-        handle: None,
         body: None,
         record: CharacterRecord::cleared(),
         input: CharacterInputRecord::idle(),
@@ -27,12 +25,8 @@ impl Slot {
 
 #[derive(Clone)]
 pub(crate) struct Characters {
-    pub(crate) live: Vec<CharacterHandle>,
-    ids: IdSpace,
+    pub(crate) pool: Pool<CharacterHandle>,
     slots: Vec<Slot>,
-    fresh: Vec<u32>,
-    dirty: Vec<u32>,
-    retired: Vec<u32>,
     pending_inputs: u32,
     pub(crate) last_inputs: u32,
 }
@@ -40,24 +34,21 @@ pub(crate) struct Characters {
 impl Characters {
     pub(crate) const fn new() -> Self {
         Self {
-            live: Vec::new(),
-            ids: IdSpace::new(),
+            pool: Pool::vacate("character"),
             slots: Vec::new(),
-            fresh: Vec::new(),
-            dirty: Vec::new(),
-            retired: Vec::new(),
             pending_inputs: 0,
             last_inputs: 0,
         }
     }
 
     pub(crate) fn count(&self) -> u32 {
-        self.live.len() as u32
+        self.pool.len()
     }
 
     pub(crate) fn live_slots(&self) -> Vec<(CharacterHandle, u32)> {
         let mut slots = self
-            .live
+            .pool
+            .alive()
             .iter()
             .map(|handle| (*handle, handle.id))
             .collect::<Vec<_>>();
@@ -66,15 +57,13 @@ impl Characters {
     }
 
     pub(crate) fn slots(&self) -> u32 {
-        self.ids.len() as u32
+        self.pool.ids()
     }
 
     pub(crate) fn owns_body(&self, id: u32) -> bool {
-        self.live.iter().any(|handle| {
-            self.slots[handle.id as usize]
-                .body
-                .is_some_and(|body| body.id == id)
-        })
+        self.slots
+            .iter()
+            .any(|slot| slot.body.is_some_and(|body| body.id == id))
     }
 
     pub(crate) fn pending(&self) -> bool {
@@ -90,21 +79,11 @@ impl Characters {
     }
 
     pub(crate) fn validate(&self, handle: CharacterHandle) {
-        let id = handle.id as usize;
-        if id >= self.ids.len() {
-            panic!("character handle {handle:?} is out of range");
-        }
-        if self.ids.generation(handle.id) != handle.generation {
-            panic!("character handle {handle:?} is stale");
-        }
-        if self.slots[id].handle != Some(handle) {
-            panic!("character handle {handle:?} is not alive");
-        }
+        self.pool.validate(handle);
     }
 
     pub(crate) fn slot_of(&self, handle: CharacterHandle) -> u32 {
-        self.validate(handle);
-        handle.id
+        self.pool.row_of(handle)
     }
 
     pub(crate) fn body_of(&self, handle: CharacterHandle) -> BodyHandle {
@@ -115,91 +94,82 @@ impl Characters {
 
     pub(crate) fn spawn(
         &mut self,
-        handle: CharacterHandle,
         body: BodyHandle,
         record: CharacterRecord,
         position: [f32; 3],
-    ) {
-        let slot = handle.id as usize;
-        if self.slots.len() <= slot {
-            self.slots.resize(slot + 1, Slot::RETIRED);
+    ) -> CharacterHandle {
+        let handle = self.pool.acquire();
+        let slot = self.pool.insert(handle);
+        if self.slots.len() <= slot as usize {
+            self.slots.resize(slot as usize + 1, Slot::RETIRED);
         }
-        self.slots[slot] = Slot {
-            handle: Some(handle),
+        self.slots[slot as usize] = Slot {
             body: Some(body),
             record,
             input: CharacterInputRecord::idle(),
             state: CharacterStateRecord::spawn(handle.id, handle.generation, position),
         };
-        self.live.push(handle);
-        self.fresh.push(handle.id);
+        handle
     }
 
     pub(crate) fn set_input(&mut self, handle: CharacterHandle, input: CharacterInput) {
-        let index = self.slot_of(handle) as usize;
-        let slot = &mut self.slots[index];
-        slot.input = CharacterInputRecord {
+        let slot = self.slot_of(handle) as usize;
+        self.slots[slot].input = CharacterInputRecord {
             direction: input.direction,
             jump: u32::from(input.jump),
         };
-        self.dirty.push(handle.id);
+        self.pool.mark(handle);
         self.pending_inputs += 1;
     }
 
     pub(crate) fn retire(&mut self, handle: CharacterHandle) {
-        let slot = self.slot_of(handle) as usize;
+        let slot = self.pool.retire(handle).row as usize;
         self.slots[slot] = Slot::RETIRED;
-        self.live.retain(|live| *live != handle);
-        self.retired.push(handle.id);
-        self.ids.release(handle.id);
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &RigidStreams) {
-        let retired = take_sorted(&mut self.retired);
-        let fresh = take_sorted(&mut self.fresh);
-        let dirty = take_sorted(&mut self.dirty);
-        for slot in retired {
-            reset_slot(queue, streams, slot);
-            write_record(queue, streams, slot, &Slot::RETIRED);
+        for slot in self.pool.take_retired() {
+            reset_scratch(queue, streams, slot);
+            write_slot(queue, streams, slot, &Slot::RETIRED);
         }
-        for slot in fresh {
-            reset_slot(queue, streams, slot);
-            write_record(queue, streams, slot, &self.slots[slot as usize]);
+        for slot in self.pool.take_fresh() {
+            reset_scratch(queue, streams, slot);
+            write_slot(queue, streams, slot, &self.slots[slot as usize]);
         }
-        for slot in dirty {
+        for slot in self.pool.take_dirty() {
             write_input(queue, streams, slot, &self.slots[slot as usize]);
         }
     }
 }
 
-fn write_record(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, slot_record: &Slot) {
+fn write_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &Slot) {
     let at = u64::from(slot);
     streams.characters.write_at(
         queue,
         at * streams.characters.stride(),
-        bytemuck::bytes_of(&slot_record.record),
+        bytemuck::bytes_of(&record.record),
     );
     streams.character_inputs.write_at(
         queue,
         at * streams.character_inputs.stride(),
-        bytemuck::bytes_of(&slot_record.input),
+        bytemuck::bytes_of(&record.input),
     );
     streams.character_states.write_at(
         queue,
         at * streams.character_states.stride(),
-        bytemuck::bytes_of(&slot_record.state),
+        bytemuck::bytes_of(&record.state),
     );
 }
 
-fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, slot_record: &Slot) {
+fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &Slot) {
     streams.character_inputs.write_at(
         queue,
         u64::from(slot) * streams.character_inputs.stride(),
-        bytemuck::bytes_of(&slot_record.input),
+        bytemuck::bytes_of(&record.input),
     );
 }
 
-fn reset_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
+fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
     let sweeps = [dynamis_abi::inert_sweep(); CHARACTER_SWEEPS as usize];
     streams.character_sweeps.write_at(
         queue,
@@ -213,12 +183,6 @@ fn reset_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
         u64::from(slot) * u64::from(CHARACTER_SWEEPS) * streams.character_hits.stride(),
         &hits,
     );
-}
-
-fn take_sorted(slots: &mut Vec<u32>) -> Vec<u32> {
-    slots.sort_unstable();
-    slots.dedup();
-    std::mem::take(slots)
 }
 
 impl World {
@@ -236,11 +200,8 @@ impl World {
             .position(position)
             .kinematic(true),
         );
-        let (id, generation) = self.characters.ids.acquire();
-        let handle = CharacterHandle { id, generation };
         let record = CharacterRecord::build(&desc, body.id, body.generation);
-        self.characters.spawn(handle, body, record, position);
-        handle
+        self.characters.spawn(body, record, position)
     }
 
     pub fn remove_character(&mut self, handle: CharacterHandle) {
@@ -260,11 +221,11 @@ impl World {
     }
 
     pub fn characters(&self) -> &[CharacterHandle] {
-        &self.characters.live
+        self.characters.pool.alive()
     }
 
     pub fn character_count(&self) -> usize {
-        self.characters.live.len()
+        self.characters.pool.len() as usize
     }
 
     pub fn character_body(&self, handle: CharacterHandle) -> BodyHandle {

@@ -354,7 +354,8 @@ impl World {
         self.retire_device_facts();
         let stale = self
             .bodies
-            .alive
+            .pool
+            .alive()
             .iter()
             .filter(|handle| !self.body_current(handle.id))
             .map(|handle| handle.id)
@@ -396,7 +397,7 @@ impl World {
         let constraints = &self.constraints;
         self.observed
             .joints
-            .watch_all(constraints.alive.iter().map(|handle| handle.id));
+            .watch_all(constraints.pool.alive().iter().map(|handle| handle.id));
         let step = self.observed.joints.age()?;
         let states = self
             .observed
@@ -423,7 +424,7 @@ impl World {
         let constraints = &self.constraints;
         self.observed
             .joints
-            .watch_all(constraints.alive.iter().map(|handle| handle.id));
+            .watch_all(constraints.pool.alive().iter().map(|handle| handle.id));
         let step = self.observed.joints.age()?;
         let forces = self
             .observed
@@ -648,7 +649,8 @@ impl World {
     fn observe_every_joint(&mut self) {
         let ids = self
             .constraints
-            .alive
+            .pool
+            .alive()
             .iter()
             .map(|handle| handle.id)
             .collect::<Vec<_>>();
@@ -668,7 +670,8 @@ impl World {
 
     pub(crate) fn states_current(&self) -> bool {
         self.bodies
-            .alive
+            .pool
+            .alive()
             .iter()
             .all(|handle| self.body_current(handle.id))
     }
@@ -732,7 +735,10 @@ impl World {
         let observed = &self.backend.streams.state.observed_states;
         let bytes = count as u64 * observed.stride();
         let regions = [(observed.buffer(), 0, bytes)];
-        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
+        let context = (
+            self.bodies.pool.identities(),
+            self.bodies.descriptors.as_slice(),
+        );
         self.observed
             .bodies
             .publish(context, device, encoder, observed.size(), &regions, step);
@@ -850,21 +856,20 @@ impl World {
             .declared()
             .iter()
             .map(|id| {
-                let index = self.constraints.index_of[*id as usize] as usize;
-                let record = self.constraints.records[index];
+                let record = self.constraints.records[*id as usize];
                 ConstraintRow {
                     handle: ConstraintHandle {
                         id: *id,
-                        generation: self.constraints.ids.generation(*id),
+                        generation: self.constraints.pool.generation(*id),
                     },
                     kind: record.constraint_kind(),
                     first: BodyHandle {
                         id: record.first_body_id,
-                        generation: self.bodies.ids.generation(record.first_body_id),
+                        generation: self.bodies.pool.generation(record.first_body_id),
                     },
                     second: BodyHandle {
                         id: record.second_body_id,
-                        generation: self.bodies.ids.generation(record.second_body_id),
+                        generation: self.bodies.pool.generation(record.second_body_id),
                     },
                 }
             })
@@ -872,7 +877,10 @@ impl World {
     }
 
     pub(crate) fn collect_observations(&mut self) {
-        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
+        let context = (
+            self.bodies.pool.identities(),
+            self.bodies.descriptors.as_slice(),
+        );
         self.observed.bodies.collect(context);
         self.observed.joints.collect(());
         self.observed.characters.collect(());
@@ -881,7 +889,10 @@ impl World {
     }
 
     pub(crate) fn drain_observations(&mut self) {
-        let context = (&self.bodies.ids, self.bodies.descriptors.as_slice());
+        let context = (
+            self.bodies.pool.identities(),
+            self.bodies.descriptors.as_slice(),
+        );
         self.observed.bodies.drain(context);
         self.observed.joints.drain(());
         self.observed.characters.drain(());

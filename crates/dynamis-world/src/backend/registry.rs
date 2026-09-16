@@ -125,13 +125,13 @@ impl World {
     pub(crate) fn census(&self) -> Census {
         let (particles, elements, attachments, adjacency) = self.soft.used();
         Census {
-            bodies: self.bodies.alive.len() as u32,
+            bodies: self.bodies.pool.len(),
             dynamic_bodies: self.bodies.dynamic_count as u32,
-            body_ids: self.bodies.ids.len() as u32,
+            body_ids: self.bodies.pool.ids(),
             colliders: self.colliders.used(),
             live_colliders: self.colliders.live(),
-            constraints: self.constraints.alive.len() as u32,
-            constraint_ids: self.constraints.ids.len() as u32,
+            constraints: self.constraints.pool.len(),
+            constraint_ids: self.constraints.pool.ids(),
             particles,
             elements,
             attachments,

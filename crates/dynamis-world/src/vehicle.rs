@@ -1,5 +1,5 @@
 use super::World;
-use super::ids::IdSpace;
+use super::pool::Pool;
 use dynamis_abi::{
     VEHICLE_WHEELS, VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord,
     inert_sweep,
@@ -9,7 +9,6 @@ use dynamis_rigid::RigidStreams;
 
 #[derive(Clone, Copy)]
 struct Slot {
-    handle: Option<VehicleHandle>,
     body: Option<BodyHandle>,
     record: VehicleRecord,
     input: VehicleInputRecord,
@@ -18,7 +17,6 @@ struct Slot {
 
 impl Slot {
     const RETIRED: Self = Self {
-        handle: None,
         body: None,
         record: VehicleRecord::cleared(),
         input: VehicleInputRecord::idle(),
@@ -28,13 +26,9 @@ impl Slot {
 
 #[derive(Clone)]
 pub(crate) struct Vehicles {
-    pub(crate) live: Vec<VehicleHandle>,
-    ids: IdSpace,
+    pub(crate) pool: Pool<VehicleHandle>,
     slots: Vec<Slot>,
     wheels: Vec<VehicleWheelRecord>,
-    fresh: Vec<u32>,
-    dirty: Vec<u32>,
-    retired: Vec<u32>,
     pending_inputs: u32,
     pub(crate) last_inputs: u32,
 }
@@ -42,24 +36,20 @@ pub(crate) struct Vehicles {
 impl Vehicles {
     pub(crate) const fn new() -> Self {
         Self {
-            live: Vec::new(),
-            ids: IdSpace::new(),
+            pool: Pool::vacate("vehicle"),
             slots: Vec::new(),
             wheels: Vec::new(),
-            fresh: Vec::new(),
-            dirty: Vec::new(),
-            retired: Vec::new(),
             pending_inputs: 0,
             last_inputs: 0,
         }
     }
 
     pub(crate) fn count(&self) -> u32 {
-        self.live.len() as u32
+        self.pool.len()
     }
 
     pub(crate) fn slots(&self) -> u32 {
-        self.ids.len() as u32
+        self.pool.ids()
     }
 
     pub(crate) fn pending(&self) -> bool {
@@ -75,29 +65,17 @@ impl Vehicles {
     }
 
     pub(crate) fn owns_body(&self, id: u32) -> bool {
-        self.live.iter().any(|handle| {
-            self.slots[handle.id as usize]
-                .body
-                .is_some_and(|body| body.id == id)
-        })
+        self.slots
+            .iter()
+            .any(|slot| slot.body.is_some_and(|body| body.id == id))
     }
 
     pub(crate) fn validate(&self, handle: VehicleHandle) {
-        let id = handle.id as usize;
-        if id >= self.ids.len() {
-            panic!("vehicle handle {handle:?} is out of range");
-        }
-        if self.ids.generation(handle.id) != handle.generation {
-            panic!("vehicle handle {handle:?} is stale");
-        }
-        if self.slots[id].handle != Some(handle) {
-            panic!("vehicle handle {handle:?} is not alive");
-        }
+        self.pool.validate(handle);
     }
 
     pub(crate) fn slot_of(&self, handle: VehicleHandle) -> u32 {
-        self.validate(handle);
-        handle.id
+        self.pool.row_of(handle)
     }
 
     pub(crate) fn body_of(&self, handle: VehicleHandle) -> BodyHandle {
@@ -108,7 +86,8 @@ impl Vehicles {
 
     pub(crate) fn live_slots(&self) -> Vec<(VehicleHandle, u32)> {
         let mut slots = self
-            .live
+            .pool
+            .alive()
             .iter()
             .map(|handle| (*handle, handle.id))
             .collect::<Vec<_>>();
@@ -118,100 +97,90 @@ impl Vehicles {
 
     pub(crate) fn spawn(
         &mut self,
-        handle: VehicleHandle,
         body: BodyHandle,
         record: VehicleRecord,
         wheels: &[VehicleWheelRecord],
         position: [f32; 3],
-    ) {
+    ) -> VehicleHandle {
         assert!(
             wheels.len() <= VEHICLE_WHEELS as usize,
             "a vehicle carries at most {VEHICLE_WHEELS} wheels"
         );
-        let slot = handle.id as usize;
+        let handle = self.pool.acquire();
+        let slot = self.pool.insert(handle) as usize;
         if self.slots.len() <= slot {
             self.slots.resize(slot + 1, Slot::RETIRED);
         }
-        if self.wheels.len() < (slot + 1) * VEHICLE_WHEELS as usize {
-            self.wheels.resize(
-                (slot + 1) * VEHICLE_WHEELS as usize,
-                VehicleWheelRecord::cleared(),
-            );
-        }
-        let run = slot * VEHICLE_WHEELS as usize;
-        self.wheels[run..run + VEHICLE_WHEELS as usize].fill(VehicleWheelRecord::cleared());
-        self.wheels[run..run + wheels.len()].copy_from_slice(wheels);
         self.slots[slot] = Slot {
-            handle: Some(handle),
             body: Some(body),
             record,
             input: VehicleInputRecord::idle(),
             state: VehicleStateRecord::spawn(handle.id, handle.generation, position),
         };
-        self.live.push(handle);
-        self.fresh.push(handle.id);
+        let run = slot * VEHICLE_WHEELS as usize;
+        if self.wheels.len() < run + VEHICLE_WHEELS as usize {
+            self.wheels
+                .resize(run + VEHICLE_WHEELS as usize, VehicleWheelRecord::cleared());
+        }
+        self.wheels[run..run + VEHICLE_WHEELS as usize].fill(VehicleWheelRecord::cleared());
+        self.wheels[run..run + wheels.len()].copy_from_slice(wheels);
+        handle
     }
 
     pub(crate) fn set_input(&mut self, handle: VehicleHandle, input: VehicleInput) {
-        let index = self.slot_of(handle) as usize;
-        self.slots[index].input = VehicleInputRecord::of(input);
-        self.dirty.push(handle.id);
+        let slot = self.slot_of(handle) as usize;
+        self.slots[slot].input = VehicleInputRecord::of(input);
+        self.pool.mark(handle);
         self.pending_inputs += 1;
     }
 
     pub(crate) fn retire(&mut self, handle: VehicleHandle) {
-        let slot = self.slot_of(handle) as usize;
+        let slot = self.pool.retire(handle).row as usize;
         self.slots[slot] = Slot::RETIRED;
         let run = slot * VEHICLE_WHEELS as usize;
         self.wheels[run..run + VEHICLE_WHEELS as usize].fill(VehicleWheelRecord::cleared());
-        self.live.retain(|live| *live != handle);
-        self.retired.push(handle.id);
-        self.ids.release(handle.id);
     }
 
     pub(crate) fn upload(&mut self, queue: &wgpu::Queue, streams: &RigidStreams) {
-        let retired = take_sorted(&mut self.retired);
-        let fresh = take_sorted(&mut self.fresh);
-        let dirty = take_sorted(&mut self.dirty);
-        for slot in retired {
-            reset_slot(queue, streams, slot);
-            write_record(queue, streams, slot, &Slot::RETIRED);
+        for slot in self.pool.take_retired() {
+            reset_scratch(queue, streams, slot);
+            write_slot(queue, streams, slot, &Slot::RETIRED);
         }
-        for slot in fresh {
-            reset_slot(queue, streams, slot);
-            write_record(queue, streams, slot, &self.slots[slot as usize]);
+        for slot in self.pool.take_fresh() {
+            reset_scratch(queue, streams, slot);
+            write_slot(queue, streams, slot, &self.slots[slot as usize]);
             write_wheels(queue, streams, slot, &self.wheels);
         }
-        for slot in dirty {
+        for slot in self.pool.take_dirty() {
             write_input(queue, streams, slot, &self.slots[slot as usize]);
         }
     }
 }
 
-fn write_record(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, slot_record: &Slot) {
+fn write_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &Slot) {
     let at = u64::from(slot);
     streams.vehicles.write_at(
         queue,
         at * streams.vehicles.stride(),
-        bytemuck::bytes_of(&slot_record.record),
+        bytemuck::bytes_of(&record.record),
     );
     streams.vehicle_inputs.write_at(
         queue,
         at * streams.vehicle_inputs.stride(),
-        bytemuck::bytes_of(&slot_record.input),
+        bytemuck::bytes_of(&record.input),
     );
     streams.vehicle_states.write_at(
         queue,
         at * streams.vehicle_states.stride(),
-        bytemuck::bytes_of(&slot_record.state),
+        bytemuck::bytes_of(&record.state),
     );
 }
 
-fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, slot_record: &Slot) {
+fn write_input(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32, record: &Slot) {
     streams.vehicle_inputs.write_at(
         queue,
         u64::from(slot) * streams.vehicle_inputs.stride(),
-        bytemuck::bytes_of(&slot_record.input),
+        bytemuck::bytes_of(&record.input),
     );
 }
 
@@ -230,7 +199,7 @@ fn write_wheels(
     );
 }
 
-fn reset_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
+fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
     let sweeps = [inert_sweep(); VEHICLE_WHEELS as usize];
     streams.vehicle_sweeps.write_at(
         queue,
@@ -245,12 +214,6 @@ fn reset_slot(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
     );
 }
 
-fn take_sorted(slots: &mut Vec<u32>) -> Vec<u32> {
-    slots.sort_unstable();
-    slots.dedup();
-    std::mem::take(slots)
-}
-
 impl World {
     pub fn add_vehicle(&mut self, desc: VehicleDesc) -> VehicleHandle {
         desc.assert_valid();
@@ -260,12 +223,9 @@ impl World {
             .iter()
             .map(VehicleWheelRecord::build)
             .collect::<Vec<_>>();
-        let (id, generation) = self.vehicles.ids.acquire();
-        let handle = VehicleHandle { id, generation };
         let record = VehicleRecord::build(&desc, body.id, body.generation);
         self.vehicles
-            .spawn(handle, body, record, &wheels, desc.chassis.position);
-        handle
+            .spawn(body, record, &wheels, desc.chassis.position)
     }
 
     pub fn remove_vehicle(&mut self, handle: VehicleHandle) {
@@ -282,11 +242,11 @@ impl World {
     }
 
     pub fn vehicles(&self) -> &[VehicleHandle] {
-        &self.vehicles.live
+        self.vehicles.pool.alive()
     }
 
     pub fn vehicle_count(&self) -> usize {
-        self.vehicles.live.len()
+        self.vehicles.pool.len() as usize
     }
 
     pub fn vehicle_body(&self, handle: VehicleHandle) -> BodyHandle {
