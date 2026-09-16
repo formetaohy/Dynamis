@@ -1,6 +1,6 @@
 use super::arena::{Arena, Run, merged};
 use super::body::BodyStore;
-use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK};
+use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK, EVENT_MODE_PERSIST};
 use dynamis_model::BodyHandle;
 
 #[derive(Clone)]
@@ -11,6 +11,7 @@ pub(crate) struct ColliderStore {
     cleared: Vec<Run>,
     live: u32,
     armed: u32,
+    persistent: u32,
 }
 
 impl ColliderStore {
@@ -22,6 +23,7 @@ impl ColliderStore {
             cleared: Vec::new(),
             live: 0,
             armed: 0,
+            persistent: 0,
         }
     }
 
@@ -35,6 +37,10 @@ impl ColliderStore {
 
     pub(crate) fn impact_armed(&self) -> u32 {
         self.armed
+    }
+
+    pub(crate) fn persist_events(&self) -> u32 {
+        self.persistent
     }
 
     pub(crate) fn records(&self) -> &[ColliderRecord] {
@@ -66,10 +72,12 @@ impl ColliderStore {
         let run = self.runs[id as usize];
         let span = run.span();
         self.armed -= armed(&self.records[span.clone()]);
+        self.persistent -= persisting(&self.records[span.clone()]);
         for (slot, record) in records.iter().enumerate() {
             self.records[run.offset as usize + slot] = *record;
         }
         self.armed += armed(records);
+        self.persistent += persisting(records);
     }
 
     fn take(&mut self, len: u32) -> Run {
@@ -90,6 +98,7 @@ impl ColliderStore {
         };
         let released = armed(&self.records[run.span()]);
         self.armed -= released;
+        self.persistent -= persisting(&self.records[run.span()]);
         self.runs[id as usize] = Run::EMPTY;
         for index in run.span() {
             self.records[index] = ColliderRecord::cleared();
@@ -114,6 +123,13 @@ pub(crate) fn local_collider_of(
     slot.checked_sub(run.offset).unwrap_or_else(|| {
         panic!("body {body:?} cannot hold the collider a query hit reported at slot {slot}")
     })
+}
+
+fn persisting(records: &[ColliderRecord]) -> u32 {
+    records
+        .iter()
+        .filter(|record| (record.flags & EVENT_MODE_PERSIST) != 0)
+        .count() as u32
 }
 
 fn armed(records: &[ColliderRecord]) -> u32 {

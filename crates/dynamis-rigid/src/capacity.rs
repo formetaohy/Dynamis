@@ -20,6 +20,7 @@ pub struct RigidCapacity {
 #[derive(Clone, Copy, Debug)]
 pub struct RigidInputs {
     pub bodies: u32,
+    pub persist_events: bool,
     pub colliders: u32,
     pub collider_pool: u32,
     pub constraints: u32,
@@ -59,11 +60,12 @@ pub fn plan(
         STREAM_FLOOR,
         release,
     );
+    let per_step_events = if inputs.persist_events { frozen } else { 0 };
     let events = settled(
         current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
         product(fresh, FRESH_EVENTS_PER_COLLIDER, "event")
             .max(measured[COUNTER_EVENTS])
-            .max(frozen),
+            .max(per_step_events),
         STREAM_FLOOR,
         release,
     );

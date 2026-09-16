@@ -175,6 +175,7 @@ impl World {
             },
             rigid: dynamis_rigid::RigidInputs {
                 bodies: census.bodies,
+                persist_events: self.colliders.persist_events() > 0,
                 colliders: census.live_colliders,
                 collider_pool: census.colliders,
                 constraints: census.constraints,
