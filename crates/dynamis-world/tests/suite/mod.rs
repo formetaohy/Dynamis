@@ -19,6 +19,7 @@ pub mod filter;
 pub mod fluid;
 pub mod impact;
 pub mod interop;
+pub mod joint_energy;
 pub mod joint_precision;
 pub mod joint_state;
 pub mod mass;

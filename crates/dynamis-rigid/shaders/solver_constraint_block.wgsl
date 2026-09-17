@@ -767,6 +767,110 @@ fn solve_constraint_block(constraint_index: u32, slot: u32) {
     );
 }
 
+fn warm_point_impulse(axis: vec3f, point_a: vec3f, point_b: vec3f, impulse: f32, first: ptr<function, Body>, second: ptr<function, Body>) {
+    apply_pair_impulse(first, second, point_a, point_b, axis * impulse);
+}
+
+fn warm_angular_impulse(axis: vec3f, impulse: f32, first: ptr<function, Body>, second: ptr<function, Body>) {
+    let direction = normalize(axis);
+    (*first).state.angular_velocity = (*first).state.angular_velocity - apply_inverse_inertia(*first, direction * impulse);
+    (*second).state.angular_velocity = (*second).state.angular_velocity + apply_inverse_inertia(*second, direction * impulse);
+}
+
+fn warm_constraint_rows(
+    constraint: ConstraintDescriptor,
+    accumulated: array<f32, CONSTRAINT_ACCUMULATOR_SLOTS>,
+    anchor_a: vec3f,
+    anchor_b: vec3f,
+    first: ptr<function, Body>,
+    second: ptr<function, Body>,
+) {
+    let kind = constraint.kind;
+    if (kind == CONSTRAINT_DISTANCE) {
+        if ((constraint.flags & CONSTRAINT_IS_SPRING) == 0u) {
+            warm_point_impulse(sign_normalize(anchor_b - anchor_a), anchor_a, anchor_b, accumulated[0], first, second);
+        }
+    } else if (kind == CONSTRAINT_REVOLUTE) {
+        for (var index = 0u; index < 3u; index = index + 1u) {
+            warm_point_impulse(orthogonal_axis(index), anchor_a, anchor_b, accumulated[index], first, second);
+        }
+        let local_hinge = normalize(constraint.axis_a);
+        let tangents = constraint_local_frame(local_hinge);
+        for (var index = 0u; index < 2u; index = index + 1u) {
+            let local_axis = select(tangents.first, tangents.second, index == 1u);
+            warm_angular_impulse(quat_rotate((*first).state.orientation, local_axis), accumulated[3u + index], first, second);
+        }
+        let hinge = quat_rotate((*first).state.orientation, local_hinge);
+        if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
+            warm_angular_impulse(hinge, accumulated[6], first, second);
+        }
+        if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
+            warm_angular_impulse(hinge, accumulated[5], first, second);
+        }
+    } else if (kind == CONSTRAINT_PRISMATIC) {
+        let axis = normalize(quat_rotate((*first).state.orientation, constraint.axis_a));
+        let tangents = make_tangents(axis);
+        for (var index = 0u; index < 2u; index = index + 1u) {
+            let tangent = select(tangents.first, tangents.second, index == 1u);
+            warm_point_impulse(tangent, anchor_a, anchor_b, accumulated[index], first, second);
+            warm_angular_impulse(tangent, accumulated[2u + index], first, second);
+        }
+        warm_angular_impulse(axis, accumulated[4], first, second);
+        if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
+            warm_point_impulse(axis, anchor_a, anchor_b, accumulated[6], first, second);
+        }
+        if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
+            warm_point_impulse(axis, anchor_a, anchor_b, accumulated[5], first, second);
+        }
+    } else if (kind == CONSTRAINT_BALL) {
+        for (var index = 0u; index < 3u; index = index + 1u) {
+            warm_point_impulse(orthogonal_axis(index), anchor_a, anchor_b, accumulated[index], first, second);
+        }
+        let hinge = quat_rotate((*first).state.orientation, normalize(constraint.axis_a));
+        if ((constraint.flags & CONSTRAINT_HAS_LIMIT) != 0u) {
+            warm_angular_impulse(hinge, accumulated[3], first, second);
+        }
+        if ((constraint.flags & CONSTRAINT_HAS_SWING) != 0u) {
+            for (var index = 0u; index < 2u; index = index + 1u) {
+                warm_angular_impulse(joint_axis(constraint, *first, *second, anchor_a, anchor_b, index), accumulated[4u + index], first, second);
+            }
+        }
+    } else if (kind == CONSTRAINT_CONE) {
+        for (var index = 0u; index < 3u; index = index + 1u) {
+            warm_point_impulse(orthogonal_axis(index), anchor_a, anchor_b, accumulated[index], first, second);
+        }
+        warm_angular_impulse(joint_axis(constraint, *first, *second, anchor_a, anchor_b, 0u), accumulated[3], first, second);
+    } else if (kind == CONSTRAINT_SIXDOF) {
+        for (var index = 0u; index < 3u; index = index + 1u) {
+            let world_axis = joint_dof_axis(constraint, *first, index);
+            warm_point_impulse(world_axis, anchor_a, anchor_b, accumulated[index], first, second);
+            warm_point_impulse(world_axis, anchor_a, anchor_b, accumulated[dof_limit_row(index)], first, second);
+            let angular_axis = joint_dof_axis(constraint, *first, 3u + index);
+            warm_angular_impulse(angular_axis, accumulated[3u + index], first, second);
+            warm_angular_impulse(angular_axis, accumulated[dof_limit_row(3u + index)], first, second);
+        }
+    } else if (kind == CONSTRAINT_PULLEY) {
+        let dir_a = sign_normalize(constraint.pulley_fixed_a - anchor_a);
+        let dir_b = sign_normalize(constraint.pulley_fixed_b - anchor_b);
+        let impulse = accumulated[0];
+        (*first).state.velocity = (*first).state.velocity + dir_a * impulse * (*first).desc.inverse_mass;
+        (*first).state.angular_velocity = (*first).state.angular_velocity + apply_inverse_inertia(*first, cross(anchor_a - body_com(*first), dir_a * impulse));
+        (*second).state.velocity = (*second).state.velocity + dir_b * impulse * (*second).desc.inverse_mass;
+        (*second).state.angular_velocity = (*second).state.angular_velocity + apply_inverse_inertia(*second, cross(anchor_b - body_com(*second), dir_b * impulse));
+    } else if (kind == CONSTRAINT_GEAR) {
+        let axis_a = normalize(quat_rotate((*first).state.orientation, constraint.axis_a));
+        let axis_b = normalize(quat_rotate((*second).state.orientation, constraint.axis_b));
+        let impulse = accumulated[0];
+        (*first).state.angular_velocity = (*first).state.angular_velocity - apply_inverse_inertia(*first, axis_a * (constraint.gear_ratio * impulse));
+        (*second).state.angular_velocity = (*second).state.angular_velocity + apply_inverse_inertia(*second, axis_b * impulse);
+    } else {
+        for (var index = 0u; index < 3u; index = index + 1u) {
+            warm_point_impulse(orthogonal_axis(index), anchor_a, anchor_b, accumulated[index], first, second);
+            warm_angular_impulse(orthogonal_axis(index), accumulated[3u + index], first, second);
+        }
+    }
+}
+
 fn warm_constraint_block(constraint_index: u32, slot: u32) {
     let constraint = constraint_descs[constraint_index];
     let runtime = constraint_runtime[constraint_index];
@@ -782,13 +886,14 @@ fn warm_constraint_block(constraint_index: u32, slot: u32) {
         second = body_frozen(second_loaded);
     }
     if ((constraint.flags & CONSTRAINT_WARM_START) != 0u && runtime.broken == 0u) {
-        first.state.velocity = first.state.velocity + runtime.reaction.linear_first * first.desc.inverse_mass;
-        first.state.angular_velocity =
-            first.state.angular_velocity + apply_inverse_inertia(first, runtime.reaction.angular_first);
-        second.state.velocity =
-            second.state.velocity + runtime.reaction.linear_second * second.desc.inverse_mass;
-        second.state.angular_velocity =
-            second.state.angular_velocity + apply_inverse_inertia(second, runtime.reaction.angular_second);
+        warm_constraint_rows(
+            constraint,
+            runtime.accumulated,
+            constraint_anchor(first, constraint.anchor_a),
+            constraint_anchor(second, constraint.anchor_b),
+            &first,
+            &second,
+        );
     }
     commit_block(
         slot,
