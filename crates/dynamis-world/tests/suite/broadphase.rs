@@ -3,8 +3,8 @@ use super::common::{
     static_config,
 };
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
-    Shortfall,
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE, COUNTER_PAIRS,
+    COUNTER_REFUSED_PAIRS, COUNTER_RESTING, Shortfall,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -603,4 +603,49 @@ fn a_truncated_pair_stream_reports_the_counter_it_refused() {
         refusal.label
     );
     assert!(refusal.count > 0);
+}
+
+#[test]
+fn the_grid_resolution_answers_the_shape_set_not_the_poses() {
+    let mut world = observed_world(static_config());
+    let rod = world.spawn(
+        BodyDesc::cuboid([4.0, 0.1, 0.1])
+            .mass(0.0)
+            .position([0.0, 0.0, 0.0]),
+    );
+    let bead = world.spawn(BodyDesc::static_sphere(0.25).position([0.0, 0.0, 20.0]));
+    world.step(DT);
+    world.wait();
+    let declared = (
+        world.measured()[COUNTER_GRID_SCALE],
+        world.measured()[COUNTER_GRID_EXTENT],
+    );
+
+    world.set_orientation(rod, quarter_turn_z());
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        (
+            world.measured()[COUNTER_GRID_SCALE],
+            world.measured()[COUNTER_GRID_EXTENT],
+        ),
+        declared,
+        "rotating a collider must not re-derive the grid resolution"
+    );
+
+    world.set_collider(
+        bead,
+        0,
+        ColliderDesc::new(Shape::sphere(0.25)).scale([2.0, 2.0, 2.0]),
+    );
+    world.step(DT);
+    world.wait();
+    assert_ne!(
+        (
+            world.measured()[COUNTER_GRID_SCALE],
+            world.measured()[COUNTER_GRID_EXTENT],
+        ),
+        declared,
+        "a rescaled collider must re-derive the grid resolution"
+    );
 }

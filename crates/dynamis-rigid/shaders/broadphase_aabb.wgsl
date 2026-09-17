@@ -10,9 +10,15 @@ fn tight_bounds(state: BodyState, collider: Collider) -> Aabb {
     return world_aabb_of(world_collider(state, collider));
 }
 
-fn record_grid_resolution(tight: Aabb) {
-    counter_max(COUNTER_GRID_SCALE, bitcast<u32>(grid_scale_of(tight)));
-    counter_max(COUNTER_GRID_EXTENT, bitcast<u32>(max(grid_extent_of(tight), 0.0)));
+fn resolution_bounds(state: BodyState, collider: Collider) -> Aabb {
+    var upright = world_collider(state, collider);
+    upright.rotation = vec4f(0.0, 0.0, 0.0, 1.0);
+    return world_aabb_of(upright);
+}
+
+fn record_grid_resolution(bounds: Aabb) {
+    counter_max(COUNTER_GRID_SCALE, bitcast<u32>(grid_scale_of(bounds)));
+    counter_max(COUNTER_GRID_EXTENT, bitcast<u32>(max(grid_extent_of(bounds), 0.0)));
 }
 
 fn swept_bounds(tight: Aabb, state: BodyState, desc: BodyDescriptor, collider: Collider) -> Aabb {
@@ -38,6 +44,6 @@ fn work(index: u32) {
     let state = body_states[owner];
     let collider = colliders[index];
     let tight = tight_bounds(state, collider);
-    record_grid_resolution(tight);
+    record_grid_resolution(resolution_bounds(state, collider));
     aabbs[index] = swept_bounds(tight, state, body_descs[owner], collider);
 }
