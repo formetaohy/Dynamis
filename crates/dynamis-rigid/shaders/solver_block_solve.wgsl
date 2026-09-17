@@ -11,6 +11,8 @@
 @group(0) @binding(10) var<storage, read_write> block_count: array<atomic<u32>>;
 @group(0) @binding(11) var<storage, read> target_speeds: array<f32>;
 @group(0) @binding(12) var<storage, read> constraint_rows: array<ConstraintRows>;
+@group(0) @binding(13) var<storage, read> solver_rounds: array<u32>;
+@group(0) @binding(14) var<storage, read_write> counters: array<atomic<u32>>;
 
 struct BlockPair {
     first: Body,
@@ -73,9 +75,19 @@ fn commit_block(
     spin_a: vec3f,
     delta_b: vec3f,
     spin_b: vec3f,
+    residual: bool,
 ) {
     accumulate_velocity(first_slot, delta_a, spin_a);
     accumulate_velocity(second_slot, delta_b, spin_b);
+    if (!residual) {
+        return;
+    }
+    counter_max(COUNTER_SOLVE_LINEAR_RESIDUAL, solver_word(max(length(delta_a), length(delta_b)), SOLVER_VELOCITY_SCALE));
+    counter_max(COUNTER_SOLVE_ANGULAR_RESIDUAL, solver_word(max(length(spin_a), length(spin_b)), SOLVER_VELOCITY_SCALE));
+}
+
+fn residual_round() -> bool {
+    return solver_rounds[0] == params.solve_iterations;
 }
 
 fn work(index: u32) {
@@ -83,10 +95,11 @@ fn work(index: u32) {
         return;
     }
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
+    let residual = residual_round();
     if (index < contact_blocks) {
-        solve_contact_block(index, index);
+        solve_contact_block(index, index, residual);
     } else {
-        solve_constraint_block(index - contact_blocks, index);
+        solve_constraint_block(index - contact_blocks, index, residual);
     }
 }
 

@@ -3,9 +3,10 @@ use super::backend::segment::{Arrival, SegmentKind};
 use super::device::Facts;
 use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ConstraintReactionRecord,
-    ContactRecord, Counters, DeclaredCounters, FEATURE_KIND_MASK, FEATURE_TRIANGLE,
-    FEATURE_TRIANGLE_MASK, JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH,
+    COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_SOLVE_ANGULAR_RESIDUAL,
+    COUNTER_SOLVE_LINEAR_RESIDUAL, COUNTER_STRIDE, ConstraintReactionRecord, ContactRecord,
+    Counters, DeclaredCounters, FEATURE_KIND_MASK, FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK,
+    JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH, solve_velocity,
 };
 use dynamis_model::{BodyHandle, ConstraintHandle, JointState, SurfaceDesc};
 use std::collections::HashSet;
@@ -44,6 +45,12 @@ pub struct ConstraintForce {
 
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SolveResidual {
+    pub linear: f32,
+    pub angular: f32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Refusal {
@@ -200,6 +207,13 @@ impl World {
 
     pub fn measured(&self) -> &Counters {
         &self.backend.measured
+    }
+
+    pub fn solve_residual(&self) -> SolveResidual {
+        SolveResidual {
+            linear: solve_velocity(self.backend.measured[COUNTER_SOLVE_LINEAR_RESIDUAL]),
+            angular: solve_velocity(self.backend.measured[COUNTER_SOLVE_ANGULAR_RESIDUAL]),
+        }
     }
 
     pub fn refusals(&self) -> Vec<Refusal> {

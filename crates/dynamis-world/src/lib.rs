@@ -51,7 +51,7 @@ pub use dynamis_soft::SoftCapacity;
 pub use dynamis_state::{ShapeCapacity, StateCapacity};
 pub use observation::Observation;
 pub use query_pool::{QueryHandle, QueryHit, QueryState};
-pub use readback::{ConstraintForce, ContactManifold, ContactPoint, Refusal};
+pub use readback::{ConstraintForce, ContactManifold, ContactPoint, Refusal, SolveResidual};
 pub use snapshot::Snapshot;
 
 pub struct World {

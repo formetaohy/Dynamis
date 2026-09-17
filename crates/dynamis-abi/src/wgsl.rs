@@ -32,6 +32,16 @@ pub fn constants_wgsl() -> String {
 ",
         constant::NO_HIT
     ));
+    for (name, value) in [
+        ("SOLVER_VELOCITY_SCALE", constant::SOLVER_VELOCITY_SCALE),
+        ("SOLVER_POSITION_SCALE", constant::SOLVER_POSITION_SCALE),
+    ] {
+        out.push_str(&format!(
+            "const {name}: f32 = {:e};
+",
+            value
+        ));
+    }
     out.push_str(DOF_PREDICATES);
     constraint::emit_predicates(&mut out);
     shape::emit_predicates(&mut out);

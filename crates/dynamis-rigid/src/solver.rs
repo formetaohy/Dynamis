@@ -16,6 +16,7 @@ const BLOCKS: &[&str] = &[
 
 fn block_fragments() -> Vec<&'static str> {
     let mut fragments = dynamis_shader::JOINTS.to_vec();
+    fragments.extend_from_slice(dynamis_shader::COUNTERS);
     fragments.extend_from_slice(BLOCKS);
     fragments
 }
@@ -158,6 +159,8 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("block_count", block_count),
                     ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
+                    ("solver_rounds", RigidStream::SolverRounds.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -177,6 +180,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
                     ("live_bodies", RigidStream::LiveBodies.whole()),
                     ("live_count", dynamis_state::counter(COUNTER_LIVE)),
+                    ("solver_rounds", RigidStream::SolverRounds.whole()),
                 ],
                 &[],
             ),

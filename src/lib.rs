@@ -32,5 +32,5 @@ pub use dynamis_model::{
 };
 pub use dynamis_world::{
     ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, Refusal, RigidShape,
-    SceneTarget, ShapeCapacity, Snapshot, SoftCapacity, StreamCapacity, World,
+    SceneTarget, ShapeCapacity, Snapshot, SoftCapacity, SolveResidual, StreamCapacity, World,
 };

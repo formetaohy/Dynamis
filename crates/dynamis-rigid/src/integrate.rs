@@ -156,6 +156,7 @@ impl SubstepIntegrate {
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("live_bodies", RigidStream::LiveBodies.whole()),
                     ("live_count", dynamis_state::counter(COUNTER_LIVE)),
+                    ("solver_rounds", RigidStream::SolverRounds.whole()),
                 ],
                 &[],
             ),

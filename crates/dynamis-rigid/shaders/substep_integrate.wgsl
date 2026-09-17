@@ -3,8 +3,13 @@
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> live_bodies: array<u32>;
 @group(0) @binding(4) var<storage, read_write> live_count: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> solver_rounds: array<atomic<u32>>;
 
 const GYROSCOPIC_ITERATIONS: u32 = 4u;
+
+fn reset_rounds() {
+    atomicStore(&solver_rounds[0], 0u);
+}
 
 fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
     if (inertia_is_isotropic(desc)) {
@@ -24,6 +29,9 @@ fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
 }
 
 fn work(index: u32) {
+    if (index == 0u) {
+        reset_rounds();
+    }
     let row = live_bodies[index];
     var state = body_states[row];
     let desc = body_descs[row];

@@ -24,6 +24,7 @@ declare_constants! {
     pub const SOLVER_BLOCK_CONTACT: u32 = 0;
     pub const SOLVER_BLOCK_CONSTRAINT: u32 = 1;
     pub const SOLVER_DELTA_WORDS: u32 = 8;
+    pub const SOLVER_ROUNDS_WORDS: u32 = 1;
     pub const REACTION_WORDS: u32 = 6;
     pub const SHAPE_NONE: u32 = 0;
     pub const SHAPE_SPHERE: u32 = 1;
@@ -227,3 +228,11 @@ pub fn set_dof_driven(flags: u32, index: u32, on: bool) -> u32 {
 }
 
 pub const NO_HIT: f32 = f32::MAX;
+
+pub const SOLVER_VELOCITY_SCALE: f32 = 262144.0;
+
+pub const SOLVER_POSITION_SCALE: f32 = 16777216.0;
+
+pub fn solve_velocity(word: u32) -> f32 {
+    word as i32 as f32 / SOLVER_VELOCITY_SCALE
+}

@@ -4,17 +4,17 @@ fn tangential_mass(mass: f32, contact: Contact) -> f32 {
     return mass * f32(max(contact.point_count, 1u));
 }
 
-fn solve_contact_block(contact_index: u32, slot: u32) {
+fn solve_contact_block(contact_index: u32, slot: u32, residual: bool) {
     let contact = contacts[contact_index];
     let first_slot = blocks[slot * 2u];
     let second_slot = blocks[slot * 2u + 1u];
     if (!contact_block_resolves(contact)) {
-        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), residual);
         return;
     }
     let pair = block_bodies(first_slot, second_slot);
     if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
-        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), residual);
         return;
     }
     var first = pair.first;
@@ -148,6 +148,7 @@ fn solve_contact_block(contact_index: u32, slot: u32) {
         first.state.angular_velocity - pair.first.state.angular_velocity,
         second.state.velocity - pair.second.state.velocity,
         second.state.angular_velocity - pair.second.state.angular_velocity,
+        residual,
     );
 }
 
@@ -156,7 +157,7 @@ fn warm_contact_block(contact_index: u32, slot: u32) {
     let first_slot = blocks[slot * 2u];
     let second_slot = blocks[slot * 2u + 1u];
     if (!contact_block_resolves(contact)) {
-        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+        commit_block(slot, first_slot, second_slot, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), false);
         return;
     }
     let first_loaded = load_body(first_slot);
@@ -187,6 +188,7 @@ fn warm_contact_block(contact_index: u32, slot: u32) {
         first.state.angular_velocity - first_loaded.state.angular_velocity,
         second.state.velocity - second_loaded.state.velocity,
         second.state.angular_velocity - second_loaded.state.angular_velocity,
+        false,
     );
 }
 

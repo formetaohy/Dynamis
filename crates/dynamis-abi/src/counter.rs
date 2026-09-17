@@ -93,6 +93,8 @@ declare_counters! {
     COUNTER_RESTING_INDEX => "resting archive index slots", Maintained, None;
     COUNTER_RESTING_PENDING => "resting manifolds pending reindex", Maintained, None;
     COUNTER_BLOCKS => "solver blocks", Maintained, None;
+    COUNTER_SOLVE_LINEAR_RESIDUAL => "velocity the solve applied in its last recorded iteration", PerStep, None;
+    COUNTER_SOLVE_ANGULAR_RESIDUAL => "angular velocity the solve applied in its last recorded iteration", PerStep, None;
     COUNTER_COARSE_ACTIVE => "coarse level links considered", PerStep, None;
     COUNTER_GRID_SCALE => "grid scale", PerStep, None;
     COUNTER_GRID_EXTENT => "grid extent", PerStep, None;

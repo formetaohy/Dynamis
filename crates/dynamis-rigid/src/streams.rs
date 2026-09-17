@@ -3,8 +3,8 @@ use dynamis_abi::{
     AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
     CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryHitRecord, QueryRecord,
-    SOLVER_BLOCK_CONSTRAINT, VehicleInputRecord, VehicleRecord, VehicleStateRecord,
-    VehicleWheelRecord,
+    SOLVER_BLOCK_CONSTRAINT, SOLVER_ROUNDS_WORDS, VehicleInputRecord, VehicleRecord,
+    VehicleStateRecord, VehicleWheelRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -63,6 +63,7 @@ streams! {
         resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Retention::Durable, demand.resting;
         resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Retention::Durable, demand.resting;
         solver_segments, SolverSegments: "solver segments", u32, 1, Retention::Scratch, SOLVER_BLOCK_KINDS;
+        solver_rounds, SolverRounds: "solver rounds", u32, 1, Retention::Scratch, SOLVER_ROUNDS_WORDS;
         solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Retention::Scratch, demand.bodies;
         solver_blocks, SolverBlocks: "solver block lanes", u32, 1, Retention::Scratch, demand.solver_words();
         solver_velocity_deltas, SolverVelocityDeltas: "solver velocity deltas", u32, 1, Retention::Scratch, demand.body_words();
