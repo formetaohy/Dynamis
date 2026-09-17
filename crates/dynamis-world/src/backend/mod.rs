@@ -178,6 +178,7 @@ impl World {
             streams,
             "a buffer plan that changes capacity must reallocate"
         );
+        self.constraints.schedule.publish();
         self.backend
             .readback
             .reserve(&device, &self.backend.streams);

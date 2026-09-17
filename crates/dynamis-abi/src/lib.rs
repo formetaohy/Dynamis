@@ -63,9 +63,9 @@ pub use constant::{
     REACTION_WORDS, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
     SHAPE_MESH, SHAPE_NONE, SHAPE_PLANE, SHAPE_SPHERE, SHAPE_TRIANGLE, SOFT_BODY_EDIT_ACCELERATION,
     SOFT_BODY_EDIT_WAKE, SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
-    SOLVER_BLOCK_CONSTRAINT, SOLVER_BLOCK_CONTACT, SOLVER_DELTA_WORDS, SOLVER_POSITION_SCALE,
-    SOLVER_ROUNDS_WORDS, SOLVER_VELOCITY_SCALE, dof_driven, dof_limited, dof_locked,
-    set_dof_driven, set_dof_limited, set_dof_locked, solve_velocity,
+    SOLVER_DELTA_WORDS, SOLVER_POSITION_SCALE, SOLVER_ROUNDS_WORDS, SOLVER_VELOCITY_SCALE,
+    dof_driven, dof_limited, dof_locked, set_dof_driven, set_dof_limited, set_dof_locked,
+    solve_velocity,
 };
 pub use constraint::kind_code;
 pub use counter::STEP_RESET as COUNTER_STEP_RESET_SLOTS;

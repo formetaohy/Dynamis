@@ -2,17 +2,13 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read_write> contacts: array<Contact>;
-@group(0) @binding(4) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
-@group(0) @binding(5) var<storage, read_write> constraint_runtime: array<ConstraintRuntime>;
-@group(0) @binding(6) var<storage, read> segments: array<u32>;
-@group(0) @binding(7) var<storage, read> blocks: array<u32>;
-@group(0) @binding(8) var<storage, read_write> velocity_deltas: array<atomic<u32>>;
-@group(0) @binding(9) var<storage, read> block_counts: array<u32>;
-@group(0) @binding(10) var<storage, read_write> block_count: array<atomic<u32>>;
-@group(0) @binding(11) var<storage, read> target_speeds: array<f32>;
-@group(0) @binding(12) var<storage, read> constraint_rows: array<ConstraintRows>;
-@group(0) @binding(13) var<storage, read> solver_rounds: array<u32>;
-@group(0) @binding(14) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read> blocks: array<u32>;
+@group(0) @binding(5) var<storage, read_write> velocity_deltas: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read> block_counts: array<u32>;
+@group(0) @binding(7) var<storage, read_write> block_count: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read> target_speeds: array<f32>;
+@group(0) @binding(9) var<storage, read> solver_rounds: array<u32>;
+@group(0) @binding(10) var<storage, read_write> counters: array<atomic<u32>>;
 
 struct BlockPair {
     first: Body,
@@ -94,23 +90,12 @@ fn work(index: u32) {
     if (index >= arrayLength(&blocks) / 2u) {
         return;
     }
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    let residual = residual_round();
-    if (index < contact_blocks) {
-        solve_contact_block(index, index, residual);
-    } else {
-        solve_constraint_block(index - contact_blocks, index, residual);
-    }
+    solve_contact_block(index, index, residual_round());
 }
 
 fn warm_start(index: u32) {
     if (index >= arrayLength(&blocks) / 2u) {
         return;
     }
-    let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
-    if (index < contact_blocks) {
-        warm_contact_block(index, index);
-    } else {
-        warm_constraint_block(index - contact_blocks, index);
-    }
+    warm_contact_block(index, index);
 }

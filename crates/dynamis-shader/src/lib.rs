@@ -409,3 +409,12 @@ pub fn workgroups(context: &GpuContext, body: &str, fragments: &[&str]) -> Progr
         false,
     )
 }
+
+pub fn workgroups_warm(context: &GpuContext, body: &str, fragments: &[&str]) -> Program {
+    Program::new(
+        assemble(context, body, fragments),
+        Dispatch::Workgroups,
+        Extent::None,
+        true,
+    )
+}

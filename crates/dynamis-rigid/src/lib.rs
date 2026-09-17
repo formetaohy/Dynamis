@@ -82,6 +82,7 @@ pub struct RigidFrame {
     pub shape: RigidShape,
     pub observed_count: u32,
     pub observed_joints: u32,
+    pub joint_islands: u32,
     pub ccd: bool,
     pub impacts: bool,
     pub immovable_rebuild: bool,

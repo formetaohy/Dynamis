@@ -272,7 +272,7 @@ fn dof_limit_row(index: u32) -> u32 {
     return DOF_LIMIT_ROW_BASE + index;
 }
 
-fn solve_constraint_block(constraint_index: u32, slot: u32, residual: bool) {
+fn solve_joint(constraint_index: u32, residual: bool) {
     var runtime = constraint_runtime[constraint_index];
     let constraint = constraint_descs[constraint_index];
     let reference = runtime.reference;
@@ -283,18 +283,23 @@ fn solve_constraint_block(constraint_index: u32, slot: u32, residual: bool) {
         }
     }
     if (runtime.broken != 0u) {
-        commit_block(slot, rows.first_row, rows.second_row, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), residual);
         return;
     }
-    let pair = block_bodies(rows.first_row, rows.second_row);
-    if (body_is_inert(pair.first) && body_is_inert(pair.second)) {
-        commit_block(slot, rows.first_row, rows.second_row, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), residual);
+    let first_loaded = load_body(rows.first_row);
+    let second_loaded = load_body(rows.second_row);
+    if (body_is_inert(first_loaded) && body_is_inert(second_loaded)) {
         return;
     }
-    var first = pair.first;
-    var second = pair.second;
-    let mass_first = pair.split_first;
-    let mass_second = pair.split_second;
+    var first = first_loaded;
+    var second = second_loaded;
+    if (body_is_inert(first_loaded)) {
+        first = body_frozen(first_loaded);
+    }
+    if (body_is_inert(second_loaded)) {
+        second = body_frozen(second_loaded);
+    }
+    let mass_first = first;
+    let mass_second = second;
     let anchor_a = constraint_anchor(first, constraint.anchor_a);
     let anchor_b = constraint_anchor(second, constraint.anchor_b);
     var accumulated = runtime.accumulated;
@@ -756,16 +761,13 @@ fn solve_constraint_block(constraint_index: u32, slot: u32, residual: bool) {
     runtime.accumulated = accumulated;
     runtime.reaction = reaction_of(forces);
     constraint_runtime[constraint_index] = runtime;
-    commit_block(
-        slot,
-        rows.first_row,
-        rows.second_row,
-        first.state.velocity - pair.first.state.velocity,
-        first.state.angular_velocity - pair.first.state.angular_velocity,
-        second.state.velocity - pair.second.state.velocity,
-        second.state.angular_velocity - pair.second.state.angular_velocity,
-        residual,
-    );
+    body_states[rows.first_row] = first.state;
+    body_states[rows.second_row] = second.state;
+    if (!residual) {
+        return;
+    }
+    counter_max(COUNTER_SOLVE_LINEAR_RESIDUAL, solver_word(max(length(first.state.velocity - first_loaded.state.velocity), length(second.state.velocity - second_loaded.state.velocity)), SOLVER_VELOCITY_SCALE));
+    counter_max(COUNTER_SOLVE_ANGULAR_RESIDUAL, solver_word(max(length(first.state.angular_velocity - first_loaded.state.angular_velocity), length(second.state.angular_velocity - second_loaded.state.angular_velocity)), SOLVER_VELOCITY_SCALE));
 }
 
 fn warm_point_impulse(axis: vec3f, point_a: vec3f, point_b: vec3f, impulse: f32, first: ptr<function, Body>, second: ptr<function, Body>) {
@@ -872,10 +874,13 @@ fn warm_constraint_rows(
     }
 }
 
-fn warm_constraint_block(constraint_index: u32, slot: u32) {
+fn warm_joint(constraint_index: u32) {
     let constraint = constraint_descs[constraint_index];
     let runtime = constraint_runtime[constraint_index];
     let rows = constraint_rows[constraint_index];
+    if (runtime.broken != 0u) {
+        return;
+    }
     let first_loaded = load_body(rows.first_row);
     let second_loaded = load_body(rows.second_row);
     var first = first_loaded;
@@ -886,7 +891,7 @@ fn warm_constraint_block(constraint_index: u32, slot: u32) {
     if (body_is_inert(second_loaded)) {
         second = body_frozen(second_loaded);
     }
-    if ((constraint.flags & CONSTRAINT_WARM_START) != 0u && runtime.broken == 0u) {
+    if ((constraint.flags & CONSTRAINT_WARM_START) != 0u) {
         warm_constraint_rows(
             constraint,
             runtime.accumulated,
@@ -896,14 +901,6 @@ fn warm_constraint_block(constraint_index: u32, slot: u32) {
             &second,
         );
     }
-    commit_block(
-        slot,
-        rows.first_row,
-        rows.second_row,
-        first.state.velocity - first_loaded.state.velocity,
-        first.state.angular_velocity - first_loaded.state.angular_velocity,
-        second.state.velocity - second_loaded.state.velocity,
-        second.state.angular_velocity - second_loaded.state.angular_velocity,
-        false,
-    );
+    body_states[rows.first_row] = first.state;
+    body_states[rows.second_row] = second.state;
 }

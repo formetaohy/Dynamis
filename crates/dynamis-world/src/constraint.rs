@@ -2,6 +2,7 @@ use super::World;
 use super::command::ConstraintCommand;
 use super::device::Facts;
 use super::pool::{Pool, Retired};
+use super::schedule::JointSchedule;
 use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintLimit,
@@ -29,6 +30,7 @@ impl JointDesc {
 
 #[derive(Clone)]
 pub(crate) struct ConstraintStore {
+    pub(crate) schedule: JointSchedule,
     pub(crate) pool: Pool<ConstraintHandle>,
     pub(crate) joints: Vec<JointDesc>,
     pub(crate) attached: Vec<Vec<u32>>,
@@ -41,6 +43,7 @@ pub(crate) struct ConstraintStore {
 impl ConstraintStore {
     pub(crate) const fn new() -> Self {
         Self {
+            schedule: JointSchedule::new(),
             pool: Pool::compact("constraint"),
             joints: Vec::new(),
             attached: Vec::new(),
@@ -114,6 +117,7 @@ impl World {
         );
         self.constraints.attach_to(first_id, handle.id);
         self.constraints.attach_to(second_id, handle.id);
+        self.constraints.schedule.invalidate();
         self.constraints.commands.push(ConstraintCommand::Add {
             slot,
             id: handle.id,
@@ -226,6 +230,7 @@ impl World {
         self.constraints.detach_from(joint.second, handle.id);
         let Retired { row, moved } = self.constraints.pool.retire(handle);
         self.constraints.joints[handle.id as usize] = JointDesc::VACANT;
+        self.constraints.schedule.invalidate();
         if moved.is_some() {
             self.constraints.commands.push(ConstraintCommand::Swap {
                 slot: row,

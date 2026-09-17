@@ -81,6 +81,7 @@ impl World {
         let live = self.live(&census);
         self.apply_plan(&live);
         self.reserve_streams(&snapshot.streams);
+        self.constraints.schedule.publish();
         self.backend
             .streams
             .write(self.backend.gpu.queue(), &snapshot.streams);

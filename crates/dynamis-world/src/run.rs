@@ -24,6 +24,7 @@ struct Declarations {
 impl World {
     pub(crate) fn execute(&mut self, run: Run) {
         self.sync(Facts::Arrived);
+        self.rebuild_joint_schedule();
         let census = self.census();
         let mut live = self.live(&census);
         self.apply_plan(&live);

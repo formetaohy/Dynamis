@@ -1,5 +1,5 @@
 use super::common::{DT, gravity_config, observed_world, static_config};
-use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, DofDesc};
+use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, DofDesc, PhysicsConfig};
 use dynamis_world::World;
 
 fn anchor_of(world: &World, handle: BodyHandle, local: [f32; 3]) -> [f32; 3] {
@@ -157,5 +157,88 @@ fn hanging_chain_holds_every_anchor() {
     assert!(
         worst < 0.05,
         "a hanging ball chain must keep every anchor together, worst gap {worst}"
+    );
+}
+
+fn chain_of(world: &mut World, links: usize, tail: f32, horizontal: bool) -> Vec<BodyHandle> {
+    let anchor = world.spawn(BodyDesc::static_sphere(0.05).position([0.0, 30.0, 0.0]));
+    let mut handles = vec![anchor];
+    let mut previous = anchor;
+    for index in 0..links {
+        let mass = if index + 1 == links { tail } else { 1.0 };
+        let position = if horizontal {
+            [1.0 + index as f32, 30.0, 0.0]
+        } else {
+            [0.0, 29.0 - index as f32, 0.0]
+        };
+        let local = if horizontal {
+            [-1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let link = world.spawn(BodyDesc::sphere(0.05).position(position).mass(mass));
+        world.add_constraint(previous, link, ConstraintDesc::ball([0.0; 3], local));
+        handles.push(link);
+        previous = link;
+    }
+    handles
+}
+
+fn worst_link(world: &mut World, handles: &[BodyHandle]) -> f32 {
+    let mut worst = 0.0f32;
+    for pair in handles.windows(2) {
+        let a = world.read_state(pair[0]).position;
+        let b = world.read_state(pair[1]).position;
+        let gap = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+        worst = worst.max((gap - 1.0).abs());
+    }
+    worst
+}
+
+#[test]
+fn a_swinging_chain_holds_its_links() {
+    let config = PhysicsConfig {
+        damping: 0.0,
+        angular_damping: 0.0,
+        ..PhysicsConfig::default()
+    };
+    let mut world = observed_world(config);
+    let handles = chain_of(&mut world, 20, 1.0, true);
+    let mut worst = 0.0f32;
+    for frame in 0..600 {
+        world.step(DT);
+        if frame % 5 != 4 {
+            continue;
+        }
+        world.wait();
+        worst = worst.max(worst_link(&mut world, &handles));
+    }
+    assert!(
+        worst < 0.3,
+        "a swinging chain must keep its link lengths, worst gap {worst}"
+    );
+}
+
+#[test]
+fn a_chain_holds_its_links_under_a_thousand_to_one_tail() {
+    let config = PhysicsConfig {
+        damping: 0.0,
+        angular_damping: 0.0,
+        ..PhysicsConfig::default()
+    };
+    let mut world = observed_world(config);
+    let handles = chain_of(&mut world, 10, 1000.0, false);
+    let mut worst = 0.0f32;
+    for frame in 0..600 {
+        world.step(DT);
+        if frame % 5 != 4 {
+            continue;
+        }
+        world.wait();
+        worst = worst.max(worst_link(&mut world, &handles));
+    }
+    assert!(
+        worst < 0.5,
+        "a thousand to one tail must not stretch the chain, worst gap {worst}"
     );
 }

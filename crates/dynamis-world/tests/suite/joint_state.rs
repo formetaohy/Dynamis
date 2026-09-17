@@ -276,6 +276,7 @@ fn pulley_reports_a_held_rope_rate() {
     );
     for _ in 0..60 {
         world.apply_force(first, [0.0, 60.0, 0.0]);
+        world.apply_force(second, [0.0, -60.0, 0.0]);
         world.step(DT);
     }
     world.wait();

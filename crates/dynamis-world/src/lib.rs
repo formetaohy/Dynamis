@@ -19,6 +19,7 @@ mod query_pool;
 mod readback;
 mod row;
 mod run;
+mod schedule;
 mod shape;
 mod shape_pool;
 mod snapshot;

@@ -3,8 +3,7 @@ use dynamis_abi::{
     AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
     CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
     ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryHitRecord, QueryRecord,
-    SOLVER_BLOCK_CONSTRAINT, SOLVER_ROUNDS_WORDS, VehicleInputRecord, VehicleRecord,
-    VehicleStateRecord, VehicleWheelRecord,
+    SOLVER_ROUNDS_WORDS, VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -12,8 +11,6 @@ use dynamis_gpu::Retention;
 use dynamis_gpu::SEGMENT_COUNT;
 
 pub const COMPACT_BLOCK: u32 = 256;
-
-const SOLVER_BLOCK_KINDS: u32 = SOLVER_BLOCK_CONSTRAINT + 1;
 
 pub const DELTA_WORDS: u32 = dynamis_abi::SOLVER_DELTA_WORDS;
 pub const BLOCK_LANES: u32 = 2;
@@ -42,6 +39,9 @@ streams! {
         body_state_scratch, BodyStateScratch: "body state scratch", BodyStateRecord, 1, Retention::Scratch, demand.bodies;
         constraint_rows, ConstraintRows: "constraint rows", ConstraintRowsRecord, 1, Retention::Scratch, demand.constraints;
         constraint_scratch, ConstraintScratch: "constraint state scratch", ConstraintRuntimeRecord, 1, Retention::Scratch, demand.constraints;
+        joint_rows, JointRows: "joint solve rows", u32, 1, Retention::Scratch, demand.constraints;
+        joint_layers, JointLayers: "joint solve layers", u32, 2, Retention::Scratch, demand.constraints;
+        joint_islands, JointIslands: "joint solve islands", u32, 2, Retention::Scratch, demand.constraints;
         joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Retention::Scratch, demand.constraints;
         joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Retention::Scratch, demand.constraints;
         ccd_factor, CcdFactor: "ccd retreat factors", u32, 1, Retention::Scratch, demand.bodies;
@@ -62,7 +62,6 @@ streams! {
         resting_index_major, RestingIndexMajor: "resting index major", u32, 1, Retention::Durable, demand.resting;
         resting_index_minor, RestingIndexMinor: "resting index minor", u32, 1, Retention::Durable, demand.resting;
         resting_index_slots, RestingIndexSlots: "resting index slots", u32, 1, Retention::Durable, demand.resting;
-        solver_segments, SolverSegments: "solver segments", u32, 1, Retention::Scratch, SOLVER_BLOCK_KINDS;
         solver_rounds, SolverRounds: "solver rounds", u32, 1, Retention::Scratch, SOLVER_ROUNDS_WORDS;
         solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Retention::Scratch, demand.bodies;
         solver_blocks, SolverBlocks: "solver block lanes", u32, 1, Retention::Scratch, demand.solver_words();

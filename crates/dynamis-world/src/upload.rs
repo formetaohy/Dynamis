@@ -2,6 +2,37 @@ use dynamis_abi::ColliderRecord;
 use dynamis_state::StateStreams;
 
 use crate::World;
+use crate::schedule::JointSchedule;
+
+impl World {
+    pub(crate) fn rebuild_joint_schedule(&mut self) {
+        if !self.constraints.schedule.stale() {
+            return;
+        }
+        let mut schedule = std::mem::replace(&mut self.constraints.schedule, JointSchedule::new());
+        schedule.rebuild(&self.constraints, &self.bodies);
+        self.constraints.schedule = schedule;
+    }
+
+    fn flush_joint_schedule(&mut self, queue: &wgpu::Queue) {
+        self.rebuild_joint_schedule();
+        let mut schedule = std::mem::replace(&mut self.constraints.schedule, JointSchedule::new());
+        if schedule.dirty {
+            let streams = &self.backend.streams.rigid;
+            streams
+                .joint_rows
+                .write(queue, bytemuck::cast_slice(schedule.rows()));
+            streams
+                .joint_layers
+                .write(queue, bytemuck::cast_slice(schedule.layers()));
+            streams
+                .joint_islands
+                .write(queue, bytemuck::cast_slice(schedule.island_records()));
+            schedule.published();
+        }
+        self.constraints.schedule = schedule;
+    }
+}
 
 fn flush_pool_range(
     state: &StateStreams,
@@ -51,6 +82,7 @@ impl World {
         if self.soft.pending_edits() > 0 || self.soft.pending_body_edits() > 0 {
             self.invalidate_immovable();
         }
+        self.flush_joint_schedule(&queue);
         self.soft.upload(&queue, &self.backend.streams.soft);
         self.characters.upload(&queue, &self.backend.streams.rigid);
         self.vehicles.upload(&queue, &self.backend.streams.rigid);

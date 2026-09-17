@@ -103,6 +103,7 @@ impl Domain for RigidDomain {
             shape: RigidShape::of(&facts.census),
             observed_count: inputs.observed,
             observed_joints: inputs.observed_joints,
+            joint_islands: inputs.joint_islands,
             ccd: inputs.ccd,
             impacts: inputs.impacts,
             immovable_rebuild: inputs.immovable_rebuild,

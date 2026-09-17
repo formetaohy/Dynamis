@@ -129,6 +129,7 @@ impl World {
     }
 
     fn encode_body(&mut self, handle: BodyHandle) {
+        self.constraints.schedule.invalidate();
         let id = handle.id as usize;
         let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
             self.shape_solid(shape)

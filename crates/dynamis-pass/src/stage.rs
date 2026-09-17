@@ -231,6 +231,19 @@ impl Stage {
         self.record(recorder, resources, Entry::Main, workgroups);
     }
 
+    pub fn record_workgroups_warm<R: ResourceSource>(
+        &mut self,
+        recorder: &mut ComputeRecorder,
+        resources: &R,
+        workgroups: u32,
+    ) {
+        assert!(
+            matches!(self.dispatch, Dispatch::Workgroups),
+            "a workgroup stage takes an explicit dispatch count"
+        );
+        self.record(recorder, resources, Entry::Warm, workgroups);
+    }
+
     fn record<R: ResourceSource>(
         &mut self,
         recorder: &mut ComputeRecorder,

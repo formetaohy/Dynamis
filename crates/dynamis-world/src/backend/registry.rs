@@ -204,6 +204,7 @@ impl World {
                 characters: census.characters,
                 vehicles: census.vehicles,
                 vehicle_wheels: census.vehicle_wheels,
+                joint_islands: self.constraints.schedule.islands,
                 immovable_rebuild: false,
             },
             soft: dynamis_soft::SoftInputs {

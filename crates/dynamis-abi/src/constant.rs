@@ -21,8 +21,6 @@ declare_constants! {
     pub const OVERRIDE_SLEEP_LINEAR: u32 = 4;
     pub const OVERRIDE_SLEEP_ANGULAR: u32 = 8;
     pub const NO_COLLISION_FILTER: u32 = u32::MAX;
-    pub const SOLVER_BLOCK_CONTACT: u32 = 0;
-    pub const SOLVER_BLOCK_CONSTRAINT: u32 = 1;
     pub const SOLVER_DELTA_WORDS: u32 = 8;
     pub const SOLVER_ROUNDS_WORDS: u32 = 1;
     pub const REACTION_WORDS: u32 = 6;
