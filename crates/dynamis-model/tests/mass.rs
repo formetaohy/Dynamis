@@ -152,13 +152,13 @@ fn unit_tetrahedron() -> SolidGeometry {
     SolidGeometry {
         volume: 1.0 / 6.0,
         centroid: [0.25, 0.25, 0.25],
-        unit_inertia: [
-            3.0 / 40.0,
-            1.0 / 80.0,
-            1.0 / 80.0,
-            3.0 / 40.0,
-            1.0 / 80.0,
-            3.0 / 40.0,
+        unit_second_moment: [
+            3.0 / 80.0,
+            -1.0 / 80.0,
+            -1.0 / 80.0,
+            3.0 / 80.0,
+            -1.0 / 80.0,
+            3.0 / 80.0,
         ],
     }
 }
@@ -282,6 +282,86 @@ fn degenerate_inertia_overrides_panic() {
         .inertia([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     let result = std::panic::catch_unwind(|| desc.mass_properties(|_| None));
     assert!(result.is_err());
+}
+
+#[test]
+fn an_inertia_that_is_not_positive_definite_is_refused() {
+    let desc = BodyDesc::sphere(0.5)
+        .mass(1.0)
+        .inertia([-1.0, 0.0, 0.0, -1.0, 0.0, 1.0]);
+    let result = std::panic::catch_unwind(|| desc.mass_properties(|_| None));
+    assert!(result.is_err());
+}
+
+#[test]
+fn a_slender_body_keeps_its_closed_form_inertia() {
+    for ratio in [100.0f32, 1_000.0, 10_000.0, 1_000_000.0] {
+        let desc = BodyDesc::cuboid([ratio, 1.0, 1.0]).mass(1.0);
+        let properties = desc.mass_properties(|_| None);
+        let lateral = (4.0 + 4.0) / 12.0;
+        let axial = (4.0 * ratio * ratio + 4.0) / 12.0;
+        assert!(
+            (properties.inertia[0] - lateral).abs() < 1e-6,
+            "a {ratio}:1 rod must keep I_xx = {lateral}, got {}",
+            properties.inertia[0]
+        );
+        assert!(
+            (properties.inertia[3] / axial - 1.0).abs() < 1e-6,
+            "a {ratio}:1 rod must keep I_yy = {axial}, got {}",
+            properties.inertia[3]
+        );
+        assert_eq!(properties.inertia[3], properties.inertia[5]);
+        assert_mutual_inverse(&properties);
+    }
+}
+
+#[test]
+fn a_slender_cylinder_keeps_its_closed_form_inertia() {
+    for half_height in [1.0f32, 10_000.0, 1_000_000.0] {
+        let desc = BodyDesc::cylinder(1.0, half_height).mass(1.0);
+        let properties = desc.mass_properties(|_| None);
+        assert!(
+            (properties.inertia[3] - 0.5).abs() < 1e-6,
+            "a cylinder about its own axis must keep I_yy = r²/2, got {}",
+            properties.inertia[3]
+        );
+        let lateral = (3.0 + 4.0 * half_height * half_height) / 12.0;
+        assert!(
+            (properties.inertia[0] / lateral - 1.0).abs() < 1e-6,
+            "a {half_height}:1 cylinder must keep I_xx = {lateral}, got {}",
+            properties.inertia[0]
+        );
+        assert_mutual_inverse(&properties);
+    }
+}
+
+#[test]
+fn a_scaled_collider_composes_its_second_moment_exactly() {
+    let cube =
+        BodyDesc::new(ColliderDesc::new(Shape::cuboid([0.5, 0.5, 0.5])).scale([1_000.0, 1.0, 1.0]))
+            .mass(1.0)
+            .mass_properties(|_| None);
+    let sphere = BodyDesc::new(ColliderDesc::new(Shape::sphere(0.5)).scale([1.0, 1.0, 1_000.0]))
+        .mass(1.0)
+        .mass_properties(|_| None);
+    let cylinder =
+        BodyDesc::new(ColliderDesc::new(Shape::cylinder(0.5, 0.5)).scale([1.0, 1_000.0, 1.0]))
+            .mass(1.0)
+            .mass_properties(|_| None);
+    for (name, properties, axis, expected) in [
+        ("cube", &cube, 0, (1.0 + 1.0) / 12.0),
+        ("sphere", &sphere, 0, (0.25 + 250_000.0) / 5.0),
+        ("sphere", &sphere, 5, (0.25 + 0.25) / 5.0),
+        ("cylinder", &cylinder, 3, 0.25 / 2.0),
+        ("cylinder", &cylinder, 0, (0.75 + 1_000_000.0) / 12.0),
+    ] {
+        assert!(
+            (properties.inertia[axis] / expected - 1.0).abs() < 1e-5,
+            "a stretched {name} must keep its closed form on axis {axis}, {expected}, got {}",
+            properties.inertia[axis]
+        );
+        assert_mutual_inverse(properties);
+    }
 }
 
 #[test]

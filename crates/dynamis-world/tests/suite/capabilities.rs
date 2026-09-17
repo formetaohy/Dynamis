@@ -302,6 +302,26 @@ fn rolling_and_spin_friction_damp_rotation() {
 }
 
 #[test]
+fn a_slender_body_spins_by_its_closed_form_inertia() {
+    let mut world = observed_world(static_config());
+    let rod = world.spawn(BodyDesc::cuboid([100.0, 0.05, 0.05]));
+    let spin = 1.0e-4;
+    world.apply_angular_impulse(rod, [spin, 0.0, 0.0]);
+    world.step(DT);
+    world.wait();
+    let minor = (0.1 * 0.1 + 0.1 * 0.1) / 12.0;
+    let expected = spin / minor;
+    let state = world.read_state(rod);
+    assert!(
+        (state.angular_velocity[0] / expected - 1.0).abs() < 1e-3,
+        "a 2000:1 rod must spin by its own inertia {expected}, got {}",
+        state.angular_velocity[0]
+    );
+    assert_eq!(state.angular_velocity[1], 0.0);
+    assert_eq!(state.angular_velocity[2], 0.0);
+}
+
+#[test]
 fn prev_position_tracks_last_step() {
     let mut world = observed_world(gravity_config());
     let ball = world.spawn(BodyDesc::sphere(0.2).position([0.0, 10.0, 0.0]));

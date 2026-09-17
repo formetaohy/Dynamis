@@ -185,34 +185,34 @@ fn a_unit_tetrahedron_reports_its_closed_form_solid() {
     assert_close(geometry.centroid[1], 0.25, "tetrahedron centroid y");
     assert_close(geometry.centroid[2], 0.25, "tetrahedron centroid z");
     assert_close(
-        geometry.unit_inertia[0],
-        3.0 / 40.0,
-        "tetrahedron inertia xx",
+        geometry.unit_second_moment[0],
+        3.0 / 80.0,
+        "tetrahedron second moment xx",
     );
     assert_close(
-        geometry.unit_inertia[3],
-        3.0 / 40.0,
-        "tetrahedron inertia yy",
+        geometry.unit_second_moment[3],
+        3.0 / 80.0,
+        "tetrahedron second moment yy",
     );
     assert_close(
-        geometry.unit_inertia[5],
-        3.0 / 40.0,
-        "tetrahedron inertia zz",
+        geometry.unit_second_moment[5],
+        3.0 / 80.0,
+        "tetrahedron second moment zz",
     );
     assert_close(
-        geometry.unit_inertia[1],
-        1.0 / 80.0,
-        "tetrahedron inertia xy",
+        geometry.unit_second_moment[1],
+        -1.0 / 80.0,
+        "tetrahedron second moment xy",
     );
     assert_close(
-        geometry.unit_inertia[2],
-        1.0 / 80.0,
-        "tetrahedron inertia xz",
+        geometry.unit_second_moment[2],
+        -1.0 / 80.0,
+        "tetrahedron second moment xz",
     );
     assert_close(
-        geometry.unit_inertia[4],
-        1.0 / 80.0,
-        "tetrahedron inertia yz",
+        geometry.unit_second_moment[4],
+        -1.0 / 80.0,
+        "tetrahedron second moment yz",
     );
 }
 
@@ -239,14 +239,26 @@ fn an_octahedron_reports_an_isotropic_solid() {
         .map(|(i, n)| (*i, *n))
     {
         assert_close(
-            geometry.unit_inertia[index],
-            0.2,
-            &format!("octahedron inertia {axis}"),
+            geometry.unit_second_moment[index],
+            0.1,
+            &format!("octahedron second moment {axis}"),
         );
     }
-    assert_close(geometry.unit_inertia[1], 0.0, "octahedron inertia xy");
-    assert_close(geometry.unit_inertia[2], 0.0, "octahedron inertia xz");
-    assert_close(geometry.unit_inertia[4], 0.0, "octahedron inertia yz");
+    assert_close(
+        geometry.unit_second_moment[1],
+        0.0,
+        "octahedron second moment xy",
+    );
+    assert_close(
+        geometry.unit_second_moment[2],
+        0.0,
+        "octahedron second moment xz",
+    );
+    assert_close(
+        geometry.unit_second_moment[4],
+        0.0,
+        "octahedron second moment yz",
+    );
 }
 
 #[test]
@@ -261,7 +273,11 @@ fn a_translated_hull_keeps_its_solid_and_moves_its_centroid() {
     assert_close(geometry.centroid[0], 10.0, "moved octahedron centroid x");
     assert_close(geometry.centroid[1], -4.0, "moved octahedron centroid y");
     assert_close(geometry.centroid[2], 0.5, "moved octahedron centroid z");
-    assert_close(geometry.unit_inertia[0], 0.2, "moved octahedron inertia xx");
+    assert_close(
+        geometry.unit_second_moment[0],
+        0.1,
+        "moved octahedron second moment xx",
+    );
 }
 
 #[test]

@@ -34,11 +34,11 @@ pub enum MassSource {
 pub fn analytic_solid(shape: &Shape) -> Option<SolidGeometry> {
     Some(match *shape {
         Shape::Sphere { radius } => {
-            let i = 2.0 / 5.0 * radius * radius;
+            let moment = radius * radius / 5.0;
             SolidGeometry {
                 volume: 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius,
                 centroid: [0.0; 3],
-                unit_inertia: [i, 0.0, 0.0, i, 0.0, i],
+                unit_second_moment: [moment, 0.0, 0.0, moment, 0.0, moment],
             }
         }
         Shape::Cuboid { half_extents } => {
@@ -48,13 +48,13 @@ pub fn analytic_solid(shape: &Shape) -> Option<SolidGeometry> {
             SolidGeometry {
                 volume: ex * ey * ez,
                 centroid: [0.0; 3],
-                unit_inertia: [
-                    (ey * ey + ez * ez) / 12.0,
+                unit_second_moment: [
+                    ex * ex / 12.0,
                     0.0,
                     0.0,
-                    (ex * ex + ez * ez) / 12.0,
+                    ey * ey / 12.0,
                     0.0,
-                    (ex * ex + ey * ey) / 12.0,
+                    ez * ez / 12.0,
                 ],
             }
         }
@@ -65,16 +65,18 @@ pub fn analytic_solid(shape: &Shape) -> Option<SolidGeometry> {
             let cylinder = std::f32::consts::PI * radius * radius * 2.0 * half_height;
             let sphere = 4.0 / 3.0 * std::f32::consts::PI * radius * radius * radius;
             let total = cylinder + sphere;
-            let height = half_height + 3.0 / 8.0 * radius;
-            let axial = (cylinder * 0.5 * radius * radius + 0.4 * sphere * radius * radius) / total;
-            let lateral = (cylinder / 12.0
-                * (3.0 * radius * radius + 4.0 * half_height * half_height)
-                + sphere * (83.0 / 320.0 * radius * radius + height * height))
+            let lateral =
+                (cylinder * radius * radius / 4.0 + sphere * radius * radius / 5.0) / total;
+            let axial = (cylinder * 4.0 * half_height * half_height / 12.0
+                + sphere
+                    * (radius * radius / 5.0
+                        + 3.0 / 4.0 * radius * half_height
+                        + half_height * half_height))
                 / total;
             SolidGeometry {
                 volume: total,
                 centroid: [0.0; 3],
-                unit_inertia: [lateral, 0.0, 0.0, axial, 0.0, lateral],
+                unit_second_moment: [lateral, 0.0, 0.0, axial, 0.0, lateral],
             }
         }
         Shape::Cylinder {
@@ -82,11 +84,11 @@ pub fn analytic_solid(shape: &Shape) -> Option<SolidGeometry> {
             half_height,
         } => {
             let height = half_height * 2.0;
-            let lateral = (3.0 * radius * radius + height * height) / 12.0;
+            let lateral = radius * radius / 4.0;
             SolidGeometry {
                 volume: std::f32::consts::PI * radius * radius * height,
                 centroid: [0.0; 3],
-                unit_inertia: [lateral, 0.0, 0.0, 0.5 * radius * radius, 0.0, lateral],
+                unit_second_moment: [lateral, 0.0, 0.0, height * height / 12.0, 0.0, lateral],
             }
         }
         Shape::Hull(_) | Shape::Mesh(_) | Shape::HeightField(_) | Shape::Plane => return None,
@@ -192,30 +194,19 @@ pub fn compute_mass_properties(
             sum[2] / total_volume,
         ]
     });
-    let mut inertia = [0.0f32; 6];
+    let mut second = [0.0f32; 6];
     for ((collider, solid), volume) in solids.iter().zip(&volumes) {
         let shape_mass = mass * volume / total_volume;
-        let local = inertia_scale(solid.unit_inertia, collider.scale);
-        let scaled = [
-            local[0] * shape_mass,
-            local[1] * shape_mass,
-            local[2] * shape_mass,
-            local[3] * shape_mass,
-            local[4] * shape_mass,
-            local[5] * shape_mass,
-        ];
-        let rotated = inertia_rotate(scaled, collider.rotation);
+        let local = second_moment_scale(solid.unit_second_moment, collider.scale);
+        let rotated = second_moment_rotate(local, collider.rotation);
         let at = centroid_of(collider, solid);
         let offset = [at[0] - com[0], at[1] - com[1], at[2] - com[2]];
-        let translated = inertia_translate(rotated, offset, shape_mass);
-        inertia[0] += translated[0];
-        inertia[1] += translated[1];
-        inertia[2] += translated[2];
-        inertia[3] += translated[3];
-        inertia[4] += translated[4];
-        inertia[5] += translated[5];
+        let translated = second_moment_translate(rotated, offset);
+        for (held, value) in second.iter_mut().zip(translated) {
+            *held += value * shape_mass;
+        }
     }
-    MassProperties::of(com, inertia)
+    MassProperties::of(com, inertia_of_second_moment(second))
 }
 
 pub fn solid_volume_of(
@@ -231,45 +222,38 @@ pub fn solid_volume_of(
         .sum()
 }
 
-fn inertia_translate(inertia: [f32; 6], offset: [f32; 3], mass: f32) -> [f32; 6] {
-    let d = offset;
+fn second_moment_scale(second: [f32; 6], scale: [f32; 3]) -> [f32; 6] {
+    let [xx, xy, xz, yy, yz, zz] = second;
     [
-        inertia[0] + mass * (d[1] * d[1] + d[2] * d[2]),
-        inertia[1] - mass * d[0] * d[1],
-        inertia[2] - mass * d[0] * d[2],
-        inertia[3] + mass * (d[0] * d[0] + d[2] * d[2]),
-        inertia[4] - mass * d[1] * d[2],
-        inertia[5] + mass * (d[0] * d[0] + d[1] * d[1]),
+        xx * scale[0] * scale[0],
+        xy * scale[0] * scale[1],
+        xz * scale[0] * scale[2],
+        yy * scale[1] * scale[1],
+        yz * scale[1] * scale[2],
+        zz * scale[2] * scale[2],
     ]
 }
 
-fn inertia_scale(inertia: [f32; 6], scale: [f32; 3]) -> [f32; 6] {
-    let m = sym_to_mat(inertia);
-    let trace = m[0][0] + m[1][1] + m[2][2];
-    let second = [
-        [trace * 0.5 - m[0][0], -m[0][1], -m[0][2]],
-        [-m[1][0], trace * 0.5 - m[1][1], -m[1][2]],
-        [-m[2][0], -m[2][1], trace * 0.5 - m[2][2]],
-    ];
-    let mut scaled = [[0.0f32; 3]; 3];
-    for row in 0..3 {
-        for col in 0..3 {
-            scaled[row][col] = scale[row] * second[row][col] * scale[col];
-        }
-    }
-    let scaled_trace = scaled[0][0] + scaled[1][1] + scaled[2][2];
-    let result = [
-        [scaled_trace - scaled[0][0], -scaled[0][1], -scaled[0][2]],
-        [-scaled[1][0], scaled_trace - scaled[1][1], -scaled[1][2]],
-        [-scaled[2][0], -scaled[2][1], scaled_trace - scaled[2][2]],
-    ];
-    mat_to_sym(result)
+fn second_moment_translate(second: [f32; 6], offset: [f32; 3]) -> [f32; 6] {
+    let d = offset;
+    [
+        second[0] + d[0] * d[0],
+        second[1] + d[0] * d[1],
+        second[2] + d[0] * d[2],
+        second[3] + d[1] * d[1],
+        second[4] + d[1] * d[2],
+        second[5] + d[2] * d[2],
+    ]
 }
 
-fn inertia_rotate(inertia: [f32; 6], q: [f32; 4]) -> [f32; 6] {
+fn second_moment_rotate(second: [f32; 6], q: [f32; 4]) -> [f32; 6] {
     let r = mat_from_quat(q);
-    let rotated = mat_mul(r, mat_mul(sym_to_mat(inertia), mat_transpose(r)));
-    mat_to_sym(rotated)
+    mat_to_sym(mat_mul(r, mat_mul(sym_to_mat(second), mat_transpose(r))))
+}
+
+fn inertia_of_second_moment(second: [f32; 6]) -> [f32; 6] {
+    let [xx, xy, xz, yy, yz, zz] = second;
+    [yy + zz, -xy, -xz, xx + zz, -yz, xx + yy]
 }
 
 pub(crate) fn inertia_inverse(inertia: [f32; 6]) -> [f32; 6] {
@@ -282,7 +266,7 @@ pub(crate) fn inertia_inverse(inertia: [f32; 6]) -> [f32; 6] {
     let cofactor_zz = xx * yy - xy * xy;
     let determinant = xx * cofactor_xx + xy * cofactor_xy + xz * cofactor_xz;
     assert!(
-        determinant > 0.0,
+        xx > 0.0 && cofactor_zz > 0.0 && determinant > 0.0,
         "inertia tensor must be positive definite"
     );
     [

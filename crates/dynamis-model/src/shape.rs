@@ -8,7 +8,7 @@ pub struct ShapeSourceHandle {
 pub struct SolidGeometry {
     pub volume: f32,
     pub centroid: [f32; 3],
-    pub unit_inertia: [f32; 6],
+    pub unit_second_moment: [f32; 6],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

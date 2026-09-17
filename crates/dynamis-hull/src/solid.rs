@@ -86,12 +86,6 @@ pub fn solid(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> SolidGeometry {
         "a hull must enclose a positive volume"
     );
     let centroid = [first[0] / volume, first[1] / volume, first[2] / volume];
-    let trace = second[0] + second[3] + second[5];
-    let shift = [
-        volume * (centroid[1] * centroid[1] + centroid[2] * centroid[2]),
-        volume * (centroid[0] * centroid[0] + centroid[2] * centroid[2]),
-        volume * (centroid[0] * centroid[0] + centroid[1] * centroid[1]),
-    ];
     SolidGeometry {
         volume: volume as f32,
         centroid: [
@@ -99,13 +93,13 @@ pub fn solid(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> SolidGeometry {
             (apex[1] + centroid[1]) as f32,
             (apex[2] + centroid[2]) as f32,
         ],
-        unit_inertia: [
-            per_volume(trace - second[0] - shift[0], volume),
-            per_volume(-second[1] + volume * centroid[0] * centroid[1], volume),
-            per_volume(-second[2] + volume * centroid[0] * centroid[2], volume),
-            per_volume(trace - second[3] - shift[1], volume),
-            per_volume(-second[4] + volume * centroid[1] * centroid[2], volume),
-            per_volume(trace - second[5] - shift[2], volume),
+        unit_second_moment: [
+            per_volume(second[0] - volume * centroid[0] * centroid[0], volume),
+            per_volume(second[1] - volume * centroid[0] * centroid[1], volume),
+            per_volume(second[2] - volume * centroid[0] * centroid[2], volume),
+            per_volume(second[3] - volume * centroid[1] * centroid[1], volume),
+            per_volume(second[4] - volume * centroid[1] * centroid[2], volume),
+            per_volume(second[5] - volume * centroid[2] * centroid[2], volume),
         ],
     }
 }
