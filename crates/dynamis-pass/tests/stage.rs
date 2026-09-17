@@ -3,7 +3,8 @@ use dynamis_gpu::{
     Stream, StreamDesc, StreamElement, WarmupBudget, read_regions,
 };
 use dynamis_pass::Stage;
-use dynamis_shader::{Dispatch, Program};
+use dynamis_shader::{Dispatch, Extent, Program};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 
 const SLOT: ResourceId = ResourceId::new(0, 0);
@@ -106,7 +107,7 @@ fn a_stage_follows_the_storage_it_replaces() {
     let mut stage = Stage::build(
         context,
         "stage",
-        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, false),
+        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, Extent::None, false),
         &slots,
         &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
         &[],
@@ -150,7 +151,7 @@ fn an_empty_dispatch_resolves_no_kernel() {
     let mut stage = Stage::build(
         &context,
         "stage",
-        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, false),
+        Program::new(SOURCE.to_owned(), Dispatch::Workgroups, Extent::None, false),
         &slots,
         &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
         &[],
@@ -165,4 +166,107 @@ fn an_empty_dispatch_resolves_no_kernel() {
         context.is_warm(),
         "a dispatched stage compiles the kernel it runs"
     );
+}
+
+const STREAM_SOURCE: &str = "
+@group(0) @binding(0) var<storage, read_write> words: array<u32>;
+@group(0) @binding(1) var<storage, read_write> word_count: array<atomic<u32>>;
+
+fn work(index: u32) {
+    words[index] = index;
+}
+";
+
+fn stream_stage(context: &GpuContext, slots: &Slots, counter: usize, extent: Extent) -> Stage {
+    Stage::build(
+        context,
+        "stream stage",
+        dynamis_shader::stream(context, STREAM_SOURCE, &[], "work", extent),
+        slots,
+        &[
+            ("words", SlotRef::whole(SLOT, ELEMENT)),
+            (
+                "word_count",
+                SlotRef::range(
+                    SLOT,
+                    counter as u64 * dynamis_abi::COUNTER_STRIDE,
+                    4,
+                    ELEMENT,
+                ),
+            ),
+        ],
+        &[],
+    )
+}
+
+#[test]
+fn a_streaming_stage_declares_the_counter_and_the_array_its_work_covers() {
+    let context = shared();
+    let device = context.device().clone();
+    let queue = context.queue().clone();
+    let slots = Slots {
+        storage: Stream::new(
+            &device,
+            &queue,
+            StreamDesc {
+                label: "stage stream",
+                slots: 1024,
+                element: ELEMENT,
+                elements_per_slot: 1,
+                usage: STREAM,
+                retention: Retention::Durable,
+            },
+        ),
+    };
+    let counter = dynamis_abi::COUNTER_PAIRS;
+    let mut stage = stream_stage(
+        context,
+        &slots,
+        counter,
+        Extent::slot(counter, "word_count", "words"),
+    );
+    assert!(stage_streams_over(&mut stage, &slots));
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| stream_stage(
+            context,
+            &slots,
+            counter + 1,
+            Extent::slot(counter, "word_count", "words"),
+        )))
+        .is_err(),
+        "a work extent must read the counter its stage declares"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| stream_stage(
+            context,
+            &slots,
+            counter,
+            Extent::slot(counter, "word_count", "words_elsewhere"),
+        )))
+        .is_err(),
+        "a work extent must guard an array its stage binds"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            Stage::build(
+                context,
+                "rows stage",
+                Program::new(SOURCE.to_owned(), Dispatch::Rows, Extent::None, false),
+                &slots,
+                &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
+                &[],
+            );
+        }))
+        .is_ok(),
+        "a row stage declares its bound from the step facts"
+    );
+}
+
+fn stage_streams_over(stage: &mut Stage, slots: &Slots) -> bool {
+    let mut encoder = shared()
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut recorder = ComputeRecorder::begin(&mut encoder, "stage", shared().workgroups_per_row());
+    stage.record_stream(&mut recorder, slots);
+    true
 }

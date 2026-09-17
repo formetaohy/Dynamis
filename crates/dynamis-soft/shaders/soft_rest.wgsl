@@ -2,10 +2,6 @@
 @group(0) @binding(1) var<storage, read_write> bodies: array<SoftBody>;
 @group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
 
-fn counter_add(slot: u32, value: u32) {
-    atomicAdd(&counters[slot * COUNTER_STRIDE_WORDS], value);
-}
-
 fn work(index: u32) {
     let moving = atomicExchange(&bodies[index].moving, 0u) != 0u;
     let woken = atomicExchange(&bodies[index].wake, 0u) != 0u;

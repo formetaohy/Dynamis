@@ -1,4 +1,4 @@
-use super::common::{DT, gravity_config, observed_world, settle, static_config};
+use super::common::{DT, gravity_config, observed_world, refused, settle, static_config};
 use dynamis_abi::{COUNTER_IMPACTS, COUNTER_REFUSED_IMPACTS};
 use dynamis_model::{BodyDesc, ColliderDesc, Shape};
 
@@ -240,7 +240,7 @@ fn an_impact_flood_widens_the_stream_before_it_spills() {
         "a collapsing cluster must report every pair that closes, got {reported}"
     );
     assert_eq!(
-        world.measured()[COUNTER_REFUSED_IMPACTS],
+        refused(&world, COUNTER_REFUSED_IMPACTS),
         0,
         "a freshly spawned flood must be served by its reservation"
     );

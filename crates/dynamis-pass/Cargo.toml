@@ -15,6 +15,7 @@ dynamis-shader = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]
+dynamis-abi = { workspace = true }
 pollster = { workspace = true }
 
 [lints]

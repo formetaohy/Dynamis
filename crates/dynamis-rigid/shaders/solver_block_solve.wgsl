@@ -78,10 +78,6 @@ fn commit_block(
     accumulate_velocity(second_slot, delta_b, spin_b);
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&block_count[0]), arrayLength(&blocks) / 2u);
-}
-
 fn work(index: u32) {
     if (index >= arrayLength(&blocks) / 2u) {
         return;

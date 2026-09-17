@@ -69,10 +69,6 @@ fn retreat(slot: u32, moving: Body, moving_collider: Collider, other: Body, othe
     );
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&pair_count[0]), arrayLength(&pair_major));
-}
-
 fn work(index: u32) {
     if (index > 0u && pair_major[index] == pair_major[index - 1u] && pair_minor[index] == pair_minor[index - 1u]) {
         return;

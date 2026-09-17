@@ -8,16 +8,13 @@ pub use domain::{StateDomain, StateWork};
 pub use passes::{StatePasses, StateRuntime};
 pub use streams::{StateDemand, StateStream, StateStreams, TRIANGLE_BYTES, VERTEX_BYTES};
 
-use dynamis_abi::{COUNTER_DEVICE_COUNT, COUNTER_STRIDE};
+use dynamis_abi::{COUNTER_STRIDE, counter};
 use dynamis_gpu::SlotRef;
 
 pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
 
 pub fn counter(slot: usize) -> SlotRef {
-    assert!(
-        slot < COUNTER_DEVICE_COUNT,
-        "counter slot {slot} is outside the counter stream"
-    );
+    counter::spec(slot);
     SlotRef::range(
         StateStream::Counters.into(),
         slot as u64 * COUNTER_STRIDE,

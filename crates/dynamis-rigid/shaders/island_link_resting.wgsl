@@ -7,10 +7,6 @@
 @group(0) @binding(6) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
-fn extent() -> u32 {
-    return min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
-}
-
 fn work(index: u32) {
     if (resting_live[index] == 0u) {
         return;

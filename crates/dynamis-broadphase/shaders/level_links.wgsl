@@ -1,28 +1,6 @@
 @group(0) @binding(4) var<storage, read_write> pair_major: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pair_minor: array<u32>;
 
-fn emit_pair(first: u32, second: u32) {
-    let first_info = entries[first].info;
-    let second_info = entries[second].info;
-    if (entry_kind(first_info) != ENTRY_KIND_COLLIDER || entry_kind(second_info) != ENTRY_KIND_COLLIDER) {
-        return;
-    }
-    if (first == second || entries[first].group == entries[second].group) {
-        return;
-    }
-    if (!entry_mobile(first_info) && !entry_mobile(second_info)) {
-        return;
-    }
-    let slot = counter_add(COUNTER_PAIRS, 1u);
-    if (slot < arrayLength(&pair_minor)) {
-        let a = entry_index(first_info);
-        let b = entry_index(second_info);
-        pair_minor[slot] = max(a, b);
-        pair_major[slot] = min(a, b);
-    } else {
-        counter_add(COUNTER_REFUSED_PAIRS, 1u);
-    }
-}
 
 fn link_level(node: u32, level: u32, awake: bool, live: u32, grid: f32) {
     let box = entry_box(node);
@@ -53,10 +31,6 @@ fn link_level(node: u32, level: u32, awake: bool, live: u32, grid: f32) {
             emit_pair(node, other);
         }
     }
-}
-
-fn extent() -> u32 {
-    return entry_live();
 }
 
 fn work(index: u32) {

@@ -1,6 +1,6 @@
 use super::common::{
-    DT, flat_mesh_floor, gravity_config, observed_world, settle, settle_until, static_config,
-    static_sphere_ground,
+    DT, flat_mesh_floor, gravity_config, observed_world, refused, settle, settle_until,
+    static_config, static_sphere_ground,
 };
 use dynamis_abi::{
     COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS,
@@ -140,7 +140,7 @@ fn a_domain_plans_from_its_own_live_data_alone() {
 }
 
 #[test]
-fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
+fn a_pile_heavier_than_the_streams_widens_every_stream_until_the_step_stops_refusing() {
     let mut world = observed_world(static_config());
     let floor = world.stream_capacity();
     sphere_pile(&mut world);
@@ -153,7 +153,7 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
     );
     world.wait();
     assert!(
-        world.measured()[COUNTER_REFUSED_PAIRS] > 0,
+        refused(&world, COUNTER_REFUSED_PAIRS) > 0,
         "the pile must outgrow the pair stream"
     );
     assert!(
@@ -161,12 +161,29 @@ fn a_pile_heavier_than_the_streams_widens_them_until_the_step_stops_spilling() {
         "the spilled step must widen the plan further"
     );
 
-    world.step(DT);
-    world.wait();
-    assert_eq!(
-        world.measured()[COUNTER_REFUSED_PAIRS],
-        0,
-        "the widened stream must serve the pile"
+    let mut held = None;
+    for step in 1..=12 {
+        world.step(DT);
+        world.wait();
+        if world.refusals().is_empty() {
+            held = Some((step, world.stream_capacity()));
+            break;
+        }
+    }
+    let (step, held) = held.unwrap_or_else(|| {
+        panic!(
+            "the widened streams must serve the pile within twelve steps, refused {:?}",
+            world.refusals()
+        )
+    });
+    assert!(
+        held.broadphase.pairs > floor.broadphase.pairs
+            && held.rigid.contacts > served.rigid.contacts,
+        "a spill must widen the pair and contact streams, step {step} holds {held:?} against {served:?}"
+    );
+    assert!(
+        held.rigid.events > served.rigid.events,
+        "a spill must widen the event stream, step {step} holds {held:?} against {served:?}"
     );
 }
 
@@ -197,7 +214,7 @@ fn sustained_idleness_releases_the_widened_streams_without_starving_the_next_sce
     world.spawn(BodyDesc::sphere(0.5).position([0.0, 1.5, 0.0]));
     settle(&mut world, 3);
     assert_eq!(
-        world.measured()[COUNTER_REFUSED_PAIRS],
+        refused(&world, COUNTER_REFUSED_PAIRS),
         0,
         "the released stream must still serve a small world"
     );
@@ -554,11 +571,11 @@ fn the_contact_store_follows_the_contacts_not_the_swept_candidates() {
 
     let pile = sphere_pile(&mut world);
     settle_until(&mut world, 60, |world| {
-        world.measured()[COUNTER_REFUSED_CONTACTS] == 0
+        refused(world, COUNTER_REFUSED_CONTACTS) == 0
             && world.stream_capacity().rigid.contacts >= 2 * world.measured()[COUNTER_CONTACTS]
     });
     assert_eq!(
-        world.measured()[COUNTER_REFUSED_CONTACTS],
+        refused(&world, COUNTER_REFUSED_CONTACTS),
         0,
         "the widened contact store must serve every contact of the pile"
     );

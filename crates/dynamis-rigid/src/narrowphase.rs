@@ -7,7 +7,7 @@ use dynamis_broadphase::{BroadphaseStream, pair_capacity};
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{MAX_DISPATCH_WORKGROUPS, PassRuntime, Stage};
-use dynamis_shader::{CORE, stream, workgroups};
+use dynamis_shader::{CORE, Extent, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
@@ -30,7 +30,7 @@ impl PassRuntime<RigidFrame> for Narrowphase {
                     include_str!("../shaders/narrowphase.wgsl"),
                     &crate::geometry_fragments(),
                     "work",
-                    BroadphaseStream::PairMajor,
+                    Extent::slot(COUNTER_PAIRS, "pair_count", "pair_major"),
                 ),
                 streams,
                 &[
@@ -88,7 +88,7 @@ impl PassRuntime<RigidFrame> for Narrowphase {
                     include_str!("../shaders/compact_scatter.wgsl"),
                     CORE,
                     "work",
-                    BroadphaseStream::PairMajor,
+                    Extent::slot(COUNTER_PAIRS, "count_holder", "contacts_raw"),
                 ),
                 streams,
                 &[

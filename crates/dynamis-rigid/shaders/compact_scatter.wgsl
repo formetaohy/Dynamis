@@ -9,10 +9,6 @@
 
 const BLOCK_SIZE: u32 = 256u;
 
-fn extent() -> u32 {
-    return min(atomicLoad(&count_holder[0]), arrayLength(&contacts_raw));
-}
-
 fn work(index: u32) {
     if (valid[index] == 0u) {
         return;

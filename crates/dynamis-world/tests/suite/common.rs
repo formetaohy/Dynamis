@@ -115,6 +115,22 @@ pub fn flat_mesh_floor(world: &mut World) -> BodyHandle {
     world.spawn(BodyDesc::new(ColliderDesc::new(Shape::mesh(floor))).mass(0.0))
 }
 
+pub fn refused(world: &World, counter: usize) -> u32 {
+    world
+        .refusals()
+        .iter()
+        .find(|refusal| refusal.slot == counter)
+        .map_or(0, |refusal| refusal.count)
+}
+
+pub fn assert_unrefused(world: &World) {
+    assert!(
+        world.refusals().is_empty(),
+        "the device refused {:?}",
+        world.refusals()
+    );
+}
+
 pub fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];

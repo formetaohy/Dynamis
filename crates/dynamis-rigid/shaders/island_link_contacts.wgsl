@@ -7,10 +7,6 @@
 
 
 
-fn extent() -> u32 {
-    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-}
-
 fn work(index: u32) {
     let contact = contacts[index];
     if (contact.point_count == 0u || contact.sensor == 1u || !contact_touches(contact, params.slop)) {

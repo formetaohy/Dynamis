@@ -2,7 +2,15 @@ use crate::streams::BroadphaseStream;
 use dynamis_abi::COUNTER_ENTRIES;
 use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
-use dynamis_shader::{GRID_INDEX, stream};
+use dynamis_shader::{Extent, GRID_INDEX, stream};
+
+const PAIR_EMIT: &str = include_str!("../shaders/pair_emit.wgsl");
+
+fn pair_fragments() -> Vec<&'static str> {
+    let mut fragments = GRID_INDEX.to_vec();
+    fragments.push(PAIR_EMIT);
+    fragments
+}
 use dynamis_sort::{RadixSort, SortChannels};
 use dynamis_state::StateStream;
 
@@ -40,9 +48,9 @@ impl PassRuntime<()> for Broadphase {
                 stream(
                     context,
                     include_str!("../shaders/level_links.wgsl"),
-                    GRID_INDEX,
+                    &pair_fragments(),
                     "work",
-                    BroadphaseStream::EntryKeys,
+                    Extent::of_shared_counter(COUNTER_ENTRIES, "entries"),
                 ),
                 streams,
                 &[
@@ -61,9 +69,9 @@ impl PassRuntime<()> for Broadphase {
                 stream(
                     context,
                     include_str!("../shaders/cell_pairs.wgsl"),
-                    GRID_INDEX,
+                    &pair_fragments(),
                     "work",
-                    BroadphaseStream::EntryKeys,
+                    Extent::of_shared_counter(COUNTER_ENTRIES, "entries"),
                 ),
                 streams,
                 &[

@@ -3,7 +3,7 @@ mod character;
 mod collider;
 mod constant;
 mod constraint;
-mod counter;
+pub mod counter;
 mod decode;
 mod event;
 mod param;
@@ -67,7 +67,12 @@ pub use constant::{
     dof_locked, set_dof_driven, set_dof_limited, set_dof_locked,
 };
 pub use constraint::kind_code;
-pub use counter::device::{
+pub use counter::STEP_RESET as COUNTER_STEP_RESET_SLOTS;
+pub use counter::host::{
+    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_COLLIDERS,
+    COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
+};
+pub use counter::{
     COUNTER_ACTIVE, COUNTER_ARCHIVED, COUNTER_BLOCKS, COUNTER_BREAKS, COUNTER_COARSE_ACTIVE,
     COUNTER_COARSE_NEIGHBOURS, COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_ENTRIES,
     COUNTER_ENTRY_FAULTS, COUNTER_EVENTS, COUNTER_GRID_EXTENT, COUNTER_GRID_LEVELS,
@@ -78,12 +83,9 @@ pub use counter::device::{
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_SOFT_ACTIVE, COUNTER_SOFT_EVENTS,
     COUNTER_SOFT_SLEPT, COUNTER_SOFT_WOKE, COUNTER_STEP, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
-pub use counter::host::{
-    COUNTER_BODIES, COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_COLLIDERS,
-    COUNTER_CONSTRAINT_COMMANDS, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
-};
 pub use counter::{
-    COUNTER_COUNT, COUNTER_STEP_RESET_SLOTS, COUNTER_STRIDE, Counters, DeclaredCounters,
+    COUNTER_COUNT, COUNTER_STRIDE, COUNTERS, CounterReset, CounterSpec, Counters, DeclaredCounters,
+    Shortfall,
 };
 pub use decode::decode;
 pub use event::event_flags;

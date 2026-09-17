@@ -27,10 +27,6 @@ fn acquire_slot() -> u32 {
     return slot;
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-}
-
 fn work(index: u32) {
     let contact = contacts[index];
     let first = collider_owners[contact.a];

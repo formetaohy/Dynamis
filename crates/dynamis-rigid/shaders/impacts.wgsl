@@ -7,10 +7,6 @@
 @group(0) @binding(6) var<storage, read_write> spillover: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> counters: array<atomic<u32>>;
 
-fn extent() -> u32 {
-    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-}
-
 fn work(index: u32) {
     let contact = contacts[index];
     let impact = contact_impact(contact);

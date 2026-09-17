@@ -1,4 +1,4 @@
-use super::common::{DT, observed_world, static_config};
+use super::common::{DT, observed_world, refused, static_config};
 use dynamis_model::BodyHandle;
 use dynamis_model::{
     BodyDesc, ColliderDesc, ContactEvent, ContactEventKind, ContactEventMode, FluidMaterial, Shape,
@@ -362,7 +362,7 @@ fn a_soft_body_reports_each_persisting_step_once() {
         "the ground stays a static body"
     );
     assert_eq!(
-        world.measured()[dynamis_abi::COUNTER_REFUSED_SOFT_EVENTS],
+        refused(&world, dynamis_abi::COUNTER_REFUSED_SOFT_EVENTS),
         0,
         "a soft body must not spill its contact facts"
     );

@@ -31,10 +31,6 @@ fn current_slot(contact: Contact) -> u32 {
     return NO_SLOT;
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&archive_count[0]), arrayLength(&archive));
-}
-
 fn work(index: u32) {
     let held = archive[index];
     let first_row = resolve_row(held.first_body_id, held.first_generation);

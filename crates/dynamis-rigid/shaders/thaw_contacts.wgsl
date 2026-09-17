@@ -36,10 +36,6 @@ fn release(index: u32) {
     resting_next[index] = atomicExchange(&resting_free[0], index);
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&resting_count[0]), arrayLength(&resting_live));
-}
-
 fn work(index: u32) {
     if (resting_live[index] == 0u) {
         return;

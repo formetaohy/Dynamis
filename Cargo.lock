@@ -481,6 +481,7 @@ version = "0.7.0"
 name = "dynamis-pass"
 version = "0.7.0"
 dependencies = [
+ "dynamis-abi",
  "dynamis-gpu",
  "dynamis-shader",
  "pollster",

@@ -234,13 +234,22 @@ fn every_joint_kind_answers_its_declared_dof_count_to_the_device() {
 }
 
 #[test]
-fn the_step_reset_names_every_counter_it_clears_once() {
+fn the_step_reset_answers_the_declared_reset_policy() {
     let slots = dynamis_abi::COUNTER_STEP_RESET_SLOTS;
     assert!(slots.contains(&(dynamis_abi::COUNTER_IMPACTS as u32)));
     assert!(slots.contains(&(dynamis_abi::COUNTER_REFUSED_IMPACTS as u32)));
     assert!(slots.contains(&(dynamis_abi::COUNTER_SOFT_EVENTS as u32)));
     assert!(slots.contains(&(dynamis_abi::COUNTER_REFUSED_SOFT_EVENTS as u32)));
     assert!(!slots.contains(&(dynamis_abi::COUNTER_STEP as u32)));
+    assert!(!slots.contains(&(dynamis_abi::COUNTER_RESTING as u32)));
+    for (slot, counter) in dynamis_abi::COUNTERS.iter().enumerate() {
+        assert_eq!(
+            slots.contains(&(slot as u32)),
+            counter.clears_every_step(),
+            "the step reset must answer the declared reset of {}",
+            counter.name,
+        );
+    }
     let source = dynamis_abi::step_reset_wgsl();
     assert!(source.contains(&format!("const STEP_RESET_COUNT: u32 = {}u;", slots.len())));
     for slot in slots {
@@ -249,6 +258,72 @@ fn the_step_reset_names_every_counter_it_clears_once() {
             "the emitted reset table must name slot {slot}"
         );
     }
+}
+
+#[test]
+fn every_device_counter_declares_one_name_and_one_shortfall() {
+    let source = dynamis_abi::constants_wgsl();
+    assert_eq!(
+        dynamis_abi::COUNTERS.len(),
+        dynamis_abi::COUNTER_DEVICE_COUNT
+    );
+    for (slot, counter) in dynamis_abi::COUNTERS.iter().enumerate() {
+        assert!(!counter.label.is_empty(), "a counter needs a label");
+        assert!(
+            source.contains(&format!("const {}: u32 = {}u;", counter.name, slot)),
+            "the device must read {} at its declared slot",
+            counter.name,
+        );
+        let declared: Vec<usize> = dynamis_abi::COUNTERS
+            .iter()
+            .enumerate()
+            .filter(|(_, other)| other.name == counter.name)
+            .map(|(other, _)| other)
+            .collect();
+        assert_eq!(declared, [slot], "{} is declared once", counter.name);
+    }
+}
+
+#[test]
+fn a_shortfall_declares_who_bears_it() {
+    let fatal = dynamis_abi::COUNTERS
+        .iter()
+        .filter(|counter| counter.shortfall == dynamis_abi::Shortfall::Fatal)
+        .map(|counter| counter.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        fatal,
+        ["COUNTER_ENTRY_FAULTS", "COUNTER_LIVE_FAULTS"],
+        "only a bound a step cannot lose may abort"
+    );
+    let physics = dynamis_abi::COUNTERS
+        .iter()
+        .filter(|counter| counter.shortfall == dynamis_abi::Shortfall::Physics)
+        .map(|counter| counter.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        physics,
+        [
+            "COUNTER_REFUSED_PAIRS",
+            "COUNTER_REFUSED_RESTING",
+            "COUNTER_REFUSED_CONTACTS",
+        ],
+        "a truncated contact set must be declared as physics bearing"
+    );
+    let report = dynamis_abi::COUNTERS
+        .iter()
+        .filter(|counter| counter.shortfall == dynamis_abi::Shortfall::Report)
+        .map(|counter| counter.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        report,
+        [
+            "COUNTER_REFUSED_EVENTS",
+            "COUNTER_REFUSED_IMPACTS",
+            "COUNTER_REFUSED_SOFT_EVENTS",
+        ],
+        "a truncated report must be declared as reporting only"
+    );
 }
 
 #[test]

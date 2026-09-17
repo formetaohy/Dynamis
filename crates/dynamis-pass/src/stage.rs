@@ -1,6 +1,7 @@
 use crate::binding::{Binding, BindingTable};
 use dynamis_gpu::{
-    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, ResourceSource, SlotRef, StorageId,
+    ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, ResourceId, ResourceSource,
+    SlotRef, StorageId,
 };
 use dynamis_shader::{Dispatch, Program, workgroups_of};
 use wgpu::{BindGroup, BindGroupEntry, Device};
@@ -93,6 +94,7 @@ pub struct Stage {
     device: Device,
     pipeline: PipelineHandle,
     dispatch: Dispatch,
+    source: Option<ResourceId>,
     warm: Option<PipelineHandle>,
     storage: Vec<Binding>,
     shapes: Vec<Binding>,
@@ -108,9 +110,23 @@ impl Stage {
         slots: &[(&'static str, SlotRef)],
         shapes: &[(&'static str, SlotRef)],
     ) -> Self {
-        let (source, declarations, dispatch, warm) = program.into_parts();
+        let (source, declarations, dispatch, extent, warm) = program.into_parts();
         let bindings = BindingTable::new(declarations);
         let storage = bindings.table(label, 0, slots);
+        let extent_source = match dispatch {
+            Dispatch::Stream => Some(
+                extent
+                    .assert_declared(label, slots)
+                    .expect("a streaming stage declares the device fact its work covers"),
+            ),
+            Dispatch::Rows | Dispatch::Workgroups => {
+                assert!(
+                    extent.is_none(),
+                    "{label:?} declares a work extent without streaming over it",
+                );
+                None
+            }
+        };
         let shapes = if shapes.is_empty() {
             Vec::new()
         } else {
@@ -135,6 +151,7 @@ impl Stage {
             device: context.device().clone(),
             pipeline,
             dispatch,
+            source: extent_source,
             warm,
             storage,
             shapes,
@@ -175,10 +192,14 @@ impl Stage {
     }
 
     fn stream_workgroups<R: ResourceSource>(&self, resources: &R) -> u32 {
-        let Dispatch::Stream(resource) = self.dispatch else {
-            panic!("a streaming stage declares its own stream extent");
-        };
-        workgroups_of(resources.slots(resource)).min(MAX_DISPATCH_WORKGROUPS)
+        assert!(
+            matches!(self.dispatch, Dispatch::Stream),
+            "a streaming stage declares the device fact it covers",
+        );
+        let source = self
+            .source
+            .expect("a streaming stage declares the stream its work covers");
+        workgroups_of(resources.slots(source)).min(MAX_DISPATCH_WORKGROUPS)
     }
 
     pub fn record_workgroups<R: ResourceSource>(

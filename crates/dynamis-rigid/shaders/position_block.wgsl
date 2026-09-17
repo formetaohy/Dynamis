@@ -32,10 +32,6 @@ fn accumulate_correction(first_row: u32, second_row: u32, pair: CorrectionPair) 
     accumulate_position(second_row, pair.second.linear, pair.second.angular);
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&block_count[0]), arrayLength(&blocks) / 2u);
-}
-
 fn work(index: u32) {
     let contact_blocks = segments[SOLVER_BLOCK_CONTACT];
     if (index < contact_blocks) {

@@ -1,7 +1,7 @@
 mod reflection;
 
 use dynamis_abi::{Bound, COUNTER_STRIDE, RECORDS_WGSL, constants_wgsl};
-use dynamis_gpu::{GpuContext, ResourceId, SEGMENT_COUNT};
+use dynamis_gpu::{GpuContext, ResourceId, SEGMENT_COUNT, SlotRef};
 use std::sync::Arc;
 
 pub use reflection::{ShaderBinding, reflect};
@@ -71,9 +71,152 @@ fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) gr
 }
 
 #[derive(Clone, Copy)]
+pub enum Extent {
+    None,
+    Shared {
+        counter: usize,
+        array: &'static str,
+        lanes: u32,
+    },
+    Slot {
+        counter: usize,
+        count: &'static str,
+        array: &'static str,
+        lanes: u32,
+    },
+}
+
+impl Extent {
+    pub const fn of_shared_counter(counter: usize, array: &'static str) -> Self {
+        Self::Shared {
+            counter,
+            array,
+            lanes: 1,
+        }
+    }
+
+    pub const fn slot(counter: usize, count: &'static str, array: &'static str) -> Self {
+        Self::Slot {
+            counter,
+            count,
+            array,
+            lanes: 1,
+        }
+    }
+
+    pub const fn lanes(self, lanes: u32) -> Self {
+        assert!(lanes > 0, "an extent lane width must be positive");
+        match self {
+            Self::None => Self::None,
+            Self::Shared { counter, array, .. } => Self::Shared {
+                counter,
+                array,
+                lanes,
+            },
+            Self::Slot {
+                counter,
+                count,
+                array,
+                ..
+            } => Self::Slot {
+                counter,
+                count,
+                array,
+                lanes,
+            },
+        }
+    }
+
+    pub const fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    fn read(self) -> String {
+        match self {
+            Self::None => panic!("a stage without a declared extent reads no counter"),
+            Self::Shared { counter, .. } => {
+                format!("counter_load({})", dynamis_abi::COUNTERS[counter].name)
+            }
+            Self::Slot { count, .. } => format!("atomicLoad(&{count}[0])"),
+        }
+    }
+
+    fn bounds(self) -> String {
+        let (array, lanes) = match self {
+            Self::None => panic!("a stage without a declared extent guards no array"),
+            Self::Shared { array, lanes, .. } | Self::Slot { array, lanes, .. } => (array, lanes),
+        };
+        match lanes {
+            1 => format!("arrayLength(&{array})"),
+            lanes => format!("arrayLength(&{array}) / {lanes}u"),
+        }
+    }
+
+    pub fn entry(self) -> String {
+        format!(
+            "
+fn extent() -> u32 {{
+    return min({}, {});
+}}
+",
+            self.read(),
+            self.bounds(),
+        )
+    }
+
+    pub fn assert_declared(
+        self,
+        label: &str,
+        slots: &[(&'static str, SlotRef)],
+    ) -> Option<ResourceId> {
+        match self {
+            Self::None => None,
+            Self::Shared { counter, array, .. } => {
+                let spec = dynamis_abi::COUNTERS[counter];
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} bounds {} by the whole counter stream",
+                    spec.label,
+                );
+                Some(slot(slots, label, array).resource())
+            }
+            Self::Slot {
+                counter,
+                count,
+                array,
+                ..
+            } => {
+                let spec = dynamis_abi::COUNTERS[counter];
+                let SlotRef::Range { offset, size, .. } = *slot(slots, label, count) else {
+                    panic!(
+                        "{label:?} bounds {} by the whole counter stream instead of the {} counter",
+                        spec.label, spec.name,
+                    );
+                };
+                assert!(
+                    offset == counter as u64 * dynamis_abi::COUNTER_STRIDE && size == 4,
+                    "{label:?} bounds {} by {offset} bytes into the counter stream instead of {}",
+                    spec.label,
+                    spec.name,
+                );
+                Some(slot(slots, label, array).resource())
+            }
+        }
+    }
+}
+
+fn slot<'a>(slots: &'a [(&'static str, SlotRef)], label: &str, name: &str) -> &'a SlotRef {
+    slots
+        .iter()
+        .find(|(bound, _)| *bound == name)
+        .map(|(_, slot)| slot)
+        .unwrap_or_else(|| panic!("{label:?} declares no binding {name:?}"))
+}
+
+#[derive(Clone, Copy)]
 pub enum Dispatch {
     Rows,
-    Stream(ResourceId),
+    Stream,
     Workgroups,
 }
 
@@ -81,21 +224,29 @@ pub struct Program {
     source: Arc<str>,
     bindings: Vec<ShaderBinding>,
     dispatch: Dispatch,
+    extent: Extent,
     warm: bool,
 }
 
 impl Program {
-    pub fn new(source: String, dispatch: Dispatch, warm: bool) -> Self {
+    pub fn new(source: String, dispatch: Dispatch, extent: Extent, warm: bool) -> Self {
         Self {
             bindings: reflect(&source),
             source: source.into(),
             dispatch,
+            extent,
             warm,
         }
     }
 
-    pub fn into_parts(self) -> (Arc<str>, Vec<ShaderBinding>, Dispatch, bool) {
-        (self.source, self.bindings, self.dispatch, self.warm)
+    pub fn into_parts(self) -> (Arc<str>, Vec<ShaderBinding>, Dispatch, Extent, bool) {
+        (
+            self.source,
+            self.bindings,
+            self.dispatch,
+            self.extent,
+            self.warm,
+        )
     }
 }
 
@@ -131,7 +282,7 @@ fn shader_constants(per_row: u32) -> String {
 pub fn rows(context: &GpuContext, body: &str, fragments: &[&str], bound: Bound) -> Program {
     let mut source = assemble(context, body, fragments);
     source.push_str(&entry_rows(bound));
-    Program::new(source, Dispatch::Rows, false)
+    Program::new(source, Dispatch::Rows, Extent::None, false)
 }
 
 pub fn stream(
@@ -139,11 +290,16 @@ pub fn stream(
     body: &str,
     fragments: &[&str],
     kernel: &str,
-    extent: impl Into<ResourceId>,
+    extent: Extent,
 ) -> Program {
+    assert!(
+        !extent.is_none(),
+        "a streaming stage must declare the device fact its work covers",
+    );
     let mut source = assemble(context, body, fragments);
+    source.push_str(&extent.entry());
     source.push_str(&entry_stream("main", kernel));
-    Program::new(source, Dispatch::Stream(extent.into()), false)
+    Program::new(source, Dispatch::Stream, extent, false)
 }
 
 pub fn stream_warm(
@@ -151,18 +307,24 @@ pub fn stream_warm(
     body: &str,
     fragments: &[&str],
     kernel: &str,
-    extent: impl Into<ResourceId>,
+    extent: Extent,
 ) -> Program {
+    assert!(
+        !extent.is_none(),
+        "a streaming stage must declare the device fact its work covers",
+    );
     let mut source = assemble(context, body, fragments);
+    source.push_str(&extent.entry());
     source.push_str(&entry_stream("main", kernel));
     source.push_str(&entry_stream("warm", "warm_start"));
-    Program::new(source, Dispatch::Stream(extent.into()), true)
+    Program::new(source, Dispatch::Stream, extent, true)
 }
 
 pub fn workgroups(context: &GpuContext, body: &str, fragments: &[&str]) -> Program {
     Program::new(
         assemble(context, body, fragments),
         Dispatch::Workgroups,
+        Extent::None,
         false,
     )
 }

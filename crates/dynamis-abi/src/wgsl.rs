@@ -26,7 +26,7 @@ fn dof_driven(flags: u32, index: u32) -> bool { return (flags & (DOF_DRIVEN << i
 pub fn constants_wgsl() -> String {
     let mut out = String::new();
     constant::emit_constants(&mut out);
-    counter::device::emit_constants(&mut out);
+    counter::constants_wgsl(&mut out);
     out.push_str(&format!(
         "const NO_HIT: f32 = {:e};
 ",
@@ -39,20 +39,7 @@ pub fn constants_wgsl() -> String {
 }
 
 pub fn step_reset_wgsl() -> String {
-    let slots = counter::device::STEP_RESET;
     let mut out = String::new();
-    out.push_str(&format!(
-        "const STEP_RESET_COUNT: u32 = {}u;\n",
-        slots.len()
-    ));
-    out.push_str(&format!(
-        "const STEP_RESET_SLOTS: array<u32, {}> = array<u32, {}>(",
-        slots.len(),
-        slots.len(),
-    ));
-    for slot in slots {
-        out.push_str(&format!("{slot}u,"));
-    }
-    out.push_str(");\n");
+    counter::step_reset_wgsl(&mut out);
     out
 }

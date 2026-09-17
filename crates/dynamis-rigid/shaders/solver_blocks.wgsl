@@ -9,13 +9,10 @@
 @group(0) @binding(8) var<storage, read_write> block_counts: array<atomic<u32>>;
 @group(0) @binding(9) var<storage, read_write> target_speeds: array<f32>;
 @group(0) @binding(10) var<storage, read_write> blocks: array<u32>;
+@group(0) @binding(11) var<storage, read_write> block_count: array<atomic<u32>>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
-}
-
-fn extent() -> u32 {
-    return segments[SOLVER_BLOCK_CONTACT] + segments[SOLVER_BLOCK_CONSTRAINT];
 }
 
 fn work(index: u32) {

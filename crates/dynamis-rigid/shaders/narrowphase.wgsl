@@ -591,10 +591,6 @@ fn scaled_shape(collider: Collider) -> bool {
     return collider.scale.x != 1.0 || collider.scale.y != 1.0 || collider.scale.z != 1.0;
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&pair_count[0]), arrayLength(&pair_major));
-}
-
 fn work(index: u32) {
     contact_valid[index] = 0u;
     let first_slot = pair_major[index];

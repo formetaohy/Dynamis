@@ -13,7 +13,7 @@ use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Execution;
 use dynamis_pass::{PassRuntime, Stage};
-use dynamis_shader::{CORE, JOINTS, rows, stream, workgroups};
+use dynamis_shader::{CORE, Extent, JOINTS, rows, stream, workgroups};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
@@ -61,7 +61,7 @@ impl PassRuntime<RigidFrame> for Commit {
                     include_str!("../shaders/thaw_contacts.wgsl"),
                     CONTACT_ROW,
                     "work",
-                    RigidStream::RestingContacts,
+                    Extent::slot(COUNTER_RESTING, "resting_count", "resting_live"),
                 ),
                 streams,
                 &[
@@ -91,7 +91,7 @@ impl PassRuntime<RigidFrame> for Commit {
                     include_str!("../shaders/freeze_contacts.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::Contacts,
+                    Extent::slot(COUNTER_CONTACTS, "contact_count", "contacts"),
                 ),
                 streams,
                 &[
@@ -117,7 +117,7 @@ impl PassRuntime<RigidFrame> for Commit {
                     include_str!("../shaders/contact_archive.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::Contacts,
+                    Extent::slot(COUNTER_CONTACTS, "contact_count", "contacts"),
                 ),
                 streams,
                 &[
@@ -217,7 +217,7 @@ impl PassRuntime<RigidFrame> for RestingGather {
                     include_str!("../shaders/resting_gather.wgsl"),
                     IDENTITY,
                     "work",
-                    RigidStream::RestingContacts,
+                    Extent::slot(COUNTER_RESTING, "resting_count", "resting_live"),
                 ),
                 streams,
                 &[

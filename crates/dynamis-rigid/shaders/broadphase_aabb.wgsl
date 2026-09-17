@@ -6,10 +6,6 @@
 @group(0) @binding(5) var<storage, read_write> aabbs: array<Aabb>;
 @group(0) @binding(6) var<storage, read_write> counters: array<atomic<u32>>;
 
-fn counter_max(slot: u32, value: u32) {
-    atomicMax(&counters[slot * COUNTER_STRIDE_WORDS], value);
-}
-
 fn tight_bounds(state: BodyState, collider: Collider) -> Aabb {
     return world_aabb_of(world_collider(state, collider));
 }

@@ -20,6 +20,12 @@ const SOFT_ATTACH: &[&str] = &[
     include_str!("../shaders/soft_anchor.wgsl"),
 ];
 
+fn particle_counter_shape() -> Vec<&'static str> {
+    let mut fragments = dynamis_shader::COUNTERS.to_vec();
+    fragments.extend_from_slice(PARTICLE_SHAPE);
+    fragments
+}
+
 fn particle_index() -> Vec<&'static str> {
     let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_SHAPE);
@@ -90,7 +96,7 @@ impl PassRuntime<SoftFrame> for UpdateSoftBounds {
                 rows(
                     context,
                     include_str!("../shaders/particle_bounds.wgsl"),
-                    PARTICLE_SHAPE,
+                    &particle_counter_shape(),
                     Count::Particles.bound(),
                 ),
                 streams,
@@ -361,7 +367,7 @@ impl PassRuntime<SoftFrame> for SoftSettle {
                 rows(
                     context,
                     include_str!("../shaders/soft_rest.wgsl"),
-                    CORE,
+                    dynamis_shader::COUNTERS,
                     Count::SoftBodies.bound(),
                 ),
                 streams,

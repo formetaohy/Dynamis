@@ -5,7 +5,7 @@ use dynamis_abi::{COUNTER_CONTACTS, COUNTER_IMPACTS, COUNTER_REFUSED_IMPACTS};
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Stage;
-use dynamis_shader::stream;
+use dynamis_shader::{Extent, stream};
 use dynamis_state::StateStream;
 
 pub struct EmitImpacts {
@@ -23,7 +23,7 @@ impl EmitImpacts {
                     include_str!("../shaders/impacts.wgsl"),
                     CONTACT_COUNTERS,
                     "work",
-                    RigidStream::Contacts,
+                    Extent::slot(COUNTER_CONTACTS, "contact_count", "contacts"),
                 ),
                 streams,
                 &[

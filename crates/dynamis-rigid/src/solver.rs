@@ -1,4 +1,4 @@
-use super::streams::RigidStream;
+use super::streams::{BLOCK_LANES, RigidStream};
 use crate::RigidFrame;
 use crate::integrate::SubstepIntegrate;
 use dynamis_abi::Count;
@@ -6,7 +6,7 @@ use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
-use dynamis_shader::{CORE, rows, stream, stream_warm, workgroups};
+use dynamis_shader::{CORE, Extent, rows, stream, stream_warm, workgroups};
 use dynamis_state::StateStream;
 
 const BLOCKS: &[&str] = &[
@@ -111,7 +111,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/solver_blocks.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::SolverBlocks,
+                    Extent::slot(COUNTER_BLOCKS, "block_count", "blocks").lanes(BLOCK_LANES),
                 ),
                 streams,
                 &[
@@ -126,6 +126,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("block_counts", RigidStream::SolverBlockCounts.whole()),
                     ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
                     ("blocks", RigidStream::SolverBlocks.whole()),
+                    ("block_count", dynamis_state::counter(COUNTER_BLOCKS)),
                 ],
                 &[],
             ),
@@ -137,7 +138,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/solver_block_solve.wgsl"),
                     &block_fragments(),
                     "work",
-                    RigidStream::SolverBlocks,
+                    Extent::slot(COUNTER_BLOCKS, "block_count", "blocks").lanes(BLOCK_LANES),
                 ),
                 streams,
                 &[
@@ -168,7 +169,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/solver_block_apply.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::LiveBodies,
+                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
                 ),
                 streams,
                 &[
@@ -187,7 +188,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/position_block.wgsl"),
                     &position_fragments(),
                     "work",
-                    RigidStream::SolverBlocks,
+                    Extent::slot(COUNTER_BLOCKS, "block_count", "blocks").lanes(BLOCK_LANES),
                 ),
                 streams,
                 &[
@@ -218,7 +219,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/position_apply.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::LiveBodies,
+                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
                 ),
                 streams,
                 &[

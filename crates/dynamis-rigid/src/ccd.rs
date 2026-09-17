@@ -6,7 +6,7 @@ use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 
 use dynamis_abi::{COUNTER_JOINTS, COUNTER_PAIRS, Count};
 use dynamis_gpu::GpuContext;
-use dynamis_shader::{CORE, rows, stream};
+use dynamis_shader::{CORE, Extent, rows, stream};
 use dynamis_state::StateStream;
 
 pub const CCD_GATE: u32 = 0;
@@ -32,7 +32,7 @@ impl PassRuntime<RigidFrame> for CcdSweep {
                     include_str!("../shaders/ccd_sweep.wgsl"),
                     &crate::geometry_fragments(),
                     "work",
-                    BroadphaseStream::PairMajor,
+                    Extent::slot(COUNTER_PAIRS, "pair_count", "pair_major"),
                 ),
                 streams,
                 &[

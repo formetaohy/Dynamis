@@ -1,6 +1,10 @@
-use super::common::{DT, gravity_config, observed_world, settle, settle_until, static_config};
+use super::common::{
+    DT, assert_unrefused, gravity_config, observed_world, refused, settle, settle_until,
+    static_config,
+};
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
+    Shortfall,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -302,7 +306,7 @@ fn a_collider_pair_enters_the_candidate_stream_exactly_once() {
             "two overlapping spheres at {offset} span several cells but stay one candidate pair, got {}",
             world.measured()[COUNTER_PAIRS]
         );
-        assert_eq!(world.measured()[COUNTER_REFUSED_PAIRS], 0);
+        assert_unrefused(&world);
     }
 }
 
@@ -361,11 +365,11 @@ fn a_dense_pile_fits_the_planned_pair_stream_from_its_first_collapse() {
     }
     for _ in 0..120 {
         world.step(DT);
-        assert_eq!(
-            world.measured()[COUNTER_REFUSED_PAIRS],
-            0,
-            "a collapsing pile must never truncate its candidate pairs, capacity {}",
-            world.stream_capacity().broadphase.pairs
+        let refusals = world.refusals();
+        assert!(
+            refusals.is_empty(),
+            "a collapsing pile must never truncate its candidate pairs, capacity {}, refused {refusals:?}",
+            world.stream_capacity().broadphase.pairs,
         );
     }
     world.wait();
@@ -421,10 +425,10 @@ fn a_dense_grain_cluster_never_spills_its_pair_stream() {
     for frame in 0..6 {
         world.step(DT);
         world.wait();
-        assert_eq!(
-            world.measured()[COUNTER_REFUSED_PAIRS],
-            0,
-            "a grain lattice must hold every candidate pair on frame {frame}"
+        let refusals = world.refusals();
+        assert!(
+            refusals.is_empty(),
+            "a grain lattice must hold every candidate pair on frame {frame}, refused {refusals:?}",
         );
     }
 }
@@ -496,28 +500,29 @@ fn clumped_spheres(
 fn a_saturated_pair_stream_never_stores_more_candidates_than_it_holds() {
     let mut world = observed_world(gravity_config());
     clumped_spheres(&mut world, 10, 0.02, 0.1);
-    let mut refused = 0;
+    let mut spill = 0;
     for frame in 0..8 {
         world.step(DT);
         world.wait();
         let measured = *world.measured();
         let capacity = world.stream_capacity().broadphase.pairs;
-        let stored = measured[COUNTER_PAIRS] - measured[COUNTER_REFUSED_PAIRS];
+        let spilled = refused(&world, COUNTER_REFUSED_PAIRS);
+        let stored = measured[COUNTER_PAIRS] - spilled;
         assert!(
             stored <= capacity,
             "frame {frame} stored {stored} candidates in a stream of {capacity}"
         );
-        refused = refused.max(measured[COUNTER_REFUSED_PAIRS]);
+        spill = spill.max(spilled);
     }
     assert!(
-        refused > 0,
+        spill > 0,
         "a clump of overlapping spheres must exceed the pair stream"
     );
-    assert_eq!(
-        world.measured()[COUNTER_REFUSED_PAIRS],
-        0,
-        "the widened stream of {} must serve every candidate pair",
-        world.stream_capacity().broadphase.pairs
+    let refusals = world.refusals();
+    assert!(
+        refusals.is_empty(),
+        "the widened stream of {} must serve every candidate pair, refused {refusals:?}",
+        world.stream_capacity().broadphase.pairs,
     );
 }
 
@@ -575,4 +580,27 @@ fn fluid_lattice(world: &mut dynamis_world::World) -> dynamis_model::SoftBodyHan
         )
         .position([-1.0, 0.0, -1.0]),
     )
+}
+
+#[test]
+fn a_truncated_pair_stream_reports_the_counter_it_refused() {
+    let mut world = observed_world(gravity_config());
+    clumped_spheres(&mut world, 10, 0.02, 0.1);
+    world.step(DT);
+    world.wait();
+    let refusals = world.refusals();
+    let refusal = refusals
+        .iter()
+        .find(|refusal| refusal.slot == COUNTER_REFUSED_PAIRS)
+        .unwrap_or_else(|| {
+            panic!("a clump must report its truncated pair stream, got {refusals:?}")
+        });
+    assert_eq!(refusal.counter, "COUNTER_REFUSED_PAIRS");
+    assert_eq!(refusal.shortfall, Shortfall::Physics);
+    assert!(
+        refusal.label.contains("pair"),
+        "a refusal must carry the label its declaration names, got {:?}",
+        refusal.label
+    );
+    assert!(refusal.count > 0);
 }

@@ -22,7 +22,7 @@ impl ResourceId {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SlotRef {
     Whole {
         resource: ResourceId,
@@ -58,6 +58,12 @@ impl SlotRef {
     pub const fn element(self) -> StreamElement {
         match self {
             Self::Whole { element, .. } | Self::Range { element, .. } => element,
+        }
+    }
+
+    pub const fn resource(self) -> ResourceId {
+        match self {
+            Self::Whole { resource, .. } | Self::Range { resource, .. } => resource,
         }
     }
 

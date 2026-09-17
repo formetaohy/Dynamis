@@ -45,6 +45,15 @@ pub struct ConstraintForce {
 const COUNTER_BYTES: u64 = COUNTER_STRIDE * COUNTER_DEVICE_COUNT as u64;
 const CONTACT_BYTES: u64 = size_of::<ContactRecord>() as u64;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub slot: usize,
+    pub counter: &'static str,
+    pub label: &'static str,
+    pub shortfall: dynamis_abi::Shortfall,
+    pub count: u32,
+}
+
 fn measured_counters(bytes: &[u8], counters: &mut Counters) {
     let stride = COUNTER_STRIDE as usize;
     for (slot, value) in counters.iter_mut().enumerate().take(COUNTER_DEVICE_COUNT) {
@@ -176,20 +185,39 @@ impl World {
     }
 
     fn assert_no_device_faults(&self) {
-        assert_eq!(
-            self.backend.measured[dynamis_abi::COUNTER_ENTRY_FAULTS],
-            0,
-            "a collider or particle spans more grid cells than one entry budget holds"
-        );
-        assert_eq!(
-            self.backend.measured[dynamis_abi::COUNTER_LIVE_FAULTS],
-            0,
-            "the live body set outgrew the planned body stream"
-        );
+        for (slot, counter) in dynamis_abi::COUNTERS.iter().enumerate() {
+            if !counter.is_fatal() {
+                continue;
+            }
+            let refused = self.backend.measured[slot];
+            assert_eq!(
+                refused, 0,
+                "the device dropped {refused} {} ({}) that a step cannot lose",
+                counter.label, counter.name,
+            );
+        }
     }
 
     pub fn measured(&self) -> &Counters {
         &self.backend.measured
+    }
+
+    pub fn refusals(&self) -> Vec<Refusal> {
+        dynamis_abi::COUNTERS
+            .iter()
+            .enumerate()
+            .filter(|(_, counter)| counter.refuses())
+            .filter_map(|(slot, counter)| {
+                let count = self.backend.measured[slot];
+                (count > 0).then_some(Refusal {
+                    slot,
+                    counter: counter.name,
+                    label: counter.label,
+                    shortfall: counter.shortfall,
+                    count,
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn contact_surface(&self, record: &ContactRecord) -> Option<SurfaceDesc> {

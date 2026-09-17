@@ -2,13 +2,9 @@
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(3) var<storage, read> live_bodies: array<u32>;
-@group(0) @binding(4) var<storage, read> live_count: array<u32>;
+@group(0) @binding(4) var<storage, read_write> live_count: array<atomic<u32>>;
 
 const GYROSCOPIC_ITERATIONS: u32 = 4u;
-
-fn extent() -> u32 {
-    return min(live_count[0], arrayLength(&live_bodies));
-}
 
 fn gyroscopic_spin(desc: BodyDescriptor, q: vec4f, spin: vec3f) -> vec3f {
     if (inertia_is_isotropic(desc)) {

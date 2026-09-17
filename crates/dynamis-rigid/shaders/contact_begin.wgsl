@@ -38,10 +38,6 @@ fn resting_slot(contact: Contact) -> u32 {
     return NO_SLOT;
 }
 
-fn extent() -> u32 {
-    return min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
-}
-
 fn work(index: u32) {
     if (contact_matched[index] != 0u) {
         return;

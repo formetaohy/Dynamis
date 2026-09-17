@@ -1,5 +1,5 @@
 use dynamis_gpu::BindingKind;
-use dynamis_shader::{Dispatch, Program, reflect};
+use dynamis_shader::{Dispatch, Extent, Program, reflect};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
@@ -127,13 +127,14 @@ fn rejects_a_binding_outside_the_buffer_spaces() {
 #[test]
 fn a_program_carries_the_bindings_of_its_source() {
     let source = "@group(0) @binding(0) var<storage, read_write> words: array<u32>;";
-    let program = Program::new(source.to_owned(), Dispatch::Rows, false);
-    let (assembled, bindings, dispatch, warm) = program.into_parts();
+    let program = Program::new(source.to_owned(), Dispatch::Rows, Extent::None, false);
+    let (assembled, bindings, dispatch, extent, warm) = program.into_parts();
     assert_eq!(assembled.as_ref(), source);
     assert_eq!(bindings.len(), 1);
     assert_eq!(bindings[0].name, "words");
     assert_eq!(bindings[0].kind, BindingKind::ReadWriteStorage);
     assert_eq!(bindings[0].element, "u32");
     assert!(matches!(dispatch, Dispatch::Rows));
+    assert!(extent.is_none());
     assert!(!warm);
 }

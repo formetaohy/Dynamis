@@ -3,14 +3,10 @@
 @group(0) @binding(2) var<storage, read_write> contributions: array<atomic<u32>>;
 @group(0) @binding(3) var<storage, read_write> resolution: array<vec4f>;
 @group(0) @binding(4) var<storage, read> live_bodies: array<u32>;
-@group(0) @binding(5) var<storage, read> live_count: array<u32>;
+@group(0) @binding(5) var<storage, read_write> live_count: array<atomic<u32>>;
 
 fn take(row: u32, word: u32) -> f32 {
     return solver_value(atomicExchange(&position_deltas[row * SOLVER_DELTA_WORDS + word], 0u), SOLVER_POSITION_SCALE);
-}
-
-fn extent() -> u32 {
-    return min(live_count[0], arrayLength(&live_bodies));
 }
 
 fn work(index: u32) {

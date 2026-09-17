@@ -9,7 +9,7 @@ use dynamis_abi::{
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
-use dynamis_shader::{CORE, rows, stream};
+use dynamis_shader::{CORE, Extent, rows, stream};
 use dynamis_state::StateStream;
 
 pub struct BuildIslands {
@@ -42,7 +42,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     include_str!("../shaders/contact_relay.wgsl"),
                     CONTACT_ROW,
                     "work",
-                    RigidStream::ContactArchive,
+                    Extent::slot(COUNTER_ARCHIVED, "archive_count", "archive"),
                 ),
                 streams,
                 &[
@@ -70,7 +70,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     include_str!("../shaders/contact_begin.wgsl"),
                     CONTACT,
                     "work",
-                    RigidStream::Contacts,
+                    Extent::slot(COUNTER_CONTACTS, "contact_count", "contacts"),
                 ),
                 streams,
                 &[
@@ -119,7 +119,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     include_str!("../shaders/island_link_contacts.wgsl"),
                     IDENTITY_LINK,
                     "work",
-                    RigidStream::Contacts,
+                    Extent::slot(COUNTER_CONTACTS, "contact_count", "contacts"),
                 ),
                 streams,
                 &[
@@ -159,7 +159,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     include_str!("../shaders/island_link_resting.wgsl"),
                     IDENTITY_LINK_ROW,
                     "work",
-                    RigidStream::RestingContacts,
+                    Extent::slot(COUNTER_RESTING, "resting_count", "resting_live"),
                 ),
                 streams,
                 &[

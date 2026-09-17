@@ -7,7 +7,7 @@ use dynamis_abi::Count;
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
-use dynamis_shader::{CORE, rows, stream};
+use dynamis_shader::{CORE, Extent, rows, stream};
 use dynamis_sort::RadixSort;
 use dynamis_state::StateStream;
 
@@ -18,7 +18,7 @@ fn aabb(context: &GpuContext, streams: &impl ResourceSource) -> Stage {
         rows(
             context,
             include_str!("../shaders/broadphase_aabb.wgsl"),
-            CORE,
+            dynamis_shader::COUNTERS,
             Count::Colliders.bound(),
         ),
         streams,
@@ -147,7 +147,7 @@ impl SubstepIntegrate {
                     include_str!("../shaders/substep_integrate.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::LiveBodies,
+                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
                 ),
                 streams,
                 &[
@@ -167,7 +167,7 @@ impl SubstepIntegrate {
                     include_str!("../shaders/substep_advance.wgsl"),
                     CORE,
                     "work",
-                    RigidStream::LiveBodies,
+                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
                 ),
                 streams,
                 &[

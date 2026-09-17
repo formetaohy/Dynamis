@@ -1,6 +1,6 @@
 use super::common::{
-    DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
-    static_sphere_ground,
+    DT, asleep, assert_unrefused, gravity_config, observed_world, settle, settle_until,
+    static_config, static_sphere_ground,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, PhysicsConfig, QueryFilter, Shape,
@@ -134,15 +134,7 @@ fn inspect_contacts_surface_contact_points() {
             .any(|point| { point.depth > -0.1 && point.normal_impulse >= 0.0 }),
         "manifold must expose contact points"
     );
-    let measured = world.measured().to_owned();
-    assert_eq!(
-        (
-            measured[dynamis_abi::COUNTER_REFUSED_PAIRS],
-            measured[dynamis_abi::COUNTER_REFUSED_EVENTS],
-        ),
-        (0, 0),
-        "quiet world must not spill"
-    );
+    assert_unrefused(&world);
 }
 
 #[test]

@@ -1,11 +1,7 @@
 @group(0) @binding(0) var<uniform> params: StepParams;
 @group(0) @binding(1) var<storage, read_write> body_states: array<BodyState>;
 @group(0) @binding(2) var<storage, read> live_bodies: array<u32>;
-@group(0) @binding(3) var<storage, read> live_count: array<u32>;
-
-fn extent() -> u32 {
-    return min(live_count[0], arrayLength(&live_bodies));
-}
+@group(0) @binding(3) var<storage, read_write> live_count: array<atomic<u32>>;
 
 fn work(index: u32) {
     let row = live_bodies[index];
