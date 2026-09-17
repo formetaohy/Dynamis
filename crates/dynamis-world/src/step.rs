@@ -49,6 +49,7 @@ impl World {
         }
         let body_commands = self.compile_body_commands(consumption);
         let constraint_commands = self.compile_constraint_commands();
+        self.invalidate_touched_immovable(&body_commands);
         let soft_commands = self.compile_soft_commands(consumption);
         self.bodies.last_moves = body_commands.moves.len() as u32;
         self.bodies.last_edits = body_commands.runs.len() as u32;
@@ -99,6 +100,21 @@ impl World {
             .state
             .row_streams
             .write(queue, bytemuck::cast_slice(&[rows]));
+    }
+
+    fn invalidate_touched_immovable(&mut self, compiled: &CompiledBodyCommands) {
+        let touched = compiled
+            .runs
+            .iter()
+            .map(|run| run.row)
+            .chain(compiled.moves.iter().map(|moved| moved.row));
+        for row in touched {
+            let id = self.bodies.pool.handle_of_row(row).id as usize;
+            if self.is_static(id) {
+                self.invalidate_immovable();
+                return;
+            }
+        }
     }
 
     fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {

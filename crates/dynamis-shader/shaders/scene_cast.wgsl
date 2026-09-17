@@ -68,8 +68,8 @@ fn bitonic_sort(local_invocation: u32, width: u32) {
     }
 }
 
-fn scene_target(entry: u32) -> u32 {
-    let info = entry_info(entry_node(entry));
+fn scene_target(view: EntryView, entry: u32) -> u32 {
+    let info = entry_info(entry_node(view, entry));
     let kind = entry_kind(info);
     if (kind != ENTRY_KIND_COLLIDER && kind != ENTRY_KIND_PARTICLE) {
         return NO_SLOT;
@@ -89,8 +89,8 @@ fn candidate_passes(query: Query, candidate: u32) -> bool {
     return (query.filters.targets & (1u << candidate_kind(candidate))) != 0u;
 }
 
-fn collect_entry(entry: u32, query_box: Aabb, whole: bool, query: Query) {
-    let candidate = scene_target(entry);
+fn collect_entry(view: EntryView, entry: u32, query_box: Aabb, whole: bool, query: Query) {
+    let candidate = scene_target(view, entry);
     if (candidate == NO_SLOT || !candidate_passes(query, candidate)) {
         return;
     }
@@ -106,28 +106,30 @@ fn collect_entry(entry: u32, query_box: Aabb, whole: bool, query: Query) {
 }
 
 fn collect_whole_slice(slice: GridSlice, query_box: Aabb, invocation: u32, query: Query) {
+    let view = entry_view();
     var entry = slice.first + invocation;
     while (entry < slice.end && atomicLoad(&candidate_count) <= QUERY_CANDIDATES) {
-        collect_entry(entry, query_box, true, query);
+        collect_entry(view, entry, query_box, true, query);
         entry = entry + WORKGROUP_SIZE;
     }
 }
 
 fn collect_cell_slice(slice: GridSlice, query_box: Aabb, query: Query) {
+    let view = entry_view();
     for (var entry = slice.first; entry < slice.end; entry = entry + 1u) {
-        collect_entry(entry, query_box, false, query);
+        collect_entry(view, entry, query_box, false, query);
     }
 }
 
 fn collect_candidates(query_box: Aabb, invocation: u32, query: Query) {
-    let whole = grid_whole_slices(query_box);
+    let whole = 2u * grid_whole_slices(query_box);
     for (var index = 0u; index < whole; index = index + 1u) {
-        collect_whole_slice(grid_whole_slice(query_box, index), query_box, invocation, query);
+        collect_whole_slice(grid_slice(query_box, index), query_box, invocation, query);
     }
-    let cells = grid_cell_slices(query_box);
+    let cells = 2u * grid_cell_slices(query_box);
     var index = invocation;
     while (index < cells) {
-        collect_cell_slice(grid_cell_slice(query_box, index), query_box, query);
+        collect_cell_slice(grid_slice(query_box, whole + index), query_box, query);
         index = index + WORKGROUP_SIZE;
     }
 }

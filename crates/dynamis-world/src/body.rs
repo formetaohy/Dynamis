@@ -230,11 +230,10 @@ impl World {
         }
     }
 
-    fn is_static(&self, id: usize) -> bool {
+    pub(crate) fn is_static(&self, id: usize) -> bool {
         let record = self.bodies.records[id];
         record.inverse_mass == 0.0 && record.flags & BODY_KINEMATIC == 0
     }
-
     fn assert_unreferenced(&self, handle: BodyHandle) {
         let id = handle.id;
         assert!(

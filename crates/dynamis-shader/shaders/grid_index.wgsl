@@ -6,6 +6,9 @@
 const GRID_WALK_CELLS: u32 = 4096u;
 const GRID_WALK_ENTRIES: u32 = 4096u;
 
+const ENTRY_REGION_MOVING: u32 = 0u;
+const ENTRY_REGION_IMMOVABLE: u32 = 1u;
+
 struct GridCells {
     min: vec3i,
     max: vec3i,
@@ -17,6 +20,11 @@ struct GridSlice {
     first: u32,
     end: u32,
     whole: bool,
+}
+
+struct EntryRanges {
+    moving: vec2u,
+    immovable: vec2u,
 }
 
 fn cell_hash(coord: vec3i) -> u32 {
@@ -82,14 +90,18 @@ fn shape_levels(box: Aabb, base: f32) -> u32 {
     return level;
 }
 
-fn grid_entry_level(box: Aabb, base: f32) -> u32 {
+fn grid_entry_level(box: Aabb, base: f32, immovable: bool) -> u32 {
     let level = shape_levels(box, base);
-    counter_or(COUNTER_GRID_LEVELS, 1u << level);
+    if (immovable) {
+        counter_or(COUNTER_IMMOVABLE_LEVELS, 1u << level);
+    } else {
+        counter_or(COUNTER_GRID_LEVELS, 1u << level);
+    }
     return level;
 }
 
 fn grid_occupied() -> u32 {
-    return counter_load(COUNTER_GRID_LEVELS);
+    return counter_load(COUNTER_GRID_LEVELS) | counter_load(COUNTER_IMMOVABLE_LEVELS);
 }
 
 fn grid_coarser_levels(occupied: u32, level: u32) -> u32 {
@@ -100,12 +112,53 @@ fn grid_overlap_cell(box: Aabb, other: Aabb, cell_size: f32) -> vec3i {
     return vec3i(floor(max(box.min, other.min) / cell_size));
 }
 
-fn entry_live() -> u32 {
-    return min(counter_load(COUNTER_ENTRIES), arrayLength(&entries));
+fn entry_immovable_base() -> u32 {
+    return counter_load(COUNTER_ENTRY_BASE);
 }
 
-fn entry_node(sorted: u32) -> u32 {
-    return entry_order[sorted];
+struct EntryView {
+    base: u32,
+    immovable_live: u32,
+    moving_live: u32,
+}
+
+fn entry_view() -> EntryView {
+    let base = entry_immovable_base();
+    let immovable_live = min(counter_load(COUNTER_IMMOVABLE_ENTRIES), base);
+    let capacity = arrayLength(&entries) - min(base, arrayLength(&entries));
+    let moving_live = min(counter_load(COUNTER_ENTRIES), capacity);
+    return EntryView(base, immovable_live, moving_live);
+}
+
+fn entry_live(view: EntryView) -> u32 {
+    return view.immovable_live + view.moving_live;
+}
+
+fn entry_is_immovable(view: EntryView, index: u32) -> bool {
+    return index < view.immovable_live;
+}
+
+fn entry_region_first(view: EntryView, region: u32) -> u32 {
+    return select(view.immovable_live, 0u, region == ENTRY_REGION_IMMOVABLE);
+}
+
+fn entry_region_end(view: EntryView, region: u32) -> u32 {
+    return select(entry_live(view), view.immovable_live, region == ENTRY_REGION_IMMOVABLE);
+}
+
+fn entry_slot(view: EntryView, index: u32) -> u32 {
+    if (entry_is_immovable(view, index)) {
+        return index;
+    }
+    return view.base + (index - view.immovable_live);
+}
+
+fn entry_key(view: EntryView, index: u32) -> u32 {
+    return entry_keys[entry_slot(view, index)];
+}
+
+fn entry_node(view: EntryView, index: u32) -> u32 {
+    return entry_order[entry_slot(view, index)];
 }
 
 fn entry_info(node: u32) -> u32 {
@@ -149,37 +202,54 @@ fn entry_cell(node: u32, cell_size: f32) -> vec3i {
     return vec3i(floor(entries[node].min / cell_size)) + offset;
 }
 
-fn entry_bounds(live: u32, key: u32) -> vec2u {
-    var lo = 0u;
-    var hi = live;
+fn entry_bounds_in(view: EntryView, first: u32, last: u32, key: u32) -> vec2u {
+    var lo = first;
+    var hi = last;
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
-        if (entry_keys[mid] < key) {
+        if (entry_key(view, mid) < key) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
-    let first = lo;
-    hi = live;
+    let start = lo;
+    hi = last;
     while (lo < hi) {
         let mid = (lo + hi) / 2u;
-        if (entry_keys[mid] <= key) {
+        if (entry_key(view, mid) <= key) {
             lo = mid + 1u;
         } else {
             hi = mid;
         }
     }
-    return vec2u(first, lo);
+    return vec2u(start, lo);
 }
 
-fn entry_cell_bounds(live: u32, level: u32, coord: vec3i) -> vec2u {
-    return entry_bounds(live, cell_key(level, coord));
+fn entry_region_bounds(view: EntryView, region: u32, key: u32) -> vec2u {
+    let first = entry_region_first(view, region);
+    let last = entry_region_end(view, region);
+    if (first >= last) {
+        return vec2u(first, first);
+    }
+    return entry_bounds_in(view, first, last, key);
 }
 
-fn entry_level_bounds(live: u32, level: u32) -> vec2u {
-    let first = entry_bounds(live, level << LEVEL_KEY_SHIFT).x;
-    let end = entry_bounds(live, (level + 1u) << LEVEL_KEY_SHIFT).x;
+fn entry_cell_ranges(view: EntryView, level: u32, coord: vec3i) -> EntryRanges {
+    let key = cell_key(level, coord);
+    var ranges: EntryRanges;
+    ranges.moving = entry_region_bounds(view, ENTRY_REGION_MOVING, key);
+    ranges.immovable = entry_region_bounds(view, ENTRY_REGION_IMMOVABLE, key);
+    return ranges;
+}
+
+fn entry_range(ranges: EntryRanges, region: u32) -> vec2u {
+    return select(ranges.moving, ranges.immovable, region == ENTRY_REGION_IMMOVABLE);
+}
+
+fn entry_level_bounds(view: EntryView, level: u32, region: u32) -> vec2u {
+    let first = entry_region_bounds(view, region, level << LEVEL_KEY_SHIFT).x;
+    let end = entry_region_bounds(view, region, (level + 1u) << LEVEL_KEY_SHIFT).x;
     return vec2u(first, end);
 }
 
@@ -219,9 +289,8 @@ fn grid_cell_slices(box: Aabb) -> u32 {
     return cells;
 }
 
-fn grid_whole_slice(box: Aabb, index: u32) -> GridSlice {
+fn grid_whole_slice(box: Aabb, index: u32, region: u32, view: EntryView) -> GridSlice {
     let base = grid_base_cell();
-    let live = entry_live();
     var remaining = index;
     var occupied = grid_occupied();
     while (occupied != 0u) {
@@ -232,7 +301,7 @@ fn grid_whole_slice(box: Aabb, index: u32) -> GridSlice {
             continue;
         }
         if (remaining == 0u) {
-            let range = entry_level_bounds(live, level);
+            let range = entry_level_bounds(view, level, region);
             return GridSlice(level, cell_size, range.x, range.y, true);
         }
         remaining = remaining - 1u;
@@ -240,9 +309,8 @@ fn grid_whole_slice(box: Aabb, index: u32) -> GridSlice {
     return GridSlice(0u, base, 0u, 0u, true);
 }
 
-fn grid_cell_slice(box: Aabb, index: u32) -> GridSlice {
+fn grid_cell_slice(box: Aabb, index: u32, region: u32, view: EntryView) -> GridSlice {
     let base = grid_base_cell();
-    let live = entry_live();
     var remaining = index;
     var occupied = grid_occupied();
     while (occupied != 0u) {
@@ -255,7 +323,8 @@ fn grid_cell_slice(box: Aabb, index: u32) -> GridSlice {
             continue;
         }
         if (remaining < count) {
-            let range = entry_cell_bounds(live, level, grid_cell_at(cells, remaining));
+            let ranges = entry_cell_ranges(view, level, grid_cell_at(cells, remaining));
+            let range = entry_range(ranges, region);
             return GridSlice(level, cell_size, range.x, range.y, false);
         }
         remaining = remaining - count;
@@ -264,13 +333,15 @@ fn grid_cell_slice(box: Aabb, index: u32) -> GridSlice {
 }
 
 fn grid_slices(box: Aabb) -> u32 {
-    return grid_whole_slices(box) + grid_cell_slices(box);
+    return 2u * (grid_whole_slices(box) + grid_cell_slices(box));
 }
 
 fn grid_slice(box: Aabb, index: u32) -> GridSlice {
     let whole = grid_whole_slices(box);
-    if (index < whole) {
-        return grid_whole_slice(box, index);
+    let view = entry_view();
+    let region = select(ENTRY_REGION_MOVING, ENTRY_REGION_IMMOVABLE, (index % 2u) != 0u);
+    if (index < whole * 2u) {
+        return grid_whole_slice(box, index / 2u, region, view);
     }
-    return grid_cell_slice(box, index - whole);
+    return grid_cell_slice(box, (index - whole * 2u) / 2u, region, view);
 }

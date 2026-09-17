@@ -61,6 +61,7 @@ streams! {
         observed_joint_states, ObservedJointStates: "observed joint states", JointStateRecord, 1, Retention::Scratch, demand.observed_joints;
         observed_joint_runtimes, ObservedJointRuntimes: "observed joint runtimes", ConstraintRuntimeRecord, 1, Retention::Scratch, demand.observed_joints;
         counters, Counters: "world counters", u32, COUNTER_STRIDE / 4, Retention::Durable, COUNTER_DEVICE_COUNT as u32;
+        entry_base, EntryBase: "grid entry base", u32, 1, Retention::Scratch, 1;
     }
 }
 

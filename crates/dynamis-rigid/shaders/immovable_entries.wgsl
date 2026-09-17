@@ -7,16 +7,16 @@
 
 fn work(index: u32) {
     let owner = collider_owners[index];
-    if (owner == NO_BODY || !body_is_movable(body_descs[owner])) {
+    if (owner == NO_BODY || body_is_movable(body_descs[owner])) {
         return;
     }
     let awake = collider_awake(owner);
-    let entry = collider_cells(index, false);
+    let entry = collider_cells(index, true);
     let emitted = collider_entry_cost(entry, awake);
-    let base = entry_immovable_base();
-    let limit = arrayLength(&entries);
+    let limit = entry_immovable_base();
     for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {
-        let slot = base + counter_add(COUNTER_ENTRIES, 1u);
+        let slot = counter_add(COUNTER_IMMOVABLE_ENTRIES, 1u);
+        counter_add(COUNTER_IMMOVABLE_EMITTED, 1u);
         emit_collider(
             slot,
             limit,

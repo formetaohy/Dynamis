@@ -105,6 +105,7 @@ impl Domain for RigidDomain {
             observed_joints: inputs.observed_joints,
             ccd: inputs.ccd,
             impacts: inputs.impacts,
+            immovable_rebuild: inputs.immovable_rebuild,
         }
     }
 

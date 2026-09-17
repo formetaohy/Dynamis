@@ -19,25 +19,45 @@ pub struct BroadphaseCapacity {
 pub struct BroadphaseInputs {
     pub colliders: u32,
     pub movable_colliders: u32,
+    pub immovable_colliders: u32,
     pub particles: u32,
+    pub entry_base: u32,
+    pub moving_slots: u32,
+    pub immovable_rebuild: bool,
 }
 
 pub fn plan(
     measured: &Counters,
     inputs: &BroadphaseInputs,
     current: &BroadphaseStreams,
+    immovable: u32,
     release: bool,
 ) -> BroadphaseDemand {
-    let sources = inputs
-        .colliders
+    let movable_sources = inputs
+        .movable_colliders
         .checked_add(inputs.particles)
-        .unwrap_or_else(|| panic!("grid entry sources exceed the device index space"));
-    let entries = settled(
-        current.entry_keys.slots(),
-        product(sources, MAX_CELLS_PER_COLLIDER, "grid entry"),
+        .unwrap_or_else(|| panic!("movable grid entry sources exceed the device index space"));
+    let immovable_entries = settled(
+        immovable,
+        product(
+            inputs.immovable_colliders,
+            MAX_CELLS_PER_COLLIDER,
+            "immovable grid entry",
+        ),
         STREAM_FLOOR,
         release,
     );
+    let moving_entries = settled(
+        current.entry_keys.slots().saturating_sub(immovable),
+        product(
+            movable_sources,
+            MAX_CELLS_PER_COLLIDER,
+            "movable grid entry",
+        ),
+        STREAM_FLOOR,
+        release,
+    );
+    let entries = immovable_entries + moving_entries;
     let fresh = unreported(
         inputs.movable_colliders,
         measured[COUNTER_MOVABLE_COLLIDERS],
@@ -49,6 +69,7 @@ pub fn plan(
         release,
     );
     BroadphaseDemand {
+        immovable: immovable_entries,
         entries,
         pairs,
         sort: entries.max(pairs).max(MIN_SLOTS),
@@ -56,9 +77,13 @@ pub fn plan(
 }
 
 pub fn floor() -> BroadphaseDemand {
+    let immovable = STREAM_FLOOR;
+    let entries = immovable + STREAM_FLOOR;
+    let pairs = STREAM_FLOOR;
     BroadphaseDemand {
-        entries: STREAM_FLOOR,
-        pairs: STREAM_FLOOR,
-        sort: STREAM_FLOOR,
+        immovable,
+        entries,
+        pairs,
+        sort: entries.max(pairs).max(MIN_SLOTS),
     }
 }

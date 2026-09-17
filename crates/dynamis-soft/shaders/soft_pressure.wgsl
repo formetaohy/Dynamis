@@ -57,6 +57,7 @@ fn visit_neighbours(
     self_index: u32,
     shift: ptr<function, vec3i>,
 ) {
+    let view = entry_view();
     let slices = grid_slices(box);
     for (var index = 0u; index < slices; index = index + 1u) {
         let slice = grid_slice(box, index);
@@ -64,7 +65,7 @@ fn visit_neighbours(
             counter_add(COUNTER_COARSE_NEIGHBOURS, 1u);
         }
         for (var entry = slice.first; entry < grid_scan_end(slice); entry = entry + 1u) {
-            let node = entry_node(entry);
+            let node = entry_node(view, entry);
             if (reach_holds(node, box, slice.cell_size)) {
                 visit(node, center, lambda, rest, h2, h9, self_index, shift);
             }

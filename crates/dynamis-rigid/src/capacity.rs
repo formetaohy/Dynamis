@@ -32,6 +32,7 @@ pub struct RigidInputs {
     pub characters: u32,
     pub vehicles: u32,
     pub vehicle_wheels: u32,
+    pub immovable_rebuild: bool,
 }
 
 pub fn capacity(streams: &RigidStreams) -> RigidCapacity {

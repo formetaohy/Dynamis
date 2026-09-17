@@ -3,8 +3,9 @@ use super::common::{
     static_config,
 };
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE, COUNTER_PAIRS,
-    COUNTER_REFUSED_PAIRS, COUNTER_RESTING, Shortfall,
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE,
+    COUNTER_IMMOVABLE_EMITTED, COUNTER_IMMOVABLE_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS,
+    COUNTER_RESTING, Shortfall,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -648,4 +649,147 @@ fn the_grid_resolution_answers_the_shape_set_not_the_poses() {
         declared,
         "a rescaled collider must re-derive the grid resolution"
     );
+}
+
+fn static_floor(world: &mut dynamis_world::World) -> dynamis_model::BodyHandle {
+    world.spawn(
+        BodyDesc::cuboid([4.0, 0.5, 4.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    )
+}
+
+#[test]
+fn the_immovable_index_is_derived_once_and_reused() {
+    let mut world = observed_world(gravity_config());
+    static_floor(&mut world);
+    world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.4, 0.0]));
+    world.step(DT);
+    world.wait();
+    let declared = world.measured()[COUNTER_IMMOVABLE_ENTRIES];
+    assert!(
+        declared > 0,
+        "a static floor must hold immovable entries, holds {declared}"
+    );
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] >= declared,
+        "the first step must derive the immovable entries it holds"
+    );
+
+    settle(&mut world, 30);
+    assert_eq!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED],
+        0,
+        "a step that derives nothing immovable must reuse the immovable index"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_IMMOVABLE_ENTRIES],
+        declared,
+        "a reused immovable index must hold the entries it derived"
+    );
+    assert!(
+        world.measured()[COUNTER_CONTACTS] > 0,
+        "a reused immovable index must still carry the resting contact"
+    );
+    assert_unrefused(&world);
+}
+
+#[test]
+fn an_immovable_collider_that_moved_or_appeared_is_derived_again() {
+    let mut world = observed_world(gravity_config());
+    let floor = static_floor(&mut world);
+    settle(&mut world, 4);
+    assert_eq!(world.measured()[COUNTER_IMMOVABLE_EMITTED], 0);
+
+    world.spawn(BodyDesc::static_sphere(0.25).position([2.0, 0.25, 0.0]));
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
+        "a new collider may move the grid resolution and must re-derive the immovable index"
+    );
+
+    settle(&mut world, 4);
+    world.set_position(floor, [0.0, -0.75, 0.0]);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
+        "an immovable collider that moved must re-derive the immovable index"
+    );
+    assert!(
+        world.read_state(floor).position[1] == -0.75,
+        "a moved immovable collider must keep the pose it was given"
+    );
+    assert_unrefused(&world);
+}
+
+#[test]
+fn a_maintained_immovable_index_serves_a_moved_floor() {
+    let mut world = observed_world(gravity_config());
+    let floor = static_floor(&mut world);
+    let ball = world.spawn(BodyDesc::sphere(0.3).position([0.0, 0.4, 0.0]));
+    settle(&mut world, 30);
+    assert_eq!(world.measured()[COUNTER_IMMOVABLE_EMITTED], 0);
+    assert!(
+        (world.read_state(ball).position[1] - 0.3).abs() < 0.1,
+        "the ball must rest on the derived floor"
+    );
+
+    world.set_position(floor, [0.0, -2.0, 0.0]);
+    world.wake(ball);
+    settle_until(&mut world, 90, |world| {
+        world.read_state(ball).position[1] < -1.0
+    });
+    let rest = world.read_state(ball).position[1];
+    assert!(
+        (rest - (-1.2)).abs() < 0.15,
+        "a ball must rest on the moved floor at -1.2, got {rest}"
+    );
+    assert_unrefused(&world);
+}
+
+#[test]
+fn a_maintained_immovable_index_answers_queries() {
+    let mut world = observed_world(static_config());
+    let floor = static_floor(&mut world);
+    settle(&mut world, 4);
+    assert_eq!(world.measured()[COUNTER_IMMOVABLE_EMITTED], 0);
+
+    let probe = world.sphere_query([0.0, -0.5, 0.0], 0.2, &QueryFilter::default());
+    world.wait();
+    assert_eq!(
+        world.query_hit(probe).map(|hit| hit.body()),
+        Some(floor),
+        "a reused immovable index must answer a query inside the floor"
+    );
+    assert_unrefused(&world);
+}
+
+#[test]
+fn a_wide_immovable_index_is_not_rederived_every_step() {
+    let mut world = observed_world(static_config());
+    for index in 0..12 * 12 * 12 {
+        let x = (index % 12) as f32;
+        let y = (index / 12 % 12) as f32;
+        let z = (index / (12 * 12)) as f32;
+        world.spawn(BodyDesc::static_sphere(0.06).position([x, y, z]));
+    }
+    settle(&mut world, 6);
+    let declared = world.measured()[COUNTER_IMMOVABLE_ENTRIES];
+    assert!(
+        declared >= 12 * 12 * 12,
+        "a sparse grain lattice must hold an immovable entry per grain, holds {declared}"
+    );
+    for frame in 0..8 {
+        world.step(DT);
+        world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_IMMOVABLE_EMITTED],
+            0,
+            "a quiet scene must reuse its immovable index on frame {frame}"
+        );
+        assert_eq!(world.measured()[COUNTER_IMMOVABLE_ENTRIES], declared);
+    }
+    assert_unrefused(&world);
 }

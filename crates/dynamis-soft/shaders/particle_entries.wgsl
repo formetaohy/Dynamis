@@ -1,8 +1,11 @@
 @group(0) @binding(4) var<uniform> params: StepParams;
 @group(0) @binding(5) var<storage, read> particles: array<SoftParticle>;
 
-fn emit_entry(particle: u32, owner: u32, box: Aabb, level: u32, cells: GridCells, coord: vec3i) {
-    let slot = counter_add(COUNTER_ENTRIES, 1u);
+fn emit_entry(slot: u32, limit: u32, particle: u32, owner: u32, box: Aabb, level: u32, cells: GridCells, coord: vec3i) {
+    if (slot >= limit) {
+        counter_add(COUNTER_ENTRY_FAULTS, 1u);
+        return;
+    }
     let offset = grid_cell_offset(cells, coord);
     var info = particle | (offset << ENTRY_CELL_SHIFT) | (ENTRY_KIND_PARTICLE << ENTRY_KIND_SHIFT) | ENTRY_AWAKE;
     if (offset == 0u) {
@@ -25,7 +28,7 @@ fn work(index: u32) {
     }
     let box = particle_swept_bounds(particle, params.dt, params.gravity.xyz);
     let base = grid_base_cell();
-    let level = grid_entry_level(box, base);
+    let level = grid_entry_level(box, base, false);
     if (level > 0u) {
         counter_add(COUNTER_COARSE_ACTIVE, 1u);
     }
@@ -35,7 +38,19 @@ fn work(index: u32) {
     if (count > emitted) {
         counter_add(COUNTER_ENTRY_FAULTS, count - emitted);
     }
+    let entry_base = entry_immovable_base();
+    let limit = arrayLength(&entries);
     for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {
-        emit_entry(index, particle.owner, box, level, cells, grid_cell_at(cells, ordinal));
+        let slot = entry_base + counter_add(COUNTER_ENTRIES, 1u);
+        emit_entry(
+            slot,
+            limit,
+            index,
+            particle.owner,
+            box,
+            level,
+            cells,
+            grid_cell_at(cells, ordinal),
+        );
     }
 }

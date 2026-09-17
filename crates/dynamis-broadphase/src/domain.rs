@@ -9,6 +9,13 @@ use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct BroadphaseDomain;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BroadphaseFrame {
+    pub entry_base: u32,
+    pub moving_slots: u32,
+    pub immovable_rebuild: bool,
+}
+
 impl Domain for BroadphaseDomain {
     const ID: u32 = 1;
 
@@ -22,7 +29,7 @@ impl Domain for BroadphaseDomain {
     type Streams = BroadphaseStreams;
     type Passes = BroadphasePasses;
     type Runtime = BroadphaseRuntime;
-    type Frame = ();
+    type Frame = BroadphaseFrame;
     type Capacity = BroadphaseCapacity;
 
     fn minimum() -> BroadphaseDemand {
@@ -57,11 +64,17 @@ impl Domain for BroadphaseDomain {
         BroadphaseRuntime::build(context, streams, passes)
     }
 
-    fn gates(_: &()) -> u16 {
+    fn gates(_: &BroadphaseFrame) -> u16 {
         0
     }
 
-    fn frame(_: &StepFacts, _: &BroadphaseInputs) {}
+    fn frame(_: &StepFacts, inputs: &BroadphaseInputs) -> BroadphaseFrame {
+        BroadphaseFrame {
+            entry_base: inputs.entry_base,
+            moving_slots: inputs.moving_slots,
+            immovable_rebuild: inputs.immovable_rebuild,
+        }
+    }
 
     fn capacity(streams: &BroadphaseStreams) -> BroadphaseCapacity {
         crate::capacity(streams)
@@ -72,8 +85,8 @@ impl Domain for BroadphaseDomain {
         pass: u32,
         recorder: &mut ComputeRecorder<'_>,
         streams: &impl ResourceSource,
-        _: &(),
+        frame: &BroadphaseFrame,
     ) -> bool {
-        runtime.record(pass, recorder, streams, &())
+        runtime.record(pass, recorder, streams, frame)
     }
 }

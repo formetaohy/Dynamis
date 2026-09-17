@@ -214,12 +214,13 @@ fn scan_neighbours(
     contact: ptr<function, ParticleContact>,
     sensor: ptr<function, ParticleContact>,
 ) {
+    let view = entry_view();
     let slices = grid_slices(box);
     for (var index = 0u; index < slices; index = index + 1u) {
         let slice = grid_slice(box, index);
         for (var entry = slice.first; entry < grid_scan_end(slice); entry = entry + 1u) {
             visit_entry(
-                entry_node(entry),
+                entry_node(view, entry),
                 box,
                 slice.cell_size,
                 center,

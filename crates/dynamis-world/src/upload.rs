@@ -48,6 +48,9 @@ impl World {
         if self.shapes.dirty {
             self.upload_shapes(&queue);
         }
+        if self.soft.pending_edits() > 0 || self.soft.pending_body_edits() > 0 {
+            self.invalidate_immovable();
+        }
         self.soft.upload(&queue, &self.backend.streams.soft);
         self.characters.upload(&queue, &self.backend.streams.rigid);
         self.vehicles.upload(&queue, &self.backend.streams.rigid);
@@ -104,6 +107,7 @@ impl World {
     }
 
     fn upload_shapes(&mut self, queue: &wgpu::Queue) {
+        self.invalidate_immovable();
         let state = &self.backend.streams.state;
         self.shapes.pool.upload_pending(
             queue,
@@ -118,7 +122,11 @@ impl World {
     }
 
     fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
-        for cleared in self.colliders.take_cleared() {
+        let cleared = self.colliders.take_cleared();
+        if !dirty.is_empty() || !cleared.is_empty() {
+            self.invalidate_immovable();
+        }
+        for cleared in cleared {
             let records = vec![ColliderRecord::cleared(); cleared.len as usize];
             let owners = vec![dynamis_abi::NO_BODY; cleared.len as usize];
             flush_pool_range(

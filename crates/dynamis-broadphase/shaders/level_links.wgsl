@@ -2,43 +2,46 @@
 @group(0) @binding(5) var<storage, read_write> pair_minor: array<u32>;
 
 
-fn link_level(node: u32, level: u32, awake: bool, live: u32, grid: f32) {
+fn link_level(node: u32, level: u32, awake: bool, grid: f32, view: EntryView) {
     let box = entry_box(node);
     let cell_size = level_cell_size(level, grid);
     let cells = grid_cells(box, cell_size);
     let count = grid_cell_count(cells);
     for (var ordinal = 0u; ordinal < count; ordinal = ordinal + 1u) {
         let cell = grid_cell_at(cells, ordinal);
-        let range = entry_cell_bounds(live, level, cell);
-        for (var entry = range.x; entry < range.y; entry = entry + 1u) {
-            let other = entry_node(entry);
-            if (other == node) {
-                continue;
+        let ranges = entry_cell_ranges(view, level, cell);
+        for (var region = 0u; region < 2u; region = region + 1u) {
+            let range = entry_range(ranges, region);
+            for (var entry = range.x; entry < range.y; entry = entry + 1u) {
+                let other = entry_node(view, entry);
+                if (other == node) {
+                    continue;
+                }
+                if (!awake && !entry_awake(entries[other].info)) {
+                    continue;
+                }
+                let other_box = entry_box(other);
+                if (!aabb_overlaps(box, other_box)) {
+                    continue;
+                }
+                if (any(entry_cell(other, cell_size) != cell)) {
+                    continue;
+                }
+                if (any(grid_overlap_cell(box, other_box, cell_size) != cell)) {
+                    continue;
+                }
+                emit_pair(node, other);
             }
-            if (!awake && !entry_awake(entries[other].info)) {
-                continue;
-            }
-            let other_box = entry_box(other);
-            if (!aabb_overlaps(box, other_box)) {
-                continue;
-            }
-            if (any(entry_cell(other, cell_size) != cell)) {
-                continue;
-            }
-            if (any(grid_overlap_cell(box, other_box, cell_size) != cell)) {
-                continue;
-            }
-            emit_pair(node, other);
         }
     }
 }
 
 fn work(index: u32) {
-    let live = extent();
-    if (index >= live) {
+    let view = entry_view();
+    if (index >= entry_live(view)) {
         return;
     }
-    let node = entry_node(index);
+    let node = entry_node(view, index);
     let info = entries[node].info;
     if (entry_kind(info) != ENTRY_KIND_COLLIDER || !entry_primary(info)) {
         return;
@@ -53,6 +56,6 @@ fn work(index: u32) {
     while (coarser != 0u) {
         let link = 31u - countLeadingZeros(coarser);
         coarser = coarser & ~(1u << link);
-        link_level(node, link, awake, live, grid);
+        link_level(node, link, awake, grid, view);
     }
 }

@@ -51,11 +51,12 @@ fn visit_entry(node: u32, box: Aabb, cell_size: f32, owner: u32, held: ptr<funct
 }
 
 fn scan_neighbours(box: Aabb, owner: u32, held: ptr<function, bool>) {
+    let view = entry_view();
     let slices = grid_slices(box);
     for (var index = 0u; index < slices && !(*held); index = index + 1u) {
         let slice = grid_slice(box, index);
         for (var entry = slice.first; entry < grid_scan_end(slice) && !(*held); entry = entry + 1u) {
-            visit_entry(entry_node(entry), box, slice.cell_size, owner, held);
+            visit_entry(entry_node(view, entry), box, slice.cell_size, owner, held);
         }
     }
 }

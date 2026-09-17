@@ -71,10 +71,33 @@ fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) gr
 }
 
 #[derive(Clone, Copy)]
+pub enum Live {
+    One(usize),
+    Sum([usize; 2]),
+}
+
+impl Live {
+    pub fn measured<R: dynamis_gpu::ResourceSource>(self, resources: &R) -> Option<u32> {
+        match self {
+            Self::One(counter) => resources.measured(counter),
+            Self::Sum([first, second]) => resources
+                .measured(first)
+                .zip(resources.measured(second))
+                .map(|(first, second)| first.saturating_add(second)),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum Extent {
     None,
     Shared {
         counter: usize,
+        array: &'static str,
+        lanes: u32,
+    },
+    Sum {
+        counters: [usize; 2],
         array: &'static str,
         lanes: u32,
     },
@@ -95,6 +118,14 @@ impl Extent {
         }
     }
 
+    pub const fn of_sum(counters: [usize; 2], array: &'static str) -> Self {
+        Self::Sum {
+            counters,
+            array,
+            lanes: 1,
+        }
+    }
+
     pub const fn slot(counter: usize, count: &'static str, array: &'static str) -> Self {
         Self::Slot {
             counter,
@@ -110,6 +141,13 @@ impl Extent {
             Self::None => Self::None,
             Self::Shared { counter, array, .. } => Self::Shared {
                 counter,
+                array,
+                lanes,
+            },
+            Self::Sum {
+                counters, array, ..
+            } => Self::Sum {
+                counters,
                 array,
                 lanes,
             },
@@ -137,6 +175,10 @@ impl Extent {
             Self::Shared { counter, .. } => {
                 format!("counter_load({})", dynamis_abi::COUNTERS[counter].name)
             }
+            Self::Sum { counters, .. } => {
+                let [first, second] = counters.map(|counter| dynamis_abi::COUNTERS[counter].name);
+                format!("counter_load({first}) + counter_load({second})")
+            }
             Self::Slot { count, .. } => format!("atomicLoad(&{count}[0])"),
         }
     }
@@ -144,7 +186,9 @@ impl Extent {
     fn bounds(self) -> String {
         let (array, lanes) = match self {
             Self::None => panic!("a stage without a declared extent guards no array"),
-            Self::Shared { array, lanes, .. } | Self::Slot { array, lanes, .. } => (array, lanes),
+            Self::Shared { array, lanes, .. }
+            | Self::Sum { array, lanes, .. }
+            | Self::Slot { array, lanes, .. } => (array, lanes),
         };
         match lanes {
             1 => format!("arrayLength(&{array})"),
@@ -180,6 +224,13 @@ fn extent() -> u32 {{
                 );
                 Some(slot(slots, label, array).resource())
             }
+            Self::Sum { array, .. } => {
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} sums device counters through the whole counter stream",
+                );
+                Some(slot(slots, label, array).resource())
+            }
             Self::Slot { array, .. } => {
                 assert_declared_counter(self, label, slots);
                 Some(slot(slots, label, array).resource())
@@ -187,7 +238,7 @@ fn extent() -> u32 {{
         }
     }
 
-    pub fn counter(self, label: &str, slots: &[(&'static str, SlotRef)]) -> usize {
+    pub fn counter(self, label: &str, slots: &[(&'static str, SlotRef)]) -> Live {
         match self {
             Self::None => {
                 panic!("{label:?} streams over no device counter while its dispatch is streamed")
@@ -199,11 +250,18 @@ fn extent() -> u32 {{
                     "{label:?} bounds {} by the whole counter stream",
                     spec.label,
                 );
-                counter
+                Live::One(counter)
+            }
+            Self::Sum { counters, .. } => {
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} sums device counters through the whole counter stream",
+                );
+                Live::Sum(counters)
             }
             Self::Slot { counter, .. } => {
                 assert_declared_counter(self, label, slots);
-                counter
+                Live::One(counter)
             }
         }
     }

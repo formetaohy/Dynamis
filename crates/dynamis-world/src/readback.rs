@@ -187,6 +187,9 @@ impl World {
 
     pub(crate) fn accept_measured(&mut self, step: u64) {
         self.assert_no_device_faults();
+        if self.backend.measured[dynamis_abi::COUNTER_IMMOVABLE_WOKE] > 0 {
+            self.backend.immovable.invalidate();
+        }
         self.backend.measured_step = Some(step);
         self.backend.segments.close(&self.backend.measured, step);
     }

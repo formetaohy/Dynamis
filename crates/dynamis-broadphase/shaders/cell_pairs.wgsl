@@ -17,29 +17,30 @@ fn emit_cell_mate(first: u32, second: u32, cell_size: f32) {
 }
 
 fn work(index: u32) {
-    let live = extent();
-    if (index >= live) {
+    let view = entry_view();
+    if (index >= entry_live(view)) {
         return;
     }
-    let node = entry_node(index);
+    let node = entry_node(view, index);
     let info = entries[node].info;
     if (entry_kind(info) != ENTRY_KIND_COLLIDER || !entry_awake(info)) {
         return;
     }
     let grid = grid_base_cell();
-    let cell_size = level_cell_size(shape_levels(entry_box(node), grid), grid);
-    let key = entry_keys[index];
-    var cursor = index + 1u;
-    while (cursor < live && entry_keys[cursor] == key) {
-        emit_cell_mate(node, entry_node(cursor), cell_size);
-        cursor = cursor + 1u;
-    }
-    var back = index;
-    while (back > 0u && entry_keys[back - 1u] == key) {
-        back = back - 1u;
-        let other = entry_node(back);
-        if (!entry_awake(entries[other].info)) {
-            emit_cell_mate(other, node, cell_size);
+    let level = shape_levels(entry_box(node), grid);
+    let cell_size = level_cell_size(level, grid);
+    let ranges = entry_cell_ranges(view, level, entry_cell(node, cell_size));
+    for (var region = 0u; region < 2u; region = region + 1u) {
+        let range = entry_range(ranges, region);
+        for (var entry = range.x; entry < range.y; entry = entry + 1u) {
+            if (entry == index) {
+                continue;
+            }
+            let other = entry_node(view, entry);
+            if (entry_awake(entries[other].info) && entry < index) {
+                continue;
+            }
+            emit_cell_mate(node, other, cell_size);
         }
     }
 }

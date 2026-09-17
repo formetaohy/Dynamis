@@ -40,9 +40,20 @@ impl Rest {
 }
 
 impl Plan {
-    pub(crate) fn of(measured: &Counters, live: &Live, streams: &Streams, release: bool) -> Self {
-        let broadphase =
-            dynamis_broadphase::plan(measured, &live.broadphase, &streams.broadphase, release);
+    pub(crate) fn of(
+        measured: &Counters,
+        live: &Live,
+        streams: &Streams,
+        immovable: u32,
+        release: bool,
+    ) -> Self {
+        let broadphase = dynamis_broadphase::plan(
+            measured,
+            &live.broadphase,
+            &streams.broadphase,
+            immovable,
+            release,
+        );
         let rigid = dynamis_rigid::plan(
             measured,
             &live.rigid,
@@ -132,6 +143,7 @@ impl World {
             colliders: self.colliders.used(),
             live_colliders: self.colliders.live(),
             movable_colliders: self.colliders.movable(),
+            immovable_colliders: self.colliders.live() - self.colliders.movable(),
             constraints: self.constraints.pool.len(),
             constraint_ids: self.constraints.pool.ids(),
             particles,
@@ -173,7 +185,11 @@ impl World {
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 colliders: census.live_colliders,
                 movable_colliders: census.movable_colliders,
+                immovable_colliders: census.immovable_colliders,
                 particles: census.particles,
+                entry_base: 0,
+                moving_slots: 0,
+                immovable_rebuild: false,
             },
             rigid: dynamis_rigid::RigidInputs {
                 bodies: census.bodies,
@@ -188,6 +204,7 @@ impl World {
                 characters: census.characters,
                 vehicles: census.vehicles,
                 vehicle_wheels: census.vehicle_wheels,
+                immovable_rebuild: false,
             },
             soft: dynamis_soft::SoftInputs {
                 particles: census.particles,

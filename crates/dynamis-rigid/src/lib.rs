@@ -84,6 +84,7 @@ pub struct RigidFrame {
     pub observed_joints: u32,
     pub ccd: bool,
     pub impacts: bool,
+    pub immovable_rebuild: bool,
 }
 
 use apply_commands::ApplyCommands;

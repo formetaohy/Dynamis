@@ -74,6 +74,11 @@ macro_rules! declare_counters {
 
 declare_counters! {
     COUNTER_ENTRIES => "grid entries", PerStep, None;
+    COUNTER_IMMOVABLE_ENTRIES => "immovable grid entries", Maintained, None;
+    COUNTER_IMMOVABLE_EMITTED => "immovable grid entries derived this step", PerStep, None;
+    COUNTER_IMMOVABLE_LEVELS => "immovable grid levels", Maintained, None;
+    COUNTER_ENTRY_BASE => "grid entry base", Maintained, None;
+    COUNTER_IMMOVABLE_WOKE => "immovable bodies that woke", PerStep, None;
     COUNTER_PAIRS => "candidate contact pairs", PerStep, None;
     COUNTER_GRID_LEVELS => "occupied grid levels", PerStep, None;
     COUNTER_CONTACTS => "contact manifolds", PerStep, None;
@@ -82,7 +87,7 @@ declare_counters! {
     COUNTER_EVENTS => "contact events", PerStep, None;
     COUNTER_REFUSED_PAIRS => "candidate pairs beyond the pair stream", PerStep, Physics;
     COUNTER_REFUSED_EVENTS => "contact events beyond the event stream", PerStep, Report;
-    COUNTER_ENTRY_FAULTS => "grid entries beyond a collider budget", PerStep, Fatal;
+    COUNTER_ENTRY_FAULTS => "grid entries beyond their budget", PerStep, Fatal;
     COUNTER_RESTING => "resting contact manifolds", Maintained, None;
     COUNTER_REFUSED_RESTING => "resting manifolds beyond the resting archive", PerStep, Physics;
     COUNTER_SLEPT => "bodies that fell asleep", PerStep, None;

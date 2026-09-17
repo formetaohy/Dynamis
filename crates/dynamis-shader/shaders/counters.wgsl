@@ -6,6 +6,10 @@ fn counter_add(slot: u32, value: u32) -> u32 {
     return atomicAdd(&counters[slot * COUNTER_STRIDE_WORDS], value);
 }
 
+fn counter_store(slot: u32, value: u32) {
+    atomicStore(&counters[slot * COUNTER_STRIDE_WORDS], value);
+}
+
 fn counter_or(slot: u32, value: u32) {
     atomicOr(&counters[slot * COUNTER_STRIDE_WORDS], value);
 }

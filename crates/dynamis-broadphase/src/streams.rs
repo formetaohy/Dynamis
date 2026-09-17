@@ -7,6 +7,7 @@ use dynamis_gpu::Retention;
 streams! {
     BroadphaseStreams, BroadphaseStream, BroadphaseDemand, BroadphaseDomain::ID, demand,
     demand {
+        immovable: u32,
         entries: u32,
         pairs: u32,
         sort: u32,

@@ -25,10 +25,11 @@ impl World {
     pub(crate) fn execute(&mut self, run: Run) {
         self.sync(Facts::Arrived);
         let census = self.census();
-        let live = self.live(&census);
+        let mut live = self.live(&census);
         self.apply_plan(&live);
         self.flush_observed();
         let work = self.prepare(run);
+        self.reconcile_layout(&mut live);
         let facts = StepFacts::of(
             &self.config,
             self.clock.sub_dt,
@@ -205,7 +206,10 @@ impl World {
 
     fn finish(&mut self, run: Run) {
         match run {
-            Run::Step => self.wake_all = false,
+            Run::Step => {
+                self.wake_all = false;
+                self.backend.immovable.advance();
+            }
             Run::Query => {
                 let census = self.census();
                 let live = self.live(&census);

@@ -3,7 +3,7 @@ use dynamis_gpu::{
     ComputeProgram, ComputeRecorder, GpuContext, PipelineHandle, ResourceId, ResourceSource,
     SlotRef, StorageId,
 };
-use dynamis_shader::{Dispatch, Program, workgroups_of};
+use dynamis_shader::{Dispatch, Live, Program, workgroups_of};
 use wgpu::{BindGroup, BindGroupEntry, Device};
 
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
@@ -97,7 +97,7 @@ pub struct Stage {
     pipeline: PipelineHandle,
     dispatch: Dispatch,
     source: Option<ResourceId>,
-    live: Option<usize>,
+    live: Option<Live>,
     warm: Option<PipelineHandle>,
     storage: Vec<Binding>,
     shapes: Vec<Binding>,
@@ -211,7 +211,7 @@ impl Stage {
         let capacity = workgroups_of(slots).min(MAX_DISPATCH_WORKGROUPS);
         let live = self
             .live
-            .and_then(|counter| resources.measured(counter))
+            .and_then(|live| live.measured(resources))
             .map_or(capacity, |measured| {
                 workgroups_of(measured.min(slots)).min(MAX_DISPATCH_WORKGROUPS)
             });
