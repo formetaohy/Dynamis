@@ -111,6 +111,7 @@ impl World {
             &state.shape_vertices,
             &state.shape_triangles,
             &state.shape_nodes,
+            &state.shape_cells,
         );
         self.shapes.dirty = false;
         self.shapes.uploaded = true;

@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> contact_count: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> segments: array<u32>;
 @group(0) @binding(5) var<storage, read_write> block_count: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> solver_row_count: array<atomic<u32>>;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(local_invocation_id) lid: vec3u) {
@@ -15,4 +16,5 @@ fn main(@builtin(local_invocation_id) lid: vec3u) {
     segments[SOLVER_BLOCK_CONTACT] = contact_blocks;
     segments[SOLVER_BLOCK_CONSTRAINT] = constraint_blocks;
     atomicStore(&block_count[0], contact_blocks + constraint_blocks);
+    atomicStore(&solver_row_count[0], 0u);
 }

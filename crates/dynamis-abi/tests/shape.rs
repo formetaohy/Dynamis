@@ -52,13 +52,17 @@ fn every_device_shape_code_carries_exactly_one_declared_role() {
             continue;
         }
         let convex = role.path == ShapePath::Convex;
-        assert_ne!(
-            convex,
-            role.path == ShapePath::WorldGeometry,
+        assert!(
+            convex != role.path.world_geometry(),
             "a real shape code must belong to exactly one collision path"
         );
+        assert!(
+            role.path.height_grid() == (role.code == SHAPE_HEIGHTFIELD),
+            "only the height field code may answer the grid path"
+        );
+        assert!(!role.height_grid() || role.source);
         assert!(!convex || role.scale != ShapeScale::NotScalable);
-        assert!(role.path != ShapePath::WorldGeometry || role.scale != ShapeScale::UniformFolded);
+        assert!(!role.path.world_geometry() || role.scale != ShapeScale::UniformFolded);
         assert!(!role.analytic || convex);
         assert!(!role.source || role.scale == ShapeScale::InRecord);
     }
@@ -99,9 +103,10 @@ type Predicate = (&'static str, fn(ShapeRole) -> bool);
 #[test]
 fn a_device_predicate_names_exactly_the_codes_its_role_declares() {
     let source = constants_wgsl();
-    let predicates: [Predicate; 4] = [
+    let predicates: [Predicate; 5] = [
         ("shape_world_geometry", ShapeRole::world_geometry),
         ("shape_triangle_scene", ShapeRole::triangle_scene),
+        ("shape_height_grid", ShapeRole::height_grid),
         ("shape_source", |role| role.source),
         ("shape_analytic", |role| role.analytic),
     ];

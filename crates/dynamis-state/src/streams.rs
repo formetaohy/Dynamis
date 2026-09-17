@@ -1,9 +1,10 @@
 use crate::StateDomain;
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
-    BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, ColliderRecord,
-    ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord, REACTION_WORDS,
-    RowMoveRecord, RowStreamsRecord, ShapeSourceRecord, StepParamsRecord, TriangleRecord,
+    BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, CellRecord,
+    ColliderRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord,
+    REACTION_WORDS, RowMoveRecord, RowStreamsRecord, ShapeSourceRecord, StepParamsRecord,
+    TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -13,6 +14,7 @@ use std::mem::size_of;
 
 pub const VERTEX_BYTES: u64 = size_of::<[f32; 4]>() as u64;
 pub const TRIANGLE_BYTES: u64 = size_of::<TriangleRecord>() as u64;
+pub const CELL_BYTES: u64 = size_of::<CellRecord>() as u64;
 
 streams! {
     StateStreams, StateStream, StateDemand, StateDomain::ID, demand,
@@ -52,6 +54,7 @@ streams! {
         shape_vertices, ShapeVertices: "shape vertices", [f32; 4], 1, Retention::Durable, demand.shapes.vertices;
         shape_triangles, ShapeTriangles: "shape triangles", TriangleRecord, 1, Retention::Durable, demand.shapes.triangles;
         shape_nodes, ShapeNodes: "shape bvh nodes", BvhNodeRecord, 1, Retention::Durable, demand.shapes.nodes;
+        shape_cells, ShapeCells: "shape cells", CellRecord, 1, Retention::Durable, demand.shapes.cells;
         observed_ids, ObservedIds: "observed body ids", u32, 1, Retention::Durable, demand.observed;
         observed_states, ObservedStates: "observed body states", BodyStateRecord, 1, Retention::Scratch, demand.observed;
         observed_joint_ids, ObservedJointIds: "observed joint ids", u32, 1, Retention::Durable, demand.observed_joints;

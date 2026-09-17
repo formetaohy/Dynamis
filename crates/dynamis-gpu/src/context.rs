@@ -196,7 +196,7 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub const MINIMUM_LIMITS: Limits = Limits {
-        max_storage_buffers_per_shader_stage: 16,
+        max_storage_buffers_per_shader_stage: 17,
         max_storage_textures_per_shader_stage: 0,
         max_storage_buffer_binding_size: 16 * 1024 * 1024,
         max_buffer_size: 64 * 1024 * 1024,

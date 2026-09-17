@@ -7,6 +7,7 @@ pub struct ShapeCapacity {
     pub vertices: u32,
     pub triangles: u32,
     pub nodes: u32,
+    pub cells: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,6 +37,7 @@ pub fn capacity(streams: &StateStreams) -> StateCapacity {
             vertices: streams.shape_vertices.slots(),
             triangles: streams.shape_triangles.slots(),
             nodes: streams.shape_nodes.slots(),
+            cells: streams.shape_cells.slots(),
         },
         observed: streams.observed_ids.slots(),
     }
@@ -55,6 +57,7 @@ pub fn floor() -> StateDemand {
             vertices: MIN_SLOTS,
             triangles: MIN_SLOTS,
             nodes: MIN_SLOTS,
+            cells: MIN_SLOTS,
         },
         observed: MIN_SLOTS,
         observed_joints: MIN_SLOTS,
@@ -121,6 +124,7 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
                 MIN_SLOTS,
             ),
             nodes: grown(current.shape_nodes.slots(), inputs.shapes.nodes, MIN_SLOTS),
+            cells: grown(current.shape_cells.slots(), inputs.shapes.cells, MIN_SLOTS),
         },
         observed: grown(current.observed_ids.slots(), inputs.observed, MIN_SLOTS),
         observed_joints: grown(

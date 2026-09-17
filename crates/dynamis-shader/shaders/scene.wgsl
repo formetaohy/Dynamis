@@ -319,8 +319,55 @@ fn ray_scene(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32) ->
     return hit;
 }
 
+struct GridSpan {
+    first: vec2u,
+    last: vec2u,
+    empty: bool,
+}
+
+fn height_grid_cell_size(source: ShapeSource, scale: vec3f) -> vec2f {
+    let cells = vec2f(f32(source.grid_cols - 1u), f32(source.grid_rows - 1u));
+    return (source.local_max.xz - source.local_min.xz) * scale.xz / cells;
+}
+
+fn grid_span(source: ShapeSource, scale: vec3f, box_min: vec3f, box_max: vec3f) -> GridSpan {
+    let low = source.local_min.xz * scale.xz;
+    let high = source.local_max.xz * scale.xz;
+    let size = height_grid_cell_size(source, scale);
+    let last_cell = vec2u(source.grid_cols - 2u, source.grid_rows - 2u);
+    var span: GridSpan;
+    span.empty = box_max.x < low.x
+        || box_max.z < low.y
+        || box_min.x > high.x
+        || box_min.z > high.y
+        || box_min.y > source.local_max.y * scale.y
+        || box_max.y < source.local_min.y * scale.y;
+    let first = (box_min.xz - low) / size;
+    let last = (box_max.xz - low) / size;
+    span.first = min(vec2u(u32(max(floor(first.x), 0.0)), u32(max(floor(first.y), 0.0))), last_cell);
+    span.last = min(vec2u(u32(max(floor(last.x), 0.0)), u32(max(floor(last.y), 0.0))), last_cell);
+    return span;
+}
+
+fn grid_cell_first_triangle(source: ShapeSource, cell: vec2u) -> u32 {
+    return (cell.y * (source.grid_cols - 1u) + cell.x) * 2u;
+}
+
+fn grid_cell_bounds(source: ShapeSource, scale: vec3f) -> Aabb {
+    var bounds: Aabb;
+    bounds.min = source.local_min * scale;
+    bounds.max = source.local_max * scale;
+    return bounds;
+}
+
 fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    if (!shape_source(scene.kind)) {
+        return no_hit();
+    }
     let source = shape_sources[scene.source];
+    if (shape_height_grid(source.kind)) {
+        return ray_grid(scene, source, origin, direction, extent);
+    }
     var stack: array<u32, 64>;
     var stack_count = 1u;
     stack[0] = source.node_offset;
@@ -335,14 +382,9 @@ fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
-                let tri = shape_triangles[source.triangle_offset + node.left + i];
-                let a = shape_vertices[source.vertex_offset + tri.a].xyz * scene.scale;
-                let b = shape_vertices[source.vertex_offset + tri.b].xyz * scene.scale;
-                let c = shape_vertices[source.vertex_offset + tri.c].xyz * scene.scale;
-                let hit = ray_triangle(origin, direction, extent, a, b, c);
+                let hit = ray_scene_triangle(scene, node.left + i, origin, direction, extent);
                 if (hit.distance < best.distance) {
                     best = hit;
-                    best.triangle = node.left + i;
                 }
             }
         } else {
@@ -358,37 +400,137 @@ fn scene_raycast(scene: WorldShape, origin: vec3f, direction: vec3f, extent: f32
     return best;
 }
 
+fn ray_scene_triangle(scene: WorldShape, triangle: u32, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let points = triangle_points(scene.source, triangle, scene.scale);
+    var hit = ray_triangle(origin, direction, extent, points[0], points[1], points[2]);
+    if (hit.distance != NO_HIT) {
+        hit.triangle = triangle;
+    }
+    return hit;
+}
+
+fn ray_grid(scene: WorldShape, source: ShapeSource, origin: vec3f, direction: vec3f, extent: f32) -> ShapeHit {
+    let bounds = grid_cell_bounds(source, scene.scale);
+    let entry = aabb_ray_hit(bounds.min, bounds.max, origin, direction, extent);
+    if (entry == NO_HIT) {
+        return no_hit();
+    }
+    let size = height_grid_cell_size(source, scene.scale);
+    let cells = i32(source.grid_cols - 1u);
+    let rows = i32(source.grid_rows - 1u);
+    let start = origin + direction * entry;
+    let last_cell = vec2i(cells - 1, rows - 1);
+    var cell = clamp(vec2i(floor((start.xz - bounds.min.xz) / size)), vec2i(0), last_cell);
+    let vertical = direction.x == 0.0 && direction.z == 0.0;
+    var travel = vec2f(3.402823466e38, 3.402823466e38);
+    var advance = travel;
+    if (!vertical) {
+        for (var axis = 0u; axis < 2u; axis = axis + 1u) {
+            let heading = select(direction.z, direction.x, axis == 0u);
+            if (heading == 0.0) {
+                continue;
+            }
+            let cell_size = select(size.y, size.x, axis == 0u);
+            let cell_min = bounds.min[axis] + f32(cell[axis]) * cell_size;
+            let boundary = select(cell_min, cell_min + cell_size, heading > 0.0);
+            travel[axis] = entry + abs((boundary - start[axis]) / heading);
+            advance[axis] = abs(cell_size / heading);
+        }
+    }
+    var best = no_hit();
+    loop {
+        if (cell.x < 0 || cell.y < 0 || cell.x >= cells || cell.y >= rows) {
+            break;
+        }
+        let first = grid_cell_first_triangle(source, vec2u(cell));
+        for (var which = 0u; which < 2u; which = which + 1u) {
+            let hit = ray_scene_triangle(scene, first + which, origin, direction, extent);
+            if (hit.distance < best.distance) {
+                best = hit;
+            }
+        }
+        if (vertical) {
+            break;
+        }
+        if (travel.x < travel.y) {
+            cell.x = cell.x + select(-1, 1, direction.x > 0.0);
+            travel.x = travel.x + advance.x;
+        } else {
+            cell.y = cell.y + select(-1, 1, direction.z > 0.0);
+            travel.y = travel.y + advance.y;
+        }
+    }
+    return best;
+}
+
 fn triangle_surface_index(collider: Collider, triangle: u32) -> u32 {
     if (triangle == NO_TRIANGLE) {
         return NO_SURFACE;
     }
-    return triangle_surface(collider, triangle).surface;
+    let source = shape_sources[collider.source];
+    if (shape_height_grid(source.kind)) {
+        if (source.cell_count == 0u) {
+            return NO_SURFACE;
+        }
+        return shape_cells[source.cell_offset + triangle / 2u].surface;
+    }
+    return shape_triangles[source.triangle_offset + triangle].surface;
 }
 
 fn surface_material(collider: Collider, triangle: u32) -> Surface {
     if (triangle == NO_TRIANGLE) {
         return collider_surface(collider);
     }
-    let surface = triangle_surface(collider, triangle);
+    let source = shape_sources[collider.source];
+    if (shape_height_grid(source.kind)) {
+        if (source.cell_count == 0u) {
+            return collider_surface(collider);
+        }
+        let cell = shape_cells[source.cell_offset + triangle / 2u];
+        if (cell.surface == NO_SURFACE) {
+            return collider_surface(collider);
+        }
+        return cell.material;
+    }
+    let surface = shape_triangles[source.triangle_offset + triangle];
     if (surface.surface == NO_SURFACE) {
         return collider_surface(collider);
     }
     return surface.material;
 }
 
-fn triangle_surface(collider: Collider, triangle: u32) -> Triangle {
-    return shape_triangles[shape_sources[collider.source].triangle_offset + triangle];
+fn triangle_corner(source: ShapeSource, corner: u32, scale: vec3f) -> vec3f {
+    return shape_vertices[source.vertex_offset + corner].xyz * scale;
 }
 
 fn triangle_points(source_index: u32, triangle_index: u32, scale: vec3f) -> array<vec3f, 3> {
     let source = shape_sources[source_index];
+    if (shape_height_grid(source.kind)) {
+        let cells_per_row = source.grid_cols - 1u;
+        let cell = triangle_index / 2u;
+        let row = cell / cells_per_row;
+        let col = cell - row * cells_per_row;
+        let near = row * source.grid_cols + col;
+        let far = near + source.grid_cols;
+        if (triangle_index % 2u == 0u) {
+            return array(
+                triangle_corner(source, near, scale),
+                triangle_corner(source, far, scale),
+                triangle_corner(source, near + 1u, scale),
+            );
+        }
+        return array(
+            triangle_corner(source, far, scale),
+            triangle_corner(source, far + 1u, scale),
+            triangle_corner(source, near + 1u, scale),
+        );
+    }
     let tri = shape_triangles[source.triangle_offset + triangle_index];
-    let points: array<vec3f, 3> = array(
-        shape_vertices[source.vertex_offset + tri.a].xyz * scale,
-        shape_vertices[source.vertex_offset + tri.b].xyz * scale,
-        shape_vertices[source.vertex_offset + tri.c].xyz * scale,
+    return array(
+        triangle_corner(source, tri.a, scale),
+        triangle_corner(source, tri.b, scale),
+        triangle_corner(source, tri.c, scale),
     );
-    return points;
 }
 
 fn plane_distance(triangle: u32, source_index: u32, scale: vec3f, world: WorldShape) -> ConvexClosest {
@@ -423,24 +565,36 @@ fn scene_convex_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<
 }
 
 fn scene_local_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<function, u32>) -> ConvexClosest {
-    let source = shape_sources[scene.source];
-    let local = scene_local_shape(scene, world);
     var result: ConvexClosest;
     result.distance = 3.402823466e38;
     result.point_a = vec3f(0.0);
     result.point_b = vec3f(0.0);
     result.normal = vec3f(0.0, 1.0, 0.0);
     result.penetrating = false;
-    if (source.node_count == 0u) {
-        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let candidate = plane_distance(i, scene.source, scene.scale, local);
-            if (candidate.penetrating) { result = candidate; *out_triangle = i; return result; }
-            if (candidate.distance < result.distance) { result = candidate; *out_triangle = i; }
+    if (!shape_source(scene.kind)) {
+        return result;
+    }
+    let source = shape_sources[scene.source];
+    let local = scene_local_shape(scene, world);
+    let world_aabb = world_aabb_of(local);
+    let pad = (world_aabb.max - world_aabb.min) * 0.5;
+    if (shape_height_grid(source.kind)) {
+        let span = grid_span(source, scene.scale, world_aabb.min - pad, world_aabb.max + pad);
+        if (span.empty) {
+            return result;
+        }
+        for (var row = span.first.y; row <= span.last.y; row = row + 1u) {
+            for (var col = span.first.x; col <= span.last.x; col = col + 1u) {
+                let first = grid_cell_first_triangle(source, vec2u(col, row));
+                for (var which = 0u; which < 2u; which = which + 1u) {
+                    if (closest_candidate(first + which, scene, local, &result, out_triangle)) {
+                        return result;
+                    }
+                }
+            }
         }
         return result;
     }
-    let world_aabb = world_aabb_of(local);
-    let pad = (world_aabb.max - world_aabb.min) * 0.5;
     var stack: array<u32, 64>;
     var stack_count = 1u;
     stack[0] = source.node_offset;
@@ -455,15 +609,8 @@ fn scene_local_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<f
         }
         if (node.leaf == 1u) {
             for (var i = 0u; i < node.right; i = i + 1u) {
-                let candidate = plane_distance(node.left + i, scene.source, scene.scale, local);
-                if (candidate.penetrating) {
-                    result = candidate;
-                    *out_triangle = node.left + i;
+                if (closest_candidate(node.left + i, scene, local, &result, out_triangle)) {
                     return result;
-                }
-                if (candidate.distance < result.distance) {
-                    result = candidate;
-                    *out_triangle = node.left + i;
                 }
             }
         } else {
@@ -477,6 +624,26 @@ fn scene_local_closest(scene: WorldShape, world: WorldShape, out_triangle: ptr<f
         }
     }
     return result;
+}
+
+fn closest_candidate(
+    triangle: u32,
+    scene: WorldShape,
+    local: WorldShape,
+    result: ptr<function, ConvexClosest>,
+    out_triangle: ptr<function, u32>,
+) -> bool {
+    let candidate = plane_distance(triangle, scene.source, scene.scale, local);
+    if (candidate.penetrating) {
+        *result = candidate;
+        *out_triangle = triangle;
+        return true;
+    }
+    if (candidate.distance < (*result).distance) {
+        *result = candidate;
+        *out_triangle = triangle;
+    }
+    return false;
 }
 
 fn scene_convex_hit(scene: WorldShape, world: WorldShape) -> ShapeHit {
@@ -527,6 +694,9 @@ fn scene_convex_sweep(
     direction: vec3f,
     max_dist: f32,
 ) -> ShapeHit {
+    if (!shape_source(scene.kind)) {
+        return no_hit();
+    }
     let source = shape_sources[scene.source];
     var local = scene_local_shape(scene, moving);
     local.center = scene_local_point(scene, start);
@@ -536,11 +706,20 @@ fn scene_convex_sweep(
     swept.min = min(bounds.min * scene.scale, bounds.min * scene.scale + reach);
     swept.max = max(bounds.max * scene.scale, bounds.max * scene.scale + reach);
     var best = no_hit();
-    if (source.node_count == 0u) {
-        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let hit = scene_sweep_triangle(scene, moving, start, direction, i, max_dist);
-            if (hit.distance < best.distance) {
-                best = hit;
+    if (shape_height_grid(source.kind)) {
+        let span = grid_span(source, scene.scale, swept.min, swept.max);
+        if (span.empty) {
+            return best;
+        }
+        for (var row = span.first.y; row <= span.last.y; row = row + 1u) {
+            for (var col = span.first.x; col <= span.last.x; col = col + 1u) {
+                let first = grid_cell_first_triangle(source, vec2u(col, row));
+                for (var which = 0u; which < 2u; which = which + 1u) {
+                    let hit = scene_sweep_triangle(scene, moving, start, direction, first + which, max_dist);
+                    if (hit.distance < best.distance) {
+                        best = hit;
+                    }
+                }
             }
         }
         return best;
@@ -633,26 +812,47 @@ fn shape_ray(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) ->
     return hit;
 }
 
+fn manifold_candidate_at(
+    triangle: u32,
+    scene: WorldShape,
+    local: WorldShape,
+    margin: f32,
+    candidates: ptr<function, array<ManifoldPoint, 8>>,
+    candidate_count: ptr<function, u32>,
+) {
+    let probe = plane_distance(triangle, scene.source, scene.scale, local);
+    if (probe.distance > margin) {
+        return;
+    }
+    (*candidates)[*candidate_count] = manifold_candidate(scene_place_point(scene, probe.point_a), -probe.distance, feature_triangle(triangle));
+    *candidate_count = *candidate_count + 1u;
+}
+
 fn scene_convex_manifold(
     scene: WorldShape,
     world: WorldShape,
     margin: f32,
     contact: ptr<function, Contact>,
 ) -> bool {
+    if (!shape_source(scene.kind)) {
+        return false;
+    }
     let source = shape_sources[scene.source];
     let local = scene_local_shape(scene, world);
     let world_aabb = world_aabb_of(local);
     let pad = (world_aabb.max - world_aabb.min) * 0.5;
     var candidates: array<ManifoldPoint, 8>;
     var candidate_count = 0u;
-    if (source.node_count == 0u) {
-        for (var i = 0u; i < source.triangle_count; i = i + 1u) {
-            let probe = plane_distance(i, scene.source, scene.scale, local);
-            if (probe.distance <= margin) {
-                candidates[candidate_count] = manifold_candidate(scene_place_point(scene, probe.point_a), -probe.distance, feature_triangle(i));
-                candidate_count = candidate_count + 1u;
-                if (candidate_count >= 8u) {
-                    break;
+    if (shape_height_grid(source.kind)) {
+        let span = grid_span(source, scene.scale, world_aabb.min - pad, world_aabb.max + pad);
+        if (span.empty) {
+            return false;
+        }
+        for (var row = span.first.y; row <= span.last.y && candidate_count < 8u; row = row + 1u) {
+            for (var col = span.first.x; col <= span.last.x && candidate_count < 8u; col = col + 1u) {
+                let first = grid_cell_first_triangle(source, vec2u(col, row));
+                for (var which = 0u; which < 2u && candidate_count < 8u; which = which + 1u) {
+                    manifold_candidate_at(first + which, scene, local, margin, &candidates, &candidate_count);
                 }
             }
         }
@@ -671,11 +871,7 @@ fn scene_convex_manifold(
             }
             if (node.leaf == 1u) {
                 for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
-                    let probe = plane_distance(node.left + i, scene.source, scene.scale, local);
-                    if (probe.distance <= margin) {
-                        candidates[candidate_count] = manifold_candidate(scene_place_point(scene, probe.point_a), -probe.distance, feature_triangle(node.left + i));
-                        candidate_count = candidate_count + 1u;
-                    }
+                    manifold_candidate_at(node.left + i, scene, local, margin, &candidates, &candidate_count);
                 }
             } else {
                 if (stack_count + 2u > 64u) {

@@ -10,9 +10,18 @@
 @group(0) @binding(9) var<storage, read_write> target_speeds: array<f32>;
 @group(0) @binding(10) var<storage, read_write> blocks: array<u32>;
 @group(0) @binding(11) var<storage, read_write> block_count: array<atomic<u32>>;
+@group(0) @binding(12) var<storage, read_write> solver_rows: array<u32>;
+@group(0) @binding(13) var<storage, read_write> solver_row_count: array<atomic<u32>>;
 
 fn load_body(slot: u32) -> Body {
     return Body(body_states[slot], body_descs[slot]);
+}
+
+fn claim(row: u32) {
+    if (atomicAdd(&block_counts[row], 1u) != 0u) {
+        return;
+    }
+    solver_rows[atomicAdd(&solver_row_count[0], 1u)] = row;
 }
 
 fn work(index: u32) {
@@ -51,6 +60,6 @@ fn work(index: u32) {
     if (!resolves) {
         return;
     }
-    atomicAdd(&block_counts[first_body], 1u);
-    atomicAdd(&block_counts[second_body], 1u);
+    claim(first_body);
+    claim(second_body);
 }

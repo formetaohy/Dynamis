@@ -234,14 +234,18 @@ struct ShapeSource {
     vertex_offset: u32,
     vertex_count: u32,
     triangle_offset: u32,
-    triangle_count: u32,
     node_offset: u32,
     node_count: u32,
+    cell_offset: u32,
+    cell_count: u32,
+    grid_rows: u32,
+    grid_cols: u32,
     _pad0: u32,
+    _pad1: u32,
     local_min: vec3f,
-    _pad1: f32,
-    local_max: vec3f,
     _pad2: f32,
+    local_max: vec3f,
+    _pad3: f32,
 }
 
 struct BvhNode {
@@ -259,6 +263,11 @@ struct Triangle {
     a: u32,
     b: u32,
     c: u32,
+    surface: u32,
+    material: Surface,
+}
+
+struct Cell {
     surface: u32,
     material: Surface,
 }

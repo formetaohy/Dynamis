@@ -2,7 +2,7 @@ use super::streams::{BLOCK_LANES, RigidStream};
 use crate::RigidFrame;
 use crate::integrate::SubstepIntegrate;
 use dynamis_abi::Count;
-use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_LIVE};
+use dynamis_abi::{COUNTER_BLOCKS, COUNTER_CONTACTS, COUNTER_SOLVER_ROWS};
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
@@ -50,9 +50,6 @@ impl PassRuntime<RigidFrame> for SolverPrepare {
                     ("params", StateStream::Params.whole()),
                     ("block_counts", RigidStream::SolverBlockCounts.whole()),
                     ("resolution", RigidStream::SolverResolution.whole()),
-                    ("contributions", RigidStream::SolverContributions.whole()),
-                    ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
-                    ("position_deltas", RigidStream::SolverPositionDeltas.whole()),
                 ],
                 &[],
             ),
@@ -68,6 +65,10 @@ impl PassRuntime<RigidFrame> for SolverPrepare {
                     ("contact_count", dynamis_state::counter(COUNTER_CONTACTS)),
                     ("segments", RigidStream::SolverSegments.whole()),
                     ("block_count", dynamis_state::counter(COUNTER_BLOCKS)),
+                    (
+                        "solver_row_count",
+                        dynamis_state::counter(COUNTER_SOLVER_ROWS),
+                    ),
                 ],
                 &[],
             ),
@@ -128,6 +129,11 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("target_speeds", RigidStream::ContactTargetSpeeds.whole()),
                     ("blocks", RigidStream::SolverBlocks.whole()),
                     ("block_count", dynamis_state::counter(COUNTER_BLOCKS)),
+                    ("solver_rows", RigidStream::SolverRows.whole()),
+                    (
+                        "solver_row_count",
+                        dynamis_state::counter(COUNTER_SOLVER_ROWS),
+                    ),
                 ],
                 &[],
             ),
@@ -172,14 +178,17 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/solver_block_apply.wgsl"),
                     CORE,
                     "work",
-                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
+                    Extent::slot(COUNTER_SOLVER_ROWS, "solver_row_count", "solver_rows"),
                 ),
                 streams,
                 &[
                     ("body_states", StateStream::BodyStates.whole()),
                     ("velocity_deltas", RigidStream::SolverVelocityDeltas.whole()),
-                    ("live_bodies", RigidStream::LiveBodies.whole()),
-                    ("live_count", dynamis_state::counter(COUNTER_LIVE)),
+                    ("solver_rows", RigidStream::SolverRows.whole()),
+                    (
+                        "solver_row_count",
+                        dynamis_state::counter(COUNTER_SOLVER_ROWS),
+                    ),
                     ("solver_rounds", RigidStream::SolverRounds.whole()),
                 ],
                 &[],
@@ -223,7 +232,7 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     include_str!("../shaders/position_apply.wgsl"),
                     CORE,
                     "work",
-                    Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
+                    Extent::slot(COUNTER_SOLVER_ROWS, "solver_row_count", "solver_rows"),
                 ),
                 streams,
                 &[
@@ -231,8 +240,11 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("position_deltas", RigidStream::SolverPositionDeltas.whole()),
                     ("contributions", RigidStream::SolverContributions.whole()),
                     ("resolution", RigidStream::SolverResolution.whole()),
-                    ("live_bodies", RigidStream::LiveBodies.whole()),
-                    ("live_count", dynamis_state::counter(COUNTER_LIVE)),
+                    ("solver_rows", RigidStream::SolverRows.whole()),
+                    (
+                        "solver_row_count",
+                        dynamis_state::counter(COUNTER_SOLVER_ROWS),
+                    ),
                 ],
                 &[],
             ),

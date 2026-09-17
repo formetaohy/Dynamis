@@ -464,9 +464,10 @@ fn shape_axis(world: WorldShape) -> vec3f {
 
 fn world_shape_bounds(world: WorldShape) -> Aabb {
     let source = shape_sources[world.source];
-    let local_center = (source.local_min + source.local_max) * 0.5;
-    let half = (source.local_max - source.local_min) * 0.5;
-    let center = world.center + quat_rotate(world.rotation, local_center);
+    let scaled_min = source.local_min * world.scale;
+    let scaled_max = source.local_max * world.scale;
+    let center = world.center + quat_rotate(world.rotation, (scaled_min + scaled_max) * 0.5);
+    let half = (scaled_max - scaled_min) * 0.5;
     let extent = abs(quat_rotate(world.rotation, vec3f(half.x, 0.0, 0.0)))
         + abs(quat_rotate(world.rotation, vec3f(0.0, half.y, 0.0)))
         + abs(quat_rotate(world.rotation, vec3f(0.0, 0.0, half.z)));
@@ -484,14 +485,7 @@ fn world_aabb_of(world: WorldShape) -> Aabb {
         return plane_box;
     }
     if (shape_source(world.kind)) {
-        let bounds = world_shape_bounds(world);
-        let s = max(max(world.scale.x, world.scale.y), world.scale.z);
-        let center = (bounds.min + bounds.max) * 0.5;
-        let extent = (bounds.max - bounds.min) * 0.5 * s;
-        var aabb: Aabb;
-        aabb.min = center - extent;
-        aabb.max = center + extent;
-        return aabb;
+        return world_shape_bounds(world);
     }
     var extent = vec3f(0.0);
     if (world.kind == SHAPE_SPHERE) {

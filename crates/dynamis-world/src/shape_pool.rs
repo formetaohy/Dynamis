@@ -1,20 +1,20 @@
 use super::arena::{Arena, Run, merged};
 use super::pool::Pool;
 use bytemuck::Zeroable;
-use dynamis_abi::{BvhNodeRecord, SurfaceRecord, TriangleRecord};
+use dynamis_abi::{BvhNodeRecord, CellRecord, SurfaceRecord, TriangleRecord};
 use dynamis_model::{ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
 use dynamis_state::ShapeCapacity;
-use dynamis_state::{TRIANGLE_BYTES, VERTEX_BYTES};
+use dynamis_state::{CELL_BYTES, TRIANGLE_BYTES, VERTEX_BYTES};
 use std::mem::size_of;
 
 #[derive(Clone)]
-struct Geometry<T> {
+struct Table<T> {
     arena: Arena,
     rows: Vec<T>,
     dirty: Vec<Run>,
 }
 
-impl<T: Copy> Geometry<T> {
+impl<T: Copy> Table<T> {
     const fn new() -> Self {
         Self {
             arena: Arena::new(),
@@ -70,12 +70,42 @@ impl<T: Copy> Geometry<T> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Geometry {
+    Vacant,
+    Mesh { triangles: Run, nodes: Run },
+    Grid { rows: u32, cols: u32 },
+}
+
+impl Geometry {
+    const fn triangles(self) -> Run {
+        match self {
+            Self::Mesh { triangles, .. } => triangles,
+            Self::Grid { .. } | Self::Vacant => Run::EMPTY,
+        }
+    }
+
+    const fn nodes(self) -> Run {
+        match self {
+            Self::Mesh { nodes, .. } => nodes,
+            Self::Grid { .. } | Self::Vacant => Run::EMPTY,
+        }
+    }
+
+    const fn grid(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Grid { rows, cols } => Some((rows, cols)),
+            Self::Mesh { .. } | Self::Vacant => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Source {
     kind: u32,
     vertices: Run,
-    triangles: Run,
-    nodes: Run,
+    geometry: Geometry,
+    cells: Run,
     palette: Run,
     bounds: ([f32; 3], [f32; 3]),
     solid: Option<SolidGeometry>,
@@ -85,8 +115,8 @@ impl Source {
     const DEAD: Self = Self {
         kind: 0,
         vertices: Run::EMPTY,
-        triangles: Run::EMPTY,
-        nodes: Run::EMPTY,
+        geometry: Geometry::Vacant,
+        cells: Run::EMPTY,
         palette: Run::EMPTY,
         bounds: ([0.0; 3], [0.0; 3]),
         solid: None,
@@ -98,10 +128,11 @@ pub(crate) struct ShapePool {
     pool: Pool<ShapeSourceHandle>,
     refs: Vec<u32>,
     sources: Vec<Source>,
-    vertices: Geometry<[f32; 4]>,
-    triangles: Geometry<TriangleRecord>,
-    nodes: Geometry<BvhNodeRecord>,
-    palettes: Geometry<SurfaceRecord>,
+    vertices: Table<[f32; 4]>,
+    triangles: Table<TriangleRecord>,
+    nodes: Table<BvhNodeRecord>,
+    cells: Table<CellRecord>,
+    palettes: Table<SurfaceRecord>,
 }
 
 impl ShapePool {
@@ -110,10 +141,11 @@ impl ShapePool {
             pool: Pool::vacate("shape source"),
             refs: Vec::new(),
             sources: Vec::new(),
-            vertices: Geometry::new(),
-            triangles: Geometry::new(),
-            nodes: Geometry::new(),
-            palettes: Geometry::new(),
+            vertices: Table::new(),
+            triangles: Table::new(),
+            nodes: Table::new(),
+            cells: Table::new(),
+            palettes: Table::new(),
         }
     }
 
@@ -123,6 +155,7 @@ impl ShapePool {
             vertices: self.vertices.used(),
             triangles: self.triangles.used(),
             nodes: self.nodes.used(),
+            cells: self.cells.used(),
         }
     }
 
@@ -181,8 +214,10 @@ impl ShapePool {
         );
         self.vertices.release(source.vertices, [0.0; 4]);
         self.triangles
-            .release(source.triangles, TriangleRecord::zeroed());
-        self.nodes.release(source.nodes, BvhNodeRecord::zeroed());
+            .release(source.geometry.triangles(), TriangleRecord::zeroed());
+        self.nodes
+            .release(source.geometry.nodes(), BvhNodeRecord::zeroed());
+        self.cells.release(source.cells, CellRecord::zeroed());
         self.palettes
             .release(source.palette, SurfaceRecord::zeroed());
         self.sources[id] = Source::DEAD;
@@ -214,14 +249,87 @@ impl ShapePool {
         self.sources[id as usize] = Source {
             kind,
             vertices: vertex_run,
-            triangles: triangle_run,
-            nodes: node_run,
+            geometry: Geometry::Mesh {
+                triangles: triangle_run,
+                nodes: node_run,
+            },
+            cells: Run::EMPTY,
             palette: palette_run,
             bounds,
             solid: solid_of(kind, vertices, triangles),
         };
         self.pool.insert(handle);
         handle
+    }
+
+    pub(crate) fn allocate_grid(
+        &mut self,
+        kind: u32,
+        rows: u32,
+        cols: u32,
+        vertices: &[[f32; 3]],
+        surfaces: Option<SurfaceTable<'_>>,
+    ) -> ShapeSourceHandle {
+        validate_grid(rows, cols, vertices, surfaces);
+        let bounds = bounds_of(vertices);
+        let handle = self.pool.acquire();
+        let id = handle.id;
+        self.grow_to(id);
+        let vertex_rows = vertex_rows(vertices);
+        let cell_rows = cell_rows(surfaces);
+        let palette_rows = palette_rows(surfaces);
+        let vertex_run = self.vertices.take([0.0; 4], &vertex_rows);
+        let cell_run = self.cells.take(CellRecord::zeroed(), &cell_rows);
+        let palette_run = self.palettes.take(SurfaceRecord::zeroed(), &palette_rows);
+        self.sources[id as usize] = Source {
+            kind,
+            vertices: vertex_run,
+            geometry: Geometry::Grid { rows, cols },
+            cells: cell_run,
+            palette: palette_run,
+            bounds,
+            solid: None,
+        };
+        self.pool.insert(handle);
+        handle
+    }
+
+    pub(crate) fn update_grid(
+        &mut self,
+        handle: ShapeSourceHandle,
+        rows: u32,
+        cols: u32,
+        vertices: &[[f32; 3]],
+        surfaces: Option<SurfaceTable<'_>>,
+    ) {
+        let source = *self.source(handle);
+        assert!(
+            matches!(source.geometry, Geometry::Grid { .. }),
+            "a height field update requires a grid source"
+        );
+        validate_grid(rows, cols, vertices, surfaces);
+        let bounds = bounds_of(vertices);
+        let vertex_rows = vertex_rows(vertices);
+        let cell_rows = cell_rows(surfaces);
+        let palette_rows = palette_rows(surfaces);
+        let vertex_run = self
+            .vertices
+            .rewrite(source.vertices, [0.0; 4], &vertex_rows);
+        let cell_run = self
+            .cells
+            .rewrite(source.cells, CellRecord::zeroed(), &cell_rows);
+        let palette_run =
+            self.palettes
+                .rewrite(source.palette, SurfaceRecord::zeroed(), &palette_rows);
+        self.sources[handle.id as usize] = Source {
+            kind: source.kind,
+            vertices: vertex_run,
+            geometry: Geometry::Grid { rows, cols },
+            cells: cell_run,
+            palette: palette_run,
+            bounds,
+            solid: None,
+        };
     }
 
     pub(crate) fn update_mesh(
@@ -232,6 +340,10 @@ impl ShapePool {
         surfaces: Option<SurfaceTable<'_>>,
     ) {
         let source = *self.source(handle);
+        assert!(
+            matches!(source.geometry, Geometry::Mesh { .. }),
+            "a mesh update requires a mesh source"
+        );
         validate_geometry(source.kind, vertices, triangles, surfaces);
         let nodes = build_bvh(vertices, triangles);
         let bounds = bounds_of(vertices);
@@ -241,19 +353,24 @@ impl ShapePool {
         let vertex_run = self
             .vertices
             .rewrite(source.vertices, [0.0; 4], &vertex_rows);
-        let triangle_run =
-            self.triangles
-                .rewrite(source.triangles, TriangleRecord::zeroed(), &triangle_rows);
+        let triangle_run = self.triangles.rewrite(
+            source.geometry.triangles(),
+            TriangleRecord::zeroed(),
+            &triangle_rows,
+        );
         let node_run = self
             .nodes
-            .rewrite(source.nodes, BvhNodeRecord::zeroed(), &nodes);
+            .rewrite(source.geometry.nodes(), BvhNodeRecord::zeroed(), &nodes);
         let palette_run =
             self.palettes
                 .rewrite(source.palette, SurfaceRecord::zeroed(), &palette_rows);
         self.sources[handle.id as usize] = Source {
             vertices: vertex_run,
-            triangles: triangle_run,
-            nodes: node_run,
+            geometry: Geometry::Mesh {
+                triangles: triangle_run,
+                nodes: node_run,
+            },
+            cells: Run::EMPTY,
             palette: palette_run,
             bounds,
             solid: solid_of(source.kind, vertices, triangles),
@@ -268,6 +385,7 @@ impl ShapePool {
         vertices_buffer: &dynamis_gpu::Stream,
         triangles_buffer: &dynamis_gpu::Stream,
         nodes_buffer: &dynamis_gpu::Stream,
+        cells_buffer: &dynamis_gpu::Stream,
     ) {
         sources_buffer.write(queue, bytemuck::cast_slice(&self.layouts()));
         for run in self.vertices.take_dirty() {
@@ -291,6 +409,13 @@ impl ShapePool {
                 bytemuck::cast_slice(self.nodes.slice(run)),
             );
         }
+        for run in self.cells.take_dirty() {
+            cells_buffer.write_at(
+                queue,
+                run.offset as u64 * CELL_BYTES,
+                bytemuck::cast_slice(self.cells.slice(run)),
+            );
+        }
     }
 
     fn layouts(&self) -> Vec<dynamis_abi::ShapeSourceRecord> {
@@ -300,15 +425,19 @@ impl ShapePool {
                 kind: source.kind,
                 vertex_offset: source.vertices.offset,
                 vertex_count: source.vertices.len,
-                triangle_offset: source.triangles.offset,
-                triangle_count: source.triangles.len,
-                node_offset: source.nodes.offset,
-                node_count: source.nodes.len,
+                triangle_offset: source.geometry.triangles().offset,
+                node_offset: source.geometry.nodes().offset,
+                node_count: source.geometry.nodes().len,
+                cell_offset: source.cells.offset,
+                cell_count: source.cells.len,
+                grid_rows: source.geometry.grid().map_or(0, |grid| grid.0),
+                grid_cols: source.geometry.grid().map_or(0, |grid| grid.1),
                 _pad0: 0,
+                _pad1: 0,
                 local_min: source.bounds.0,
-                _pad1: 0.0,
-                local_max: source.bounds.1,
                 _pad2: 0.0,
+                local_max: source.bounds.1,
+                _pad3: 0.0,
             })
             .collect()
     }
@@ -344,6 +473,27 @@ fn validate_geometry(
     );
 }
 
+fn validate_grid(rows: u32, cols: u32, vertices: &[[f32; 3]], surfaces: Option<SurfaceTable<'_>>) {
+    assert!(
+        rows >= 2 && cols >= 2,
+        "a height field requires at least two rows and two columns"
+    );
+    assert_eq!(
+        vertices.len() as u32,
+        rows * cols,
+        "a height field carries one vertex per sample"
+    );
+    assert!(
+        surfaces.is_none_or(|table| table.count() == ((rows - 1) * (cols - 1)) as usize),
+        "a height field carries one surface per cell"
+    );
+    assert!(
+        (rows - 1) * (cols - 1) <= dynamis_abi::FEATURE_TRIANGLE_MASK / 2,
+        "a height field must not exceed {} cells so its features stay addressable",
+        dynamis_abi::FEATURE_TRIANGLE_MASK / 2
+    );
+}
+
 fn vertex_rows(vertices: &[[f32; 3]]) -> Vec<[f32; 4]> {
     vertices
         .iter()
@@ -375,6 +525,21 @@ fn triangle_rows(
             }
         })
         .collect()
+}
+
+fn cell_rows(surfaces: Option<SurfaceTable<'_>>) -> Vec<CellRecord> {
+    surfaces
+        .map(|table| {
+            table
+                .indices()
+                .iter()
+                .map(|index| CellRecord {
+                    surface: *index,
+                    material: SurfaceRecord::build(&table.palette()[*index as usize]),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn palette_rows(surfaces: Option<SurfaceTable<'_>>) -> Vec<SurfaceRecord> {
@@ -480,15 +645,23 @@ fn centroid(triangle: [u32; 3], vertices: &[[f32; 3]]) -> [f32; 3] {
     ]
 }
 
-pub fn height_field_triangles(
+pub fn height_field_vertices(
     rows: u32,
     cols: u32,
     heights: &[f32],
     cell_size: [f32; 2],
-) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+) -> Vec<[f32; 3]> {
+    assert!(
+        rows >= 2 && cols >= 2,
+        "a height field requires at least two rows and two columns"
+    );
     assert!(
         heights.len() as u32 == rows * cols,
         "height field sample count must match rows * cols"
+    );
+    assert!(
+        cell_size.iter().all(|size| *size > 0.0),
+        "height field cell size must be strictly positive"
     );
     let mut vertices = Vec::with_capacity((rows * cols) as usize);
     for row in 0..rows {
@@ -501,16 +674,5 @@ pub fn height_field_triangles(
             ]);
         }
     }
-    let mut triangles = Vec::with_capacity(((rows - 1) * (cols - 1) * 2) as usize);
-    for row in 0..rows - 1 {
-        for col in 0..cols - 1 {
-            let a = row * cols + col;
-            let b = (row + 1) * cols + col;
-            let c = row * cols + col + 1;
-            let d = (row + 1) * cols + col + 1;
-            triangles.push([a, b, c]);
-            triangles.push([b, d, c]);
-        }
-    }
-    (vertices, triangles)
+    vertices
 }

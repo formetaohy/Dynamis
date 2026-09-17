@@ -17,6 +17,7 @@ pub mod dynamics;
 pub mod event;
 pub mod filter;
 pub mod fluid;
+pub mod heightfield;
 pub mod impact;
 pub mod interop;
 pub mod joint_energy;
@@ -37,6 +38,7 @@ pub mod shape;
 pub mod shareability;
 pub mod snapshot;
 pub mod soft;
+pub mod solver;
 pub mod surface;
 #[cfg(feature = "profile")]
 pub mod timing;

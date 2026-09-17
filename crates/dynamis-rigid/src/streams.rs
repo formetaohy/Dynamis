@@ -66,6 +66,7 @@ streams! {
         solver_rounds, SolverRounds: "solver rounds", u32, 1, Retention::Scratch, SOLVER_ROUNDS_WORDS;
         solver_block_counts, SolverBlockCounts: "solver block counts", u32, 1, Retention::Scratch, demand.bodies;
         solver_blocks, SolverBlocks: "solver block lanes", u32, 1, Retention::Scratch, demand.solver_words();
+        solver_rows, SolverRows: "solver rows", u32, 1, Retention::Scratch, demand.solver_words();
         solver_velocity_deltas, SolverVelocityDeltas: "solver velocity deltas", u32, 1, Retention::Scratch, demand.body_words();
         solver_position_deltas, SolverPositionDeltas: "solver position deltas", u32, 1, Retention::Scratch, demand.body_words();
         solver_resolution, SolverResolution: "solver resolution", [f32; 4], 1, Retention::Scratch, demand.bodies;

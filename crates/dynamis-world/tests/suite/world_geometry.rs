@@ -175,6 +175,29 @@ fn a_dense_hull_rests_on_a_moved_mesh_floor() {
 }
 
 #[test]
+fn a_scaled_mesh_floor_pairs_at_the_pose_its_geometry_occupies() {
+    let mut world = observed_world(gravity_config());
+    let vertices = vec![
+        [10.0f32, 0.0, 10.0],
+        [14.0, 0.0, 10.0],
+        [14.0, 0.0, 14.0],
+        [10.0, 0.0, 14.0],
+    ];
+    let triangles = vec![[0u32, 2, 1], [0, 3, 2]];
+    let floor = world.add_mesh(&vertices, &triangles, None);
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::mesh(floor)).scale([2.0, 1.0, 2.0])).mass(0.0),
+    );
+    let ball = world.spawn(BodyDesc::sphere(0.3).position([24.0, 3.0, 24.0]));
+    settle_until(&mut world, 180, |world| asleep(world));
+    let y = world.read_state(ball).position[1];
+    assert!(
+        (y - 0.3).abs() < 0.05,
+        "a scaled mesh floor must carry a body at its own pose, got y={y}"
+    );
+}
+
+#[test]
 fn a_scaled_height_field_lifts_its_surface() {
     let mut world = observed_world(gravity_config());
     let field = world.add_height_field(2, 2, &[0.5, 0.5, 0.5, 0.5], [4.0, 4.0], None);

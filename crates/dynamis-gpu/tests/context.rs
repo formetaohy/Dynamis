@@ -193,8 +193,8 @@ fn minimum_limits_policy_is_satisfiable_and_exact() {
     assert_eq!(context.limits(), &GpuContext::MINIMUM_LIMITS);
     assert_eq!(
         context.limits().max_storage_buffers_per_shader_stage,
-        16,
-        "the widest solver bind group must stay bindable"
+        17,
+        "the widest geometry bind group must stay bindable"
     );
 }
 

@@ -7,8 +7,24 @@ use dynamis_model::{Shape, ShapeSourceHandle};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShapePath {
     Convex,
-    WorldGeometry,
+    Mesh,
+    HeightGrid,
+    Plane,
     Vacant,
+}
+
+impl ShapePath {
+    pub const fn world_geometry(self) -> bool {
+        matches!(self, Self::Mesh | Self::HeightGrid | Self::Plane)
+    }
+
+    pub const fn triangle_scene(self) -> bool {
+        matches!(self, Self::Mesh | Self::HeightGrid)
+    }
+
+    pub const fn height_grid(self) -> bool {
+        matches!(self, Self::HeightGrid)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,14 +91,14 @@ pub const SHAPE_ROLES: [ShapeRole; SHAPE_ROLE_COUNT as usize] = [
     },
     ShapeRole {
         code: SHAPE_MESH,
-        path: ShapePath::WorldGeometry,
+        path: ShapePath::Mesh,
         scale: ShapeScale::InRecord,
         source: true,
         analytic: false,
     },
     ShapeRole {
         code: SHAPE_HEIGHTFIELD,
-        path: ShapePath::WorldGeometry,
+        path: ShapePath::HeightGrid,
         scale: ShapeScale::InRecord,
         source: true,
         analytic: false,
@@ -96,7 +112,7 @@ pub const SHAPE_ROLES: [ShapeRole; SHAPE_ROLE_COUNT as usize] = [
     },
     ShapeRole {
         code: SHAPE_PLANE,
-        path: ShapePath::WorldGeometry,
+        path: ShapePath::Plane,
         scale: ShapeScale::NotScalable,
         source: false,
         analytic: false,
@@ -125,9 +141,16 @@ const _: () = {
             "a convex shape must have dimensions to scale"
         );
         assert!(
-            !matches!(role.path, ShapePath::WorldGeometry)
-                || !matches!(role.scale, ShapeScale::UniformFolded),
+            !role.path.world_geometry() || !matches!(role.scale, ShapeScale::UniformFolded),
             "world geometry must not fold its scale"
+        );
+        assert!(
+            !role.path.triangle_scene() || role.source,
+            "geometry made of triangles must carry its source"
+        );
+        assert!(
+            !role.path.height_grid() || role.path.triangle_scene(),
+            "a height grid answers the triangle scene its cells span"
         );
         assert!(
             !matches!(role.path, ShapePath::Convex)
@@ -187,11 +210,15 @@ impl ShapeRole {
     }
 
     pub const fn world_geometry(self) -> bool {
-        matches!(self.path, ShapePath::WorldGeometry)
+        self.path.world_geometry()
     }
 
     pub const fn triangle_scene(self) -> bool {
-        self.world_geometry() && self.source
+        self.path.triangle_scene()
+    }
+
+    pub const fn height_grid(self) -> bool {
+        self.path.height_grid()
     }
 }
 
@@ -239,6 +266,7 @@ fn predicate(out: &mut String, name: &str, holds: fn(&ShapeRole) -> bool) {
 pub(crate) fn emit_predicates(out: &mut String) {
     predicate(out, "shape_world_geometry", |role| role.world_geometry());
     predicate(out, "shape_triangle_scene", |role| role.triangle_scene());
+    predicate(out, "shape_height_grid", |role| role.height_grid());
     predicate(out, "shape_source", |role| role.source);
     predicate(out, "shape_analytic", |role| role.analytic);
 }

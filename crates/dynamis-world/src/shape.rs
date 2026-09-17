@@ -1,8 +1,8 @@
 use super::World;
-use crate::shape_pool::{ShapePool, height_field_triangles};
+use crate::shape_pool::{ShapePool, height_field_vertices};
 use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_hull::hull;
-use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
+use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry, SurfaceTable};
 
 #[derive(Clone)]
 pub(crate) struct ShapeStore {
@@ -65,12 +65,13 @@ impl World {
         cell_size: [f32; 2],
         surfaces: Option<SurfaceTable<'_>>,
     ) -> ShapeSourceHandle {
-        let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
-        let expanded = height_field_surfaces(surfaces, rows, cols);
-        let table = expanded
-            .as_ref()
-            .map(|(palette, indices)| SurfaceTable::new(palette, indices));
-        self.allocate_shape(SHAPE_HEIGHTFIELD, &vertices, triangles, table)
+        let vertices = height_field_vertices(rows, cols, heights, cell_size);
+        let handle =
+            self.shapes
+                .pool
+                .allocate_grid(SHAPE_HEIGHTFIELD, rows, cols, &vertices, surfaces);
+        self.shapes.dirty = true;
+        handle
     }
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
@@ -100,12 +101,11 @@ impl World {
         cell_size: [f32; 2],
         surfaces: Option<SurfaceTable<'_>>,
     ) {
-        let (vertices, triangles) = height_field_triangles(rows, cols, heights, cell_size);
-        let expanded = height_field_surfaces(surfaces, rows, cols);
-        let table = expanded
-            .as_ref()
-            .map(|(palette, indices)| SurfaceTable::new(palette, indices));
-        self.update_mesh(handle, &vertices, &triangles, table);
+        let vertices = height_field_vertices(rows, cols, heights, cell_size);
+        self.shapes
+            .pool
+            .update_grid(handle, rows, cols, &vertices, surfaces);
+        self.shapes.dirty = true;
     }
 
     fn allocate_shape(
@@ -129,25 +129,4 @@ impl World {
             _ => None,
         }
     }
-}
-
-fn height_field_surfaces(
-    surfaces: Option<SurfaceTable<'_>>,
-    rows: u32,
-    cols: u32,
-) -> Option<(Vec<SurfaceDesc>, Vec<u32>)> {
-    let table = surfaces?;
-    let cells = rows.saturating_sub(1) * cols.saturating_sub(1);
-    assert_eq!(
-        table.count(),
-        cells as usize,
-        "a height field carries one surface per cell"
-    );
-    let palette = table.palette().to_vec();
-    let mut indices = Vec::with_capacity(table.count() * 2);
-    for index in table.indices() {
-        indices.push(*index);
-        indices.push(*index);
-    }
-    Some((palette, indices))
 }
