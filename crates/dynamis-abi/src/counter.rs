@@ -212,7 +212,7 @@ pub(crate) fn step_reset_wgsl(out: &mut String) {
 pub mod host {
     use super::COUNTER_DEVICE_COUNT;
 
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
 
     pub const COUNTER_BODIES: usize = COUNTER_DEVICE_COUNT;
     pub const COUNTER_COLLIDERS: usize = COUNTER_DEVICE_COUNT + 1;
@@ -221,6 +221,7 @@ pub mod host {
     pub const COUNTER_BODY_MOVES: usize = COUNTER_DEVICE_COUNT + 4;
     pub const COUNTER_CONSTRAINT_COMMANDS: usize = COUNTER_DEVICE_COUNT + 5;
     pub const COUNTER_CONSTRAINT_MOVES: usize = COUNTER_DEVICE_COUNT + 6;
+    pub const COUNTER_MOVABLE_COLLIDERS: usize = COUNTER_DEVICE_COUNT + 7;
 }
 
 pub const COUNTER_COUNT: usize = COUNTER_DEVICE_COUNT + host::COUNT;
@@ -233,6 +234,7 @@ pub type Counters = [u32; COUNTER_COUNT];
 pub struct DeclaredCounters {
     pub bodies: u32,
     pub colliders: u32,
+    pub movable_colliders: u32,
     pub constraints: u32,
     pub body_edits: u32,
     pub body_moves: u32,
@@ -244,6 +246,7 @@ impl DeclaredCounters {
     pub fn write_into(&self, counters: &mut Counters) {
         counters[host::COUNTER_BODIES] = self.bodies;
         counters[host::COUNTER_COLLIDERS] = self.colliders;
+        counters[host::COUNTER_MOVABLE_COLLIDERS] = self.movable_colliders;
         counters[host::COUNTER_CONSTRAINTS] = self.constraints;
         counters[host::COUNTER_BODY_EDITS] = self.body_edits;
         counters[host::COUNTER_BODY_MOVES] = self.body_moves;

@@ -1,12 +1,13 @@
 use super::streams::{RigidDemand, RigidStreams};
 use dynamis_abi::{
-    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_RESTING, Counters,
+    COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_IMPACTS, COUNTER_MOVABLE_COLLIDERS, COUNTER_RESTING,
+    Counters,
 };
 use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled, unreported};
 
-const FRESH_EVENTS_PER_COLLIDER: u32 = 8;
-const FRESH_CONTACTS_PER_COLLIDER: u32 = 4;
-const FRESH_IMPACTS_PER_COLLIDER: u32 = 4;
+const FRESH_EVENTS_PER_MOVABLE_COLLIDER: u32 = 8;
+const FRESH_CONTACTS_PER_MOVABLE_COLLIDER: u32 = 4;
+const FRESH_IMPACTS_PER_MOVABLE_COLLIDER: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidCapacity {
@@ -21,7 +22,7 @@ pub struct RigidCapacity {
 pub struct RigidInputs {
     pub bodies: u32,
     pub persist_events: bool,
-    pub colliders: u32,
+    pub movable_colliders: u32,
     pub collider_pool: u32,
     pub constraints: u32,
     pub observed: u32,
@@ -50,11 +51,14 @@ pub fn plan(
     pairs: u32,
     release: bool,
 ) -> RigidDemand {
-    let fresh = unreported(inputs.colliders, measured[COUNTER_COLLIDERS]);
+    let fresh = unreported(
+        inputs.movable_colliders,
+        measured[COUNTER_MOVABLE_COLLIDERS],
+    );
     let frozen = measured[COUNTER_RESTING];
     let contacts = settled(
         current.contacts.slots(),
-        product(fresh, FRESH_CONTACTS_PER_COLLIDER, "contact")
+        product(fresh, FRESH_CONTACTS_PER_MOVABLE_COLLIDER, "contact")
             .max(measured[COUNTER_CONTACTS])
             .max(frozen),
         STREAM_FLOOR,
@@ -63,7 +67,7 @@ pub fn plan(
     let per_step_events = if inputs.persist_events { frozen } else { 0 };
     let events = settled(
         current.events.slots() / dynamis_gpu::SEGMENT_COUNT,
-        product(fresh, FRESH_EVENTS_PER_COLLIDER, "event")
+        product(fresh, FRESH_EVENTS_PER_MOVABLE_COLLIDER, "event")
             .max(measured[COUNTER_EVENTS])
             .max(per_step_events),
         STREAM_FLOOR,
@@ -71,7 +75,7 @@ pub fn plan(
     );
     let impacts = settled(
         current.impacts.slots() / dynamis_gpu::SEGMENT_COUNT,
-        product(fresh, FRESH_IMPACTS_PER_COLLIDER, "impact").max(measured[COUNTER_IMPACTS]),
+        product(fresh, FRESH_IMPACTS_PER_MOVABLE_COLLIDER, "impact").max(measured[COUNTER_IMPACTS]),
         STREAM_FLOOR,
         release,
     );

@@ -1,12 +1,12 @@
 use super::streams::{BroadphaseDemand, BroadphaseStreams};
-use dynamis_abi::{COUNTER_COLLIDERS, COUNTER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER};
+use dynamis_abi::{COUNTER_MOVABLE_COLLIDERS, COUNTER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER};
 use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, product, settled, unreported};
 
-const FRESH_PARTNERS_PER_COLLIDER: u32 = 16;
+const FRESH_PARTNERS_PER_MOVABLE_COLLIDER: u32 = 16;
 
 const _: () = assert!(
-    FRESH_PARTNERS_PER_COLLIDER >= MAX_CELLS_PER_COLLIDER,
-    "the freshly spawned pair reservation must cover every grid entry a collider can own"
+    FRESH_PARTNERS_PER_MOVABLE_COLLIDER >= MAX_CELLS_PER_COLLIDER,
+    "the freshly spawned pair reservation must cover every grid entry a movable collider can own"
 );
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -18,6 +18,7 @@ pub struct BroadphaseCapacity {
 #[derive(Clone, Copy, Debug)]
 pub struct BroadphaseInputs {
     pub colliders: u32,
+    pub movable_colliders: u32,
     pub particles: u32,
 }
 
@@ -37,10 +38,13 @@ pub fn plan(
         STREAM_FLOOR,
         release,
     );
-    let fresh = unreported(inputs.colliders, measured[COUNTER_COLLIDERS]);
+    let fresh = unreported(
+        inputs.movable_colliders,
+        measured[COUNTER_MOVABLE_COLLIDERS],
+    );
     let pairs = settled(
         current.pair_major.slots(),
-        product(fresh, FRESH_PARTNERS_PER_COLLIDER, "pair").max(measured[COUNTER_PAIRS]),
+        product(fresh, FRESH_PARTNERS_PER_MOVABLE_COLLIDER, "pair").max(measured[COUNTER_PAIRS]),
         STREAM_FLOOR,
         release,
     );

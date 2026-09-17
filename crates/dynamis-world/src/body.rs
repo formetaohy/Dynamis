@@ -146,7 +146,7 @@ impl World {
             state.com = record.com;
         });
         self.migrate_partition(handle);
-        self.repool_colliders(handle.id);
+        self.repool_colliders(handle.id, !self.is_static(id));
     }
 
     pub(crate) fn encode_bodies(&mut self) {
@@ -549,9 +549,9 @@ impl World {
         self.bodies.commands.push(BodyCommand::Sleep { row: slot });
     }
 
-    pub(crate) fn repool_colliders(&mut self, id: u32) {
+    pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) {
         let records = self.collider_block_of(id as usize);
-        self.colliders.assign(id, &records);
+        self.colliders.assign(id, movable, &records);
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {

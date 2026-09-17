@@ -3,8 +3,8 @@ use super::common::{
     static_config, static_sphere_ground,
 };
 use dynamis_abi::{
-    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_CONTACTS,
-    COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
+    COUNTER_COLLIDERS, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_MOVABLE_COLLIDERS,
+    COUNTER_REFUSED_CONTACTS, COUNTER_REFUSED_PAIRS, COUNTER_RESTING,
 };
 use dynamis_model::{BodyDesc, BodyHandle, ColliderDesc, QueryFilter, Shape, SoftBodyDesc};
 use dynamis_world::World;
@@ -263,6 +263,133 @@ fn a_kept_reservation_serves_a_whole_scene_without_a_second_allocation() {
 }
 
 #[test]
+fn the_declared_movable_fact_counts_the_colliders_that_can_move() {
+    let mut world = observed_world(static_config());
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        0,
+        "an empty world declares no movable collider"
+    );
+
+    let anchor = world.spawn(BodyDesc::static_sphere(0.2).position([0.0, 0.0, 0.0]));
+    let compound = world.spawn(
+        BodyDesc::sphere(0.2)
+            .position([10.0, 0.0, 0.0])
+            .collider(ColliderDesc::new(Shape::sphere(0.3))),
+    );
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        2,
+        "only the colliders of a body that can move are declared"
+    );
+
+    world.set_mass(anchor, 1.0);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        3,
+        "a body that gains mass declares the colliders it carries"
+    );
+
+    world.set_kinematic(compound, true);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        3,
+        "a kinematic body keeps declaring its colliders"
+    );
+
+    world.set_kinematic(compound, false);
+    world.set_mass(compound, 0.0);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        1,
+        "an immobile body declares none of the colliders it holds"
+    );
+
+    world.remove(anchor);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_MOVABLE_COLLIDERS],
+        0,
+        "a removed body releases the movable colliders it held"
+    );
+}
+
+#[test]
+fn immovable_geometry_reserves_no_interaction_room() {
+    let mut world = observed_world(static_config());
+    let floor = world.stream_capacity();
+    for index in 0..512 {
+        world.spawn(BodyDesc::static_sphere(0.2).position([index as f32 * 4.0, 0.0, 0.0]));
+    }
+    settle(&mut world, 8);
+    let measured = *world.measured();
+    let capacity = world.stream_capacity();
+    assert_eq!(
+        measured[COUNTER_COLLIDERS], 512,
+        "an immovable burst must declare its colliders"
+    );
+    assert_eq!(
+        measured[COUNTER_CONTACTS], 0,
+        "spaced colliders must never touch"
+    );
+    assert_eq!(
+        measured[COUNTER_EVENTS], 0,
+        "spaced colliders must never announce"
+    );
+    assert_eq!(
+        capacity.broadphase.pairs, floor.broadphase.pairs,
+        "immovable colliders can never pair, so they must reserve no pair room, {capacity:?}"
+    );
+    assert_eq!(
+        capacity.rigid.contacts, floor.rigid.contacts,
+        "immovable colliders can never carry a contact, so they must reserve no contact room, {capacity:?}"
+    );
+    assert_eq!(
+        capacity.rigid.events, floor.rigid.events,
+        "immovable colliders can never announce, so they must reserve no event room, {capacity:?}"
+    );
+    assert_eq!(
+        capacity.rigid.impacts, floor.rigid.impacts,
+        "immovable colliders can never impact, so they must reserve no impact room, {capacity:?}"
+    );
+    assert!(
+        capacity.broadphase.entries > floor.broadphase.entries,
+        "immovable colliders still own the grid entries their bounds cover, {capacity:?}"
+    );
+}
+
+#[test]
+fn movable_geometry_reserves_the_interaction_room_it_can_fill() {
+    let mut world = observed_world(static_config());
+    let floor = world.stream_capacity();
+    let count = 512u32;
+    for index in 0..count {
+        world.spawn(BodyDesc::sphere(0.05).position([index as f32 * 1000.0, 0.0, 0.0]));
+    }
+    settle(&mut world, 8);
+    let capacity = world.stream_capacity();
+    assert!(
+        capacity.broadphase.pairs >= floor.broadphase.pairs.max(count * 16),
+        "a movable burst must reserve the partners each collider can meet before the device reports its demand, {capacity:?}"
+    );
+    assert!(
+        capacity.rigid.contacts >= floor.rigid.contacts.max(count * 4),
+        "a movable burst must reserve the contacts each collider can carry, {capacity:?}"
+    );
+}
+
+#[test]
 fn a_widening_scene_reaches_its_reservation_by_doubling() {
     let mut world = observed_world(gravity_config());
     world.spawn(
@@ -328,33 +455,6 @@ fn the_declared_collider_fact_counts_the_live_colliders_alone() {
         world.measured()[COUNTER_COLLIDERS],
         1,
         "a removed body releases the colliders it held"
-    );
-}
-
-#[test]
-fn an_idle_scene_sheds_the_room_its_colliders_never_used() {
-    let mut world = observed_world(static_config());
-    for index in 0..512 {
-        world.spawn(BodyDesc::static_sphere(0.2).position([index as f32 * 4.0, 0.0, 0.0]));
-    }
-    settle(&mut world, 140);
-    let measured = *world.measured();
-    let capacity = world.stream_capacity();
-    assert_eq!(
-        measured[COUNTER_CONTACTS], 0,
-        "spaced colliders must never touch"
-    );
-    assert_eq!(
-        measured[COUNTER_EVENTS], 0,
-        "spaced colliders must never announce"
-    );
-    assert!(
-        capacity.rigid.contacts < 512 * 4,
-        "an idle scene must shed the contact room its colliders never used, {capacity:?}"
-    );
-    assert!(
-        capacity.rigid.events < 512 * 8,
-        "an idle scene must shed the event room its colliders never used, {capacity:?}"
     );
 }
 

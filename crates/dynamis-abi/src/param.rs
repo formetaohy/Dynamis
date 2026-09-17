@@ -83,6 +83,7 @@ census! {
         body_ids,
         constraint_ids,
         live_colliders,
+        movable_colliders,
         live_characters,
         live_vehicles,
         queries,

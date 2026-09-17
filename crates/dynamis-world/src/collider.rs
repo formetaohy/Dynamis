@@ -3,13 +3,31 @@ use super::body::BodyStore;
 use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK, EVENT_MODE_PERSIST};
 use dynamis_model::BodyHandle;
 
+#[derive(Clone, Copy)]
+struct ColliderRun {
+    run: Run,
+    movable: bool,
+}
+
+impl ColliderRun {
+    const EMPTY: Self = Self {
+        run: Run::EMPTY,
+        movable: false,
+    };
+
+    const fn movable_length(self) -> u32 {
+        if self.movable { self.run.len } else { 0 }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ColliderStore {
     arena: Arena,
     records: Vec<ColliderRecord>,
-    runs: Vec<Run>,
+    runs: Vec<ColliderRun>,
     cleared: Vec<Run>,
     live: u32,
+    movable: u32,
     armed: u32,
     persistent: u32,
 }
@@ -22,6 +40,7 @@ impl ColliderStore {
             runs: Vec::new(),
             cleared: Vec::new(),
             live: 0,
+            movable: 0,
             armed: 0,
             persistent: 0,
         }
@@ -33,6 +52,10 @@ impl ColliderStore {
 
     pub(crate) fn live(&self) -> u32 {
         self.live
+    }
+
+    pub(crate) fn movable(&self) -> u32 {
+        self.movable
     }
 
     pub(crate) fn impact_armed(&self) -> u32 {
@@ -55,29 +78,43 @@ impl ColliderStore {
         self.runs
             .get(id as usize)
             .copied()
-            .filter(|run| run.len > 0)
+            .filter(|entry| entry.run.len > 0)
+            .map(|entry| entry.run)
     }
 
-    pub(crate) fn assign(&mut self, id: u32, records: &[ColliderRecord]) {
+    pub(crate) fn assign(&mut self, id: u32, movable: bool, records: &[ColliderRecord]) {
         let len = records.len() as u32;
         assert!(len > 0, "a collider run must hold at least one collider");
         if self.runs.len() <= id as usize {
-            self.runs.resize(id as usize + 1, Run::EMPTY);
+            self.runs.resize(id as usize + 1, ColliderRun::EMPTY);
         }
-        if self.runs[id as usize].len != len {
+        let entry = if self.runs[id as usize].run.len == len {
+            ColliderRun {
+                movable,
+                ..self.runs[id as usize]
+            }
+        } else {
             self.release(id);
-            let run = self.take(len);
-            self.runs[id as usize] = run;
-        }
-        let run = self.runs[id as usize];
-        let span = run.span();
+            ColliderRun {
+                run: self.take(len),
+                movable,
+            }
+        };
+        self.hold_run(id, entry);
+        let span = entry.run.span();
         self.armed -= armed(&self.records[span.clone()]);
         self.persistent -= persisting(&self.records[span.clone()]);
         for (slot, record) in records.iter().enumerate() {
-            self.records[run.offset as usize + slot] = *record;
+            self.records[entry.run.offset as usize + slot] = *record;
         }
         self.armed += armed(records);
         self.persistent += persisting(records);
+    }
+
+    fn hold_run(&mut self, id: u32, entry: ColliderRun) {
+        let previous = std::mem::replace(&mut self.runs[id as usize], entry);
+        self.movable -= previous.movable_length();
+        self.movable += entry.movable_length();
     }
 
     fn take(&mut self, len: u32) -> Run {
@@ -99,7 +136,7 @@ impl ColliderStore {
         let released = armed(&self.records[run.span()]);
         self.armed -= released;
         self.persistent -= persisting(&self.records[run.span()]);
-        self.runs[id as usize] = Run::EMPTY;
+        self.hold_run(id, ColliderRun::EMPTY);
         for index in run.span() {
             self.records[index] = ColliderRecord::cleared();
         }

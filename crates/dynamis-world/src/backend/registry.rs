@@ -131,6 +131,7 @@ impl World {
             body_ids: self.bodies.pool.ids(),
             colliders: self.colliders.used(),
             live_colliders: self.colliders.live(),
+            movable_colliders: self.colliders.movable(),
             constraints: self.constraints.pool.len(),
             constraint_ids: self.constraints.pool.ids(),
             particles,
@@ -171,12 +172,13 @@ impl World {
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 colliders: census.live_colliders,
+                movable_colliders: census.movable_colliders,
                 particles: census.particles,
             },
             rigid: dynamis_rigid::RigidInputs {
                 bodies: census.bodies,
                 persist_events: self.colliders.persist_events() > 0,
-                colliders: census.live_colliders,
+                movable_colliders: census.movable_colliders,
                 collider_pool: census.colliders,
                 constraints: census.constraints,
                 observed: census.observed,
@@ -244,6 +246,7 @@ impl World {
         DeclaredCounters {
             bodies: census.bodies,
             colliders: census.live_colliders,
+            movable_colliders: census.movable_colliders,
             constraints: census.constraints,
             body_edits: rows.body_edit_runs,
             body_moves: rows.body_moves,
