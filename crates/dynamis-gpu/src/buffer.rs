@@ -143,6 +143,10 @@ impl<'a> GpuSlot<'a> {
         self.buffer.as_binding_at(self.offset, self.size)
     }
 
+    pub fn size(&self) -> BufferAddress {
+        self.size
+    }
+
     pub fn storage_id(self) -> StorageId {
         StorageId {
             allocation: self.buffer.allocation(),

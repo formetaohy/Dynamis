@@ -17,6 +17,9 @@ fn shared() -> &'static GpuContext {
 }
 
 fn read_u32s(context: &GpuContext, buffer: &GpuBuffer, words: usize) -> Vec<u32> {
+    if words == 0 {
+        return Vec::new();
+    }
     let bytes = (words * 4) as u64;
     let data = read_regions(
         context.device(),
@@ -47,8 +50,18 @@ struct Channels {
 
 impl Channels {
     fn new(context: &GpuContext, major: &[u32], minor: &[u32], payload: &[u32]) -> Self {
+        Self::sized(context, major, minor, payload, major.len().max(1))
+    }
+
+    fn sized(
+        context: &GpuContext,
+        major: &[u32],
+        minor: &[u32],
+        payload: &[u32],
+        slots: usize,
+    ) -> Self {
         let device = context.device();
-        let bytes = (major.len() * 4) as u64;
+        let bytes = (slots * 4) as u64;
         let lane = |label: &str, data: Option<&[u32]>| {
             let buffer = GpuBuffer::new(device, label, bytes, STREAM);
             if let Some(data) = data {
@@ -122,7 +135,27 @@ fn run_sort(
     major_words: u32,
     minor_words: u32,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
-    let channels = Channels::new(context, major, minor, payload);
+    run_sort_slots(
+        context,
+        major,
+        minor,
+        payload,
+        major_words,
+        minor_words,
+        major.len().max(1),
+    )
+}
+
+fn run_sort_slots(
+    context: &GpuContext,
+    major: &[u32],
+    minor: &[u32],
+    payload: &[u32],
+    major_words: u32,
+    minor_words: u32,
+    slots: usize,
+) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    let channels = Channels::sized(context, major, minor, payload, slots);
     let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
     sort_once(context, &mut sort, &channels, major_words, minor_words);
@@ -322,5 +355,35 @@ fn reusing_the_channels_reuses_their_bindings() {
     for _ in 0..3 {
         sort_once(context, &mut sort, &channels, 1, 0);
         assert_sorted(context, &channels, &keys);
+    }
+}
+
+#[test]
+fn a_stream_inside_a_wider_reservation_sorts_only_what_it_holds() {
+    let context = shared();
+    for len in [0usize, 1, 7, 255, 256, 257, 1000, 5000] {
+        let major = scattered_keys(len, 5);
+        let minor = scattered_keys(len, 6);
+        let payload = counting_payload(len);
+        let reservation = 65_536;
+        let (sorted, _, carried) =
+            run_sort_slots(context, &major, &minor, &payload, 4, 4, reservation);
+        let mut expected: Vec<(u32, u32, u32)> = (0..len as u32)
+            .map(|at| (major[at as usize], minor[at as usize], at))
+            .collect();
+        expected.sort_by_key(|&(major, minor, _)| (major, minor));
+        assert_eq!(
+            sorted,
+            expected
+                .iter()
+                .map(|&(major, _, _)| major)
+                .collect::<Vec<_>>(),
+            "a stream of {len} records inside a {reservation} slot reservation must order its keys",
+        );
+        assert_eq!(
+            carried,
+            expected.iter().map(|&(_, _, at)| at).collect::<Vec<_>>(),
+            "a stream of {len} records inside a {reservation} slot reservation must carry its payload",
+        );
     }
 }

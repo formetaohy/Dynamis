@@ -15,7 +15,7 @@ fn main(
 ) {
     let unit = wgid.y * UNITS_PER_ROW + wgid.x;
     let length = sort_length();
-    let stride = UNITS * TILE;
+    let stride = sort_units(length) * TILE;
     for (
         var index = unit * TILE + lid.x;
         index < length;

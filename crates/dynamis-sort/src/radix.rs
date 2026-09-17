@@ -60,6 +60,11 @@ impl Declared {
     }
 }
 
+fn reserved_units(channels: &SortChannels<'_>) -> u32 {
+    let slots = channels.major.elements();
+    (slots.div_ceil(TILE)).clamp(1, UNITS)
+}
+
 pub fn key_words(elements: u32) -> u32 {
     let bits = 32 - elements.saturating_sub(1).leading_zeros();
     bits.div_ceil(8).clamp(1, 4)
@@ -421,23 +426,25 @@ impl RadixSort {
                 groups.len() - 1
             });
         let bound = &groups[index];
+        let units = reserved_units(channels);
+        let chunks = units.div_ceil(CHUNK);
         recorder.record(length.pipeline(), &[&bound.length], 1);
         for (order, digit) in digits.iter().enumerate() {
             let source = order % 2;
             recorder.record(
                 histogram[digit].pipeline(),
                 &[&bound.histogram[order][source]],
-                UNITS,
+                units,
             );
-            recorder.record(prefix.pipeline(), &[&bound.prefix], CHUNKS);
+            recorder.record(prefix.pipeline(), &[&bound.prefix], chunks);
             recorder.record(
                 scatter[digit].pipeline(),
                 &[&bound.scatter[order][source]],
-                UNITS,
+                units,
             );
         }
         if digits.len() % 2 == 1 {
-            recorder.record(copy.pipeline(), &[&bound.copy], UNITS);
+            recorder.record(copy.pipeline(), &[&bound.copy], units);
         }
     }
 }

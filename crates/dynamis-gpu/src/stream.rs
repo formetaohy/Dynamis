@@ -101,6 +101,10 @@ impl<'a> TypedSlot<'a> {
         self.element
     }
 
+    pub fn elements(self) -> u32 {
+        (self.slot.size() / self.element.bytes()) as u32
+    }
+
     pub fn storage_id(self) -> StorageId {
         self.slot.storage_id()
     }
