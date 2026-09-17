@@ -1,4 +1,6 @@
-use super::common::{gravity_config, observed_world, settle, settle_until, static_sphere_ground};
+use super::common::{
+    DT, gravity_config, observed_world, settle, settle_until, static_sphere_ground,
+};
 use dynamis_model::BodyDesc;
 
 const STEP: &[&str] = &[
@@ -81,4 +83,42 @@ fn an_idle_world_runs_only_the_unconditional_passes() {
         world.read_state(ball).sleeping && world.ran_passes() == IDLE
     });
     assert_eq!(world.ran_passes(), IDLE);
+}
+
+#[test]
+fn a_burst_outgrows_the_measured_work_it_streams_over() {
+    let mut world = observed_world(gravity_config());
+    let _ground = world.spawn(
+        BodyDesc::cuboid([40.0, 0.5, 40.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let lone = world.spawn(BodyDesc::sphere(0.2).position([-38.0, 3.0, -38.0]));
+    settle(&mut world, 4);
+    assert!(world.read_state(lone).position[1] < 3.0);
+    let mut burst = Vec::new();
+    for index in 0..2048 {
+        let x = (index % 64) as f32 - 32.0;
+        let z = (index / 64) as f32 - 16.0;
+        burst.push(world.spawn(BodyDesc::sphere(0.2).position([x, 3.0, z])));
+    }
+    world.step(DT);
+    world.wait();
+    let stalled = burst
+        .iter()
+        .filter(|handle| world.read_state(**handle).position[1] >= 3.0)
+        .count();
+    assert_eq!(
+        stalled, 0,
+        "a burst must integrate past its quiet measurement"
+    );
+    settle(&mut world, 60);
+    let sunk = burst
+        .iter()
+        .filter(|handle| world.read_state(**handle).position[1] <= 0.05)
+        .count();
+    assert_eq!(
+        sunk, 0,
+        "a burst must land on a ground it was never measured with"
+    );
 }

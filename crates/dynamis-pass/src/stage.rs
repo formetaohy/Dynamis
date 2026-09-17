@@ -8,6 +8,8 @@ use wgpu::{BindGroup, BindGroupEntry, Device};
 
 pub const MAX_DISPATCH_WORKGROUPS: u32 = 4096;
 
+const LIVE_WORKGROUP_FLOOR: u32 = 16;
+
 pub trait PassRuntime<F> {
     fn build(context: &GpuContext, streams: &impl ResourceSource) -> Self
     where
@@ -95,6 +97,7 @@ pub struct Stage {
     pipeline: PipelineHandle,
     dispatch: Dispatch,
     source: Option<ResourceId>,
+    live: Option<usize>,
     warm: Option<PipelineHandle>,
     storage: Vec<Binding>,
     shapes: Vec<Binding>,
@@ -127,6 +130,10 @@ impl Stage {
                 None
             }
         };
+        let live = match dispatch {
+            Dispatch::Stream => Some(extent.counter(label, slots)),
+            Dispatch::Rows | Dispatch::Workgroups => None,
+        };
         let shapes = if shapes.is_empty() {
             Vec::new()
         } else {
@@ -152,6 +159,7 @@ impl Stage {
             pipeline,
             dispatch,
             source: extent_source,
+            live,
             warm,
             storage,
             shapes,
@@ -199,7 +207,15 @@ impl Stage {
         let source = self
             .source
             .expect("a streaming stage declares the stream its work covers");
-        workgroups_of(resources.slots(source)).min(MAX_DISPATCH_WORKGROUPS)
+        let slots = resources.slots(source);
+        let capacity = workgroups_of(slots).min(MAX_DISPATCH_WORKGROUPS);
+        let live = self
+            .live
+            .and_then(|counter| resources.measured(counter))
+            .map_or(capacity, |measured| {
+                workgroups_of(measured.min(slots)).min(MAX_DISPATCH_WORKGROUPS)
+            });
+        live.max(capacity / LIVE_WORKGROUP_FLOOR).max(1)
     }
 
     pub fn record_workgroups<R: ResourceSource>(

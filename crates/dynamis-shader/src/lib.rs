@@ -180,29 +180,52 @@ fn extent() -> u32 {{
                 );
                 Some(slot(slots, label, array).resource())
             }
-            Self::Slot {
-                counter,
-                count,
-                array,
-                ..
-            } => {
-                let spec = dynamis_abi::COUNTERS[counter];
-                let SlotRef::Range { offset, size, .. } = *slot(slots, label, count) else {
-                    panic!(
-                        "{label:?} bounds {} by the whole counter stream instead of the {} counter",
-                        spec.label, spec.name,
-                    );
-                };
-                assert!(
-                    offset == counter as u64 * dynamis_abi::COUNTER_STRIDE && size == 4,
-                    "{label:?} bounds {} by {offset} bytes into the counter stream instead of {}",
-                    spec.label,
-                    spec.name,
-                );
+            Self::Slot { array, .. } => {
+                assert_declared_counter(self, label, slots);
                 Some(slot(slots, label, array).resource())
             }
         }
     }
+
+    pub fn counter(self, label: &str, slots: &[(&'static str, SlotRef)]) -> usize {
+        match self {
+            Self::None => {
+                panic!("{label:?} streams over no device counter while its dispatch is streamed")
+            }
+            Self::Shared { counter, .. } => {
+                let spec = dynamis_abi::COUNTERS[counter];
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} bounds {} by the whole counter stream",
+                    spec.label,
+                );
+                counter
+            }
+            Self::Slot { counter, .. } => {
+                assert_declared_counter(self, label, slots);
+                counter
+            }
+        }
+    }
+}
+
+fn assert_declared_counter(extent: Extent, label: &str, slots: &[(&'static str, SlotRef)]) {
+    let Extent::Slot { counter, count, .. } = extent else {
+        panic!("{label:?} streams over a shared counter while its array is absent")
+    };
+    let spec = dynamis_abi::COUNTERS[counter];
+    let SlotRef::Range { offset, size, .. } = *slot(slots, label, count) else {
+        panic!(
+            "{label:?} bounds {} by the whole counter stream instead of the {} counter",
+            spec.label, spec.name,
+        );
+    };
+    assert!(
+        offset == counter as u64 * dynamis_abi::COUNTER_STRIDE && size == 4,
+        "{label:?} bounds {} by {offset} bytes into the counter stream instead of {}",
+        spec.label,
+        spec.name,
+    );
 }
 
 fn slot<'a>(slots: &'a [(&'static str, SlotRef)], label: &str, name: &str) -> &'a SlotRef {

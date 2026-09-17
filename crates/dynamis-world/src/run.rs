@@ -42,6 +42,7 @@ impl World {
         let mut encoder = SubmissionEncoder::new(&device, run.label());
         let segments = self.copy_segments(&mut encoder);
         let batch = self.declare(run);
+        self.backend.streams.measure(&self.backend.measured);
         self.backend
             .passes
             .record(&mut encoder, &self.backend.streams, &frames, run);

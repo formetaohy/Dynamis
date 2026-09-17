@@ -192,6 +192,7 @@ macro_rules! domains {
 
         pub(crate) struct Streams {
             $( pub(crate) $field: <$domain as $crate::Domain>::Streams, )*
+            measured: Option<::dynamis_abi::Counters>,
         }
 
         impl Streams {
@@ -209,7 +210,12 @@ macro_rules! domains {
                             &plan.$field,
                         ),
                     )*
+                    measured: None,
                 }
+            }
+
+            pub(crate) fn measure(&mut self, measured: &::dynamis_abi::Counters) {
+                self.measured = Some(*measured);
             }
 
             pub(crate) fn matches(&self, plan: &Plan) -> bool {
@@ -256,6 +262,10 @@ macro_rules! domains {
         }
 
         impl dynamis_gpu::ResourceSource for Streams {
+            fn measured(&self, counter: usize) -> Option<u32> {
+                self.measured.map(|counters| counters[counter])
+            }
+
             fn slots(&self, resource: dynamis_gpu::ResourceId) -> u32 {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {

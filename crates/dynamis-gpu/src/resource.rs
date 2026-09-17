@@ -88,4 +88,8 @@ pub trait ResourceSource {
     fn whole(&self, resource: ResourceId) -> GpuSlot<'_>;
 
     fn range(&self, resource: ResourceId, offset: u64, size: u64) -> GpuSlot<'_>;
+
+    fn measured(&self, _counter: usize) -> Option<u32> {
+        None
+    }
 }
