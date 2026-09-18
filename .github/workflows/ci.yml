@@ -40,6 +40,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Test the released device program
+        run: cargo test --workspace --release
+
       - name: Test with profiling built in
         run: |
           cargo test -p dynamis-gpu --all-features --test timing

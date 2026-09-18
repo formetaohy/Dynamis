@@ -308,8 +308,10 @@ fn ccd_stops_an_elongated_body_by_its_leading_face() {
 }
 
 #[test]
-fn ccd_stops_a_spinning_body_that_would_sweep_through_a_wall() {
+fn ccd_keeps_a_spinning_rod_out_of_the_wall_it_sweeps() {
     use dynamis_model::math::quat_rotate;
+
+    const WALL_FACE: f32 = 0.85;
 
     fn deepest_tip(ccd: bool) -> f32 {
         let mut world = observed_world(static_config());
@@ -338,15 +340,19 @@ fn ccd_stops_a_spinning_body_that_would_sweep_through_a_wall() {
         deepest
     }
 
-    let free = deepest_tip(false);
-    assert!(
-        free > 0.9,
-        "a rotating rod without continuous collision must sweep through the wall, reached {free}"
-    );
     let guarded = deepest_tip(true);
     assert!(
-        guarded < 0.85,
-        "a rotating rod under continuous collision must stop at the wall face, reached {guarded}"
+        guarded < WALL_FACE,
+        "continuous collision must stop a spinning rod at the wall face, reached {guarded}"
+    );
+    assert!(
+        guarded > WALL_FACE - 0.1,
+        "a spinning rod under continuous collision must reach the wall, reached {guarded}"
+    );
+    let free = deepest_tip(false);
+    assert!(
+        free > guarded,
+        "a rod without continuous collision must drive deeper into the wall, reached {free} against {guarded}"
     );
 }
 

@@ -19,7 +19,7 @@ pub use pipeline::{BindingKind, BindingSpec, ComputePipeline, ComputeProgram, Pi
 pub use readback::{FACT_LAG, Publication, Readback, SEGMENT_COUNT, read_regions};
 pub use recorder::ComputeRecorder;
 pub use resource::{ResourceId, ResourceSource, SlotRef};
-pub use runtime::GpuRuntime;
+pub use runtime::{GpuRuntime, INSTANCE_DIAGNOSTICS, instance_flags};
 pub use segment::SegmentRing;
 pub use stream::{
     PACK, Retention, STREAM, Stream, StreamDesc, StreamElement, StreamIdentity, TypedSlot, UNIFORM,
@@ -29,5 +29,5 @@ pub use submission::SubmissionEncoder;
 pub use timing::{GpuPassTiming, GpuTimer};
 pub use wgpu::{
     Adapter, AdapterInfo, Backend, Backends, Device, DeviceLostReason, DeviceType,
-    ExperimentalFeatures, Features, Limits, PowerPreference, Queue,
+    ExperimentalFeatures, Features, InstanceFlags, Limits, PowerPreference, Queue,
 };

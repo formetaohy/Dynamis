@@ -3,7 +3,8 @@ mod common;
 use crate::common::shared;
 use dynamis_gpu::{
     AdapterInfo, Backend, ExperimentalFeatures, Features, GpuBuffer, GpuContext, GpuRequest,
-    GpuRuntime, GpuUnavailable, LimitsPolicy, PowerPreference,
+    GpuRuntime, GpuUnavailable, INSTANCE_DIAGNOSTICS, InstanceFlags, LimitsPolicy, PowerPreference,
+    instance_flags,
 };
 use wgpu::{BufferUsages, Device, Queue};
 
@@ -83,6 +84,19 @@ fn unknown_device_name_lists_what_exists() {
     assert!(
         !available.is_empty(),
         "the rejection must name real adapters"
+    );
+}
+
+#[test]
+fn the_declared_instance_diagnostics_carry_no_debug_codegen() {
+    assert!(
+        !INSTANCE_DIAGNOSTICS.contains(InstanceFlags::DEBUG),
+        "the declared device program must not carry backend debug codegen"
+    );
+    assert_eq!(
+        instance_flags().contains(InstanceFlags::DEBUG),
+        std::env::var("WGPU_DEBUG").is_ok_and(|requested| requested != "0"),
+        "shader debug codegen must follow nothing but an explicit request"
     );
 }
 

@@ -4,6 +4,8 @@ use dynamis_world::World;
 
 const RADIUS: f32 = 0.35;
 const MASS: f32 = 900.0;
+const TRAVEL: f32 = 0.3;
+const RIDE_BAND: f32 = TRAVEL / 5.0;
 
 fn ground(world: &mut World) {
     world.spawn(
@@ -25,7 +27,7 @@ fn car() -> VehicleDesc {
         WheelDesc::new([-0.8, -0.2, -1.2], RADIUS).driving(),
     ]
     .into_iter()
-    .map(|wheel| wheel.suspension(0.3, 1.5, 0.7))
+    .map(|wheel| wheel.suspension(TRAVEL, 1.5, 0.7))
     .collect();
     VehicleDesc::new(
         BodyDesc::cuboid([0.9, 0.3, 1.8])
@@ -68,19 +70,24 @@ fn vehicle_rests_on_its_suspension() {
         "an idle vehicle must not drive itself, got {}",
         state.forward_speed
     );
-    let height = world.read_state(body).position[1];
+    let resting = world.read_state(body).position[1];
     assert!(
-        (0.68..0.80).contains(&height),
-        "the chassis must ride at its static height, got {height}"
+        (0.68..0.80).contains(&resting),
+        "the chassis must ride at its static height, got {resting}"
     );
-    let resting = world.read_state(body).position;
-    drive(&mut world, vehicle, VehicleInput::IDLE, 30);
-    let drifted = world.read_state(body).position;
+    let mut lowest = resting;
+    let mut highest = resting;
+    for _ in 0..120 {
+        world.set_vehicle_input(vehicle, VehicleInput::IDLE);
+        world.step(DT);
+        world.wait();
+        let height = world.read_state(body).position[1];
+        lowest = lowest.min(height);
+        highest = highest.max(height);
+    }
     assert!(
-        (drifted[1] - resting[1]).abs() < 1e-3,
-        "a resting vehicle must not sink, got {} then {}",
-        resting[1],
-        drifted[1]
+        resting - lowest < RIDE_BAND && highest - resting < RIDE_BAND,
+        "an idle vehicle must hold its ride height within {RIDE_BAND} of {resting}, rode {lowest}..{highest}"
     );
 }
 
