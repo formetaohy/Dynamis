@@ -1,6 +1,7 @@
 use super::common::{DT, observed_world, settle, static_config};
 use dynamis_model::{
-    BodyDesc, ConstraintDesc, ConstraintKind, ConstraintLimit, ConstraintMotor, DofDesc, JointDof,
+    BodyDesc, ConstraintDesc, ConstraintKind, ConstraintLimit, ConstraintMotor,
+    ConstraintPositionTarget, DofDesc, JointDof,
 };
 use dynamis_world::World;
 use std::f32::consts::FRAC_PI_6;
@@ -206,13 +207,10 @@ fn six_dof_drive_reaches_the_reported_dof() {
         ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
             DofDesc::free(),
             DofDesc::free(),
-            DofDesc::driven(ConstraintMotor {
-                target_velocity: 0.0,
-                max_force: 50.0,
-                target_position: Some(0.5),
-                stiffness: 0.5,
-                damping: 0.9,
-            }),
+            DofDesc::driven(
+                ConstraintMotor::new(0.0, 50.0)
+                    .position(ConstraintPositionTarget::new(0.5, 0.5, 0.9)),
+            ),
             DofDesc::free(),
             DofDesc::free(),
             DofDesc::free(),
@@ -441,4 +439,145 @@ fn a_watched_joint_keeps_its_identity_across_row_churn() {
         "a watched joint must keep answering after its row moves"
     );
     assert_eq!(observed, world.inspect_joint_state(watched));
+}
+
+fn velocity_motor(target_velocity: f32) -> ConstraintMotor {
+    ConstraintMotor::new(target_velocity, 200.0)
+}
+
+fn zero_gain_position_motor() -> ConstraintMotor {
+    ConstraintMotor::new(0.0, 200.0).position(ConstraintPositionTarget::new(0.5, 0.0, 0.0))
+}
+
+#[test]
+fn every_driven_kind_drives_its_reported_rate() {
+    let (mut world, _arm, hinge) = hinge_world();
+    world.set_motor(hinge, 1.0, 200.0);
+    settle(&mut world, 30);
+    let rate = world.inspect_joint_state(hinge).rate(JointDof::Hinge);
+    assert!(
+        (rate - 1.0).abs() < 0.05,
+        "a revolute motor must drive the hinge rate it reports, got {rate}"
+    );
+
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let slider = world.spawn(BodyDesc::sphere(0.2));
+    let slide = world.add_constraint(
+        base,
+        slider,
+        ConstraintDesc::prismatic([0.0; 3], [0.0; 3], [1.0, 0.0, 0.0])
+            .motor(1.0)
+            .motor_force(200.0),
+    );
+    settle(&mut world, 30);
+    let rate = world.inspect_joint_state(slide).rate(JointDof::Slide);
+    assert!(
+        (rate - 1.0).abs() < 0.05,
+        "a prismatic motor must drive the slide rate it reports, got {rate}"
+    );
+
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let link = world.spawn(BodyDesc::sphere(0.2).position([0.0, 0.0, 0.3]));
+    let linear = world.add_constraint(
+        base,
+        link,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::driven(velocity_motor(1.0)),
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::free(),
+        ]),
+    );
+    settle(&mut world, 30);
+    let rate = world.inspect_joint_state(linear).rate(JointDof::Linear(2));
+    assert!(
+        (rate - 1.0).abs() < 0.05,
+        "a six dof linear motor must drive the lane rate it reports, got {rate}"
+    );
+
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0).position([0.0, 3.0, 0.0]));
+    let arm = world.spawn(BodyDesc::sphere(0.2).position([1.0, 3.0, 0.0]));
+    let angular = world.add_constraint(
+        base,
+        arm,
+        ConstraintDesc::six_dof([0.0; 3], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]).dofs([
+            DofDesc::locked(),
+            DofDesc::locked(),
+            DofDesc::locked(),
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::driven(velocity_motor(1.0)),
+        ]),
+    );
+    settle(&mut world, 30);
+    let rate = world
+        .inspect_joint_state(angular)
+        .rate(JointDof::Angular(2));
+    assert!(
+        (rate - 1.0).abs() < 0.05,
+        "a six dof angular motor must drive the lane rate it reports, got {rate}"
+    );
+}
+
+#[test]
+fn a_zero_gain_position_target_leaves_the_declared_speed_alone() {
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let slider = world.spawn(BodyDesc::sphere(0.2).velocity([1.0, 0.0, 0.0]));
+    let slide = world.add_constraint(
+        base,
+        slider,
+        ConstraintDesc::prismatic([0.0; 3], [0.0; 3], [1.0, 0.0, 0.0]).motor(0.0),
+    );
+    world.set_motor(slide, 0.0, 200.0);
+    world.set_servo(slide, 0.5, 0.0, 0.0);
+    settle(&mut world, 30);
+    let state = world.inspect_joint_state(slide);
+    assert!(
+        state.rate(JointDof::Slide).abs() < 1e-3,
+        "a zero gain position target must leave the slide at its declared target velocity, got {}",
+        state.rate(JointDof::Slide)
+    );
+    assert!(
+        state.coordinate(JointDof::Slide).abs() < 1e-3,
+        "a zero gain position target must not travel to its coordinate, got {}",
+        state.coordinate(JointDof::Slide)
+    );
+
+    let mut world = observed_world(static_config());
+    let base = world.spawn(BodyDesc::sphere(0.1).mass(0.0));
+    let link = world.spawn(
+        BodyDesc::sphere(0.2)
+            .position([0.0, 0.0, 0.3])
+            .velocity([0.0, 0.0, 1.0]),
+    );
+    let linear = world.add_constraint(
+        base,
+        link,
+        ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 0.0, 1.0]).dofs([
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::driven(zero_gain_position_motor()),
+            DofDesc::free(),
+            DofDesc::free(),
+            DofDesc::free(),
+        ]),
+    );
+    settle(&mut world, 30);
+    let state = world.inspect_joint_state(linear);
+    assert!(
+        state.rate(JointDof::Linear(2)).abs() < 1e-3,
+        "a zero gain position target must leave the six dof lane at its declared target velocity, got {}",
+        state.rate(JointDof::Linear(2))
+    );
+    assert!(
+        (state.coordinate(JointDof::Linear(2)) - 0.3).abs() < 1e-3,
+        "a zero gain position target must not travel to its coordinate, got {}",
+        state.coordinate(JointDof::Linear(2))
+    );
 }

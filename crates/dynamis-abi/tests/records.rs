@@ -23,8 +23,8 @@ use dynamis_abi::{
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind, ConstraintMotor,
-    DofDesc, PhysicsConfig, QueryFilter, QueryTargets, Shape, SoftElementKind, SoftElementState,
-    SurfaceDesc,
+    ConstraintPositionTarget, DofDesc, PhysicsConfig, QueryFilter, QueryTargets, Shape,
+    SoftElementKind, SoftElementState, SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -733,20 +733,16 @@ fn constraint_record_encodes_swing_break_gear_pulley() {
 
 #[test]
 fn constraint_record_encodes_orthogonal_dofs() {
-    let motor = ConstraintMotor {
-        target_velocity: 3.0,
-        max_force: 40.0,
-        target_position: None,
-        stiffness: 0.0,
-        damping: 0.0,
-    };
+    let velocity = ConstraintMotor::new(3.0, 40.0);
+    let position =
+        ConstraintMotor::new(4.0, 50.0).position(ConstraintPositionTarget::new(1.5, 0.25, 0.75));
     let record = ConstraintDescriptorRecord::build(
         &ConstraintDesc::six_dof([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0]).dofs([
-            DofDesc::limited(-1.0, 1.0).motor(motor),
+            DofDesc::limited(-1.0, 1.0).motor(velocity),
             DofDesc::locked(),
             DofDesc::free(),
             DofDesc::free(),
-            DofDesc::limited(-0.5, 0.5),
+            DofDesc::limited(-0.5, 0.5).motor(position),
             DofDesc::free(),
         ]),
         0,
@@ -768,7 +764,7 @@ fn constraint_record_encodes_orthogonal_dofs() {
             (true, false, false),
             (false, false, false),
             (false, false, false),
-            (false, true, false),
+            (false, true, true),
             (false, false, false),
         ],
         "dof limits and motors must be encoded independently"
@@ -776,8 +772,16 @@ fn constraint_record_encodes_orthogonal_dofs() {
     assert_eq!(record.linear_limit_min, [-1.0, 0.0, 0.0]);
     assert_eq!(record.linear_limit_max, [1.0, 0.0, 0.0]);
     assert_eq!(record.angular_limit_min, [0.0, -0.5, 0.0]);
-    assert_eq!(record.linear_motor_target, [3.0, 0.0, 0.0]);
+    assert_eq!(record.linear_motor_speed, [3.0, 0.0, 0.0]);
+    assert_eq!(record.linear_motor_position, [0.0, 0.0, 0.0]);
+    assert_eq!(record.linear_motor_stiffness, [0.0, 0.0, 0.0]);
+    assert_eq!(record.linear_motor_damping, [0.0, 0.0, 0.0]);
     assert_eq!(record.linear_motor_force, [40.0, 0.0, 0.0]);
+    assert_eq!(record.angular_motor_speed, [0.0, 4.0, 0.0]);
+    assert_eq!(record.angular_motor_position, [0.0, 1.5, 0.0]);
+    assert_eq!(record.angular_motor_stiffness, [0.0, 0.25, 0.0]);
+    assert_eq!(record.angular_motor_damping, [0.0, 0.75, 0.0]);
+    assert_eq!(record.angular_motor_force, [0.0, 50.0, 0.0]);
 }
 
 #[test]

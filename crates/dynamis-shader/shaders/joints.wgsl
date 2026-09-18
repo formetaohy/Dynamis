@@ -99,6 +99,88 @@ fn joint_coordinate(
     return 0.0;
 }
 
+struct JointDrive {
+    axis: vec3f,
+    point_a: vec3f,
+    point_b: vec3f,
+    angular: bool,
+    rate: f32,
+    target_speed: f32,
+    max_force: f32,
+}
+
+fn joint_drive(
+    constraint: ConstraintDescriptor,
+    frame: vec4f,
+    first: Body,
+    second: Body,
+    anchor_a: vec3f,
+    anchor_b: vec3f,
+    dof: u32,
+    angular: bool,
+    gains: vec4f,
+    max_force: f32,
+    step: f32,
+) -> JointDrive {
+    let coordinate = joint_coordinate(constraint, frame, first, second, anchor_a, anchor_b, dof);
+    let rate = joint_rate(constraint, first, second, anchor_a, anchor_b, dof);
+    var drive: JointDrive;
+    drive.axis = joint_axis(constraint, first, second, anchor_a, anchor_b, dof);
+    drive.point_a = anchor_a;
+    drive.point_b = anchor_b;
+    drive.angular = angular;
+    drive.rate = rate;
+    drive.target_speed =
+        gains.x + gains.z * (gains.y - coordinate) / max(step, 1e-4) - gains.w * rate;
+    drive.max_force = max_force;
+    return drive;
+}
+
+fn scalar_drive(
+    constraint: ConstraintDescriptor,
+    frame: vec4f,
+    first: Body,
+    second: Body,
+    anchor_a: vec3f,
+    anchor_b: vec3f,
+    angular: bool,
+    step: f32,
+) -> JointDrive {
+    return joint_drive(
+        constraint, frame, first, second, anchor_a, anchor_b, 0u, angular,
+        vec4f(
+            constraint.motor_speed,
+            constraint.motor_position,
+            constraint.motor_stiffness,
+            constraint.motor_damping,
+        ),
+        constraint.motor_max_force,
+        step,
+    );
+}
+
+fn lane_drive(
+    constraint: ConstraintDescriptor,
+    frame: vec4f,
+    first: Body,
+    second: Body,
+    anchor_a: vec3f,
+    anchor_b: vec3f,
+    row: u32,
+    step: f32,
+) -> JointDrive {
+    let lane = row % 3u;
+    let angular = row >= 3u;
+    let gains = vec4f(
+        select(vec_index(constraint.linear_motor_speed, lane), vec_index(constraint.angular_motor_speed, lane), angular),
+        select(vec_index(constraint.linear_motor_position, lane), vec_index(constraint.angular_motor_position, lane), angular),
+        select(vec_index(constraint.linear_motor_stiffness, lane), vec_index(constraint.angular_motor_stiffness, lane), angular),
+        select(vec_index(constraint.linear_motor_damping, lane), vec_index(constraint.angular_motor_damping, lane), angular),
+    );
+    let max_force = select(vec_index(constraint.linear_motor_force, lane), vec_index(constraint.angular_motor_force, lane), angular);
+    return joint_drive(constraint, frame, first, second, anchor_a, anchor_b, row, angular, gains, max_force, step);
+}
+
 fn joint_angular_rate(first: Body, second: Body, axis: vec3f) -> f32 {
     return dot(second.state.angular_velocity - first.state.angular_velocity, normalize(axis));
 }

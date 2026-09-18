@@ -2,8 +2,8 @@ use super::common::{
     DT, converged, distance, gravity_config, observed_world, settle, settle_until, static_config,
 };
 use dynamis_model::{
-    BodyDesc, ConstraintBreak, ConstraintDesc, ConstraintLimit, ConstraintMotor, ConstraintSpring,
-    ConstraintSwing, DofDesc, PhysicsConfig,
+    BodyDesc, ConstraintBreak, ConstraintDesc, ConstraintLimit, ConstraintMotor,
+    ConstraintPositionTarget, ConstraintSpring, ConstraintSwing, DofDesc, PhysicsConfig,
 };
 use dynamis_world::World;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -680,13 +680,8 @@ fn six_dof_servo_spins_to_target() {
     let mut world = observed_world(static_config());
     let anchor = world.spawn(BodyDesc::sphere(0.2).mass(0.0));
     let arm = world.spawn(BodyDesc::cuboid([1.0, 0.05, 0.05]).position([1.0, 0.0, 0.0]));
-    let motor = ConstraintMotor {
-        target_velocity: 0.0,
-        max_force: 20.0,
-        target_position: Some(1.2),
-        stiffness: 0.15,
-        damping: 0.3,
-    };
+    let motor =
+        ConstraintMotor::new(0.0, 20.0).position(ConstraintPositionTarget::new(1.2, 0.15, 0.3));
     let dofs = [
         DofDesc::driven(motor),
         DofDesc::free(),
@@ -801,13 +796,7 @@ fn updating_a_moved_constraint_edits_its_own_record() {
 }
 
 fn velocity_motor(speed: f32, max_force: f32) -> ConstraintMotor {
-    ConstraintMotor {
-        target_velocity: speed,
-        max_force,
-        target_position: None,
-        stiffness: 0.0,
-        damping: 0.0,
-    }
+    ConstraintMotor::new(speed, max_force)
 }
 
 #[test]

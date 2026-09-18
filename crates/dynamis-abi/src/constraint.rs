@@ -57,11 +57,12 @@ pub(crate) fn emit_predicates(out: &mut String) {
 }
 
 fn pack_motor(record: &mut ConstraintDescriptorRecord, motor: ConstraintMotor) {
-    record.motor_speed = motor.target_velocity;
-    record.motor_max_force = motor.max_force;
-    record.motor_target = motor.target_position.unwrap_or(0.0);
-    record.motor_stiffness = motor.stiffness;
-    record.motor_damping = motor.damping;
+    record.motor_speed = motor.target_velocity();
+    record.motor_max_force = motor.max_force();
+    let position = motor.position_target();
+    record.motor_position = position.map_or(0.0, |target| target.coordinate());
+    record.motor_stiffness = position.map_or(0.0, |target| target.stiffness());
+    record.motor_damping = position.map_or(0.0, |target| target.damping());
 }
 
 fn pack_dofs(record: &mut ConstraintDescriptorRecord, dofs: &[DofDesc; 6]) {
@@ -81,17 +82,24 @@ fn pack_dofs(record: &mut ConstraintDescriptorRecord, dofs: &[DofDesc; 6]) {
             }
         }
         let Some(motor) = dof.motor else { continue };
-        let target = motor.target_position.unwrap_or(motor.target_velocity);
+        let position = motor.position_target();
+        let speed = motor.target_velocity();
+        let coordinate = position.map_or(0.0, |target| target.coordinate());
+        let stiffness = position.map_or(0.0, |target| target.stiffness());
+        let damping = position.map_or(0.0, |target| target.damping());
+        let max_force = motor.max_force();
         if index < 3 {
-            record.linear_motor_target[lane] = target;
-            record.linear_motor_stiffness[lane] = motor.stiffness;
-            record.linear_motor_damping[lane] = motor.damping;
-            record.linear_motor_force[lane] = motor.max_force;
+            record.linear_motor_speed[lane] = speed;
+            record.linear_motor_position[lane] = coordinate;
+            record.linear_motor_stiffness[lane] = stiffness;
+            record.linear_motor_damping[lane] = damping;
+            record.linear_motor_force[lane] = max_force;
         } else {
-            record.angular_motor_target[lane] = target;
-            record.angular_motor_stiffness[lane] = motor.stiffness;
-            record.angular_motor_damping[lane] = motor.damping;
-            record.angular_motor_force[lane] = motor.max_force;
+            record.angular_motor_speed[lane] = speed;
+            record.angular_motor_position[lane] = coordinate;
+            record.angular_motor_stiffness[lane] = stiffness;
+            record.angular_motor_damping[lane] = damping;
+            record.angular_motor_force[lane] = max_force;
         }
     }
 }

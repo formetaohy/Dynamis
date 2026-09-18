@@ -165,16 +165,8 @@ fn solve_angular_row(
     return outcome;
 }
 
-fn solve_driven_point_row(
-    axis: vec3f,
-    point_a: vec3f,
-    point_b: vec3f,
-    current: f32,
-    target_value: f32,
-    stiffness: f32,
-    damping: f32,
-    target_speed: f32,
-    max_force: f32,
+fn solve_drive_row(
+    drive: JointDrive,
     mass_first: Body,
     mass_second: Body,
     first: Body,
@@ -182,71 +174,40 @@ fn solve_driven_point_row(
     accumulated: f32,
     forces: FrameForces,
 ) -> RowOutcome {
-    let k = point_momentum_mass(mass_first, mass_second, point_a, point_b, axis);
-    var first_out = first;
-    var second_out = second;
-    var accumulated_out = accumulated;
-    var forces_out = forces;
-    if (k > 0.0) {
-        let velocity = relative_velocity(first, second, point_a, point_b);
-        let jacobian_speed = dot(velocity, axis);
-        let servo_speed =
-            stiffness * (target_value - current) / max(params.dt, 1e-4) - damping * jacobian_speed;
-        let v_target = target_speed + servo_speed;
-        let next = accumulated - (jacobian_speed - v_target) / k;
-        let cap = max_force * params.dt;
-        let impulse = row_impulse(accumulated, next, cap);
-        apply_pair_impulse(&first_out, &second_out, point_a, point_b, axis * impulse.applied);
-        accumulated_out = impulse.accumulated;
-        forces_out = point_reaction(forces_out, first, second, point_a, point_b, axis, accumulated_out);
-    }
-    var outcome: RowOutcome;
-    outcome.first = first_out;
-    outcome.second = second_out;
-    outcome.accumulated = accumulated_out;
-    outcome.forces = forces_out;
-    return outcome;
-}
-
-fn solve_driven_angular_row(
-    axis: vec3f,
-    current: f32,
-    target_value: f32,
-    stiffness: f32,
-    damping: f32,
-    target_speed: f32,
-    max_force: f32,
-    mass_first: Body,
-    mass_second: Body,
-    first: Body,
-    second: Body,
-    accumulated: f32,
-    forces: FrameForces,
-) -> RowOutcome {
-    let axis_normalized = normalize(axis);
-    let k = dot(
-        axis_normalized,
-        apply_inverse_inertia(mass_first, axis_normalized) + apply_inverse_inertia(mass_second, axis_normalized),
+    let axis = normalize(drive.axis);
+    let angular_mass = dot(
+        axis,
+        apply_inverse_inertia(mass_first, axis) + apply_inverse_inertia(mass_second, axis),
     );
+    let point_mass = point_momentum_mass(mass_first, mass_second, drive.point_a, drive.point_b, axis);
+    let k = select(point_mass, angular_mass, drive.angular);
     var first_out = first;
     var second_out = second;
     var accumulated_out = accumulated;
     var forces_out = forces;
     if (k > 0.0) {
-        let velocity = second.state.angular_velocity - first.state.angular_velocity;
-        let jacobian_speed = dot(velocity, axis_normalized);
-        let servo_speed =
-            stiffness * (target_value - current) / max(params.dt, 1e-4) - damping * jacobian_speed;
-        let v_target = target_speed + servo_speed;
-        let next = accumulated - (jacobian_speed - v_target) / k;
-        let cap = max_force * params.dt;
-        let impulse = row_impulse(accumulated, next, cap);
-        first_out.state.angular_velocity =
-            first.state.angular_velocity - apply_inverse_inertia(first, axis_normalized * impulse.applied);
-        second_out.state.angular_velocity =
-            second.state.angular_velocity + apply_inverse_inertia(second, axis_normalized * impulse.applied);
-        accumulated_out = impulse.accumulated;
-        forces_out = angular_reaction(forces_out, axis_normalized, accumulated_out);
+        let next = accumulated - (drive.rate - drive.target_speed) / k;
+        let impulse = row_impulse(accumulated, next, drive.max_force * params.dt);
+        if (drive.angular) {
+            first_out.state.angular_velocity =
+                first.state.angular_velocity - apply_inverse_inertia(first, axis * impulse.applied);
+            second_out.state.angular_velocity =
+                second.state.angular_velocity + apply_inverse_inertia(second, axis * impulse.applied);
+            accumulated_out = impulse.accumulated;
+            forces_out = angular_reaction(forces_out, axis, accumulated_out);
+        } else {
+            apply_pair_impulse(&first_out, &second_out, drive.point_a, drive.point_b, axis * impulse.applied);
+            accumulated_out = impulse.accumulated;
+            forces_out = point_reaction(
+                forces_out,
+                first,
+                second,
+                drive.point_a,
+                drive.point_b,
+                axis,
+                accumulated_out,
+            );
+        }
     }
     var outcome: RowOutcome;
     outcome.first = first_out;
@@ -361,20 +322,8 @@ fn solve_joint(constraint_index: u32, residual: bool) {
         }
         let hinge = quat_rotate(first.state.orientation, local_hinge);
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
-            let current = joint_coordinate(
-                constraint,
-                reference,
-                first,
-                second,
-                anchor_a,
-                anchor_b,
-                0u,
-            );
-            let outcome = solve_driven_angular_row(
-                hinge, current, constraint.motor_target, constraint.motor_stiffness, constraint.motor_damping,
-                -constraint.motor_speed, constraint.motor_max_force,
-                mass_first, mass_second, first, second, accumulated[6], forces,
-            );
+            let drive = scalar_drive(constraint, reference, first, second, anchor_a, anchor_b, true, params.dt);
+            let outcome = solve_drive_row(drive, mass_first, mass_second, first, second, accumulated[6], forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[6] = outcome.accumulated;
@@ -432,20 +381,8 @@ fn solve_joint(constraint_index: u32, residual: bool) {
         accumulated[4] = twist_outcome.accumulated;
         forces = twist_outcome.forces;
         if ((constraint.flags & CONSTRAINT_HAS_MOTOR) != 0u) {
-            let current = joint_coordinate(
-                constraint,
-                reference,
-                first,
-                second,
-                anchor_a,
-                anchor_b,
-                0u,
-            );
-            let outcome = solve_driven_point_row(
-                axis, anchor_a, anchor_b, current, constraint.motor_target,
-                constraint.motor_stiffness, constraint.motor_damping, constraint.motor_speed,
-                constraint.motor_max_force, mass_first, mass_second, first, second, accumulated[6], forces,
-            );
+            let drive = scalar_drive(constraint, reference, first, second, anchor_a, anchor_b, false, params.dt);
+            let outcome = solve_drive_row(drive, mass_first, mass_second, first, second, accumulated[6], forces);
             first = outcome.first;
             second = outcome.second;
             accumulated[6] = outcome.accumulated;
@@ -641,12 +578,8 @@ fn solve_joint(constraint_index: u32, residual: bool) {
                 continue;
             }
             if (dof_driven(constraint.flags, i)) {
-                let target_value = vec_index(constraint.linear_motor_target, i);
-                let stiffness = vec_index(constraint.linear_motor_stiffness, i);
-                let damping = vec_index(constraint.linear_motor_damping, i);
-                let max_force = vec_index(constraint.linear_motor_force, i);
-                let target_speed = select(0.0, target_value, stiffness <= 0.0);
-                let outcome = solve_driven_point_row(world_axis, anchor_a, anchor_b, current, target_value, stiffness, damping, target_speed, max_force, mass_first, mass_second, first, second, accumulated[i], forces);
+                let drive = lane_drive(constraint, reference, first, second, anchor_a, anchor_b, i, params.dt);
+                let outcome = solve_drive_row(drive, mass_first, mass_second, first, second, accumulated[i], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[i] = outcome.accumulated;
@@ -671,9 +604,6 @@ fn solve_joint(constraint_index: u32, residual: bool) {
                 }
             }
         }
-        let q_rel = quat_mul(quat_conjugate(first.state.orientation), second.state.orientation);
-        let deviation = quat_mul(q_rel, quat_conjugate(reference));
-        let error_vector = vec3f(2.0 * deviation.x, 2.0 * deviation.y, 2.0 * deviation.z);
         for (var i = 0u; i < 3u; i = i + 1u) {
             let world_axis = joint_dof_axis(constraint, first, 3u + i);
             let current = joint_coordinate(
@@ -695,12 +625,8 @@ fn solve_joint(constraint_index: u32, residual: bool) {
                 continue;
             }
             if (dof_driven(constraint.flags, row)) {
-                let target_value = vec_index(constraint.angular_motor_target, i);
-                let stiffness = vec_index(constraint.angular_motor_stiffness, i);
-                let damping = vec_index(constraint.angular_motor_damping, i);
-                let max_force = vec_index(constraint.angular_motor_force, i);
-                let target_speed = select(0.0, target_value, stiffness <= 0.0);
-                let outcome = solve_driven_angular_row(world_axis, current, target_value, stiffness, damping, target_speed, max_force, mass_first, mass_second, first, second, accumulated[row], forces);
+                let drive = lane_drive(constraint, reference, first, second, anchor_a, anchor_b, row, params.dt);
+                let outcome = solve_drive_row(drive, mass_first, mass_second, first, second, accumulated[row], forces);
                 first = outcome.first;
                 second = outcome.second;
                 accumulated[row] = outcome.accumulated;

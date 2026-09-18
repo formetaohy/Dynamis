@@ -25,12 +25,13 @@ pub use dynamis_hull::DecomposeSettings;
 pub use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, CharacterDesc, CharacterHandle, CharacterInput,
     CharacterState, ColliderDesc, CollisionFilter, ConstraintBreak, ConstraintData, ConstraintDesc,
-    ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintSpring,
-    ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc, FluidMaterial,
-    ImpactEvent, JointDof, JointState, MassProperties, MaterialCombine, PhysicsConfig, QueryFilter,
-    QueryTargets, Shape, ShapeSourceHandle, SoftAttachment, SoftBodyDesc, SoftBodyHandle,
-    SoftElement, SoftElementKind, SoftElementState, SoftMaterial, SoftParticleState, SurfaceDesc,
-    SurfaceTable, VehicleDesc, VehicleHandle, VehicleInput, VehicleState, WheelDesc,
+    ConstraintHandle, ConstraintKind, ConstraintLimit, ConstraintMotor, ConstraintPositionTarget,
+    ConstraintSpring, ConstraintSwing, ContactEvent, ContactEventKind, ContactEventMode, DofDesc,
+    FluidMaterial, ImpactEvent, JointDof, JointState, MassProperties, MaterialCombine,
+    PhysicsConfig, QueryFilter, QueryTargets, Shape, ShapeSourceHandle, SoftAttachment,
+    SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementKind, SoftElementState, SoftMaterial,
+    SoftParticleState, SurfaceDesc, SurfaceTable, VehicleDesc, VehicleHandle, VehicleInput,
+    VehicleState, WheelDesc,
 };
 pub use dynamis_world::{
     ConstraintForce, ContactManifold, ContactPoint, QueryHandle, QueryHit, Refusal, RigidShape,

@@ -118,12 +118,98 @@ pub struct ConstraintLimit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConstraintPositionTarget {
+    coordinate: f32,
+    stiffness: f32,
+    damping: f32,
+}
+
+impl ConstraintPositionTarget {
+    pub fn new(coordinate: f32, stiffness: f32, damping: f32) -> Self {
+        assert!(
+            coordinate.is_finite(),
+            "a position target coordinate must be finite"
+        );
+        assert!(
+            (0.0..=1.0).contains(&stiffness),
+            "a position target stiffness must be within [0, 1]"
+        );
+        assert!(
+            (0.0..=1.0).contains(&damping),
+            "a position target damping must be within [0, 1]"
+        );
+        Self {
+            coordinate,
+            stiffness,
+            damping,
+        }
+    }
+
+    pub const fn coordinate(&self) -> f32 {
+        self.coordinate
+    }
+
+    pub const fn stiffness(&self) -> f32 {
+        self.stiffness
+    }
+
+    pub const fn damping(&self) -> f32 {
+        self.damping
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConstraintMotor {
-    pub target_velocity: f32,
-    pub max_force: f32,
-    pub target_position: Option<f32>,
-    pub stiffness: f32,
-    pub damping: f32,
+    target_velocity: f32,
+    position: Option<ConstraintPositionTarget>,
+    max_force: f32,
+}
+
+impl ConstraintMotor {
+    pub fn new(target_velocity: f32, max_force: f32) -> Self {
+        assert!(
+            target_velocity.is_finite(),
+            "a motor target velocity must be finite"
+        );
+        assert!(max_force >= 0.0, "a motor force cap must be non-negative");
+        Self {
+            target_velocity,
+            position: None,
+            max_force,
+        }
+    }
+
+    pub fn velocity(mut self, target_velocity: f32) -> Self {
+        assert!(
+            target_velocity.is_finite(),
+            "a motor target velocity must be finite"
+        );
+        self.target_velocity = target_velocity;
+        self
+    }
+
+    pub fn position(mut self, target: ConstraintPositionTarget) -> Self {
+        self.position = Some(target);
+        self
+    }
+
+    pub fn force(mut self, max_force: f32) -> Self {
+        assert!(max_force >= 0.0, "a motor force cap must be non-negative");
+        self.max_force = max_force;
+        self
+    }
+
+    pub const fn target_velocity(&self) -> f32 {
+        self.target_velocity
+    }
+
+    pub const fn position_target(&self) -> Option<ConstraintPositionTarget> {
+        self.position
+    }
+
+    pub const fn max_force(&self) -> f32 {
+        self.max_force
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -202,12 +288,6 @@ impl DofDesc {
     }
 
     pub fn set_motor(&mut self, motor: Option<ConstraintMotor>) {
-        if let Some(motor) = motor {
-            assert!(
-                motor.max_force >= 0.0,
-                "a dof motor force must be non-negative"
-            );
-        }
         self.motor = motor;
     }
 }
@@ -519,15 +599,9 @@ impl ConstraintDesc {
         }
     }
 
-    pub fn set_motor(&mut self, motor: Option<ConstraintMotor>) {
-        if let Some(motor) = motor {
-            assert!(motor.max_force >= 0.0, "motor force must be non-negative");
-        }
-        match &mut self.data {
-            ConstraintData::Revolute { motor: held, .. }
-            | ConstraintData::Prismatic { motor: held, .. } => *held = motor,
-            other => panic!("a {:?} joint declares no motor", other.kind()),
-        }
+    pub fn set_motor_velocity(&mut self, target_velocity: f32, max_force: f32) {
+        let motor = self.motor_mut();
+        *motor = motor.velocity(target_velocity).force(max_force);
     }
 
     pub fn set_spring(&mut self, spring: Option<ConstraintSpring>) {
@@ -574,13 +648,7 @@ impl ConstraintDesc {
     fn motor_mut(&mut self) -> &mut ConstraintMotor {
         match &mut self.data {
             ConstraintData::Revolute { motor, .. } | ConstraintData::Prismatic { motor, .. } => {
-                motor.get_or_insert(ConstraintMotor {
-                    target_velocity: 0.0,
-                    max_force: 0.0,
-                    target_position: None,
-                    stiffness: 0.0,
-                    damping: 0.0,
-                })
+                motor.get_or_insert(ConstraintMotor::new(0.0, 0.0))
             }
             other => panic!("a {:?} joint declares no motor", other.kind()),
         }
@@ -605,36 +673,27 @@ impl ConstraintDesc {
     }
 
     pub fn motor(mut self, target_velocity: f32) -> Self {
-        self.motor_mut().target_velocity = target_velocity;
+        let motor = self.motor_mut();
+        *motor = motor.velocity(target_velocity);
         self
     }
 
     pub fn motor_force(mut self, max_force: f32) -> Self {
-        assert!(max_force >= 0.0, "motor force must be non-negative");
-        self.motor_mut().max_force = max_force;
+        let motor = self.motor_mut();
+        *motor = motor.force(max_force);
         self
     }
 
     pub fn set_servo(&mut self, target_position: f32, stiffness: f32, damping: f32) {
-        assert!(
-            (0.0..=1.0).contains(&stiffness),
-            "servo stiffness must be within [0, 1]"
-        );
-        assert!(
-            (0.0..=1.0).contains(&damping),
-            "servo damping must be within [0, 1]"
-        );
+        let target = ConstraintPositionTarget::new(target_position, stiffness, damping);
         let motor = self.motor_mut();
-        motor.target_position = Some(target_position);
-        motor.stiffness = stiffness;
-        motor.damping = damping;
+        *motor = motor.position(target);
     }
 
     pub fn servo(mut self, target_position: f32, stiffness: f32, damping: f32) -> Self {
         self.set_servo(target_position, stiffness, damping);
         self
     }
-
     pub fn spring(mut self, frequency: f32, damping_ratio: f32) -> Self {
         assert!(frequency >= 0.0, "spring frequency must be non-negative");
         assert!(

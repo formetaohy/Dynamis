@@ -183,8 +183,8 @@ fn combine_modes_and_constraint_apis() {
     let motor = ConstraintDesc::revolute([0.0; 3], [0.0; 3], [0.0, 1.0, 0.0])
         .motor(3.0)
         .motor_force(50.0);
-    assert_eq!(motor.motor_of().unwrap().target_velocity, 3.0);
-    assert_eq!(motor.motor_of().unwrap().max_force, 50.0);
+    assert_eq!(motor.motor_of().unwrap().target_velocity(), 3.0);
+    assert_eq!(motor.motor_of().unwrap().max_force(), 50.0);
     let broken = ConstraintDesc::ball([0.0; 3], [0.0; 3]).break_threshold(100.0, 10.0);
     assert_eq!(broken.break_threshold_of().unwrap().force, 100.0);
     let swiveling = ConstraintDesc::ball([0.0; 3], [0.0; 3])

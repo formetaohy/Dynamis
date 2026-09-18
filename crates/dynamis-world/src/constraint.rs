@@ -137,13 +137,7 @@ impl World {
 
     pub fn set_motor(&mut self, handle: ConstraintHandle, target_velocity: f32, max_force: f32) {
         self.edit_constraint(handle, |joint| {
-            joint.desc.set_motor(Some(ConstraintMotor {
-                target_velocity,
-                max_force,
-                target_position: None,
-                stiffness: 0.0,
-                damping: 0.0,
-            }));
+            joint.desc.set_motor_velocity(target_velocity, max_force);
         });
     }
 
