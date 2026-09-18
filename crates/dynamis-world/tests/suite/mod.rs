@@ -25,6 +25,7 @@ pub mod interop;
 pub mod joint_energy;
 pub mod joint_precision;
 pub mod joint_state;
+pub mod kind;
 pub mod mass;
 pub mod material;
 pub mod observation;

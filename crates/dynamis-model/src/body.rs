@@ -367,6 +367,10 @@ impl BodyDesc {
         }
     }
 
+    pub fn kind(&self, geometry: impl Fn(&Shape) -> Option<SolidGeometry>) -> BodyKind {
+        BodyKind::of(self.effective_mass(geometry), self.kinematic)
+    }
+
     pub fn filter(mut self, filter: CollisionFilter) -> Self {
         self.filter = filter;
         self

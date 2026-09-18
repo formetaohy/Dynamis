@@ -5,12 +5,12 @@ use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{
     BODY_CCD, BodyDescriptorRecord, BodyStateRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, ShapeRole, shape_source_handle,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, assert_body_kind, shape_source_handle,
 };
 use dynamis_model::domain;
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyKind, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
-    Shape,
+    Shape, ShapeSourceHandle,
 };
 
 #[derive(Clone)]
@@ -60,13 +60,13 @@ impl BodyStore {
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         desc.assert_valid();
-        self.validate_world_geometry(&desc);
+        assert_body_kind(&desc, self.body_kind_of(&desc));
         self.facts.anchors += 1;
         let handle = self.bodies.pool.acquire();
         self.bodies.grow_to(handle.id);
         self.bodies.descs[handle.id as usize] = desc.clone();
         for collider in &desc.colliders {
-            self.retain_shape_ref(&collider.shape);
+            self.retain_shape_ref(handle.id, &collider.shape);
         }
         let slot = self.bodies.pool.insert(handle);
         let state = BodyStateRecord::initial(&desc, handle.id, handle.generation);
@@ -116,7 +116,7 @@ impl World {
         );
         let removed = std::mem::replace(&mut self.bodies.descs[id], BodyDesc::VACANT);
         for collider in &removed.colliders {
-            self.release_shape_ref(&collider.shape);
+            self.release_shape_ref(id as u32, &collider.shape);
         }
         let movable = !self.is_static(id);
         let delta = self.colliders.release(id as u32);
@@ -173,7 +173,52 @@ impl World {
 
     fn edit_body(&mut self, handle: BodyHandle, change: impl FnOnce(&mut BodyDesc)) {
         self.validate(handle);
-        change(&mut self.bodies.descs[handle.id as usize]);
+        let mut candidate = self.bodies.descs[handle.id as usize].clone();
+        change(&mut candidate);
+        self.assert_body_intent(handle.id, &candidate);
+        self.install_body(handle, candidate);
+    }
+
+    /// The kind a description declares in this world, where a hull answers the solid geometry its
+    /// source carries and world geometry answers none.
+    fn body_kind_of(&self, desc: &BodyDesc) -> BodyKind {
+        desc.kind(|shape| self.shape_solid(shape))
+    }
+
+    /// The one authority a host entry passes before it installs a description: the description is
+    /// a valid intent, the kind it declares may carry the geometry its colliders hold, and no actor
+    /// that owns the motion of the body is contradicted.
+    fn assert_body_intent(&self, id: u32, desc: &BodyDesc) {
+        desc.assert_valid();
+        let kind = self.body_kind_of(desc);
+        assert_body_kind(desc, kind);
+        self.assert_motion_owner(id, kind);
+    }
+
+    /// A character declares the kinematic motion of the body it drives, and a vehicle drives a
+    /// chassis the solver must evolve, so no host edit may declare the opposite of either.
+    fn assert_motion_owner(&self, id: u32, kind: BodyKind) {
+        assert!(
+            !(self.characters.owns_body(id) && kind != BodyKind::Kinematic),
+            "a character declares the motion of the body it drives, which stays kinematic: {kind:?}",
+        );
+        assert!(
+            !(self.vehicles.owns_body(id) && !kind.simulates()),
+            "a vehicle drives its chassis through the solver, which stays simulated: {kind:?}",
+        );
+    }
+
+    /// A character declares the capsule it sweeps, so the host may not re-declare the collider of
+    /// the body the character drives.
+    fn assert_collider_owner(&self, id: u32) {
+        assert!(
+            !self.characters.owns_body(id),
+            "a character declares the collider of the body it drives",
+        );
+    }
+
+    fn install_body(&mut self, handle: BodyHandle, desc: BodyDesc) {
+        self.bodies.descs[handle.id as usize] = desc;
         self.encode_body(handle);
     }
 
@@ -230,19 +275,6 @@ impl World {
         self.observed
             .bodies
             .insert(handle.id, step, initial.state(&record, step));
-    }
-
-    fn validate_world_geometry(&self, desc: &BodyDesc) {
-        let mass = desc.effective_mass(|shape| self.shape_solid(shape));
-        if !BodyKind::of(mass, desc.kinematic).simulates() {
-            return;
-        }
-        for collider in &desc.colliders {
-            assert!(
-                !ShapeRole::of_shape(&collider.shape).world_geometry(),
-                "world geometry colliders must be static or kinematic"
-            );
-        }
     }
 
     pub(crate) fn is_static(&self, id: usize) -> bool {
@@ -427,20 +459,24 @@ impl World {
             index < self.bodies.descs[id].colliders.len(),
             "collider index out of range"
         );
-        let existing = std::mem::replace(&mut self.bodies.descs[id].colliders[index], collider);
-        self.release_shape_ref(&existing.shape);
-        self.retain_shape_ref(&collider.shape);
-        self.encode_body(handle);
+        self.assert_collider_owner(handle.id);
+        let mut candidate = self.bodies.descs[id].clone();
+        let existing = std::mem::replace(&mut candidate.colliders[index], collider);
+        self.assert_body_intent(handle.id, &candidate);
+        self.retain_shape_ref(handle.id, &collider.shape);
+        self.install_body(handle, candidate);
+        self.release_shape_ref(handle.id, &existing.shape);
     }
 
     pub fn add_collider(&mut self, handle: BodyHandle, collider: ColliderDesc) {
         self.validate(handle);
         collider.assert_valid();
-        self.retain_shape_ref(&collider.shape);
-        self.bodies.descs[handle.id as usize]
-            .colliders
-            .push(collider);
-        self.encode_body(handle);
+        self.assert_collider_owner(handle.id);
+        let mut candidate = self.bodies.descs[handle.id as usize].clone();
+        candidate.colliders.push(collider);
+        self.assert_body_intent(handle.id, &candidate);
+        self.retain_shape_ref(handle.id, &collider.shape);
+        self.install_body(handle, candidate);
     }
 
     pub fn remove_collider(&mut self, handle: BodyHandle, index: usize) {
@@ -454,19 +490,25 @@ impl World {
             self.bodies.descs[id].colliders.len() > 1,
             "a body requires at least one collider"
         );
-        let removed = self.bodies.descs[id].colliders.swap_remove(index);
-        self.release_shape_ref(&removed.shape);
-        self.encode_body(handle);
+        self.assert_collider_owner(handle.id);
+        let mut candidate = self.bodies.descs[id].clone();
+        let removed = candidate.colliders.swap_remove(index);
+        self.assert_body_intent(handle.id, &candidate);
+        self.install_body(handle, candidate);
+        self.release_shape_ref(handle.id, &removed.shape);
     }
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
         self.validate(handle);
         shape.assert_valid();
+        self.assert_collider_owner(handle.id);
         let id = handle.id as usize;
-        let replaced = std::mem::replace(&mut self.bodies.descs[id].colliders[0].shape, shape);
-        self.release_shape_ref(&replaced);
-        self.retain_shape_ref(&shape);
-        self.encode_body(handle);
+        let mut candidate = self.bodies.descs[id].clone();
+        let replaced = std::mem::replace(&mut candidate.colliders[0].shape, shape);
+        self.assert_body_intent(handle.id, &candidate);
+        self.retain_shape_ref(handle.id, &shape);
+        self.install_body(handle, candidate);
+        self.release_shape_ref(handle.id, &replaced);
     }
 
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
@@ -626,15 +668,26 @@ impl World {
         self.bodies.pool.validate(handle);
     }
 
-    fn retain_shape_ref(&mut self, shape: &Shape) {
+    fn retain_shape_ref(&mut self, body: u32, shape: &Shape) {
         if let Some(handle) = shape_source_handle(shape) {
-            self.shapes.pool.retain(handle);
+            self.shapes.pool.retain(handle, body);
         }
     }
 
-    fn release_shape_ref(&mut self, shape: &Shape) {
+    fn release_shape_ref(&mut self, body: u32, shape: &Shape) {
         if let Some(handle) = shape_source_handle(shape) {
-            self.shapes.pool.release(handle);
+            self.shapes.pool.release(handle, body);
+        }
+    }
+
+    /// Re-derives every body that reads a shape source: a body's record answers the mass its
+    /// colliders derive from the solid geometry of their sources, so it must follow the source's
+    /// geometry wherever the host moves it.
+    pub(crate) fn encode_shape_readers(&mut self, source: ShapeSourceHandle) {
+        for id in self.shapes.pool.readers_of(source) {
+            if let Some(handle) = self.bodies.pool.handle_of(id) {
+                self.encode_body(handle);
+            }
         }
     }
 }

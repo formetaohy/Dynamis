@@ -127,7 +127,7 @@ impl Source {
 #[derive(Clone)]
 pub(crate) struct ShapePool {
     pool: Pool<ShapeSourceHandle>,
-    refs: Vec<u32>,
+    readers: Vec<Vec<u32>>,
     sources: Vec<Source>,
     dirty: Vec<u32>,
     vertices: Table<[f32; 4]>,
@@ -141,7 +141,7 @@ impl ShapePool {
     pub(crate) const fn new() -> Self {
         Self {
             pool: Pool::vacate("shape source"),
-            refs: Vec::new(),
+            readers: Vec::new(),
             sources: Vec::new(),
             dirty: Vec::new(),
             vertices: Table::new(),
@@ -190,29 +190,41 @@ impl ShapePool {
         if self.sources.len() > id as usize {
             return;
         }
-        self.refs.resize(id as usize + 1, 0);
+        self.readers.resize(id as usize + 1, Vec::new());
         self.sources.resize(id as usize + 1, Source::DEAD);
     }
 
-    pub(crate) fn retain(&mut self, handle: ShapeSourceHandle) {
+    /// Declares a body as a reader of a source: a body's mass properties are a derivation of the
+    /// solid geometry the source answers, so the source must be able to reach every body that
+    /// reads it when that geometry moves.
+    pub(crate) fn retain(&mut self, handle: ShapeSourceHandle, reader: u32) {
         self.source(handle);
-        self.refs[handle.id as usize] += 1;
+        self.readers[handle.id as usize].push(reader);
     }
 
-    pub(crate) fn release(&mut self, handle: ShapeSourceHandle) {
+    pub(crate) fn release(&mut self, handle: ShapeSourceHandle, reader: u32) {
         self.source(handle);
-        assert!(
-            self.refs[handle.id as usize] > 0,
-            "shape source refcount underflow"
-        );
-        self.refs[handle.id as usize] -= 1;
+        let readers = &mut self.readers[handle.id as usize];
+        let slot = readers
+            .iter()
+            .position(|held| *held == reader)
+            .unwrap_or_else(|| panic!("shape source {handle:?} carries no read by body {reader}"));
+        readers.swap_remove(slot);
+    }
+
+    pub(crate) fn readers_of(&self, handle: ShapeSourceHandle) -> Vec<u32> {
+        self.source(handle);
+        let mut readers = self.readers[handle.id as usize].clone();
+        readers.sort_unstable();
+        readers.dedup();
+        readers
     }
 
     pub(crate) fn remove(&mut self, handle: ShapeSourceHandle) {
         let id = handle.id as usize;
         let source = *self.source(handle);
         assert!(
-            self.refs[id] == 0,
+            self.readers[id].is_empty(),
             "shape source is still referenced by a live body"
         );
         self.vertices.release(source.vertices, [0.0; 4]);

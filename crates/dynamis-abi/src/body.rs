@@ -73,6 +73,21 @@ impl BodyStateRecord {
     }
 }
 
+/// Refuses a kind a body description cannot declare: world geometry spans a scene instead of
+/// enclosing a volume, so it answers no solid mass, and only a body the host moves can carry it.
+pub fn assert_body_kind(desc: &BodyDesc, kind: BodyKind) {
+    if !kind.simulates() {
+        return;
+    }
+    for collider in &desc.colliders {
+        assert!(
+            !crate::ShapeRole::of_shape(&collider.shape).world_geometry(),
+            "world geometry answers no solid mass, so a {kind:?} body cannot carry it: {:?}",
+            collider.shape
+        );
+    }
+}
+
 impl BodyDescriptorRecord {
     pub fn kind(&self) -> BodyKind {
         BodyKind::of(self.inverse_mass, self.flags & BODY_KINEMATIC != 0)
@@ -85,8 +100,9 @@ impl BodyDescriptorRecord {
     ) -> Self {
         desc.assert_valid();
         config.assert_valid();
+        let kind = desc.kind(&geometry);
+        assert_body_kind(desc, kind);
         let mass = desc.effective_mass(&geometry);
-        let kind = BodyKind::of(mass, desc.kinematic);
         let properties = desc.mass_properties(&geometry);
         let mut flags = 0;
         if desc.kinematic {

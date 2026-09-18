@@ -37,6 +37,7 @@ impl StreamRecord for [f32; 4] {
     const WGSL: &'static str = "vec4f";
 }
 
+pub use body::assert_body_kind;
 pub use collider::{contact_frequency, contact_relaxation};
 pub use constant::{
     BODY_CCD, BODY_KINEMATIC, CHARACTER_SWEEPS, COLLIDER_SENSOR, CONSTRAINT_ACCUMULATOR_SLOTS,

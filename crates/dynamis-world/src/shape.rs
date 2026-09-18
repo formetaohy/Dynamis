@@ -90,6 +90,7 @@ impl World {
             .pool
             .update_mesh(handle, vertices, triangles, surfaces);
         self.shapes.dirty = true;
+        self.encode_shape_readers(handle);
     }
 
     pub fn update_height_field(
@@ -106,6 +107,7 @@ impl World {
             .pool
             .update_grid(handle, rows, cols, &vertices, surfaces);
         self.shapes.dirty = true;
+        self.encode_shape_readers(handle);
     }
 
     fn allocate_shape(
