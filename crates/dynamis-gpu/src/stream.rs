@@ -142,9 +142,7 @@ impl Stream {
             usage,
             retention,
         };
-        if let Some(word) = retention.seed() {
-            stream.write_at(queue, 0, &word.to_le_bytes());
-        }
+        stream.seed(queue);
         stream
     }
 
@@ -208,6 +206,28 @@ impl Stream {
         self.buffer = next;
         self.slots = slots;
         true
+    }
+
+    pub fn install(&mut self, device: &Device, queue: &Queue, slots: u32) {
+        assert!(
+            slots > 0,
+            "stream {:?} requires at least one slot",
+            self.label
+        );
+        if slots == self.slots {
+            return;
+        }
+        let bytes = slots as BufferAddress * self.stride;
+        assert_fits(device, self.label, bytes);
+        self.buffer = GpuBuffer::new(device, self.label, bytes, self.usage);
+        self.slots = slots;
+        self.seed(queue);
+    }
+
+    fn seed(&self, queue: &Queue) {
+        if let Some(word) = self.retention.seed() {
+            self.write_at(queue, 0, &word.to_le_bytes());
+        }
     }
 }
 

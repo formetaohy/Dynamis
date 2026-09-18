@@ -242,16 +242,14 @@ macro_rules! domains {
                 streams
             }
 
-            pub(crate) fn require<F: Fn(&'static str) -> Option<u32>>(
+            pub(crate) fn install<F: Fn(&'static str) -> Option<u32>>(
                 &mut self,
                 device: &wgpu::Device,
-                encoder: &mut wgpu::CommandEncoder,
-                floors: F,
-            ) -> bool {
+                queue: &wgpu::Queue,
+                slots: F,
+            ) {
                 use $crate::DomainStreams as _;
-                let mut changed = false;
-                $( changed |= self.$field.require(device, encoder, &floors); )*
-                changed
+                $( self.$field.install(device, queue, &slots); )*
             }
 
             pub(crate) fn capacity(&self) -> StreamCapacity {

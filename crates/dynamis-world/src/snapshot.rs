@@ -80,7 +80,7 @@ impl World {
         let census = self.census();
         let live = self.live(&census);
         self.apply_plan(&live);
-        self.reserve_streams(&snapshot.streams);
+        self.install_streams(&snapshot.streams);
         self.constraints.schedule.publish();
         self.backend
             .streams
@@ -110,15 +110,13 @@ impl World {
         self.backend.pass_timings.clear();
     }
 
-    fn reserve_streams(&mut self, archive: &StreamArchive) {
-        let device = self.backend.gpu.device().clone();
-        let mut encoder = dynamis_gpu::SubmissionEncoder::new(&device, "dynamis snapshot reserve");
-        if self
-            .backend
+    fn install_streams(&mut self, archive: &StreamArchive) {
+        let (device, queue) = (
+            self.backend.gpu.device().clone(),
+            self.backend.gpu.queue().clone(),
+        );
+        self.backend
             .streams
-            .require(&device, &mut encoder, |label| archive.floor(label))
-        {
-            self.submit(encoder);
-        }
+            .install(&device, &queue, |label| archive.slots(label));
     }
 }

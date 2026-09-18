@@ -322,3 +322,32 @@ fn a_snapshot_carries_the_characters_it_captured() {
         walked.position[0]
     );
 }
+
+#[test]
+fn a_snapshot_landing_in_a_world_that_outgrew_it_replays_its_frames() {
+    let mut world = observed_world(gravity_config());
+    let scenario = settle(&mut world, FRAMES);
+    let snapshot = world.snapshot();
+    let captured = state_bits(&mut world, &scenario);
+    advance(&mut world, TAIL);
+    let expected = world_bits(&mut world, &scenario);
+    let burst = (0..BURST)
+        .map(|index| world.spawn(BodyDesc::sphere(0.2).position([40.0 + index as f32, 6.0, 0.0])))
+        .collect::<Vec<_>>();
+    advance(&mut world, 3);
+    for body in burst {
+        world.remove(body);
+    }
+    restore(&mut world, &snapshot);
+    assert_eq!(
+        state_bits(&mut world, &scenario),
+        captured,
+        "a snapshot must land in a world whose storage outgrew it"
+    );
+    advance(&mut world, TAIL);
+    assert_eq!(
+        world_bits(&mut world, &scenario),
+        expected,
+        "a world that installed its snapshot must replay the frames it replaced"
+    );
+}

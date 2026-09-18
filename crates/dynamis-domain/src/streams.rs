@@ -15,12 +15,12 @@ pub trait DomainStreams: Sized {
         demand: &Self::Demand,
     ) -> bool;
 
-    fn require<F: Fn(&'static str) -> Option<u32>>(
+    fn install<F: Fn(&'static str) -> Option<u32>>(
         &mut self,
         device: &Device,
-        encoder: &mut CommandEncoder,
-        floors: F,
-    ) -> bool;
+        queue: &Queue,
+        slots: F,
+    );
 
     fn durable(&self) -> Vec<(&'static str, &Stream)>;
 }
@@ -158,27 +158,20 @@ macro_rules! streams {
                 changed
             }
 
-            fn require<F: Fn(&'static str) -> Option<u32>>(
+            fn install<F: Fn(&'static str) -> Option<u32>>(
                 &mut self,
                 device: &::wgpu::Device,
-                encoder: &mut ::wgpu::CommandEncoder,
-                floors: F,
-            ) -> bool {
-                let mut changed = false;
+                queue: &::wgpu::Queue,
+                slots: F,
+            ) {
                 $(
                     if $retention.durable() {
-                        let slots = floors($label).unwrap_or_else(|| {
+                        let slots = slots($label).unwrap_or_else(|| {
                             panic!("a snapshot must answer the durable stream {:?}", $label)
                         });
-                        assert!(
-                            slots >= self.$name.slots(),
-                            "durable stream {:?} cannot be restored below its snapshot size",
-                            $label,
-                        );
-                        changed |= self.$name.reserve(device, encoder, slots);
+                        self.$name.install(device, queue, slots);
                     }
                 )*
-                changed
             }
 
             fn durable(&self) -> Vec<(&'static str, &::dynamis_gpu::Stream)> {

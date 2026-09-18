@@ -78,6 +78,43 @@ fn a_preserving_stream_keeps_its_leading_slots_across_resizes() {
 }
 
 #[test]
+fn an_installed_stream_answers_exactly_the_size_it_was_installed_at() {
+    let context = shared();
+    let mut stream = stream(
+        context,
+        "installed stream",
+        4,
+        StreamElement::new("u32", 4),
+        1,
+        Retention::Durable,
+    );
+    seed(&stream, &[7, 8, 9, 10]);
+    stream.install(context.device(), context.queue(), 6);
+    assert_eq!(stream.slots(), 6);
+    assert_eq!(read(&stream, 6), vec![0; 6]);
+    stream.install(context.device(), context.queue(), 2);
+    assert_eq!(stream.slots(), 2);
+    assert_eq!(read(&stream, 2), vec![0, 0]);
+    stream.install(context.device(), context.queue(), 2);
+    assert_eq!(stream.slots(), 2);
+}
+
+#[test]
+fn an_installed_seeded_stream_starts_with_its_head_word() {
+    let context = shared();
+    let mut stream = stream(
+        context,
+        "installed seeded stream",
+        1,
+        StreamElement::new("u32", 4),
+        1,
+        Retention::Seeded(u32::MAX),
+    );
+    stream.install(context.device(), context.queue(), 3);
+    assert_eq!(read(&stream, 1), vec![u32::MAX]);
+}
+
+#[test]
 fn a_reset_stream_drops_its_contents_across_resizes() {
     let context = shared();
     let mut stream = stream(

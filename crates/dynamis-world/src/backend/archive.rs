@@ -41,7 +41,7 @@ impl StreamArchive {
         Self { ranges, bytes }
     }
 
-    pub(crate) fn floor(&self, label: &'static str) -> Option<u32> {
+    pub(crate) fn slots(&self, label: &'static str) -> Option<u32> {
         self.ranges
             .iter()
             .find(|range| range.label == label)
