@@ -248,6 +248,39 @@ fn a_publication_widens_under_a_declaration_in_flight() {
 }
 
 #[test]
+fn a_widened_ring_recycles_in_flight_slots_at_its_new_width() {
+    let context = shared();
+    let source = source();
+    source.write(context.queue(), &[9u8; 8]);
+    let mut readback = Readback::new(context.device(), "widened ring", 4, 2);
+    for sequence in 0..2u64 {
+        let mut encoder = SubmissionEncoder::new(context.device(), "narrow declaration");
+        assert!(
+            readback
+                .enqueue(&mut encoder, source.buffer(), 0, 4, sequence)
+                .is_none(),
+            "a ring that still holds a free slot never displaces a declaration"
+        );
+        encoder.submit(context.queue());
+    }
+    assert!(
+        readback.reserve(8),
+        "a wider budget must widen a ring whose slots are all in flight"
+    );
+    let mut wide = SubmissionEncoder::new(context.device(), "wide declaration");
+    let displaced = readback.enqueue(&mut wide, source.buffer(), 0, 8, 2);
+    wide.submit(context.queue());
+    let mut received = displaced.into_iter().collect::<Vec<_>>();
+    received.extend(readback.drain());
+    assert_eq!(
+        received,
+        vec![(0, vec![9u8; 4]), (1, vec![9u8; 4]), (2, vec![9u8; 8])],
+        "a recycled slot must carry the width the ring widened to"
+    );
+    assert!(readback.is_idle());
+}
+
+#[test]
 fn a_publication_releases_a_wider_ring_only_once_it_is_idle() {
     let context = shared();
     let source = source();

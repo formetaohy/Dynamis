@@ -167,8 +167,8 @@ fn overlap_hit(query: Query, body: Body, collider: Collider, out_normal: ptr<fun
     probe.radius = 0.0;
     let closest = convex_closest(probe, world, &simplex, &count);
     if (closest.penetrating) {
-        let hit = convex_hit(query_shape_world(query, query.origin), world);
-        *out_normal = -hit.normal;
+        let hit = penetration_hit(query_shape_world(query, query.origin), world);
+        *out_normal = hit.normal;
         return -query.extent + max(hit.distance + query.extent, 0.0);
     }
     if (closest.distance <= query.extent) {
@@ -427,7 +427,8 @@ fn resolve_hit(query: Query, body: Body, collider: Collider) -> ShapeHit {
     var count = 0u;
     let closest = convex_closest(probe, world, &simplex, &count);
     if (closest.penetrating) {
-        return ShapeHit(0.0, (closest.point_a + closest.point_b) * 0.5, closest.normal, NO_TRIANGLE);
+        let hit = penetration_hit(probe, world);
+        return ShapeHit(hit.distance, (closest.point_a + closest.point_b) * 0.5, hit.normal, NO_TRIANGLE);
     }
     return no_hit();
 }

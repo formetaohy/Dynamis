@@ -117,6 +117,29 @@ fn cuboid_query_reports_overlap_and_outside() {
     assert_eq!(world.query_hit(outside), None, "disjoint box must miss");
 }
 
+#[test]
+fn a_convex_overlap_separates_along_the_face_the_narrowphase_solves() {
+    let mut world = observed_world(static_config());
+    let target = world.spawn(BodyDesc::cuboid([1.0, 1.0, 1.0]).mass(0.0));
+    let query = world.cuboid_query([0.9, 0.99, 0.9], [0.2, 0.2, 0.2], &QueryFilter::default());
+    world.step(DT);
+    world.wait();
+    let hit = world
+        .query_hit(query)
+        .expect("a cuboid probe that overlaps its target must hit");
+    assert_eq!(hit.body(), target);
+    assert!(
+        (hit.normal[1] - 1.0).abs() < 1e-3,
+        "an overlapping cuboid must report the face it separates along, got {:?}",
+        hit.normal
+    );
+    assert!(
+        hit.distance < 0.0,
+        "an overlap must report a negative separation, got {}",
+        hit.distance
+    );
+}
+
 fn down_ray(world: &mut World, kind: &str, start: [f32; 3]) -> QueryHit {
     let handle = world.ray_query(start, [0.0, -1.0, 0.0], 20.0, &QueryFilter::default());
     world.step(DT);

@@ -617,6 +617,11 @@ fn convex_hit(first: WorldShape, second: WorldShape) -> ShapeHit {
     return result;
 }
 
+fn penetration_hit(probe: WorldShape, solid: WorldShape) -> ShapeHit {
+    let hit = convex_hit(probe, solid);
+    return ShapeHit(hit.distance, hit.point, -hit.normal, hit.triangle);
+}
+
 const BOX_INTERIOR_POINT: u32 = 8u;
 const SEGMENT_FAR_POINT: u32 = 0u;
 const SEGMENT_NEAR_POINT: u32 = 1u;

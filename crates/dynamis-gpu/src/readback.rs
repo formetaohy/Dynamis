@@ -178,21 +178,40 @@ impl Readback {
             "readback size must be positive and word aligned"
         );
         assert!(depth > 0, "a readback needs at least one staging slot");
-        Self {
+        let mut readback = Self {
             device: device.clone(),
             label: label.to_owned(),
             size,
             deferred: None,
-            slots: (0..depth)
-                .map(|index| Slot::new(device, &format!("{label} slot {index}"), size))
-                .collect(),
+            slots: VecDeque::new(),
             inflight: 0,
             last_sequence: None,
+        };
+        for index in 0..depth {
+            let slot = readback.slot(index);
+            readback.slots.push_back(slot);
         }
+        readback
     }
 
     pub fn size(&self) -> BufferAddress {
         self.size
+    }
+
+    fn slot(&self, index: usize) -> Slot {
+        Slot::new(
+            &self.device,
+            &format!("{} slot {index}", self.label),
+            self.size,
+        )
+    }
+
+    fn recycle(&mut self, slot: Slot) -> Slot {
+        if slot.size() < self.size {
+            self.slot(self.slots.len())
+        } else {
+            slot
+        }
     }
 
     pub fn reserve(&mut self, size: BufferAddress) -> bool {
@@ -213,12 +232,13 @@ impl Readback {
     }
 
     fn install(&mut self, size: BufferAddress) {
-        let label = self.label.clone();
-        for (index, slot) in self.slots.iter_mut().enumerate().skip(self.inflight) {
-            *slot = Slot::new(&self.device, &format!("{label} slot {index}"), size);
-        }
         self.size = size;
         self.deferred = None;
+        let free = self.slots.len();
+        for index in self.inflight..free {
+            let slot = self.slot(index);
+            self.slots[index] = slot;
+        }
     }
 
     pub fn is_idle(&self) -> bool {
@@ -284,22 +304,20 @@ impl Readback {
         }
         if !self.slots[0].is_sealed() {
             let index = self.slots.len();
-            self.slots.push_back(Slot::new(
-                &self.device,
-                &format!("{} slot {index}", self.label),
-                self.size,
-            ));
+            let slot = self.slot(index);
+            self.slots.push_back(slot);
             return None;
         }
         let mut oldest = self.slots.pop_front().expect("readback holds a slot");
         let entry = oldest.wait(&self.device);
-        self.slots.push_back(oldest);
         self.inflight -= 1;
+        let oldest = self.recycle(oldest);
+        self.slots.push_back(oldest);
         Some(entry)
     }
 
     fn retire(&mut self) {
-        let mut slot = self.slots.pop_front().expect("readback holds a slot");
+        let slot = self.slots.pop_front().expect("readback holds a slot");
         self.inflight -= 1;
         if self.inflight == 0 {
             self.last_sequence = None;
@@ -307,14 +325,7 @@ impl Readback {
                 self.install(size);
             }
         }
-        if slot.size() < self.size {
-            let index = self.slots.len();
-            slot = Slot::new(
-                &self.device,
-                &format!("{} slot {index}", self.label),
-                self.size,
-            );
-        }
+        let slot = self.recycle(slot);
         self.slots.push_back(slot);
     }
 }
