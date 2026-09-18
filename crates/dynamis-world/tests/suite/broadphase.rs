@@ -708,8 +708,8 @@ fn an_immovable_collider_that_moved_or_appeared_is_derived_again() {
         world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
         "a new collider may move the grid resolution and must re-derive the immovable index"
     );
+    assert_a_reused_immovable_index(&mut world, "a collider that appeared");
 
-    settle(&mut world, 4);
     world.set_position(floor, [0.0, -0.75, 0.0]);
     world.step(DT);
     world.wait();
@@ -721,7 +721,20 @@ fn an_immovable_collider_that_moved_or_appeared_is_derived_again() {
         world.read_state(floor).position[1] == -0.75,
         "a moved immovable collider must keep the pose it was given"
     );
+    assert_a_reused_immovable_index(&mut world, "a collider that moved");
     assert_unrefused(&world);
+}
+
+fn assert_a_reused_immovable_index(world: &mut dynamis_world::World, subject: &str) {
+    for step in 0..4 {
+        world.step(DT);
+        world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_IMMOVABLE_EMITTED],
+            0,
+            "{subject} must leave the index it derived to the steps that follow it, derived again on step {step}"
+        );
+    }
 }
 
 #[test]

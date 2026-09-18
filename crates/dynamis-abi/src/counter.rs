@@ -83,7 +83,6 @@ declare_counters! {
     COUNTER_IMMOVABLE_EMITTED => "immovable grid entries derived this step", PerStep, None;
     COUNTER_IMMOVABLE_LEVELS => "immovable grid levels", Maintained, None;
     COUNTER_ENTRY_BASE => "grid entry base", Maintained, None;
-    COUNTER_IMMOVABLE_WOKE => "immovable bodies that woke", PerStep, None;
     COUNTER_PAIRS => "candidate contact pairs", PerStep, None;
     COUNTER_GRID_LEVELS => "occupied grid levels", PerStep, None;
     COUNTER_CONTACTS => "contact manifolds", PerStep, None;

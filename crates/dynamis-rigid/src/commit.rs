@@ -168,14 +168,13 @@ impl PassRuntime<RigidFrame> for Commit {
                 rows(
                     context,
                     include_str!("../shaders/static_wake_clear.wgsl"),
-                    dynamis_shader::COUNTERS,
+                    CORE,
                     Count::Bodies.bound(),
                 ),
                 streams,
                 &[
                     ("params", StateStream::Params.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
-                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),

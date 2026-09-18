@@ -21,7 +21,7 @@ fn link_level(node: u32, level: u32, awake: bool, grid: f32, view: EntryView) {
                 if (region == ENTRY_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
                     continue;
                 }
-                if (!awake && !entry_awake(entries[other].info)) {
+                if (!awake && !entry_awake(view, entry, other)) {
                     continue;
                 }
                 let other_box = entry_box(other);
@@ -50,7 +50,7 @@ fn work(index: u32) {
     if (entry_kind(info) != ENTRY_KIND_COLLIDER || !entry_primary(info)) {
         return;
     }
-    let awake = entry_awake(info);
+    let awake = entry_awake(view, index, node);
     if (!awake && counter_load(COUNTER_COARSE_ACTIVE) == 0u) {
         return;
     }

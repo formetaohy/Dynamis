@@ -24,7 +24,7 @@ fn work(index: u32) {
     }
     let node = entry_node(view, index);
     let info = entries[node].info;
-    if (entry_kind(info) != ENTRY_KIND_COLLIDER || !entry_awake(info)) {
+    if (entry_kind(info) != ENTRY_KIND_COLLIDER || !entry_awake(view, index, node)) {
         return;
     }
     let grid = grid_base_cell();
@@ -41,7 +41,7 @@ fn work(index: u32) {
             if (region == ENTRY_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
                 continue;
             }
-            if (entry_awake(entries[other].info) && entry < index) {
+            if (entry_awake(view, entry, other) && entry < index) {
                 continue;
             }
             emit_cell_mate(node, other, cell_size);

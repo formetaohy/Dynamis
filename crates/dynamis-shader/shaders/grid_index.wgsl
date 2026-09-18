@@ -204,7 +204,7 @@ fn entry_index(info: u32) -> u32 {
     return info & ENTRY_INDEX_MASK;
 }
 
-fn entry_awake(info: u32) -> bool {
+fn entry_awake_bit(info: u32) -> bool {
     return (info & ENTRY_AWAKE) != 0u;
 }
 

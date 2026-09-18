@@ -1,3 +1,12 @@
+@group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
+
+fn entry_awake(view: EntryView, position: u32, node: u32) -> bool {
+    if (entry_region_of(view, position) == ENTRY_REGION_IMMOVABLE) {
+        return atomicLoad(&wake_flags[entry_group(node)]) != 0u;
+    }
+    return entry_awake_bit(entries[node].info);
+}
+
 fn emit_pair(first: u32, second: u32) {
     let first_info = entries[first].info;
     let second_info = entries[second].info;

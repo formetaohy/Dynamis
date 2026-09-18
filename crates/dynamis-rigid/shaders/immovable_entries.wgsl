@@ -10,9 +10,8 @@ fn work(index: u32) {
     if (owner == NO_BODY || body_is_movable(body_descs[owner])) {
         return;
     }
-    let awake = collider_awake(owner);
     let entry = collider_cells(index, ENTRY_REGION_IMMOVABLE);
-    let emitted = collider_entry_cost(entry, awake);
+    let emitted = collider_entry_cost(entry, collider_awake(owner));
     let limit = entry_immovable_base();
     for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {
         let slot = counter_add(COUNTER_IMMOVABLE_ENTRIES, 1u);
@@ -22,7 +21,7 @@ fn work(index: u32) {
             limit,
             index,
             owner,
-            awake,
+            false,
             entry,
             grid_cell_at(entry.cells, ordinal),
         );

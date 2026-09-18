@@ -187,9 +187,6 @@ impl World {
 
     pub(crate) fn accept_measured(&mut self, step: u64) {
         self.assert_no_device_faults();
-        if self.backend.measured[dynamis_abi::COUNTER_IMMOVABLE_WOKE] > 0 {
-            self.backend.immovable.invalidate();
-        }
         if self.backend.measured[dynamis_abi::COUNTER_SLEPT]
             + self.backend.measured[dynamis_abi::COUNTER_WOKE]
             + self.backend.measured[dynamis_abi::COUNTER_WOKE_DEFERRED]
