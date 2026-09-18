@@ -183,6 +183,12 @@ macro_rules! domains {
                     awake: Awake { $( $field: false, )* },
                 }
             }
+
+            /// Whether this run indexes the scene, and with it derives every index that is a
+            /// function of the scene facts.
+            pub(crate) fn indexing(&self) -> bool {
+                self.indexing
+            }
         }
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]

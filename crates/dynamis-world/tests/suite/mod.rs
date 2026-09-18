@@ -11,6 +11,7 @@ pub mod constraint;
 pub mod contact_events;
 pub mod contact_identity;
 pub mod decompose;
+pub mod derivation;
 pub mod determinism;
 pub mod device;
 pub mod dynamics;
@@ -38,6 +39,7 @@ pub mod shape;
 pub mod shareability;
 pub mod snapshot;
 pub mod soft;
+pub mod soft_authoring;
 pub mod solver;
 pub mod surface;
 #[cfg(feature = "profile")]

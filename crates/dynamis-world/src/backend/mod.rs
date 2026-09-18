@@ -10,40 +10,32 @@ use dynamis_domain::Settling;
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
-use registry::{Activity, Live, Plan, Rest, Resting, StepPasses, Streams};
+use registry::{Activity, Live, Plan, Rest, StepPasses, Streams};
 use segment::{Arrival, SegmentTransport};
 use wgpu::SubmissionIndex;
 
 pub(crate) use registry::StepFrames;
 
 use crate::World;
-
-/// The scene facts the immovable half of the grid index is derived from. Every one of them can move
-/// the grid resolution, and an index derived at another resolution must be derived again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Resolution {
-    pub(crate) colliders: u32,
-    pub(crate) movable_colliders: u32,
-    pub(crate) particles: u32,
-}
+use crate::derivation::{GridStorage, ImmovableGrid, JointOrderStorage, RestingGrid};
 
 /// The immovable half of the broadphase grid index: a prefix of the entry streams that the device
-/// derives once and reuses until the host declares it stale.
+/// holds until the facts its entries are built from, the range it reserved, or the storage it lives
+/// in has moved. The index is a pure function of those facts, so a step that runs neither the
+/// derivation nor the emission simply leaves the difference standing until a step that does.
 #[derive(Clone, Copy)]
 pub(crate) struct Immovable {
     entries: u32,
-    rebuild: bool,
-    pending: bool,
-    resolution: Option<Resolution>,
+    held: Option<ImmovableGrid>,
+    due: Option<ImmovableGrid>,
 }
 
 impl Immovable {
     pub(crate) const fn new(entries: u32) -> Self {
         Self {
             entries,
-            rebuild: true,
-            pending: true,
-            resolution: None,
+            held: None,
+            due: None,
         }
     }
 
@@ -51,31 +43,69 @@ impl Immovable {
         self.entries
     }
 
-    pub(crate) const fn rebuild(&self) -> bool {
-        self.rebuild
+    pub(crate) fn rebuild(&self) -> bool {
+        self.held.is_none() || self.due != self.held
     }
 
     pub(crate) fn install(&mut self, entries: u32) {
         self.entries = entries;
-        self.invalidate();
-        self.pending = true;
     }
 
-    pub(crate) fn invalidate(&mut self) {
-        self.rebuild = true;
+    /// Records the facts at hand and answers whether the device still owes the entries they answer.
+    pub(crate) fn reconcile(&mut self, grid: ImmovableGrid) -> bool {
+        self.due = Some(grid);
+        self.rebuild()
     }
 
-    pub(crate) fn reconcile(&mut self, resolution: Resolution) {
-        if self.resolution != Some(resolution) {
-            self.resolution = Some(resolution);
-            self.invalidate();
-        }
+    /// Records that the step ran the derivation, so the device now holds the entries the facts at
+    /// hand answer.
+    pub(crate) fn derived(&mut self) {
+        self.held = self.due;
+    }
+}
+
+/// The resting half of the broadphase grid index: the entries of every sleeping body. Resting
+/// entries are keyed at a resolution the device derives, so they are derived again whenever that
+/// resolution moves, whenever the facts behind them move, and once their region grows old enough
+/// that the device counters can no longer vouch for it.
+#[derive(Clone, Copy)]
+pub(crate) struct Resting {
+    held: Option<RestingGrid>,
+    due: Option<RestingGrid>,
+    derived: u32,
+}
+
+impl Resting {
+    pub(crate) const IDLE: Self = Self {
+        held: None,
+        due: None,
+        derived: 0,
+    };
+
+    pub(crate) const REGION_LIFETIME: u32 = 64;
+
+    /// Records the facts at hand and answers whether the device still owes the entries they answer.
+    pub(crate) fn reconcile(&mut self, step: u64, grid: RestingGrid) -> bool {
+        self.due = Some(grid);
+        self.held.is_none()
+            || self.held != self.due
+            || step.wrapping_sub(u64::from(self.derived)) >= u64::from(Self::REGION_LIFETIME)
     }
 
-    pub(crate) fn advance(&mut self) {
-        self.rebuild = self.pending;
-        self.pending = false;
+    /// Records that the step ran the derivation, so the device now holds the entries the facts at
+    /// hand answer and the region's lifetime starts over.
+    pub(crate) fn derived(&mut self, step: u64) {
+        self.held = self.due;
+        self.derived = step as u32;
     }
+}
+
+/// The derivations a step owes the device. A run that indexes the scene derives them, so what it
+/// owed is what the device holds from then on.
+#[derive(Clone, Copy)]
+pub(crate) struct Derived {
+    pub(crate) immovable: bool,
+    pub(crate) resting: bool,
 }
 
 pub(crate) struct Backend {
@@ -161,10 +191,6 @@ impl World {
         encoder.submit(self.backend.gpu.queue())
     }
 
-    pub(crate) fn invalidate_immovable(&mut self) {
-        self.backend.immovable.invalidate();
-    }
-
     pub(crate) fn apply_plan(&mut self, live: &Live) {
         let activity = Activity::of(&self.backend.measured, live, &self.host_work());
         let release = self
@@ -195,7 +221,6 @@ impl World {
             streams,
             "a buffer plan that changes capacity must reallocate"
         );
-        self.constraints.schedule.publish();
         self.backend
             .readback
             .reserve(&device, &self.backend.streams);
@@ -203,27 +228,68 @@ impl World {
             .segments
             .reserve(&device, &self.backend.streams);
         self.submit(encoder);
-        self.backend.resting.invalidate();
     }
 
-    pub(crate) fn reconcile_layout(&mut self, live: &mut Live) {
-        let resolution = Resolution {
+    /// Derives every device index the host maintains from the facts at hand, and answers whether
+    /// the resting region is owed a rebuild this step. Each index compares the inputs it recorded
+    /// against the facts the step presents, so a mutation, a capacity plan, or a snapshot install
+    /// that replaces the storage behind an index is seen without any of them having to announce it.
+    pub(crate) fn reconcile_derivations(&mut self, live: &mut Live) -> Derived {
+        let facts = self.facts;
+        let measured = self.resting_resolution();
+        let storage = GridStorage {
+            keys: self.backend.streams.broadphase.entry_keys.identity(),
+            order: self.backend.streams.broadphase.entry_order.identity(),
+            entries: self.backend.streams.broadphase.entries.identity(),
+        };
+        let resolution = crate::derivation::Resolution {
             colliders: live.broadphase.colliders,
             movable_colliders: live.broadphase.movable_colliders,
             particles: live.broadphase.particles,
         };
-        self.backend.immovable.reconcile(resolution);
-        let rebuild = self.backend.immovable.rebuild();
-        let base = self.backend.immovable.entries();
+        let reservation = self.backend.immovable.entries();
+        let immovable = self.backend.immovable.reconcile(ImmovableGrid {
+            colliders: facts.colliders,
+            shapes: facts.shapes,
+            immovable_edits: facts.immovable_edits,
+            resolution,
+            reservation,
+            storage,
+        });
+        let resting = self.backend.resting.reconcile(
+            self.clock.step,
+            RestingGrid {
+                colliders: facts.colliders,
+                shapes: facts.shapes,
+                poses: facts.poses,
+                layout: facts.layout,
+                activity: facts.activity,
+                resolution: measured,
+                storage,
+            },
+        );
         let entries = self.backend.streams.broadphase.entry_keys.slots();
         assert!(
-            entries >= base,
-            "the grid entry stream holds the {base} immovable entries it reserves",
+            entries >= reservation,
+            "the grid entry stream holds the {reservation} immovable entries it reserves",
         );
-        live.broadphase.entry_base = base;
-        live.broadphase.moving_slots = entries - base;
-        live.broadphase.immovable_rebuild = rebuild;
-        live.rigid.immovable_rebuild = rebuild;
+        live.broadphase.entry_base = reservation;
+        live.broadphase.moving_slots = entries - reservation;
+        live.broadphase.immovable_rebuild = immovable;
+        live.broadphase.resting_rebuild = resting;
+        live.rigid.immovable_rebuild = immovable;
+        live.rigid.resting_rebuild = resting;
+        Derived { immovable, resting }
+    }
+
+    pub(crate) fn joint_order_storage(&self) -> JointOrderStorage {
+        let streams = &self.backend.streams.rigid;
+        JointOrderStorage {
+            rows: streams.joint_rows.identity(),
+            layers: streams.joint_layers.identity(),
+            components: streams.joint_components.identity(),
+            batches: streams.joint_batches.identity(),
+        }
     }
 
     pub(crate) fn copy_segments(&mut self, encoder: &mut SubmissionEncoder) -> Vec<Arrival> {

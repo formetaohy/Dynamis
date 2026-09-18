@@ -6,18 +6,19 @@ use crate::schedule::JointSchedule;
 
 impl World {
     pub(crate) fn rebuild_joint_schedule(&mut self) {
-        if !self.constraints.schedule.stale() {
+        if !self.constraints.schedule.stale(&self.facts) {
             return;
         }
         let mut schedule = std::mem::replace(&mut self.constraints.schedule, JointSchedule::new());
-        schedule.rebuild(&self.constraints, &self.bodies);
+        schedule.rebuild(&self.constraints, &self.bodies, &self.facts);
         self.constraints.schedule = schedule;
     }
 
     fn flush_joint_schedule(&mut self, queue: &wgpu::Queue) {
         self.rebuild_joint_schedule();
+        let storage = self.joint_order_storage();
         let mut schedule = std::mem::replace(&mut self.constraints.schedule, JointSchedule::new());
-        if schedule.dirty {
+        if schedule.owes_upload(storage) {
             let streams = &self.backend.streams.rigid;
             streams
                 .joint_rows
@@ -31,7 +32,7 @@ impl World {
             streams
                 .joint_batches
                 .write(queue, bytemuck::cast_slice(schedule.packing()));
-            schedule.published();
+            schedule.uploaded(storage);
         }
         self.constraints.schedule = schedule;
     }
@@ -81,13 +82,6 @@ impl World {
         let queue = self.backend.gpu.queue().clone();
         if self.shapes.dirty {
             self.upload_shapes(&queue);
-        }
-        if self.shapes.dirty || self.bodies.layout_changed {
-            self.backend.resting.invalidate();
-        }
-        self.bodies.layout_changed = false;
-        if self.soft.pending_edits() > 0 || self.soft.pending_body_edits() > 0 {
-            self.invalidate_immovable();
         }
         self.flush_joint_schedule(&queue);
         self.soft.upload(&queue, &self.backend.streams.soft);
@@ -146,7 +140,7 @@ impl World {
     }
 
     fn upload_shapes(&mut self, queue: &wgpu::Queue) {
-        self.invalidate_immovable();
+        self.facts.shapes += 1;
         let state = &self.backend.streams.state;
         self.shapes.pool.upload_pending(
             queue,
@@ -162,9 +156,6 @@ impl World {
 
     fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
         let cleared = self.colliders.take_cleared();
-        if !dirty.is_empty() || !cleared.is_empty() {
-            self.invalidate_immovable();
-        }
         for cleared in cleared {
             let records = vec![ColliderRecord::cleared(); cleared.len as usize];
             let owners = vec![dynamis_abi::NO_BODY; cleared.len as usize];

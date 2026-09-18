@@ -1,5 +1,6 @@
 use super::body::BodyStore;
 use super::constraint::ConstraintStore;
+use crate::derivation::{JointOrder, JointOrderStorage, SceneFacts};
 use dynamis_rigid::JOINT_BATCH_LANES;
 use std::cmp::Reverse;
 
@@ -9,42 +10,38 @@ const BATCH_ROOM_LIMIT: u32 = 16;
 
 #[derive(Clone)]
 pub(crate) struct JointSchedule {
-    pub(crate) pending: bool,
-    pub(crate) dirty: bool,
     pub(crate) batches: u32,
     rows: Vec<u32>,
     layers: Vec<u32>,
     components: Vec<u32>,
     packing: Vec<u32>,
+    derived: Option<JointOrder>,
+    uploaded: Option<JointOrderStorage>,
 }
 
 impl JointSchedule {
     pub(crate) const fn new() -> Self {
         Self {
-            pending: true,
-            dirty: true,
             batches: 0,
             rows: Vec::new(),
             layers: Vec::new(),
             components: Vec::new(),
             packing: Vec::new(),
+            derived: None,
+            uploaded: None,
         }
     }
 
-    pub(crate) fn invalidate(&mut self) {
-        self.pending = true;
+    pub(crate) fn stale(&self, facts: &SceneFacts) -> bool {
+        self.derived != Some(JointOrder::of(facts))
     }
 
-    pub(crate) fn publish(&mut self) {
-        self.dirty = true;
+    pub(crate) fn owes_upload(&self, storage: JointOrderStorage) -> bool {
+        self.uploaded != Some(storage)
     }
 
-    pub(crate) fn published(&mut self) {
-        self.dirty = false;
-    }
-
-    pub(crate) fn stale(&self) -> bool {
-        self.pending
+    pub(crate) fn uploaded(&mut self, storage: JointOrderStorage) {
+        self.uploaded = Some(storage);
     }
 
     pub(crate) fn rows(&self) -> &[u32] {
@@ -63,15 +60,20 @@ impl JointSchedule {
         &self.packing
     }
 
-    pub(crate) fn rebuild(&mut self, constraints: &ConstraintStore, bodies: &BodyStore) {
+    pub(crate) fn rebuild(
+        &mut self,
+        constraints: &ConstraintStore,
+        bodies: &BodyStore,
+        facts: &SceneFacts,
+    ) {
         let plan = solve_order(constraints, bodies);
-        self.pending = false;
-        self.dirty = true;
         self.batches = plan.batches;
         self.rows = plan.rows;
         self.layers = plan.layers;
         self.components = plan.components;
         self.packing = plan.packing;
+        self.derived = Some(JointOrder::of(facts));
+        self.uploaded = None;
     }
 }
 

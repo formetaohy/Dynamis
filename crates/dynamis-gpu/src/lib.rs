@@ -21,7 +21,9 @@ pub use recorder::ComputeRecorder;
 pub use resource::{ResourceId, ResourceSource, SlotRef};
 pub use runtime::GpuRuntime;
 pub use segment::SegmentRing;
-pub use stream::{PACK, Retention, STREAM, Stream, StreamDesc, StreamElement, TypedSlot, UNIFORM};
+pub use stream::{
+    PACK, Retention, STREAM, Stream, StreamDesc, StreamElement, StreamIdentity, TypedSlot, UNIFORM,
+};
 pub use submission::SubmissionEncoder;
 #[cfg(feature = "profile")]
 pub use timing::{GpuPassTiming, GpuTimer};

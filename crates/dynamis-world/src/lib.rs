@@ -6,6 +6,7 @@ mod clock;
 mod collider;
 mod command;
 mod constraint;
+mod derivation;
 mod device;
 mod event;
 mod fact;
@@ -34,6 +35,7 @@ use character::CharacterStore;
 use clock::Clock;
 use collider::ColliderStore;
 use constraint::ConstraintStore;
+use derivation::SceneFacts;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::EventStore;
@@ -58,6 +60,7 @@ pub use snapshot::Snapshot;
 pub struct World {
     config: PhysicsConfig,
     wake_all: bool,
+    facts: SceneFacts,
 
     clock: Clock,
     backend: Backend,
@@ -82,6 +85,7 @@ impl World {
         Self {
             config,
             wake_all: false,
+            facts: SceneFacts::default(),
             clock: Clock::new(),
             backend,
             bodies: BodyStore::new(),

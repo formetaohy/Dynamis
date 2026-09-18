@@ -1,5 +1,6 @@
 use super::World;
 use super::device::Facts;
+use crate::backend::Derived;
 use crate::backend::registry::HostWork;
 use crate::command::Consumption;
 use dynamis_abi::DeclaredCounters;
@@ -24,17 +25,13 @@ struct Declarations {
 impl World {
     pub(crate) fn execute(&mut self, run: Run) {
         self.sync(Facts::Arrived);
-        self.backend
-            .resting
-            .settle(self.clock.step, self.resting_resolution());
-        let derive_resting = self.backend.resting.stale();
         self.rebuild_joint_schedule();
         let census = self.census();
         let mut live = self.live(&census);
         self.apply_plan(&live);
         self.flush_observed();
         let work = self.prepare(run);
-        self.reconcile_layout(&mut live);
+        let derived = self.reconcile_derivations(&mut live);
         let facts = StepFacts::of(
             &self.config,
             self.clock.sub_dt,
@@ -49,6 +46,7 @@ impl World {
         let segments = self.copy_segments(&mut encoder);
         let batch = self.declare(run);
         self.backend.streams.measure(&self.backend.measured);
+        let indexing = frames.indexing();
         self.backend
             .passes
             .record(&mut encoder, &self.backend.streams, &frames, run);
@@ -62,7 +60,7 @@ impl World {
         }
         self.consume_segments(segments);
         self.consume(declarations);
-        self.finish(run, derive_resting);
+        self.finish(run, derived, indexing);
     }
 
     fn prepare(&mut self, run: Run) -> Option<HostWork> {
@@ -209,17 +207,20 @@ impl World {
         }
     }
 
-    fn finish(&mut self, run: Run, derive_resting: bool) {
-        match run {
-            Run::Step => {
-                self.wake_all = false;
-                self.backend.immovable.advance();
-                if derive_resting {
-                    self.backend
-                        .resting
-                        .derived(self.clock.step, self.resting_resolution());
-                }
+    /// Records the derivations a run actually made. A run that indexes the scene derived every
+    /// index it owed, so the facts at hand become the facts the device holds; a run that did not
+    /// index leaves the difference standing for the next run that does.
+    fn finish(&mut self, run: Run, derived: Derived, indexing: bool) {
+        if indexing {
+            if derived.immovable {
+                self.backend.immovable.derived();
             }
+            if derived.resting {
+                self.backend.resting.derived(self.clock.step);
+            }
+        }
+        match run {
+            Run::Step => self.wake_all = false,
             Run::Query => {
                 let census = self.census();
                 let live = self.live(&census);

@@ -192,7 +192,7 @@ impl World {
             + self.backend.measured[dynamis_abi::COUNTER_WOKE_DEFERRED]
             > 0
         {
-            self.backend.resting.invalidate();
+            self.facts.activity += 1;
         }
         self.backend.measured_step = Some(step);
         self.backend.segments.close(&self.backend.measured, step);

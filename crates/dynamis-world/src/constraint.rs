@@ -117,7 +117,7 @@ impl World {
         );
         self.constraints.attach_to(first_id, handle.id);
         self.constraints.attach_to(second_id, handle.id);
-        self.constraints.schedule.invalidate();
+        self.facts.joints += 1;
         self.constraints.commands.push(ConstraintCommand::Add {
             slot,
             id: handle.id,
@@ -224,7 +224,7 @@ impl World {
         self.constraints.detach_from(joint.second, handle.id);
         let Retired { row, moved } = self.constraints.pool.retire(handle);
         self.constraints.joints[handle.id as usize] = JointDesc::VACANT;
-        self.constraints.schedule.invalidate();
+        self.facts.joints += 1;
         if moved.is_some() {
             self.constraints.commands.push(ConstraintCommand::Swap {
                 slot: row,

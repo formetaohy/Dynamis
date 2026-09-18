@@ -216,6 +216,7 @@ impl PassRuntime<SoftFrame> for ApplySoftInputs {
                 ),
                 streams,
                 &[
+                    ("params", StateStream::Params.whole()),
                     ("row_streams", StateStream::RowStreams.whole()),
                     ("particles", SoftStream::Particles.whole()),
                     ("edits", SoftStream::Edits.whole()),
@@ -358,6 +359,7 @@ impl PassRuntime<SoftFrame> for SoftSettle {
                     ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("bodies", bodies.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
             ),

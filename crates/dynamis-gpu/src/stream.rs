@@ -48,6 +48,11 @@ impl Retention {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StreamIdentity {
+    allocation: u64,
+}
+
 pub struct Stream {
     label: &'static str,
     buffer: GpuBuffer,
@@ -148,6 +153,15 @@ impl Stream {
 
     pub fn slots(&self) -> u32 {
         self.slots
+    }
+
+    /// The storage this stream holds. Reserving, installing, or replacing a stream hands it another
+    /// allocation, so a derivation that recorded an identity can tell that the storage it wrote is
+    /// gone without anyone having to remember to invalidate it.
+    pub fn identity(&self) -> StreamIdentity {
+        StreamIdentity {
+            allocation: self.buffer.allocation(),
+        }
     }
 
     pub fn stride(&self) -> u64 {

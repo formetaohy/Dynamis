@@ -1,6 +1,6 @@
 use super::World;
 use crate::command::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
-use dynamis_abi::StepParamsRecord;
+use dynamis_abi::{BodyEditRecord, StepParamsRecord};
 use dynamis_rigid::RigidShape;
 
 impl World {
@@ -49,7 +49,7 @@ impl World {
         }
         let body_commands = self.compile_body_commands(consumption);
         let constraint_commands = self.compile_constraint_commands();
-        self.invalidate_touched_immovable(&body_commands);
+        self.note_command_edits(&body_commands);
         let soft_commands = self.compile_soft_commands(consumption);
         self.bodies.last_moves = body_commands.moves.len() as u32;
         self.bodies.last_edits = body_commands.runs.len() as u32;
@@ -102,18 +102,27 @@ impl World {
             .write(queue, bytemuck::cast_slice(&[rows]));
     }
 
-    fn invalidate_touched_immovable(&mut self, compiled: &CompiledBodyCommands) {
-        let touched = compiled
-            .runs
-            .iter()
-            .map(|run| run.row)
-            .chain(compiled.moves.iter().map(|moved| moved.row));
-        for row in touched {
-            let id = self.bodies.pool.handle_of_row(row).id as usize;
+    /// Notes the facts a compiled command stream declares: that a pose was declared, and, when the
+    /// edited body is immovable, that the entries the immovable half of the grid was emitted from
+    /// have moved. Every other input of a derivation is owned by the store that changes it.
+    fn note_command_edits(&mut self, compiled: &CompiledBodyCommands) {
+        let mut posed = false;
+        for run in &compiled.runs {
+            let edits = &compiled.edits[run.first as usize..(run.first + run.len) as usize];
+            posed |= edits.iter().any(BodyEditRecord::declares_pose);
+            let id = self.bodies.pool.handle_of_row(run.row).id as usize;
             if self.is_static(id) {
-                self.invalidate_immovable();
-                return;
+                self.facts.immovable_edits += 1;
             }
+        }
+        for moved in &compiled.moves {
+            let id = self.bodies.pool.handle_of_row(moved.row).id as usize;
+            if self.is_static(id) {
+                self.facts.immovable_edits += 1;
+            }
+        }
+        if posed {
+            self.facts.poses += 1;
         }
     }
 

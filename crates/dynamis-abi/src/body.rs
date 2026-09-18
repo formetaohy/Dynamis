@@ -1,7 +1,7 @@
 use crate::constant::{
     BODY_CCD, BODY_KINEMATIC, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE,
     EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE, OVERRIDE_SLEEP_ANGULAR,
-    OVERRIDE_SLEEP_LINEAR,
+    OVERRIDE_SLEEP_LINEAR, PATCH_ORIENTATION, PATCH_POSITION,
 };
 use crate::{BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord};
 use bytemuck::Zeroable;
@@ -106,6 +106,11 @@ impl BodyEditRunRecord {
 }
 
 impl BodyEditRecord {
+    /// Whether this edit declares a pose: one that moves the body rather than loading it.
+    pub const fn declares_pose(&self) -> bool {
+        self.kind == EDIT_PATCH && (self.mask & (PATCH_POSITION | PATCH_ORIENTATION)) != 0
+    }
+
     fn edit(kind: u32, mask: u32, state: BodyStateRecord) -> Self {
         Self {
             kind,

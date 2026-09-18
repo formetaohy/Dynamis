@@ -50,6 +50,8 @@ declare_constants! {
     pub const SOFT_EDIT_INVERSE_MASS: u32 = 1;
     pub const SOFT_EDIT_RADIUS: u32 = 2;
     pub const SOFT_EDIT_FRICTION: u32 = 4;
+    pub const SOFT_EDIT_POSITION: u32 = 8;
+    pub const SOFT_EDIT_VELOCITY: u32 = 16;
     pub const SOFT_BODY_EDIT_ACCELERATION: u32 = 1;
     pub const SOFT_BODY_EDIT_WAKE: u32 = 2;
     pub const FEATURE_POINT: u32 = 0;

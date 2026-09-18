@@ -1,6 +1,7 @@
-@group(0) @binding(0) var<storage, read> row_streams: RowStreams;
-@group(0) @binding(1) var<storage, read_write> particles: array<SoftParticle>;
-@group(0) @binding(2) var<storage, read> edits: array<SoftEdit>;
+@group(0) @binding(0) var<uniform> params: StepParams;
+@group(0) @binding(1) var<storage, read> row_streams: RowStreams;
+@group(0) @binding(2) var<storage, read_write> particles: array<SoftParticle>;
+@group(0) @binding(3) var<storage, read> edits: array<SoftEdit>;
 
 fn work(index: u32) {
     let edit = edits[index];
@@ -13,6 +14,17 @@ fn work(index: u32) {
     }
     if ((edit.mask & SOFT_EDIT_FRICTION) != 0u) {
         particle.velocity = vec4f(particle.velocity.xyz, edit.friction);
+    }
+    if ((edit.mask & SOFT_EDIT_POSITION) != 0u) {
+        particle.position = vec4f(edit.position, particle.position.w);
+        particle.prev_position = vec4f(edit.position, particle.prev_position.w);
+    }
+    if ((edit.mask & SOFT_EDIT_VELOCITY) != 0u) {
+        particle.velocity = vec4f(edit.velocity, particle.velocity.w);
+        particle.prev_position = vec4f(
+            particle.position.xyz - edit.velocity * params.soft_substep_dt,
+            particle.prev_position.w,
+        );
     }
     particles[edit.particle] = particle;
 }

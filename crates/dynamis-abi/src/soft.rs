@@ -2,7 +2,8 @@ use crate::SoftAnnouncementRecord;
 use crate::constant::{
     ELEMENT_AREA, ELEMENT_BEND, ELEMENT_BROKEN, ELEMENT_DISTANCE, ELEMENT_KIND_MASK,
     ELEMENT_PARTICLES, ELEMENT_VOLUME, NO_BODY, NO_SLOT, SOFT_BODY_EDIT_ACCELERATION,
-    SOFT_BODY_EDIT_WAKE, SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_RADIUS,
+    SOFT_BODY_EDIT_WAKE, SOFT_EDIT_FRICTION, SOFT_EDIT_INVERSE_MASS, SOFT_EDIT_POSITION,
+    SOFT_EDIT_RADIUS, SOFT_EDIT_VELOCITY,
 };
 use crate::event::event_flags;
 use crate::{
@@ -161,14 +162,31 @@ impl SoftBodyEditRecord {
 }
 
 impl SoftEditRecord {
-    pub const fn merged(particle: u32) -> Self {
+    pub fn merged(particle: u32) -> Self {
         Self {
             particle,
-            mask: 0,
-            inverse_mass: 0.0,
-            radius: 0.0,
-            friction: 0.0,
+            ..bytemuck::Zeroable::zeroed()
         }
+    }
+
+    pub fn position(mut self, position: [f32; 3]) -> Self {
+        assert!(
+            position.iter().all(|value| value.is_finite()),
+            "a soft particle position must be finite"
+        );
+        self.mask |= SOFT_EDIT_POSITION;
+        self.position = position;
+        self
+    }
+
+    pub fn velocity(mut self, velocity: [f32; 3]) -> Self {
+        assert!(
+            velocity.iter().all(|value| value.is_finite()),
+            "a soft particle velocity must be finite"
+        );
+        self.mask |= SOFT_EDIT_VELOCITY;
+        self.velocity = velocity;
+        self
     }
 
     pub fn inverse_mass(mut self, inverse_mass: f32) -> Self {

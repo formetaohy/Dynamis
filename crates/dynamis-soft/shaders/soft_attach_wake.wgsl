@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(5) var<storage, read> row_of_body: array<u32>;
 @group(0) @binding(6) var<storage, read_write> bodies: array<SoftBody>;
+@group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
 fn work(index: u32) {
     let attachment = attachments[index];
@@ -20,7 +21,7 @@ fn work(index: u32) {
         return;
     }
     let body = Body(body_states[row], body_descs[row]);
-    if (!body_is_active(body.state, body.desc)) {
+    if (!body_is_active(body.state, body.desc) && atomicLoad(&wake_flags[row]) == 0u) {
         return;
     }
     let anchor = rigid_anchor(body, attachment.local);

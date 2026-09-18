@@ -93,6 +93,8 @@ struct SoftEdit {
     inverse_mass: f32,
     radius: f32,
     friction: f32,
+    position: vec3f,
+    velocity: vec3f,
 }
 
 struct SoftBodyEdit {

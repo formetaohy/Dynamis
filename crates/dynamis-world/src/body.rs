@@ -21,7 +21,6 @@ pub(crate) struct BodyStore {
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
-    pub(crate) layout_changed: bool,
 }
 
 impl BodyStore {
@@ -35,7 +34,6 @@ impl BodyStore {
             commands: Vec::new(),
             last_moves: 0,
             last_edits: 0,
-            layout_changed: false,
         }
     }
 
@@ -56,7 +54,7 @@ impl BodyStore {
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         self.validate_world_geometry(&desc);
-        self.constraints.schedule.invalidate();
+        self.facts.anchors += 1;
         let handle = self.bodies.pool.acquire();
         self.bodies.grow_to(handle.id);
         self.bodies.descs[handle.id as usize] = desc.clone();
@@ -79,7 +77,7 @@ impl World {
     pub fn remove(&mut self, handle: BodyHandle) {
         self.validate(handle);
         self.assert_unreferenced(handle);
-        self.constraints.schedule.invalidate();
+        self.facts.anchors += 1;
         let slot = self.bodies.pool.row_of(handle);
         if slot < self.bodies.dynamic {
             let tail_dynamic = self.bodies.dynamic - 1;
@@ -114,6 +112,7 @@ impl World {
             self.release_shape_ref(&collider.shape);
         }
         self.colliders.release(id as u32);
+        self.facts.colliders += 1;
         self.observed.bodies.stop_watching(handle.id);
         if self.bodies.records[id].flags & BODY_CCD != 0 {
             self.bodies.ccd -= 1;
@@ -126,7 +125,7 @@ impl World {
     }
 
     fn swap_slots(&mut self, first: u32, second: u32) {
-        self.bodies.layout_changed = true;
+        self.facts.layout += 1;
         self.bodies.pool.swap_rows(first, second);
         self.bodies
             .commands
@@ -134,14 +133,13 @@ impl World {
     }
 
     fn encode_body(&mut self, handle: BodyHandle) {
-        self.bodies.layout_changed = true;
         let id = handle.id as usize;
         let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
             self.shape_solid(shape)
         });
         let previous = self.bodies.records[id];
         if (previous.inverse_mass == 0.0) != (record.inverse_mass == 0.0) {
-            self.constraints.schedule.invalidate();
+            self.facts.anchors += 1;
         }
         self.bodies.ccd = match (previous.flags & BODY_CCD != 0, record.flags & BODY_CCD != 0) {
             (false, true) => self.bodies.ccd + 1,
@@ -561,6 +559,7 @@ impl World {
     pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) {
         let records = self.collider_block_of(id as usize);
         self.colliders.assign(id, movable, &records);
+        self.facts.colliders += 1;
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {

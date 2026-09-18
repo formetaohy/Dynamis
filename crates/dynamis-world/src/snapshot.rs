@@ -77,16 +77,14 @@ impl World {
         snapshot.scene.restore(self);
         self.abandon_observations();
         self.restart_measures();
+        self.facts.replace();
         let census = self.census();
         let live = self.live(&census);
         self.apply_plan(&live);
         self.install_streams(&snapshot.streams);
-        self.constraints.schedule.publish();
         self.backend
             .streams
             .write(self.backend.gpu.queue(), &snapshot.streams);
-        self.backend.immovable.invalidate();
-        self.backend.resting.invalidate();
     }
 
     fn abandon_observations(&mut self) {

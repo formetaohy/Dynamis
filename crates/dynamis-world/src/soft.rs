@@ -40,6 +40,8 @@ pub(crate) enum SoftCommand {
     InverseMass(f32),
     Radius(f32),
     Friction(f32),
+    Position([f32; 3]),
+    Velocity([f32; 3]),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -235,6 +237,8 @@ impl SoftBodyStore {
                             }
                             SoftCommand::Radius(radius) => edit.radius(radius),
                             SoftCommand::Friction(friction) => edit.friction(friction),
+                            SoftCommand::Position(position) => edit.position(position),
+                            SoftCommand::Velocity(velocity) => edit.velocity(velocity),
                         },
                     )
             })
@@ -252,7 +256,13 @@ impl SoftBodyStore {
         self.body_commands.push(handle.id, SoftBodyCommand::Wake);
     }
 
-    fn edit(&mut self, handle: SoftBodyHandle, particle: u32, command: SoftCommand) {
+    fn edit(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        command: SoftCommand,
+        substep_dt: f32,
+    ) {
         let slot = self.particle_slot_of(handle, particle);
         let id = handle.id as usize;
         match command {
@@ -274,9 +284,87 @@ impl SoftBodyStore {
             SoftCommand::Friction(friction) => {
                 self.particles.records_mut()[slot as usize].velocity[3] = friction;
             }
+            SoftCommand::Position(position) => {
+                let record = &mut self.particles.records_mut()[slot as usize];
+                record.position[..3].copy_from_slice(&position);
+                record.prev_position[..3].copy_from_slice(&position);
+            }
+            SoftCommand::Velocity(velocity) => {
+                let record = &mut self.particles.records_mut()[slot as usize];
+                let position = [record.position[0], record.position[1], record.position[2]];
+                record.velocity[..3].copy_from_slice(&velocity);
+                record.prev_position[..3].copy_from_slice(&[
+                    position[0] - velocity[0] * substep_dt,
+                    position[1] - velocity[1] * substep_dt,
+                    position[2] - velocity[2] * substep_dt,
+                ]);
+            }
         }
         self.body_commands.push(handle.id, SoftBodyCommand::Wake);
         self.commands.push(slot, command);
+    }
+
+    pub(crate) fn attach(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        body: BodyHandle,
+        local: [f32; 3],
+    ) {
+        self.validate(handle);
+        assert!(
+            local.iter().all(|value| value.is_finite()),
+            "a soft attachment anchor must be finite"
+        );
+        let slot = self.particle_slot_of(handle, particle);
+        let mut records = self.attachments_of(handle);
+        assert!(
+            records.iter().all(|record| record.particle != slot),
+            "soft particle {particle} of {handle:?} already carries an attachment"
+        );
+        self.hold_attachment(body);
+        records.push(SoftAttachmentRecord::build(SoftAttachmentInit {
+            particle: slot,
+            body_id: body.id,
+            generation: body.generation,
+            local,
+        }));
+        self.rewrite_attachments(handle, records);
+    }
+
+    pub(crate) fn detach(&mut self, handle: SoftBodyHandle, particle: u32) {
+        self.validate(handle);
+        let slot = self.particle_slot_of(handle, particle);
+        let mut records = self.attachments_of(handle);
+        let at = records
+            .iter()
+            .position(|record| record.particle == slot)
+            .unwrap_or_else(|| {
+                panic!("soft particle {particle} of {handle:?} carries no attachment")
+            });
+        let removed = records.remove(at);
+        self.release_attachment(removed.body_id);
+        self.rewrite_attachments(handle, records);
+    }
+
+    fn attachments_of(&self, handle: SoftBodyHandle) -> Vec<SoftAttachmentRecord> {
+        let run = self.runs[handle.id as usize].attachments;
+        self.attachments.records()[run.span()].to_vec()
+    }
+
+    fn rewrite_attachments(&mut self, handle: SoftBodyHandle, records: Vec<SoftAttachmentRecord>) {
+        let id = handle.id as usize;
+        let previous = self.runs[id].attachments;
+        if previous.len > 0 {
+            self.attachments.retire(previous);
+            self.runs[id].attachments = Run::EMPTY;
+        }
+        if !records.is_empty() {
+            let run = self.attachments.take(records.len() as u32);
+            self.attachments.records_mut()[run.span()].copy_from_slice(&records);
+            self.runs[id].attachments = run;
+        }
+        self.body_commands.push(handle.id, SoftBodyCommand::Wake);
     }
 
     pub(crate) fn runs_of(&self, handle: SoftBodyHandle) -> SoftRuns {
@@ -532,6 +620,10 @@ fn assemble_adjacency(
 }
 
 impl World {
+    fn soft_substep_dt(&self) -> f32 {
+        self.clock.sub_dt / self.config.soft_substeps as f32
+    }
+
     pub fn add_soft_body(&mut self, desc: SoftBodyDesc) -> SoftBodyHandle {
         desc.assert_attachments();
         for attachment in &desc.attachments {
@@ -572,14 +664,20 @@ impl World {
             inverse_mass >= 0.0,
             "a soft particle inverse mass must be non-negative"
         );
-        self.soft
-            .edit(handle, particle, SoftCommand::InverseMass(inverse_mass));
+        let substep_dt = self.soft_substep_dt();
+        self.soft.edit(
+            handle,
+            particle,
+            SoftCommand::InverseMass(inverse_mass),
+            substep_dt,
+        );
     }
 
     pub fn set_soft_particle_radius(&mut self, handle: SoftBodyHandle, particle: u32, radius: f32) {
         assert!(radius >= 0.0, "a soft particle radius must be non-negative");
+        let substep_dt = self.soft_substep_dt();
         self.soft
-            .edit(handle, particle, SoftCommand::Radius(radius));
+            .edit(handle, particle, SoftCommand::Radius(radius), substep_dt);
     }
 
     pub fn set_soft_particle_friction(
@@ -592,8 +690,66 @@ impl World {
             friction >= 0.0,
             "a soft particle friction must be non-negative"
         );
-        self.soft
-            .edit(handle, particle, SoftCommand::Friction(friction));
+        let substep_dt = self.soft_substep_dt();
+        self.soft.edit(
+            handle,
+            particle,
+            SoftCommand::Friction(friction),
+            substep_dt,
+        );
+    }
+
+    pub fn set_soft_particle_position(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        position: [f32; 3],
+    ) {
+        assert!(
+            position.iter().all(|value| value.is_finite()),
+            "a soft particle position must be finite"
+        );
+        let substep_dt = self.soft_substep_dt();
+        self.soft.edit(
+            handle,
+            particle,
+            SoftCommand::Position(position),
+            substep_dt,
+        );
+    }
+
+    pub fn set_soft_particle_velocity(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        velocity: [f32; 3],
+    ) {
+        assert!(
+            velocity.iter().all(|value| value.is_finite()),
+            "a soft particle velocity must be finite"
+        );
+        let substep_dt = self.soft_substep_dt();
+        self.soft.edit(
+            handle,
+            particle,
+            SoftCommand::Velocity(velocity),
+            substep_dt,
+        );
+    }
+
+    pub fn attach_soft_particle(
+        &mut self,
+        handle: SoftBodyHandle,
+        particle: u32,
+        body: BodyHandle,
+        local: [f32; 3],
+    ) {
+        self.validate(body);
+        self.soft.attach(handle, particle, body, local);
+    }
+
+    pub fn detach_soft_particle(&mut self, handle: SoftBodyHandle, particle: u32) {
+        self.soft.detach(handle, particle);
     }
 
     pub fn soft_particle_state(&self, handle: SoftBodyHandle, particle: u32) -> SoftParticleState {
