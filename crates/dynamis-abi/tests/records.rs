@@ -36,15 +36,14 @@ fn body_descriptor_encodes_the_host_owned_half() {
         .com([0.5, 0.0, 0.0])
         .inertia([1.0, 0.25, 0.0, 2.0, 0.0, 3.0])
         .filter(CollisionFilter::new(7, 3))
-        .kinematic(true)
         .ccd(true)
         .sleep_thresholds(0.1, 0.2);
     let record = BodyDescriptorRecord::build(&desc, &PhysicsConfig::default(), |_| None);
-    assert_eq!(record.inverse_mass, 0.0, "kinematic mass is infinite");
+    assert_eq!(record.inverse_mass, 0.5);
     assert_eq!(record.collision_group, 7);
     assert_eq!(record.collision_mask, 3);
-    assert_eq!(record.flags & BODY_KINEMATIC, BODY_KINEMATIC);
     assert_eq!(record.flags & BODY_CCD, BODY_CCD);
+    assert_eq!(record.flags & BODY_KINEMATIC, 0);
     assert_eq!(
         record.flags & (OVERRIDE_SLEEP_LINEAR | OVERRIDE_SLEEP_ANGULAR),
         OVERRIDE_SLEEP_LINEAR | OVERRIDE_SLEEP_ANGULAR
@@ -57,6 +56,15 @@ fn body_descriptor_encodes_the_host_owned_half() {
         record.inverse_inertia,
         [1.032258, -0.12903225, 0.0, 0.516129, 0.0, 0.33333334]
     );
+
+    let kinematic = BodyDescriptorRecord::build(
+        &BodyDesc::sphere(0.5).mass(2.0).kinematic(true),
+        &PhysicsConfig::default(),
+        |_| None,
+    );
+    assert_eq!(kinematic.inverse_mass, 0.0, "kinematic mass is infinite");
+    assert_eq!(kinematic.flags & BODY_KINEMATIC, BODY_KINEMATIC);
+    assert_eq!(kinematic.flags & BODY_CCD, 0);
 
     let dynamic = BodyDescriptorRecord::build(
         &BodyDesc::sphere(0.5).mass(2.0),

@@ -517,7 +517,7 @@ fn falling_asleep_holds_the_pose_the_body_slept_at() {
 }
 
 #[test]
-fn the_live_set_holds_exactly_the_simulated_bodies() {
+fn the_live_set_holds_exactly_the_movable_bodies() {
     let mut world = observed_world(gravity_config());
     world.spawn(
         BodyDesc::cuboid([5.0, 0.5, 5.0])

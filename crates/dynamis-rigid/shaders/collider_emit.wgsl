@@ -46,7 +46,7 @@ fn emit_collider(
     if (awake) {
         info = info | ENTRY_AWAKE;
     }
-    if (body_is_movable(body_descs[owner])) {
+    if (body_moves(body_descs[owner])) {
         info = info | ENTRY_MOBILE;
     }
     if (offset == 0u) {

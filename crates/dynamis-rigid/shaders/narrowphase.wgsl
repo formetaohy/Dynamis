@@ -22,7 +22,7 @@ fn manifold_emit(contact: ptr<function, Contact>, normal: vec3f) {
 }
 
 fn pair_margin(first: Body, second: Body) -> f32 {
-    if (!body_has_ccd(first) && !body_has_ccd(second)) {
+    if (!body_has_ccd(first.desc) && !body_has_ccd(second.desc)) {
         return params.contact_margin;
     }
     let closing = length(second.state.velocity - first.state.velocity) * params.dt;
@@ -602,7 +602,7 @@ fn work(index: u32) {
     if (first_body_slot == NO_BODY || second_body_slot == NO_BODY || first_body_slot == second_body_slot) {
         return;
     }
-    if (body_is_static(first) && body_is_static(second)) {
+    if (!body_moves(first.desc) && !body_moves(second.desc)) {
         return;
     }
     let first_collider = colliders[first_slot];

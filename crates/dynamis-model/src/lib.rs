@@ -16,7 +16,7 @@ mod soft;
 mod surface;
 mod vehicle;
 
-pub use body::{BodyDesc, BodyHandle, BodyState};
+pub use body::{BodyDesc, BodyHandle, BodyKind, BodyState};
 pub use character::{CharacterDesc, CharacterHandle, CharacterInput, CharacterState};
 pub use collider::{ColliderDesc, ContactEventMode};
 pub use collision::CollisionFilter;

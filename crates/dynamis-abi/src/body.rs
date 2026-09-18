@@ -7,7 +7,30 @@ use crate::constant::{
 use crate::{BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord};
 use bytemuck::Zeroable;
 use dynamis_model::domain;
-use dynamis_model::{BodyDesc, BodyState, PhysicsConfig, Shape, SolidGeometry};
+use dynamis_model::{BodyDesc, BodyKind, BodyState, PhysicsConfig, Shape, SolidGeometry};
+
+pub(crate) fn emit_predicates(out: &mut String) {
+    for kind in BodyKind::ALL {
+        out.push_str(&format!(
+            "const BODY_KIND_{}: u32 = {}u;\n",
+            kind.name(),
+            kind.code()
+        ));
+    }
+    predicate(out, "body_kind_simulates", |kind| kind.simulates());
+    predicate(out, "body_kind_moves", |kind| kind.moves());
+}
+
+fn predicate(out: &mut String, name: &str, holds: fn(BodyKind) -> bool) {
+    crate::wgsl::predicate(
+        out,
+        name,
+        BodyKind::ALL
+            .iter()
+            .filter(|kind| holds(**kind))
+            .map(|kind| format!("BODY_KIND_{}", kind.name())),
+    );
+}
 
 impl BodyStateRecord {
     pub fn initial(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
@@ -51,6 +74,10 @@ impl BodyStateRecord {
 }
 
 impl BodyDescriptorRecord {
+    pub fn kind(&self) -> BodyKind {
+        BodyKind::of(self.inverse_mass, self.flags & BODY_KINEMATIC != 0)
+    }
+
     pub fn build(
         desc: &BodyDesc,
         config: &PhysicsConfig,
@@ -59,6 +86,7 @@ impl BodyDescriptorRecord {
         desc.assert_valid();
         config.assert_valid();
         let mass = desc.effective_mass(&geometry);
+        let kind = BodyKind::of(mass, desc.kinematic);
         let properties = desc.mass_properties(&geometry);
         let mut flags = 0;
         if desc.kinematic {
@@ -74,11 +102,7 @@ impl BodyDescriptorRecord {
             flags |= OVERRIDE_SLEEP_ANGULAR;
         }
         Self {
-            inverse_mass: if desc.kinematic || mass <= 0.0 {
-                0.0
-            } else {
-                1.0 / mass
-            },
+            inverse_mass: if kind.simulates() { 1.0 / mass } else { 0.0 },
             linear_damping: desc.linear_damping.unwrap_or(config.damping),
             angular_damping: desc.angular_damping.unwrap_or(config.angular_damping),
             gravity_scale: desc.gravity_scale,

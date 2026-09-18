@@ -33,18 +33,18 @@ fn work(index: u32) {
         reset_rounds();
     }
     let row = live_bodies[index];
-    var state = body_states[row];
     let desc = body_descs[row];
-    let q = state.orientation;
-    let kinematic = (desc.flags & BODY_KINEMATIC) != 0u;
-    if (!kinematic) {
-        state.velocity =
-            state.velocity
-            + (params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass) * params.substep_dt;
-        state.angular_velocity =
-            gyroscopic_spin(desc, q, state.angular_velocity)
-            + apply_inverse_inertia_of(desc, q, state.torque * params.substep_dt);
+    if (!body_simulates(desc)) {
+        return;
     }
+    var state = body_states[row];
+    let q = state.orientation;
+    state.velocity =
+        state.velocity
+        + (params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass) * params.substep_dt;
+    state.angular_velocity =
+        gyroscopic_spin(desc, q, state.angular_velocity)
+        + apply_inverse_inertia_of(desc, q, state.torque * params.substep_dt);
     let speed = length(state.velocity);
     if (speed > params.max_velocity) {
         state.velocity = state.velocity * (params.max_velocity / speed);

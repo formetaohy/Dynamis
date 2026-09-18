@@ -3,13 +3,13 @@ use super::command::BodyCommand;
 use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{
-    BODY_CCD, BODY_KINEMATIC, BodyDescriptorRecord, BodyStateRecord, ColliderRecord,
-    PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, ShapeRole,
-    shape_source_handle,
+    BODY_CCD, BodyDescriptorRecord, BodyStateRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, ShapeRole, shape_source_handle,
 };
 use dynamis_model::domain;
 use dynamis_model::{
-    BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode, Shape,
+    BodyDesc, BodyHandle, BodyKind, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
+    Shape,
 };
 
 #[derive(Clone)]
@@ -40,6 +40,10 @@ impl BodyStore {
 
     pub(crate) fn handle_of(&self, id: u32) -> Option<BodyHandle> {
         self.pool.handle_of(id)
+    }
+
+    pub(crate) fn kind(&self, id: u32) -> BodyKind {
+        self.records[id as usize].kind()
     }
 
     fn grow_to(&mut self, id: u32) {
@@ -140,7 +144,7 @@ impl World {
             self.shape_solid(shape)
         });
         let previous = self.bodies.records[id];
-        if (previous.inverse_mass == 0.0) != (record.inverse_mass == 0.0) {
+        if previous.kind().simulates() != record.kind().simulates() {
             self.facts.anchors += 1;
         }
         self.bodies.ccd = match (previous.flags & BODY_CCD != 0, record.flags & BODY_CCD != 0) {
@@ -228,7 +232,7 @@ impl World {
 
     fn validate_world_geometry(&self, desc: &BodyDesc) {
         let mass = desc.effective_mass(|shape| self.shape_solid(shape));
-        if mass <= 0.0 || desc.kinematic {
+        if !BodyKind::of(mass, desc.kinematic).simulates() {
             return;
         }
         for collider in &desc.colliders {
@@ -240,8 +244,7 @@ impl World {
     }
 
     pub(crate) fn is_static(&self, id: usize) -> bool {
-        let record = self.bodies.records[id];
-        record.inverse_mass == 0.0 && record.flags & BODY_KINEMATIC == 0
+        self.bodies.kind(id as u32) == BodyKind::Static
     }
     fn assert_unreferenced(&self, handle: BodyHandle) {
         let id = handle.id;
@@ -386,6 +389,9 @@ impl World {
     }
 
     pub fn set_ccd(&mut self, handle: BodyHandle, ccd: bool) {
+        if ccd {
+            self.assert_simulating(handle, "declare continuous collision");
+        }
         self.edit_body(handle, |desc| desc.ccd = ccd);
     }
 
@@ -403,6 +409,11 @@ impl World {
     }
 
     pub fn set_kinematic(&mut self, handle: BodyHandle, kinematic: bool) {
+        self.validate(handle);
+        assert!(
+            !(kinematic && self.bodies.descs[handle.id as usize].ccd),
+            "a body that declares continuous collision cannot be kinematic: {handle:?}",
+        );
         self.edit_body(handle, |desc| desc.kinematic = kinematic);
     }
 
@@ -562,8 +573,18 @@ impl World {
     }
 
     pub fn sleep(&mut self, handle: BodyHandle) {
+        self.assert_simulating(handle, "sleep");
         let slot = self.command_slot(handle);
         self.bodies.commands.push(BodyCommand::Sleep { row: slot });
+    }
+
+    fn assert_simulating(&self, handle: BodyHandle, what: &str) {
+        self.validate(handle);
+        let kind = self.bodies.kind(handle.id);
+        assert!(
+            kind.simulates(),
+            "only a simulated body can {what}: {handle:?} is {kind:?}",
+        );
     }
 
     pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) {

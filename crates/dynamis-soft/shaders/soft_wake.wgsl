@@ -10,10 +10,10 @@ fn load_body(row: u32) -> Body {
 }
 
 fn collider_pushes(body: Body) -> bool {
-    if (body.state.sleeping != 0u || body_is_static(body)) {
+    if (body.state.sleeping != 0u || !body_moves(body.desc)) {
         return false;
     }
-    if (body_is_kinematic(body)) {
+    if (body_is_driven(body.desc)) {
         return body_is_moving(body.state, body.desc, params)
             || any(body.state.position != body.state.prev_position);
     }

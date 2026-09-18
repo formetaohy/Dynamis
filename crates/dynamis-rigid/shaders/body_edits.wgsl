@@ -60,7 +60,7 @@ fn work(index: u32) {
                 state.angular_velocity = edit.state.angular_velocity;
             }
             let teleport = (edit.mask & (PATCH_POSITION | PATCH_ORIENTATION)) != 0u;
-            mark_disturbed(&state, desc, run.row, teleport || !body_is_dynamic(Body(state, desc)));
+            mark_disturbed(&state, desc, run.row, teleport || !body_simulates(desc));
         } else if (edit.kind == EDIT_FORCE) {
             state.force = state.force + edit.state.force;
             mark_disturbed(&state, desc, run.row, false);

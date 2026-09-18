@@ -1,4 +1,4 @@
-use crate::{constant, constraint, counter, shape};
+use crate::{body, constant, constraint, counter, shape};
 
 macro_rules! declare_constants {
     ($($(#[$meta:meta])* pub const $name:ident: $ty:ty = $value:expr;)*) => {
@@ -23,6 +23,27 @@ fn dof_limited(flags: u32, index: u32) -> bool { return (flags & (DOF_LIMITED <<
 fn dof_driven(flags: u32, index: u32) -> bool { return (flags & (DOF_DRIVEN << index)) != 0u; }
 ";
 
+/// Emits the predicate a declaration's capability answers, naming every kind it holds for. A kind
+/// added to a declaration therefore reaches the device without the shaders naming it again.
+pub(crate) fn predicate(out: &mut String, name: &str, covered: impl Iterator<Item = String>) {
+    out.push_str("fn ");
+    out.push_str(name);
+    out.push_str("(kind: u32) -> bool { return ");
+    let mut named = false;
+    for kind in covered {
+        if named {
+            out.push_str(" || ");
+        }
+        out.push_str("kind == ");
+        out.push_str(&kind);
+        named = true;
+    }
+    if !named {
+        out.push_str("false");
+    }
+    out.push_str("; }\n");
+}
+
 pub fn constants_wgsl() -> String {
     let mut out = String::new();
     constant::emit_constants(&mut out);
@@ -43,6 +64,7 @@ pub fn constants_wgsl() -> String {
         ));
     }
     out.push_str(DOF_PREDICATES);
+    body::emit_predicates(&mut out);
     constraint::emit_predicates(&mut out);
     shape::emit_predicates(&mut out);
     out

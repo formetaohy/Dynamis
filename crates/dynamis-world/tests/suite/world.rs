@@ -728,7 +728,17 @@ fn reallocation_preserves_kinematic_and_ccd_flags() {
     let platform = world.spawn(
         BodyDesc::cuboid([1.0, 0.2, 1.0])
             .position([0.0, 3.0, 0.0])
-            .kinematic(true)
+            .kinematic(true),
+    );
+    world.spawn(
+        BodyDesc::cuboid([0.05, 5.0, 5.0])
+            .mass(0.0)
+            .position([0.0, 0.0, 0.0]),
+    );
+    let bullet = world.spawn(
+        BodyDesc::sphere(0.3)
+            .gravity_scale(0.0)
+            .position([-12.6, 0.0, 0.0])
             .ccd(true),
     );
     settle_frames(&mut world, 10);
@@ -739,6 +749,13 @@ fn reallocation_preserves_kinematic_and_ccd_flags() {
         (state.position[1] - 3.0).abs() < 1e-3,
         "a kinematic body must not fall through a reallocation, got {}",
         state.position[1]
+    );
+    world.set_velocity(bullet, [90.0, 0.0, 0.0]);
+    settle_frames(&mut world, 20);
+    let stopped = world.read_state(bullet).position[0];
+    assert!(
+        stopped > -0.7 && stopped < -0.05,
+        "an armed body must still stop at the wall after a reallocation, got {stopped}"
     );
 }
 

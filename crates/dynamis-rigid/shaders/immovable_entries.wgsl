@@ -7,7 +7,7 @@
 
 fn work(index: u32) {
     let owner = collider_owners[index];
-    if (owner == NO_BODY || body_is_movable(body_descs[owner])) {
+    if (owner == NO_BODY || body_moves(body_descs[owner])) {
         return;
     }
     let entry = collider_cells(index, ENTRY_REGION_IMMOVABLE);

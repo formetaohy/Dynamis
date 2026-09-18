@@ -14,6 +14,7 @@ pub mod decompose;
 pub mod derivation;
 pub mod determinism;
 pub mod device;
+pub mod driven;
 pub mod dynamics;
 pub mod event;
 pub mod filter;

@@ -185,8 +185,27 @@ fn sign_normalize(v: vec3f) -> vec3f {
     return vec3f(0.0, 1.0, 0.0);
 }
 
+fn body_kind_of(desc: BodyDescriptor) -> u32 {
+    if ((desc.flags & BODY_KINEMATIC) != 0u) {
+        return BODY_KIND_KINEMATIC;
+    }
+    return select(BODY_KIND_STATIC, BODY_KIND_DYNAMIC, desc.inverse_mass > 0.0);
+}
+
+fn body_simulates(desc: BodyDescriptor) -> bool {
+    return body_kind_simulates(body_kind_of(desc));
+}
+
+fn body_moves(desc: BodyDescriptor) -> bool {
+    return body_kind_moves(body_kind_of(desc));
+}
+
+fn body_is_driven(desc: BodyDescriptor) -> bool {
+    return body_moves(desc) && !body_simulates(desc);
+}
+
 fn body_is_inert(body: Body) -> bool {
-    return body.desc.inverse_mass == 0.0 || body.state.sleeping != 0u;
+    return !body_simulates(body.desc) || body.state.sleeping != 0u;
 }
 
 fn body_frozen(body: Body) -> Body {
@@ -207,12 +226,8 @@ fn freeze_body(state: ptr<function, BodyState>) {
     (*state).sleeping = 1u;
 }
 
-fn body_is_movable(desc: BodyDescriptor) -> bool {
-    return desc.inverse_mass > 0.0 || (desc.flags & BODY_KINEMATIC) != 0u;
-}
-
 fn body_is_active(state: BodyState, desc: BodyDescriptor) -> bool {
-    return body_is_movable(desc) && state.sleeping == 0u;
+    return body_moves(desc) && state.sleeping == 0u;
 }
 
 fn body_sleep_velocity(desc: BodyDescriptor, params: StepParams) -> f32 {
@@ -224,7 +239,7 @@ fn body_sleep_angular_velocity(desc: BodyDescriptor, params: StepParams) -> f32 
 }
 
 fn body_is_driven_in_motion(state: BodyState, desc: BodyDescriptor) -> bool {
-    return (desc.flags & BODY_KINEMATIC) != 0u
+    return body_is_driven(desc)
         && (any(state.velocity != vec3f(0.0)) || any(state.angular_velocity != vec3f(0.0)));
 }
 
@@ -232,27 +247,15 @@ fn body_is_moving(state: BodyState, desc: BodyDescriptor, params: StepParams) ->
     if (body_is_driven_in_motion(state, desc)) {
         return true;
     }
-    if (desc.inverse_mass == 0.0 || state.sleeping != 0u) {
+    if (!body_simulates(desc) || state.sleeping != 0u) {
         return false;
     }
     return length(state.velocity) > body_sleep_velocity(desc, params)
         || length(state.angular_velocity) > body_sleep_angular_velocity(desc, params);
 }
 
-fn body_is_dynamic(body: Body) -> bool {
-    return body.desc.inverse_mass > 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
-}
-
-fn body_is_kinematic(body: Body) -> bool {
-    return (body.desc.flags & BODY_KINEMATIC) != 0u;
-}
-
-fn body_has_ccd(body: Body) -> bool {
-    return (body.desc.flags & BODY_CCD) != 0u;
-}
-
-fn body_is_static(body: Body) -> bool {
-    return body.desc.inverse_mass == 0.0 && (body.desc.flags & BODY_KINEMATIC) == 0u;
+fn body_has_ccd(desc: BodyDescriptor) -> bool {
+    return (desc.flags & BODY_CCD) != 0u;
 }
 
 fn collider_is_sensor(collider: Collider) -> bool {

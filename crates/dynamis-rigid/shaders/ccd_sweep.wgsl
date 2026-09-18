@@ -99,11 +99,11 @@ fn pair_gap(first: WorldShape, second: WorldShape) -> ShapeHit {
 }
 
 fn rigid_sweep(moving: Body, moving_collider: Collider, other: Body, other_collider: Collider) -> SweepHit {
-    if (!body_has_ccd(moving)) {
+    if (!body_has_ccd(moving.desc)) {
         return no_sweep_hit();
     }
     let free_reach = sweep_reach(moving.state, moving.desc, moving_collider);
-    let other_movable = body_is_movable(other.desc);
+    let other_movable = body_moves(other.desc);
     var other_reach: SweepReach;
     other_reach.travel = 0.0;
     other_reach.spin = 0.0;
@@ -192,7 +192,7 @@ fn work(index: u32) {
     }
     let first = load_body(first_body_slot);
     let second = load_body(second_body_slot);
-    if (body_is_static(first) && body_is_static(second)) {
+    if (!body_moves(first.desc) && !body_moves(second.desc)) {
         return;
     }
     let first_collider = colliders[first_slot];

@@ -127,8 +127,8 @@ fn solve_order(constraints: &ConstraintStore, bodies: &BodyStore) -> Plan {
             "a joint row must join two live bodies",
         );
         ends.push((first, second));
-        anchor[first as usize] |= bodies.records[joint.first as usize].inverse_mass == 0.0;
-        anchor[second as usize] |= bodies.records[joint.second as usize].inverse_mass == 0.0;
+        anchor[first as usize] |= !bodies.kind(joint.first).simulates();
+        anchor[second as usize] |= !bodies.kind(joint.second).simulates();
         let first_root = find(&mut roots, first);
         let second_root = find(&mut roots, second);
         let root = first_root.min(second_root);

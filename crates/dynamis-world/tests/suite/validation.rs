@@ -36,6 +36,13 @@ fn a_refused_input_leaves_the_world_whole() {
     let mut world = observed_world(static_config());
     let body = world.spawn(BodyDesc::sphere(0.5));
     let other = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
+    let driven = world.spawn(
+        BodyDesc::sphere(0.5)
+            .kinematic(true)
+            .position([5.0, 0.0, 0.0]),
+    );
+    let ground = world.spawn(BodyDesc::static_sphere(0.5).position([-5.0, 0.0, 0.0]));
+    let armed = world.spawn(BodyDesc::sphere(0.5).ccd(true).position([0.0, 5.0, 0.0]));
     let joint = world.add_constraint(body, other, ConstraintDesc::ball([0.0; 3], [0.0; 3]));
     world.step(DT);
     world.wait();
@@ -284,6 +291,28 @@ fn a_refused_input_leaves_the_world_whole() {
                     vec![wheel],
                 ));
             }),
+        ),
+        (
+            "a kinematic body that declares continuous collision",
+            Box::new(|world: &mut World| {
+                world.spawn(BodyDesc::sphere(0.5).kinematic(true).ccd(true));
+            }),
+        ),
+        (
+            "continuous collision on a kinematic body",
+            Box::new(move |world: &mut World| world.set_ccd(driven, true)),
+        ),
+        (
+            "driving a body that declares continuous collision",
+            Box::new(move |world: &mut World| world.set_kinematic(armed, true)),
+        ),
+        (
+            "sleeping a kinematic body",
+            Box::new(move |world: &mut World| world.sleep(driven)),
+        ),
+        (
+            "sleeping a static body",
+            Box::new(move |world: &mut World| world.sleep(ground)),
         ),
         (
             "an inadmissible config",

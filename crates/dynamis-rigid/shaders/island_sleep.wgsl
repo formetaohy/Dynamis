@@ -9,7 +9,7 @@
 
 fn work(index: u32) {
     var state = body_states[index];
-    if (state.sleeping != 0u || !body_is_dynamic(Body(state, body_descs[index]))) {
+    if (state.sleeping != 0u || !body_simulates(body_descs[index])) {
         return;
     }
     let root = atomicLoad(&island_parents[index]);

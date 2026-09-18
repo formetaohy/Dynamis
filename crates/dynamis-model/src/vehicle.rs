@@ -1,4 +1,4 @@
-use crate::body::BodyDesc;
+use crate::body::{BodyDesc, BodyKind};
 use crate::domain;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,8 +83,8 @@ pub struct VehicleDesc {
 impl VehicleDesc {
     pub fn new(chassis: BodyDesc, wheels: Vec<WheelDesc>) -> Self {
         assert!(
-            !chassis.kinematic && chassis.mass > 0.0,
-            "a vehicle chassis must be a dynamic body"
+            BodyKind::of(chassis.mass, chassis.kinematic).simulates(),
+            "a vehicle chassis must be a simulated body"
         );
         let thrust = chassis.mass * 9.81;
         Self {
@@ -126,8 +126,8 @@ impl VehicleDesc {
     pub fn assert_valid(&self) {
         self.chassis.assert_valid();
         assert!(
-            !self.chassis.kinematic && self.chassis.mass > 0.0,
-            "a vehicle chassis must be a dynamic body"
+            BodyKind::of(self.chassis.mass, self.chassis.kinematic).simulates(),
+            "a vehicle chassis must be a simulated body"
         );
         assert!(
             !self.wheels.is_empty(),

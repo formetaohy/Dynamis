@@ -9,6 +9,68 @@ pub struct BodyHandle {
     pub generation: u32,
 }
 
+/// The kind of body a world holds. A kind declares what the physics owns: a dynamic body's motion
+/// is solved, a kinematic body's motion is declared by the host and merely consumed, and a static
+/// body neither simulates nor moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyKind {
+    Static,
+    Kinematic,
+    Dynamic,
+}
+
+impl BodyKind {
+    pub const ALL: [Self; 3] = [Self::Static, Self::Kinematic, Self::Dynamic];
+
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Static => 0,
+            Self::Kinematic => 1,
+            Self::Dynamic => 2,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Static => "STATIC",
+            Self::Kinematic => "KINEMATIC",
+            Self::Dynamic => "DYNAMIC",
+        }
+    }
+
+    /// Whether the physics evolves this body's motion: forces, gravity, damping, the velocity
+    /// limits, contacts, joints, and the continuous collision response.
+    pub const fn simulates(self) -> bool {
+        matches!(self, Self::Dynamic)
+    }
+
+    /// Whether the physics advances this body's pose from the velocity it holds.
+    pub const fn moves(self) -> bool {
+        !matches!(self, Self::Static)
+    }
+
+    pub const fn of(inverse_mass: f32, kinematic: bool) -> Self {
+        if kinematic {
+            Self::Kinematic
+        } else if inverse_mass > 0.0 {
+            Self::Dynamic
+        } else {
+            Self::Static
+        }
+    }
+}
+
+const _: () = {
+    let mut index = 0;
+    while index < BodyKind::ALL.len() {
+        assert!(
+            BodyKind::ALL[index].code() == index as u32,
+            "a body kind must be declared once",
+        );
+        index += 1;
+    }
+};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyState {
     pub position: [f32; 3],
@@ -77,6 +139,10 @@ impl BodyDesc {
             domain::non_negative(damping, "angular damping");
         }
         domain::finite(self.gravity_scale, "a body gravity scale");
+        assert!(
+            !(self.kinematic && self.ccd),
+            "a kinematic body declares its own motion, so it cannot also declare continuous collision",
+        );
         if let Some(velocity) = self.sleep_velocity {
             domain::non_negative(velocity, "a sleep velocity");
         }
@@ -164,14 +230,6 @@ impl BodyDesc {
             body = body.collider(ColliderDesc::new(Shape::hull(*handle)));
         }
         body
-    }
-
-    pub fn inverse_mass(&self) -> f32 {
-        if self.kinematic || self.mass <= 0.0 {
-            0.0
-        } else {
-            1.0 / self.mass
-        }
     }
 
     pub fn position(mut self, position: [f32; 3]) -> Self {

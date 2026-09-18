@@ -206,10 +206,10 @@ fn body_passes(body: Body, collider: Collider, query: Query) -> bool {
     if ((query.filters.flags & FILTER_IGNORE_SLEEPING) != 0u && body.state.sleeping != 0u) {
         return false;
     }
-    if ((query.filters.flags & FILTER_IGNORE_STATIC) != 0u && body_is_static(body)) {
+    if ((query.filters.flags & FILTER_IGNORE_STATIC) != 0u && !body_moves(body.desc)) {
         return false;
     }
-    if ((query.filters.flags & FILTER_IGNORE_KINEMATIC) != 0u && body_is_kinematic(body)) {
+    if ((query.filters.flags & FILTER_IGNORE_KINEMATIC) != 0u && body_is_driven(body.desc)) {
         return false;
     }
     if (!collider_filter_query(query, body, collider)) {

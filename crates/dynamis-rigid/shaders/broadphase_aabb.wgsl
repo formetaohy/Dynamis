@@ -37,7 +37,7 @@ fn rotation_reach(spin: f32, radius: f32) -> f32 {
 }
 
 fn swept_bounds(tight: Aabb, state: BodyState, desc: BodyDescriptor, collider: Collider) -> Aabb {
-    if (!body_is_movable(desc)) {
+    if (!body_moves(desc)) {
         return tight;
     }
     let travel = abs(state.velocity * params.dt);
