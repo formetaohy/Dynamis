@@ -1,6 +1,6 @@
-use super::common::{DT, asleep, gravity_config, observed_world, settle_until};
+use super::common::{DT, asleep, gravity_config, observed_world, settle, settle_until};
 use dynamis_abi::{COUNTER_IMMOVABLE_EMITTED, COUNTER_PAIRS, COUNTER_RESTING_REBUILD};
-use dynamis_model::{BodyDesc, ColliderDesc, Shape};
+use dynamis_model::{BodyDesc, ColliderDesc, Shape, SoftBodyDesc};
 
 fn ground(world: &mut dynamis_world::World, half_x: f32) {
     world.spawn(
@@ -158,4 +158,118 @@ fn a_restored_scene_derives_every_grid_again() {
         1,
         "a restored scene must derive the resting entries again"
     );
+}
+
+#[test]
+fn a_particle_radius_edit_derives_the_grids_at_the_resolution_it_moves() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 50.0);
+    let soft = world.add_soft_body(SoftBodyDesc::new(vec![[500.0, 0.0, 0.0]], vec![]).radius(0.5));
+    settle(&mut world, 4);
+    let ball = world.spawn(
+        BodyDesc::sphere(0.5)
+            .position([0.0, 10.0, 0.0])
+            .velocity([0.0, -20.0, 0.0]),
+    );
+    settle(&mut world, 1);
+    world.set_soft_particle_radius(soft, 0, 0.01);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
+        "a particle radius that moves the grid resolution must derive the immovable entries"
+    );
+    settle(&mut world, 40);
+    let height = world.read_state(ball).position[1];
+    assert!(
+        (height - 0.5).abs() < 0.2,
+        "a body must still meet an immovable floor keyed at the resolution a particle radius edit moved, got {height}"
+    );
+}
+
+#[test]
+fn a_material_edit_leaves_both_grids_alone() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 20.0);
+    let block = world.spawn(BodyDesc::cuboid([0.4; 3]).position([2.0, 0.5, 0.0]));
+    settle_until(&mut world, 600, |world| asleep(world));
+    world.set_friction(block, 0.9);
+    world.set_restitution(block, 0.1);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED],
+        0,
+        "a material edit moves neither a cell nor the resolution the immovable entries are keyed at"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_RESTING_REBUILD],
+        0,
+        "a material edit moves neither a cell nor the resolution the resting entries are keyed at"
+    );
+}
+
+#[test]
+fn a_static_material_edit_leaves_both_grids_alone() {
+    let mut world = observed_world(gravity_config());
+    let floor = world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    world.spawn(BodyDesc::cuboid([0.4; 3]).position([2.0, 0.5, 0.0]));
+    settle_until(&mut world, 600, |world| asleep(world));
+    world.set_friction(floor, 0.9);
+    world.set_collider_events(floor, 0, dynamis_model::ContactEventMode::Persist);
+    world.step(DT);
+    world.wait();
+    assert_eq!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED],
+        0,
+        "an immovable collider's materials are read live, so they owe the grid no derivation"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_RESTING_REBUILD],
+        0,
+        "an immovable collider's materials cannot move a resting body's entries"
+    );
+}
+
+#[test]
+fn an_edited_movable_collider_size_derives_the_immovable_grid() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 20.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 8.0, 0.0]));
+    settle(&mut world, 1);
+    world.set_collider(ball, 0, ColliderDesc::new(Shape::sphere(0.001)));
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
+        "a movable collider's size is a maximum the grid resolution is derived from, so the immovable entries must be keyed at the resolution it moves"
+    );
+}
+
+#[test]
+fn a_particle_radius_edit_derives_the_resting_grid_at_the_resolution_it_moves() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 50.0);
+    let sleeper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
+    let soft = world.add_soft_body(SoftBodyDesc::new(vec![[500.0, 0.0, 0.0]], vec![]).radius(0.5));
+    settle_until(&mut world, 600, |world| asleep(world));
+    world.set_soft_particle_radius(soft, 0, 0.01);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_RESTING_REBUILD] == 1,
+        "a particle radius that moves the grid resolution must derive the resting entries"
+    );
+    let faller = world.spawn(BodyDesc::sphere(0.5).position([0.0, 3.0, 0.0]));
+    settle(&mut world, 90);
+    let rested = world.read_state(faller).position[1];
+    assert!(
+        rested > 1.0,
+        "a body must still meet a sleeping body's entries keyed at the resolution a particle radius edit moved, got {rested}"
+    );
+    assert!(world.read_state(sleeper).position[1] > 0.0);
 }

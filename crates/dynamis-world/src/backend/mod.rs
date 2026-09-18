@@ -236,35 +236,28 @@ impl World {
     /// that replaces the storage behind an index is seen without any of them having to announce it.
     pub(crate) fn reconcile_derivations(&mut self, live: &mut Live) -> Derived {
         let facts = self.facts;
-        let measured = self.resting_resolution();
         let storage = GridStorage {
             keys: self.backend.streams.broadphase.entry_keys.identity(),
             order: self.backend.streams.broadphase.entry_order.identity(),
             entries: self.backend.streams.broadphase.entries.identity(),
         };
-        let resolution = crate::derivation::Resolution {
-            colliders: live.broadphase.colliders,
-            movable_colliders: live.broadphase.movable_colliders,
-            particles: live.broadphase.particles,
-        };
         let reservation = self.backend.immovable.entries();
         let immovable = self.backend.immovable.reconcile(ImmovableGrid {
-            colliders: facts.colliders,
-            shapes: facts.shapes,
+            geometry: facts.geometry,
+            immovable_colliders: facts.immovable_colliders,
             immovable_edits: facts.immovable_edits,
-            resolution,
             reservation,
             storage,
         });
         let resting = self.backend.resting.reconcile(
             self.clock.step,
             RestingGrid {
-                colliders: facts.colliders,
-                shapes: facts.shapes,
+                geometry: facts.geometry,
+                movable_colliders: facts.movable_colliders,
                 poses: facts.poses,
                 layout: facts.layout,
                 activity: facts.activity,
-                resolution: measured,
+                reservation,
                 storage,
             },
         );

@@ -630,11 +630,14 @@ impl World {
         for attachment in &desc.attachments {
             self.validate(attachment.body());
         }
-        self.soft.spawn(&desc)
+        let handle = self.soft.spawn(&desc);
+        self.facts.geometry += 1;
+        handle
     }
 
     pub fn remove_soft_body(&mut self, handle: SoftBodyHandle) {
         self.soft.remove(handle);
+        self.facts.geometry += 1;
         self.observed.soft.stop_watching(handle.id);
     }
 
@@ -670,6 +673,9 @@ impl World {
 
     pub fn set_soft_particle_radius(&mut self, handle: SoftBodyHandle, particle: u32, radius: f32) {
         domain::non_negative(radius, "a soft particle radius");
+        if self.soft.particle_state(handle, particle).radius() != radius {
+            self.facts.geometry += 1;
+        }
         let substep_dt = self.soft_substep_dt();
         self.soft
             .edit(handle, particle, SoftCommand::Radius(radius), substep_dt);

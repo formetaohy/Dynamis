@@ -7,10 +7,17 @@ use dynamis_gpu::StreamIdentity;
 /// a derived index, and a derivation that lives in a buffer can tell when the buffer is replaced.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SceneFacts {
-    /// Every collider record: shape, scale, transform, material, and partition membership.
-    pub(crate) colliders: u64,
-    /// Every shape source's geometry: the bounds a source shape's entries are keyed from.
-    pub(crate) shapes: u64,
+    /// Every pose independent size the grid resolution is a maximum over: a collider's shape,
+    /// scale, and source, a shape source's bounds, a particle's radius, and every addition or
+    /// removal of a collider or particle. A grid entry is keyed at the cell size this resolution
+    /// answers, so a change here re-keys whatever holds entries.
+    pub(crate) geometry: u64,
+    /// Every collider record of a body that moves: a dynamic or kinematic body's shape, scale,
+    /// placement, source, and materials.
+    pub(crate) movable_colliders: u64,
+    /// Every collider record of a body that does not move: a static body's shape, scale,
+    /// placement, source, and materials.
+    pub(crate) immovable_colliders: u64,
     /// Every edit the command stream declares for an immovable body.
     pub(crate) immovable_edits: u64,
     /// Every pose the command stream declares for a body.
@@ -29,8 +36,9 @@ impl SceneFacts {
     /// Replaces the scene. Every fact moves past the value any derivation could have recorded, so
     /// every derived index acknowledges the replacement as an input it has never seen.
     pub(crate) fn replace(&mut self) {
-        self.colliders += 1;
-        self.shapes += 1;
+        self.geometry += 1;
+        self.movable_colliders += 1;
+        self.immovable_colliders += 1;
         self.immovable_edits += 1;
         self.poses += 1;
         self.joints += 1;
@@ -40,31 +48,33 @@ impl SceneFacts {
     }
 }
 
-/// The facts the immovable half of the spatial grid is derived from: the records and source
-/// geometry its AABBs are built from, the edits the command stream declares for them, the counts
-/// that move the grid resolution, the range it is emitted into, and the storage it lives in.
+/// The facts the immovable half of the spatial grid is derived from: the geometry that answers the
+/// resolution its entries are keyed at, the records of the bodies that do not move, the edits the
+/// command stream declares for them, the range it is emitted into, and the storage it lives in.
+/// Only a body that does not move reaches this half, so only the records of those bodies can owe
+/// it a derivation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ImmovableGrid {
-    pub(crate) colliders: u64,
-    pub(crate) shapes: u64,
+    pub(crate) geometry: u64,
+    pub(crate) immovable_colliders: u64,
     pub(crate) immovable_edits: u64,
-    pub(crate) resolution: Resolution,
     pub(crate) reservation: u32,
     pub(crate) storage: GridStorage,
 }
 
-/// The facts the resting half of the spatial grid is derived from: the records and source geometry
-/// every sleeping collider's AABB is built from, the poses the command stream declares, the row
-/// layout its owners are read through, the sleep state that selects it, the resolution its entries
-/// are keyed at, and the storage it lives in.
+/// The facts the resting half of the spatial grid is derived from: the geometry that answers the
+/// resolution its entries are keyed at, the records of the bodies that move, the poses the command
+/// stream declares, the row layout its owners are read through, the sleep state that selects it,
+/// the range it is emitted into, and the storage it lives in. Only a body that moves reaches this
+/// half, so only the records of those bodies can owe it a derivation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RestingGrid {
-    pub(crate) colliders: u64,
-    pub(crate) shapes: u64,
+    pub(crate) geometry: u64,
+    pub(crate) movable_colliders: u64,
     pub(crate) poses: u64,
     pub(crate) layout: u64,
     pub(crate) activity: u64,
-    pub(crate) resolution: (u32, u32),
+    pub(crate) reservation: u32,
     pub(crate) storage: GridStorage,
 }
 
@@ -82,15 +92,6 @@ impl JointOrder {
             anchors: facts.anchors,
         }
     }
-}
-
-/// The scene facts a grid resolution is derived from. Every one of them can move the grid
-/// resolution, and an index derived at another resolution must be derived again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Resolution {
-    pub(crate) colliders: u32,
-    pub(crate) movable_colliders: u32,
-    pub(crate) particles: u32,
 }
 
 /// The storage the spatial grid entries live in.

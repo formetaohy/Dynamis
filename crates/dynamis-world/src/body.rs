@@ -1,4 +1,5 @@
 use super::World;
+use super::collider::ColliderDelta;
 use super::command::BodyCommand;
 use super::pool::Pool;
 use bytemuck::Zeroable;
@@ -117,8 +118,9 @@ impl World {
         for collider in &removed.colliders {
             self.release_shape_ref(&collider.shape);
         }
-        self.colliders.release(id as u32);
-        self.facts.colliders += 1;
+        let movable = !self.is_static(id);
+        let delta = self.colliders.release(id as u32);
+        self.note_collider_delta(delta, movable);
         self.observed.bodies.stop_watching(handle.id);
         if self.bodies.records[id].flags & BODY_CCD != 0 {
             self.bodies.ccd -= 1;
@@ -589,8 +591,26 @@ impl World {
 
     pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) {
         let records = self.collider_block_of(id as usize);
-        self.colliders.assign(id, movable, &records);
-        self.facts.colliders += 1;
+        let delta = self.colliders.assign(id, movable, &records);
+        self.note_collider_delta(delta, movable);
+    }
+
+    /// Notes the facts a collider block's replacement or retirement moved: the grid resolution is a
+    /// maximum over every block's sizing, and each half of the grid holds the entries of the
+    /// bodies that reach it. A block that is replaced with the same sizing and placement moves
+    /// neither, whatever else its records carry.
+    fn note_collider_delta(&mut self, delta: ColliderDelta, movable: bool) {
+        if delta.sizing {
+            self.facts.geometry += 1;
+        }
+        if delta.entries() {
+            if delta.crossed || movable {
+                self.facts.movable_colliders += 1;
+            }
+            if delta.crossed || !movable {
+                self.facts.immovable_colliders += 1;
+            }
+        }
     }
 
     pub(crate) fn collider_block_of(&self, id: usize) -> Vec<ColliderRecord> {

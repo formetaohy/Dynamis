@@ -9,6 +9,81 @@ struct ColliderRun {
     movable: bool,
 }
 
+/// The part of a collider record the grid resolution is a maximum over: the shape, the scale, and
+/// the source bounds the collider is sized by. The resolution is pose independent, so a record edit
+/// that leaves this alone cannot move the cell size every entry is keyed at.
+#[derive(Clone, Copy, PartialEq)]
+struct ColliderSizing {
+    kind: u32,
+    source: u32,
+    radius: f32,
+    half_height: f32,
+    half_extents: [f32; 3],
+    scale: [f32; 3],
+}
+
+/// The part of a collider record a grid entry is built from: the sizing, plus where the collider
+/// sits inside its body. An entry's box and cell answer exactly these.
+#[derive(Clone, Copy, PartialEq)]
+struct ColliderPlacement {
+    sizing: ColliderSizing,
+    local_offset: [f32; 3],
+    local_rotation: [f32; 4],
+}
+
+fn sizing_of(record: &ColliderRecord) -> ColliderSizing {
+    ColliderSizing {
+        kind: record.kind,
+        source: record.source,
+        radius: record.radius,
+        half_height: record.half_height,
+        half_extents: record.half_extents,
+        scale: record.scale,
+    }
+}
+
+fn placement_of(record: &ColliderRecord) -> ColliderPlacement {
+    ColliderPlacement {
+        sizing: sizing_of(record),
+        local_offset: record.local_offset,
+        local_rotation: record.local_rotation,
+    }
+}
+
+fn replaced<T: PartialEq>(
+    held: &[ColliderRecord],
+    records: &[ColliderRecord],
+    key: impl Fn(&ColliderRecord) -> T,
+) -> bool {
+    held.len() != records.len()
+        || held
+            .iter()
+            .zip(records)
+            .any(|(held, record)| key(held) != key(record))
+}
+
+/// How replacing or retiring a body's collider block moved the facts the broadphase grid indices
+/// derive from: the grid resolution is a maximum over every block's sizing, and each half of the
+/// grid holds the entries of the bodies that reach it. A block that is replaced at the same
+/// sizing and placement owes neither, whatever else its records carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ColliderDelta {
+    /// The block now belongs to the other half of the partition: its entries moved between the
+    /// moving and the immovable halves of the grid.
+    pub(crate) crossed: bool,
+    /// The sizing the grid resolution is a maximum over changed, or a block appeared or vanished.
+    pub(crate) sizing: bool,
+    /// The placement an entry is built from changed, or a block's records were replaced.
+    pub(crate) placement: bool,
+}
+
+impl ColliderDelta {
+    /// Whether the entries a half of the grid holds from this body must be built again.
+    pub(crate) const fn entries(self) -> bool {
+        self.crossed || self.sizing || self.placement
+    }
+}
+
 impl ColliderRun {
     const EMPTY: Self = Self {
         run: Run::EMPTY,
@@ -82,9 +157,15 @@ impl ColliderStore {
             .map(|entry| entry.run)
     }
 
-    pub(crate) fn assign(&mut self, id: u32, movable: bool, records: &[ColliderRecord]) {
+    pub(crate) fn assign(
+        &mut self,
+        id: u32,
+        movable: bool,
+        records: &[ColliderRecord],
+    ) -> ColliderDelta {
         let len = records.len() as u32;
         assert!(len > 0, "a collider run must hold at least one collider");
+        let delta = self.delta_of(id, movable, records);
         if self.runs.len() <= id as usize {
             self.runs.resize(id as usize + 1, ColliderRun::EMPTY);
         }
@@ -94,7 +175,7 @@ impl ColliderStore {
                 ..self.runs[id as usize]
             }
         } else {
-            self.release(id);
+            self.clear(id);
             ColliderRun {
                 run: self.take(len),
                 movable,
@@ -109,6 +190,23 @@ impl ColliderStore {
         }
         self.armed += armed(records);
         self.persistent += persisting(records);
+        delta
+    }
+
+    fn delta_of(&self, id: u32, movable: bool, records: &[ColliderRecord]) -> ColliderDelta {
+        let Some(run) = self.run_of(id) else {
+            return ColliderDelta {
+                crossed: false,
+                sizing: true,
+                placement: true,
+            };
+        };
+        let held = &self.records[run.span()];
+        ColliderDelta {
+            crossed: self.runs[id as usize].movable != movable,
+            sizing: replaced(held, records, sizing_of),
+            placement: replaced(held, records, placement_of),
+        }
     }
 
     fn hold_run(&mut self, id: u32, entry: ColliderRun) {
@@ -129,9 +227,22 @@ impl ColliderStore {
         run
     }
 
-    pub(crate) fn release(&mut self, id: u32) {
+    /// Retires a body's collider block, answering how the retirement moved the facts the grid
+    /// indices derive. A body without a block retires nothing.
+    pub(crate) fn release(&mut self, id: u32) -> ColliderDelta {
+        if !self.clear(id) {
+            return ColliderDelta::default();
+        }
+        ColliderDelta {
+            crossed: false,
+            sizing: true,
+            placement: true,
+        }
+    }
+
+    fn clear(&mut self, id: u32) -> bool {
         let Some(run) = self.run_of(id) else {
-            return;
+            return false;
         };
         let released = armed(&self.records[run.span()]);
         self.armed -= released;
@@ -144,6 +255,7 @@ impl ColliderStore {
         self.records.truncate(self.arena.used() as usize);
         self.cleared.push(run);
         self.live -= run.len;
+        true
     }
 }
 

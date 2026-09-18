@@ -140,7 +140,7 @@ impl World {
     }
 
     fn upload_shapes(&mut self, queue: &wgpu::Queue) {
-        self.facts.shapes += 1;
+        self.facts.geometry += 1;
         let state = &self.backend.streams.state;
         self.shapes.pool.upload_pending(
             queue,

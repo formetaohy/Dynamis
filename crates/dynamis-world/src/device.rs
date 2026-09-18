@@ -49,13 +49,6 @@ impl Region {
 }
 
 impl World {
-    pub(crate) fn resting_resolution(&self) -> (u32, u32) {
-        (
-            self.backend.measured[dynamis_abi::COUNTER_GRID_SCALE],
-            self.backend.measured[dynamis_abi::COUNTER_GRID_EXTENT],
-        )
-    }
-
     pub(crate) fn sync(&mut self, level: Facts) {
         self.backend.gpu.assert_alive();
         self.collect_readbacks();
