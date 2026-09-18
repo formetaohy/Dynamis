@@ -86,6 +86,7 @@ fn body_state_starts_from_the_desc() {
     let state = BodyStateRecord::initial(&desc, 5, 9);
     assert_eq!(state.position, [1.0, 2.0, 3.0]);
     assert_eq!(state.prev_position, [1.0, 2.0, 3.0]);
+    assert_eq!(state.prev_orientation, desc.orientation);
     assert_eq!(state.velocity, [0.0, 1.0, 0.0]);
     assert_eq!(state.angular_velocity, [1.0, 0.0, 0.0]);
     assert_eq!(state.body_id, 5);

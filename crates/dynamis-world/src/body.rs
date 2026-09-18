@@ -285,6 +285,7 @@ impl World {
         self.validate(handle);
         self.observed.bodies.patch(handle.id, |state| {
             state.orientation = orientation;
+            state.prev_orientation = orientation;
         });
         let mut payload = BodyStateRecord::zeroed();
         payload.orientation = orientation;

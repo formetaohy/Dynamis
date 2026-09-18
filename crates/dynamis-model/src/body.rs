@@ -12,6 +12,7 @@ pub struct BodyHandle {
 pub struct BodyState {
     pub position: [f32; 3],
     pub prev_position: [f32; 3],
+    pub prev_orientation: [f32; 4],
     pub orientation: [f32; 4],
     pub velocity: [f32; 3],
     pub angular_velocity: [f32; 3],

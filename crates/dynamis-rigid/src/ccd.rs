@@ -83,6 +83,7 @@ impl PassRuntime<RigidFrame> for CcdApply {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("ccd_factor", RigidStream::CcdFactor.whole()),
                     ("ccd_impact", RigidStream::CcdImpact.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                 ],
                 &[],
             ),

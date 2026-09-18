@@ -9,5 +9,6 @@ fn work(index: u32) {
         return;
     }
     state.prev_position = state.position;
+    state.prev_orientation = state.orientation;
     body_states[index] = state;
 }

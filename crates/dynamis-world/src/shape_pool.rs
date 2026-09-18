@@ -128,6 +128,7 @@ pub(crate) struct ShapePool {
     pool: Pool<ShapeSourceHandle>,
     refs: Vec<u32>,
     sources: Vec<Source>,
+    dirty: Vec<u32>,
     vertices: Table<[f32; 4]>,
     triangles: Table<TriangleRecord>,
     nodes: Table<BvhNodeRecord>,
@@ -141,6 +142,7 @@ impl ShapePool {
             pool: Pool::vacate("shape source"),
             refs: Vec::new(),
             sources: Vec::new(),
+            dirty: Vec::new(),
             vertices: Table::new(),
             triangles: Table::new(),
             nodes: Table::new(),
@@ -221,6 +223,7 @@ impl ShapePool {
         self.palettes
             .release(source.palette, SurfaceRecord::zeroed());
         self.sources[id] = Source::DEAD;
+        self.dirty.push(handle.id);
         self.pool.retire(handle);
     }
 
@@ -258,6 +261,7 @@ impl ShapePool {
             bounds,
             solid: solid_of(kind, vertices, triangles),
         };
+        self.dirty.push(id);
         self.pool.insert(handle);
         handle
     }
@@ -290,6 +294,7 @@ impl ShapePool {
             bounds,
             solid: None,
         };
+        self.dirty.push(id);
         self.pool.insert(handle);
         handle
     }
@@ -330,6 +335,7 @@ impl ShapePool {
             bounds,
             solid: None,
         };
+        self.dirty.push(handle.id);
     }
 
     pub(crate) fn update_mesh(
@@ -376,6 +382,7 @@ impl ShapePool {
             solid: solid_of(source.kind, vertices, triangles),
             ..source
         };
+        self.dirty.push(handle.id);
     }
 
     pub(crate) fn upload_pending(
@@ -387,7 +394,25 @@ impl ShapePool {
         nodes_buffer: &dynamis_gpu::Stream,
         cells_buffer: &dynamis_gpu::Stream,
     ) {
-        sources_buffer.write(queue, bytemuck::cast_slice(&self.layouts()));
+        let dirty = std::mem::take(&mut self.dirty);
+        let runs = merged(
+            dirty
+                .into_iter()
+                .map(|id| Run { offset: id, len: 1 })
+                .collect(),
+            self.sources.len() as u32,
+        );
+        for run in runs {
+            let records = self.sources[run.span()]
+                .iter()
+                .map(ShapePool::layout_of)
+                .collect::<Vec<_>>();
+            sources_buffer.write_at(
+                queue,
+                run.offset as u64 * std::mem::size_of::<dynamis_abi::ShapeSourceRecord>() as u64,
+                bytemuck::cast_slice(&records),
+            );
+        }
         for run in self.vertices.take_dirty() {
             vertices_buffer.write_at(
                 queue,
@@ -418,28 +443,25 @@ impl ShapePool {
         }
     }
 
-    fn layouts(&self) -> Vec<dynamis_abi::ShapeSourceRecord> {
-        self.sources
-            .iter()
-            .map(|source| dynamis_abi::ShapeSourceRecord {
-                kind: source.kind,
-                vertex_offset: source.vertices.offset,
-                vertex_count: source.vertices.len,
-                triangle_offset: source.geometry.triangles().offset,
-                node_offset: source.geometry.nodes().offset,
-                node_count: source.geometry.nodes().len,
-                cell_offset: source.cells.offset,
-                cell_count: source.cells.len,
-                grid_rows: source.geometry.grid().map_or(0, |grid| grid.0),
-                grid_cols: source.geometry.grid().map_or(0, |grid| grid.1),
-                _pad0: 0,
-                _pad1: 0,
-                local_min: source.bounds.0,
-                _pad2: 0.0,
-                local_max: source.bounds.1,
-                _pad3: 0.0,
-            })
-            .collect()
+    fn layout_of(source: &Source) -> dynamis_abi::ShapeSourceRecord {
+        dynamis_abi::ShapeSourceRecord {
+            kind: source.kind,
+            vertex_offset: source.vertices.offset,
+            vertex_count: source.vertices.len,
+            triangle_offset: source.geometry.triangles().offset,
+            node_offset: source.geometry.nodes().offset,
+            node_count: source.geometry.nodes().len,
+            cell_offset: source.cells.offset,
+            cell_count: source.cells.len,
+            grid_rows: source.geometry.grid().map_or(0, |grid| grid.0),
+            grid_cols: source.geometry.grid().map_or(0, |grid| grid.1),
+            _pad0: 0,
+            _pad1: 0,
+            local_min: source.bounds.0,
+            _pad2: 0.0,
+            local_max: source.bounds.1,
+            _pad3: 0.0,
+        }
     }
 }
 

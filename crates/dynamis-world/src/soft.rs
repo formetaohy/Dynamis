@@ -57,6 +57,8 @@ pub(crate) struct SoftBodyStore {
     records: Vec<SoftBodyRecord>,
     body_commands: EditJournal<u32, SoftBodyCommand>,
     commands: EditJournal<u32, SoftCommand>,
+    strength: u32,
+    persistent: u32,
     pub(crate) last_body_edits: u32,
     pub(crate) last_edits: u32,
     particles: Mirror<SoftParticleRecord>,
@@ -93,6 +95,8 @@ impl SoftBodyStore {
             records: Vec::new(),
             body_commands: EditJournal::new(),
             commands: EditJournal::new(),
+            strength: 0,
+            persistent: 0,
             last_body_edits: 0,
             last_edits: 0,
             particles: Mirror::new(),
@@ -113,17 +117,11 @@ impl SoftBodyStore {
     }
 
     pub(crate) fn carries_strength(&self) -> bool {
-        self.pool
-            .alive()
-            .iter()
-            .any(|handle| self.runs[handle.id as usize].strength)
+        self.strength > 0
     }
 
     pub(crate) fn carries_events(&self) -> bool {
-        self.pool
-            .alive()
-            .iter()
-            .any(|handle| !matches!(self.events[handle.id as usize], ContactEventMode::None))
+        self.persistent > 0
     }
 
     pub(crate) fn bodies(&self) -> &[SoftBodyHandle] {
@@ -388,12 +386,19 @@ impl SoftBodyStore {
                     local: attachment.local(),
                 });
         }
+        let strength = desc.carries_strength();
+        if strength {
+            self.strength += 1;
+        }
+        if !matches!(desc.events, ContactEventMode::None) {
+            self.persistent += 1;
+        }
         self.runs[id as usize] = SoftRuns {
             particles,
             elements,
             attachments,
             adjacency,
-            strength: desc.carries_strength(),
+            strength,
         };
         self.pool.insert(handle);
         handle
@@ -410,6 +415,12 @@ impl SoftBodyStore {
             "soft body {handle:?} must consume its particle edits before it is removed"
         );
         self.body_commands.remove(handle.id);
+        if runs.strength {
+            self.strength -= 1;
+        }
+        if !matches!(self.events[id], ContactEventMode::None) {
+            self.persistent -= 1;
+        }
         self.records[id] = SoftBodyRecord::cleared();
         for slot in runs.attachments.span() {
             self.release_attachment(self.attachments.records()[slot].body_id);

@@ -656,6 +656,62 @@ fn scene_convex_hit(scene: WorldShape, world: WorldShape) -> ShapeHit {
     return ShapeHit(closest.distance, (closest.point_a + closest.point_b) * 0.5, closest.normal, triangle);
 }
 
+fn bounds_gap(first: Aabb, second: Aabb) -> f32 {
+    let delta = max(max(first.min - second.max, second.min - first.max), vec3f(0.0));
+    return length(delta);
+}
+
+fn scene_mesh_gap(scene: WorldShape, world: WorldShape) -> ShapeHit {
+    let source = shape_sources[scene.source];
+    let local = scene_local_shape(scene, world);
+    let box = world_aabb_of(local);
+    var best = 3.402823466e38;
+    var point = vec3f(0.0);
+    var normal = vec3f(0.0, 1.0, 0.0);
+    var triangle = NO_TRIANGLE;
+    var stack: array<u32, 64>;
+    var stack_count = 1u;
+    stack[0] = source.node_offset;
+    while (stack_count > 0u) {
+        stack_count = stack_count - 1u;
+        let node = shape_nodes[stack[stack_count]];
+        var node_box: Aabb;
+        node_box.min = node.min * scene.scale;
+        node_box.max = node.max * scene.scale;
+        if (bounds_gap(node_box, box) >= best) {
+            continue;
+        }
+        if (node.leaf == 1u) {
+            for (var i = 0u; i < node.right; i = i + 1u) {
+                let index = node.left + i;
+                let candidate = plane_distance(index, scene.source, scene.scale, local);
+                if (candidate.distance < best) {
+                    best = candidate.distance;
+                    point = (candidate.point_a + candidate.point_b) * 0.5;
+                    normal = candidate.normal;
+                    triangle = index;
+                }
+            }
+        } else if (stack_count + 2u <= 64u) {
+            stack[stack_count] = node.left;
+            stack_count = stack_count + 1u;
+            stack[stack_count] = node.right;
+            stack_count = stack_count + 1u;
+        }
+    }
+    if (best == 3.402823466e38) {
+        return no_hit();
+    }
+    return ShapeHit(best, scene_place_point(scene, point), scene_place_normal(scene, normal), triangle);
+}
+
+fn scene_gap(scene: WorldShape, world: WorldShape) -> ShapeHit {
+    if (shape_height_grid(scene.kind)) {
+        return scene_convex_hit(scene, world);
+    }
+    return scene_mesh_gap(scene, world);
+}
+
 fn scene_sweep_triangle(
     scene: WorldShape,
     moving: WorldShape,

@@ -6,6 +6,8 @@
 @group(0) @binding(5) var<storage, read_write> aabbs: array<Aabb>;
 @group(0) @binding(6) var<storage, read_write> counters: array<atomic<u32>>;
 
+const HALF_TURN: f32 = 3.141592653589793;
+
 fn tight_bounds(state: BodyState, collider: Collider) -> Aabb {
     return world_aabb_of(world_collider(state, collider));
 }
@@ -21,18 +23,29 @@ fn record_grid_resolution(bounds: Aabb) {
     counter_max(COUNTER_GRID_EXTENT, bitcast<u32>(max(grid_extent_of(bounds), 0.0)));
 }
 
+fn sweep_radius(state: BodyState, desc: BodyDescriptor, collider: Collider, tight: Aabb) -> f32 {
+    let com = body_com_of(state, desc);
+    let center = state.position + quat_rotate(state.orientation, collider.local_offset);
+    return length((tight.max - tight.min) * 0.5) + length(center - com);
+}
+
+fn rotation_reach(spin: f32, radius: f32) -> f32 {
+    if (spin >= HALF_TURN) {
+        return 2.0 * radius;
+    }
+    return 2.0 * radius * sin(0.5 * spin);
+}
+
 fn swept_bounds(tight: Aabb, state: BodyState, desc: BodyDescriptor, collider: Collider) -> Aabb {
     if (!body_is_movable(desc)) {
         return tight;
     }
-    let travel = state.velocity * params.dt;
-    let margin = params.contact_margin + length(travel);
-    let extent = (tight.max - tight.min) * 0.5 + vec3f(margin);
-    let center = (tight.min + tight.max) * 0.5;
-    let previous_center = state.prev_position + quat_rotate(state.orientation, collider.local_offset);
+    let travel = abs(state.velocity * params.dt);
+    let spin = length(state.angular_velocity * params.dt);
+    let reach = vec3f(params.contact_margin + rotation_reach(spin, sweep_radius(state, desc, collider, tight)));
     var swept: Aabb;
-    swept.min = min(center + travel, previous_center) - extent;
-    swept.max = max(center + travel, previous_center) + extent;
+    swept.min = tight.min - travel - reach;
+    swept.max = tight.max + travel + reach;
     return swept;
 }
 

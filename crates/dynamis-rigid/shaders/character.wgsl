@@ -166,6 +166,7 @@ fn work(index: u32) {
     var body = body_states[row];
     body.position = pre_move;
     body.prev_position = pre_move;
+    body.prev_orientation = body.orientation;
     body.velocity = velocity;
     body_states[row] = body;
     atomicOr(&wake_flags[row], 1u);

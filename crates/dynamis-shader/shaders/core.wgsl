@@ -146,6 +146,27 @@ fn quat_rotate(q: vec4f, v: vec3f) -> vec3f {
     return 2.0 * dot(u, v) * u + (s * s - dot(u, u)) * v + 2.0 * s * cross(u, v);
 }
 
+fn quat_slerp(first: vec4f, second: vec4f, t: f32) -> vec4f {
+    var a = first;
+    var b = second;
+    var cosine = dot(a, b);
+    if (cosine < 0.0) {
+        b = -b;
+        cosine = -cosine;
+    }
+    if (cosine > 0.9995) {
+        return normalize(a + (b - a) * t);
+    }
+    let angle = acos(clamp(cosine, -1.0, 1.0));
+    let sine = sin(angle);
+    return (a * (sin((1.0 - t) * angle) / sine)) + (b * (sin(t * angle) / sine));
+}
+
+fn quat_angle(first: vec4f, second: vec4f) -> f32 {
+    let cosine = abs(clamp(dot(first, second), -1.0, 1.0));
+    return 2.0 * acos(cosine);
+}
+
 fn rotate_about(rotation: vec3f, v: vec3f) -> vec3f {
     let angle = length(rotation);
     if (angle < 1e-8) {
@@ -181,6 +202,7 @@ fn freeze_body(state: ptr<function, BodyState>) {
     (*state).force = vec3f(0.0);
     (*state).torque = vec3f(0.0);
     (*state).prev_position = (*state).position;
+    (*state).prev_orientation = (*state).orientation;
     (*state).sleep_timer = 0.0;
     (*state).sleeping = 1u;
 }

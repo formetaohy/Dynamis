@@ -1,9 +1,10 @@
 use crate::RigidDomain;
 use dynamis_abi::{
-    AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CharacterInputRecord,
-    CharacterRecord, CharacterStateRecord, ConstraintRowsRecord, ConstraintRuntimeRecord,
-    ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT, QueryHitRecord, QueryRecord,
-    SOLVER_ROUNDS_WORDS, VehicleInputRecord, VehicleRecord, VehicleStateRecord, VehicleWheelRecord,
+    AabbRecord, BodyStateRecord, CHARACTER_SWEEPS, CONTACT_MAX_POINTS, CcdImpactRecord,
+    CharacterInputRecord, CharacterRecord, CharacterStateRecord, ConstraintRowsRecord,
+    ConstraintRuntimeRecord, ContactEventRecord, ContactRecord, ImpactEventRecord, NO_SLOT,
+    QueryHitRecord, QueryRecord, SOLVER_ROUNDS_WORDS, VehicleInputRecord, VehicleRecord,
+    VehicleStateRecord, VehicleWheelRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -45,7 +46,7 @@ streams! {
         joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Retention::Scratch, demand.constraints;
         joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Retention::Scratch, demand.constraints;
         ccd_factor, CcdFactor: "ccd retreat factors", u32, 1, Retention::Scratch, demand.bodies;
-        ccd_impact, CcdImpact: "ccd impacts", [f32; 4], 1, Retention::Scratch, demand.bodies;
+        ccd_impact, CcdImpact: "ccd impacts", CcdImpactRecord, 1, Retention::Scratch, demand.bodies;
         contacts_raw, ContactsRaw: "contacts raw", ContactRecord, 1, Retention::Scratch, demand.pairs;
         contact_valid, ContactValid: "contact valid", u32, 1, Retention::Scratch, demand.pairs;
         compact_ranks, CompactRanks: "compact ranks", u32, 1, Retention::Scratch, demand.pairs;

@@ -14,6 +14,7 @@ impl BodyStateRecord {
             _pad0: 0.0,
             prev_position: desc.position,
             _pad1: 0.0,
+            prev_orientation: desc.orientation,
             orientation: desc.orientation,
             velocity: desc.velocity,
             _pad2: 0.0,
@@ -34,6 +35,7 @@ impl BodyStateRecord {
         BodyState {
             position: self.position,
             prev_position: self.prev_position,
+            prev_orientation: self.prev_orientation,
             orientation: self.orientation,
             velocity: self.velocity,
             angular_velocity: self.angular_velocity,

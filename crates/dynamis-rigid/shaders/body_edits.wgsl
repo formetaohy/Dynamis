@@ -49,6 +49,7 @@ fn work(index: u32) {
             }
             if ((edit.mask & PATCH_ORIENTATION) != 0u) {
                 state.orientation = edit.state.orientation;
+                state.prev_orientation = edit.state.orientation;
             }
             if ((edit.mask & PATCH_VELOCITY) != 0u) {
                 state.velocity = edit.state.velocity;

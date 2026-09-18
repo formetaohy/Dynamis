@@ -308,6 +308,49 @@ fn ccd_stops_an_elongated_body_by_its_leading_face() {
 }
 
 #[test]
+fn ccd_stops_a_spinning_body_that_would_sweep_through_a_wall() {
+    use dynamis_model::math::quat_rotate;
+
+    fn deepest_tip(ccd: bool) -> f32 {
+        let mut world = observed_world(static_config());
+        world.spawn(
+            BodyDesc::cuboid([0.05, 2.0, 2.0])
+                .mass(0.0)
+                .position([0.9, 0.0, 0.0]),
+        );
+        let angle: f32 = std::f32::consts::PI / 3.0;
+        let rod = world.spawn(
+            BodyDesc::cuboid([1.0, 0.05, 0.05])
+                .orientation([0.0, 0.0, (0.5 * angle).sin(), (0.5 * angle).cos()])
+                .angular_velocity([0.0, 0.0, -120.0])
+                .ccd(ccd),
+        );
+        let mut deepest = f32::MIN;
+        for _ in 0..30 {
+            world.step(DT);
+            world.wait();
+            let state = world.read_state(rod);
+            let first = quat_rotate(state.orientation, [1.0, 0.0, 0.0]);
+            let second = quat_rotate(state.orientation, [-1.0, 0.0, 0.0]);
+            deepest =
+                deepest.max((state.position[0] + first[0]).max(state.position[0] + second[0]));
+        }
+        deepest
+    }
+
+    let free = deepest_tip(false);
+    assert!(
+        free > 0.9,
+        "a rotating rod without continuous collision must sweep through the wall, reached {free}"
+    );
+    let guarded = deepest_tip(true);
+    assert!(
+        guarded < 0.85,
+        "a rotating rod under continuous collision must stop at the wall face, reached {guarded}"
+    );
+}
+
+#[test]
 fn ccd_bullet_stops_at_the_nearest_obstacle_of_a_chain() {
     let mut world = observed_world(static_config());
     let mut nearest = f32::MAX;

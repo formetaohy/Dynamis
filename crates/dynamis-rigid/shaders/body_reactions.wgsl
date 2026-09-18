@@ -25,6 +25,7 @@ fn work(index: u32) {
     state.velocity = state.velocity + shift / params.dt;
     state.angular_velocity = state.angular_velocity + spin / params.dt;
     state.orientation = normalize(quat_mul(vec4f(spin * 0.5, 1.0), state.orientation));
+    state.prev_orientation = normalize(quat_mul(vec4f(spin * 0.5, 1.0), state.prev_orientation));
     state.sleeping = 0u;
     state.sleep_timer = 0.0;
     body_states[index] = state;

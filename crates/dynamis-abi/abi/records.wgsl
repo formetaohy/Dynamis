@@ -143,6 +143,7 @@ struct BodyState {
     _pad0: f32,
     prev_position: vec3f,
     _pad1: f32,
+    prev_orientation: vec4f,
     orientation: vec4f,
     velocity: vec3f,
     _pad2: f32,
@@ -295,6 +296,13 @@ struct ManifoldPoint {
     accumulated_tangent_1: f32,
     accumulated_tangent_2: f32,
     feature: u32,
+}
+
+struct CcdImpact {
+    normal: vec3f,
+    restitution: f32,
+    point: vec3f,
+    _pad0: f32,
 }
 
 struct Contact {
