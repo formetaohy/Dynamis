@@ -40,6 +40,7 @@ impl VehicleRecord {
 
 impl VehicleWheelRecord {
     pub fn build(wheel: &WheelDesc) -> Self {
+        wheel.assert_valid();
         Self {
             anchor: wheel.anchor,
             radius: wheel.radius,

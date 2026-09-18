@@ -1,3 +1,5 @@
+use crate::domain;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShapeSourceHandle {
     pub id: u32,
@@ -24,6 +26,32 @@ pub enum Shape {
 }
 
 impl Shape {
+    pub fn assert_valid(&self) {
+        match *self {
+            Self::Sphere { radius } => {
+                domain::positive(radius, "a sphere radius");
+            }
+            Self::Cuboid { half_extents } => {
+                domain::finite_vector(half_extents, "cuboid half extents");
+                for extent in half_extents {
+                    domain::positive(extent, "a cuboid half extent");
+                }
+            }
+            Self::Capsule {
+                radius,
+                half_height,
+            }
+            | Self::Cylinder {
+                radius,
+                half_height,
+            } => {
+                domain::positive(radius, "a shape radius");
+                domain::non_negative(half_height, "a shape half height");
+            }
+            Self::Hull(_) | Self::Mesh(_) | Self::HeightField(_) | Self::Plane => {}
+        }
+    }
+
     pub fn sphere(radius: f32) -> Self {
         assert!(radius > 0.0, "shape radius must be strictly positive");
         Self::Sphere { radius }

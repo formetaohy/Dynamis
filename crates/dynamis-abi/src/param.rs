@@ -1,5 +1,6 @@
 use crate::{RowStreamsRecord, StepParamsRecord};
 use bytemuck::Zeroable;
+use dynamis_model::domain;
 use dynamis_model::{MaterialCombine, PhysicsConfig};
 
 macro_rules! census {
@@ -107,6 +108,8 @@ census! {
 
 impl StepParamsRecord {
     pub fn new(config: &PhysicsConfig, dt: f32, census: Census, wake_all: bool) -> Self {
+        config.assert_valid();
+        domain::positive(dt, "a step timestep");
         let mut record = Self {
             gravity: [config.gravity[0], config.gravity[1], config.gravity[2], 0.0],
             dt,

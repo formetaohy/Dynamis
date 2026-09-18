@@ -7,6 +7,7 @@ use dynamis_abi::{
     PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, ShapeRole,
     shape_source_handle,
 };
+use dynamis_model::domain;
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyState, ColliderDesc, CollisionFilter, ContactEventMode, Shape,
 };
@@ -53,6 +54,7 @@ impl BodyStore {
 
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
+        desc.assert_valid();
         self.validate_world_geometry(&desc);
         self.facts.anchors += 1;
         let handle = self.bodies.pool.acquire();
@@ -276,6 +278,7 @@ impl World {
 
     pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
         self.validate(handle);
+        domain::finite_vector(position, "a body position");
         self.observed.bodies.patch(handle.id, |state| {
             state.position = position;
             state.prev_position = position;
@@ -287,7 +290,7 @@ impl World {
     }
 
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
-        self.assert_unit(orientation);
+        domain::unit_quaternion(orientation, "a body orientation");
         self.validate(handle);
         self.observed.bodies.patch(handle.id, |state| {
             state.orientation = orientation;
@@ -301,6 +304,7 @@ impl World {
 
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
         self.validate(handle);
+        domain::finite_vector(velocity, "a body velocity");
         self.observed.bodies.patch(handle.id, |state| {
             state.velocity = velocity;
         });
@@ -312,6 +316,7 @@ impl World {
 
     pub fn set_angular_velocity(&mut self, handle: BodyHandle, angular_velocity: [f32; 3]) {
         self.validate(handle);
+        domain::finite_vector(angular_velocity, "a body angular velocity");
         self.observed.bodies.patch(handle.id, |state| {
             state.angular_velocity = angular_velocity;
         });
@@ -322,7 +327,7 @@ impl World {
     }
 
     pub fn set_mass(&mut self, handle: BodyHandle, mass: f32) {
-        assert!(mass >= 0.0, "mass must be non-negative");
+        domain::non_negative(mass, "mass");
         self.edit_body(handle, |desc| {
             desc.mass = mass;
             desc.density = None;
@@ -330,36 +335,35 @@ impl World {
     }
 
     pub fn set_density(&mut self, handle: BodyHandle, density: f32) {
-        assert!(density >= 0.0, "density must be non-negative");
+        domain::non_negative(density, "density");
         self.edit_body(handle, |desc| desc.density = Some(density));
     }
 
     pub fn set_com(&mut self, handle: BodyHandle, com: [f32; 3]) {
+        domain::finite_vector(com, "a center of mass");
         self.edit_body(handle, |desc| desc.com = Some(com));
     }
 
     pub fn set_inertia(&mut self, handle: BodyHandle, inertia: [f32; 6]) {
         assert!(
             inertia.iter().all(|value| value.is_finite()),
-            "inertia tensor must be finite"
+            "an inertia tensor must be finite"
         );
         self.edit_body(handle, |desc| desc.inertia = Some(inertia));
     }
 
     pub fn set_linear_damping(&mut self, handle: BodyHandle, damping: f32) {
-        assert!(damping >= 0.0, "damping must be non-negative");
+        domain::non_negative(damping, "damping");
         self.edit_body(handle, |desc| desc.linear_damping = Some(damping));
     }
 
     pub fn set_angular_damping(&mut self, handle: BodyHandle, angular_damping: f32) {
-        assert!(
-            angular_damping >= 0.0,
-            "angular damping must be non-negative"
-        );
+        domain::non_negative(angular_damping, "angular damping");
         self.edit_body(handle, |desc| desc.angular_damping = Some(angular_damping));
     }
 
     pub fn set_gravity_scale(&mut self, handle: BodyHandle, gravity_scale: f32) {
+        domain::finite(gravity_scale, "a gravity scale");
         self.edit_body(handle, |desc| desc.gravity_scale = gravity_scale);
     }
 
@@ -369,11 +373,8 @@ impl World {
         velocity: f32,
         angular_velocity: f32,
     ) {
-        assert!(velocity >= 0.0, "sleep velocity must be non-negative");
-        assert!(
-            angular_velocity >= 0.0,
-            "sleep angular velocity must be non-negative"
-        );
+        domain::non_negative(velocity, "a sleep velocity");
+        domain::non_negative(angular_velocity, "a sleep angular velocity");
         self.edit_body(handle, |desc| {
             desc.sleep_velocity = Some(velocity);
             desc.sleep_angular_velocity = Some(angular_velocity);
@@ -407,6 +408,7 @@ impl World {
 
     pub fn set_collider(&mut self, handle: BodyHandle, index: usize, collider: ColliderDesc) {
         self.validate(handle);
+        collider.assert_valid();
         let id = handle.id as usize;
         assert!(
             index < self.bodies.descs[id].colliders.len(),
@@ -420,6 +422,7 @@ impl World {
 
     pub fn add_collider(&mut self, handle: BodyHandle, collider: ColliderDesc) {
         self.validate(handle);
+        collider.assert_valid();
         self.retain_shape_ref(&collider.shape);
         self.bodies.descs[handle.id as usize]
             .colliders
@@ -445,6 +448,7 @@ impl World {
 
     pub fn set_shape(&mut self, handle: BodyHandle, shape: Shape) {
         self.validate(handle);
+        shape.assert_valid();
         let id = handle.id as usize;
         let replaced = std::mem::replace(&mut self.bodies.descs[id].colliders[0].shape, shape);
         self.release_shape_ref(&replaced);
@@ -453,11 +457,12 @@ impl World {
     }
 
     pub fn set_restitution(&mut self, handle: BodyHandle, restitution: f32) {
+        domain::non_negative(restitution, "restitution");
         self.edit_body(handle, |desc| desc.colliders[0].restitution = restitution);
     }
 
     pub fn set_friction(&mut self, handle: BodyHandle, friction: f32) {
-        assert!(friction >= 0.0, "friction must be non-negative");
+        domain::non_negative(friction, "friction");
         self.edit_body(handle, |desc| desc.colliders[0].friction = friction);
     }
 
@@ -472,10 +477,7 @@ impl World {
     }
 
     pub fn set_contact_damping_ratio(&mut self, handle: BodyHandle, contact_damping_ratio: f32) {
-        assert!(
-            contact_damping_ratio >= 0.0,
-            "a contact damping ratio must be non-negative"
-        );
+        domain::non_negative(contact_damping_ratio, "a contact damping ratio");
         self.edit_body(handle, |desc| {
             desc.colliders[0].contact_damping_ratio = contact_damping_ratio
         });
@@ -496,6 +498,7 @@ impl World {
     }
 
     pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
+        domain::finite_vector(force, "a body force");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -503,6 +506,8 @@ impl World {
     }
 
     pub fn apply_force_at_point(&mut self, handle: BodyHandle, force: [f32; 3], point: [f32; 3]) {
+        domain::finite_vector(force, "a body force");
+        domain::finite_vector(point, "a force application point");
         let slot = self.command_slot(handle);
         self.bodies.commands.push(BodyCommand::ForceAtPoint {
             row: slot,
@@ -512,6 +517,7 @@ impl World {
     }
 
     pub fn apply_torque(&mut self, handle: BodyHandle, torque: [f32; 3]) {
+        domain::finite_vector(torque, "a body torque");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -519,6 +525,7 @@ impl World {
     }
 
     pub fn apply_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
+        domain::finite_vector(impulse, "a body impulse");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -531,6 +538,8 @@ impl World {
         impulse: [f32; 3],
         point: [f32; 3],
     ) {
+        domain::finite_vector(impulse, "a body impulse");
+        domain::finite_vector(point, "an impulse application point");
         let slot = self.command_slot(handle);
         self.bodies.commands.push(BodyCommand::ImpulseAtPoint {
             row: slot,
@@ -540,6 +549,7 @@ impl World {
     }
 
     pub fn apply_angular_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
+        domain::finite_vector(impulse, "a body angular impulse");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -573,19 +583,6 @@ impl World {
 
     pub(super) fn validate(&self, handle: BodyHandle) {
         self.bodies.pool.validate(handle);
-    }
-
-    pub(super) fn assert_unit(&self, orientation: [f32; 4]) {
-        assert!(
-            (orientation[0] * orientation[0]
-                + orientation[1] * orientation[1]
-                + orientation[2] * orientation[2]
-                + orientation[3] * orientation[3]
-                - 1.0)
-                .abs()
-                < 1e-4,
-            "orientation must be a unit quaternion"
-        );
     }
 
     fn retain_shape_ref(&mut self, shape: &Shape) {

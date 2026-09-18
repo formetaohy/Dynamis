@@ -1,4 +1,5 @@
 use crate::collision::CollisionFilter;
+use crate::domain;
 use crate::shape::Shape;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +28,27 @@ pub struct ColliderDesc {
 }
 
 impl ColliderDesc {
+    pub fn assert_valid(&self) {
+        self.shape.assert_valid();
+        domain::finite_vector(self.offset, "a collider offset");
+        domain::unit_quaternion(self.rotation, "a collider rotation");
+        domain::non_negative(self.friction, "collider friction");
+        domain::non_negative(self.restitution, "collider restitution");
+        for axis in self.scale {
+            domain::positive(axis, "a collider scale axis");
+        }
+        domain::non_negative(self.rolling_friction, "collider rolling friction");
+        domain::non_negative(self.spin_friction, "collider spin friction");
+        assert!(
+            self.contact_frequency > 0.0,
+            "a contact frequency must be strictly positive"
+        );
+        domain::non_negative(self.contact_damping_ratio, "a contact damping ratio");
+        if let Some(force) = self.impact_force {
+            domain::non_negative(force, "an impact force threshold");
+        }
+    }
+
     pub fn new(shape: Shape) -> Self {
         Self {
             shape,
@@ -56,19 +78,13 @@ impl ColliderDesc {
     }
 
     pub fn contact_damping_ratio(mut self, contact_damping_ratio: f32) -> Self {
-        assert!(
-            contact_damping_ratio >= 0.0,
-            "a contact damping ratio must be non-negative"
-        );
+        domain::non_negative(contact_damping_ratio, "a contact damping ratio");
         self.contact_damping_ratio = contact_damping_ratio;
         self
     }
 
     pub fn impact(mut self, force: f32) -> Self {
-        assert!(
-            force >= 0.0 && force.is_finite(),
-            "an impact force threshold must be finite and non-negative"
-        );
+        domain::non_negative(force, "an impact force threshold");
         self.impact_force = Some(force);
         self
     }
@@ -84,36 +100,27 @@ impl ColliderDesc {
     }
 
     pub fn rotation(mut self, rotation: [f32; 4]) -> Self {
-        assert!(
-            (rotation[0] * rotation[0]
-                + rotation[1] * rotation[1]
-                + rotation[2] * rotation[2]
-                + rotation[3] * rotation[3]
-                - 1.0)
-                .abs()
-                < 1e-4,
-            "rotation must be a unit quaternion"
-        );
+        domain::unit_quaternion(rotation, "a collider rotation");
         self.rotation = rotation;
         self
     }
 
     pub fn friction(mut self, friction: f32) -> Self {
-        assert!(friction >= 0.0, "friction must be non-negative");
+        domain::non_negative(friction, "friction");
         self.friction = friction;
         self
     }
 
     pub fn restitution(mut self, restitution: f32) -> Self {
+        domain::non_negative(restitution, "restitution");
         self.restitution = restitution;
         self
     }
 
     pub fn scale(mut self, scale: [f32; 3]) -> Self {
-        assert!(
-            scale.iter().all(|value| *value > 0.0),
-            "collider scale must be strictly positive"
-        );
+        for axis in scale {
+            domain::positive(axis, "a collider scale axis");
+        }
         self.scale = scale;
         self
     }
@@ -129,16 +136,13 @@ impl ColliderDesc {
     }
 
     pub fn rolling_friction(mut self, rolling_friction: f32) -> Self {
-        assert!(
-            rolling_friction >= 0.0,
-            "rolling friction must be non-negative"
-        );
+        domain::non_negative(rolling_friction, "rolling friction");
         self.rolling_friction = rolling_friction;
         self
     }
 
     pub fn spin_friction(mut self, spin_friction: f32) -> Self {
-        assert!(spin_friction >= 0.0, "spin friction must be non-negative");
+        domain::non_negative(spin_friction, "spin friction");
         self.spin_friction = spin_friction;
         self
     }

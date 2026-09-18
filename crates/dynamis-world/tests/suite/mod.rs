@@ -44,6 +44,7 @@ pub mod solver;
 pub mod surface;
 #[cfg(feature = "profile")]
 pub mod timing;
+pub mod validation;
 pub mod vehicle;
 pub mod waking;
 pub mod warmup;

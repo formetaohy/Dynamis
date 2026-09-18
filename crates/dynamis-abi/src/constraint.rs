@@ -106,6 +106,7 @@ fn pack_dofs(record: &mut ConstraintDescriptorRecord, dofs: &[DofDesc; 6]) {
 
 impl ConstraintDescriptorRecord {
     pub fn build(desc: &ConstraintDesc, first_body_id: u32, second_body_id: u32) -> Self {
+        desc.assert_valid();
         let data = desc.data();
         let mut record = Self {
             kind: kind_code(data.kind()),

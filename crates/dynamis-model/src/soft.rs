@@ -1,6 +1,7 @@
 use crate::BodyHandle;
 use crate::collider::ContactEventMode;
 use crate::collision::CollisionFilter;
+use crate::domain;
 use std::collections::{BTreeMap, BTreeSet};
 
 const ELASTIC_STRAIN: f32 = f32::INFINITY;
@@ -170,6 +171,25 @@ pub struct SoftMaterial {
 }
 
 impl SoftMaterial {
+    pub fn assert_valid(&self) {
+        domain::non_negative(self.stretch, "a soft stretch compliance");
+        domain::non_negative(self.shear, "a soft shear compliance");
+        domain::non_negative(self.bend, "a soft bend compliance");
+        domain::non_negative(self.volume, "a soft volume compliance");
+        assert!(
+            self.yield_strain >= 0.0,
+            "a soft yield strain must be non-negative"
+        );
+        assert!(
+            self.break_strain >= 0.0,
+            "a soft break strain must be non-negative"
+        );
+        assert!(
+            (0.0..=1.0).contains(&self.plastic_flow),
+            "a soft plastic flow must be within [0, 1]"
+        );
+    }
+
     pub const fn rigid() -> Self {
         Self {
             stretch: 0.0,
@@ -391,27 +411,52 @@ pub struct SoftBodyDesc {
 }
 
 impl SoftBodyDesc {
-    pub fn new(particles: Vec<[f32; 3]>, elements: Vec<SoftElement>) -> Self {
+    pub fn assert_valid(&self) {
         assert!(
-            !particles.is_empty(),
+            !self.particles.is_empty(),
             "a soft body requires at least one particle"
         );
-        assert!(
-            particles
-                .iter()
-                .all(|particle| particle.iter().all(|value| value.is_finite())),
-            "soft body particles must be finite"
+        for particle in &self.particles {
+            domain::finite_vector(*particle, "a soft particle position");
+        }
+        assert_eq!(
+            self.inverse_masses.len(),
+            self.particles.len(),
+            "a soft body carries one inverse mass per particle"
         );
-        for element in &elements {
+        for inverse_mass in &self.inverse_masses {
+            domain::non_negative(*inverse_mass, "a soft particle inverse mass");
+        }
+        for element in &self.elements {
             for particle in element.participants() {
                 assert!(
-                    (particle as usize) < particles.len(),
+                    (particle as usize) < self.particles.len(),
                     "a soft element must reference live particles"
                 );
             }
         }
+        self.assert_attachments();
+        domain::finite_vector(self.position, "a soft body position");
+        domain::unit_quaternion(self.orientation, "a soft body orientation");
+        domain::finite_vector(self.velocity, "a soft body velocity");
+        domain::non_negative(self.friction, "soft body friction");
+        match self.fluid {
+            Some(fluid) => {
+                domain::positive(self.radius, "a fluid particle radius");
+                assert!(
+                    2.0 * self.radius <= fluid.spacing(),
+                    "a fluid particle must be narrower than its rest spacing"
+                );
+            }
+            None => {
+                domain::non_negative(self.radius, "a soft particle radius");
+            }
+        }
+    }
+
+    pub fn new(particles: Vec<[f32; 3]>, elements: Vec<SoftElement>) -> Self {
         let inverse_masses = vec![1.0; particles.len()];
-        Self {
+        let body = Self {
             particles,
             inverse_masses,
             elements,
@@ -424,7 +469,9 @@ impl SoftBodyDesc {
             velocity: [0.0; 3],
             filter: CollisionFilter::DEFAULT,
             events: ContactEventMode::None,
-        }
+        };
+        body.assert_valid();
+        body
     }
 
     pub fn attach(mut self, attachment: SoftAttachment) -> Self {
@@ -449,17 +496,10 @@ impl SoftBodyDesc {
     }
 
     pub fn fluid(particles: Vec<[f32; 3]>, radius: f32, material: FluidMaterial) -> Self {
-        assert!(
-            radius > 0.0,
-            "a fluid particle radius must be strictly positive"
-        );
-        assert!(
-            2.0 * radius <= material.spacing(),
-            "a fluid particle must be narrower than its rest spacing"
-        );
         let mut body = Self::new(particles, Vec::new());
         body.fluid = Some(material);
         body.radius = radius;
+        body.assert_valid();
         body
     }
 
@@ -478,6 +518,7 @@ impl SoftBodyDesc {
     }
 
     pub fn cloth(extent: [u32; 2], spacing: f32, material: SoftMaterial) -> Self {
+        material.assert_valid();
         let [rows, columns] = extent;
         assert!(
             rows > 1 && columns > 1,
@@ -562,6 +603,7 @@ impl SoftBodyDesc {
     }
 
     pub fn lattice(extent: [u32; 3], spacing: f32, material: SoftMaterial) -> Self {
+        material.assert_valid();
         let [rows, columns, layers] = extent;
         assert!(
             rows > 0 && columns > 0 && layers > 0,
@@ -645,16 +687,11 @@ impl SoftBodyDesc {
     }
 
     pub fn inverse_masses(mut self, inverse_masses: Vec<f32>) -> Self {
-        assert_eq!(
-            self.particles.len(),
-            inverse_masses.len(),
-            "a soft body requires one inverse mass per particle"
-        );
-        assert!(
-            inverse_masses.iter().all(|mass| *mass >= 0.0),
-            "soft body inverse masses must be non-negative"
-        );
+        for inverse_mass in &inverse_masses {
+            domain::non_negative(*inverse_mass, "a soft particle inverse mass");
+        }
         self.inverse_masses = inverse_masses;
+        self.assert_valid();
         self
     }
 

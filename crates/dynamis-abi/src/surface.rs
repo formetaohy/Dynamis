@@ -3,6 +3,7 @@ use dynamis_model::SurfaceDesc;
 
 impl SurfaceRecord {
     pub fn build(surface: &SurfaceDesc) -> Self {
+        surface.assert_valid();
         Self {
             friction: surface.friction,
             restitution: surface.restitution,

@@ -1,3 +1,5 @@
+use crate::domain;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceDesc {
     pub friction: f32,
@@ -9,6 +11,21 @@ pub struct SurfaceDesc {
 }
 
 impl SurfaceDesc {
+    pub fn assert_valid(&self) {
+        domain::non_negative(self.friction, "surface friction");
+        domain::non_negative(self.restitution, "surface restitution");
+        domain::non_negative(self.rolling_friction, "surface rolling friction");
+        domain::non_negative(self.spin_friction, "surface spin friction");
+        assert!(
+            self.contact_frequency > 0.0,
+            "a surface contact frequency must be strictly positive"
+        );
+        domain::non_negative(
+            self.contact_damping_ratio,
+            "a surface contact damping ratio",
+        );
+    }
+
     pub fn new() -> Self {
         Self {
             friction: 0.5,
@@ -86,17 +103,18 @@ impl<'a> SurfaceTable<'a> {
             !palette.is_empty(),
             "a surface table carries at least one surface"
         );
+        for surface in palette {
+            surface.assert_valid();
+            assert!(
+                !surface.contact_frequency.is_finite(),
+                "a surface palette carries no contact softness; a collider does"
+            );
+        }
         assert!(
             indices
                 .iter()
                 .all(|index| (*index as usize) < palette.len()),
             "a surface index must address its own palette"
-        );
-        assert!(
-            palette
-                .iter()
-                .all(|surface| !surface.contact_frequency.is_finite()),
-            "a surface palette carries no contact softness; a collider does"
         );
         Self { palette, indices }
     }

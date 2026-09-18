@@ -1,5 +1,6 @@
 use crate::collider::ColliderDesc;
 use crate::collision::CollisionFilter;
+use crate::domain;
 use crate::shape::{Shape, ShapeSourceHandle, SolidGeometry};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,6 +45,46 @@ pub struct BodyDesc {
 }
 
 impl BodyDesc {
+    pub fn assert_valid(&self) {
+        assert!(
+            !self.colliders.is_empty(),
+            "a body requires at least one collider"
+        );
+        for collider in &self.colliders {
+            collider.assert_valid();
+        }
+        domain::finite_vector(self.position, "a body position");
+        domain::unit_quaternion(self.orientation, "a body orientation");
+        domain::finite_vector(self.velocity, "a body velocity");
+        domain::finite_vector(self.angular_velocity, "a body angular velocity");
+        domain::non_negative(self.mass, "body mass");
+        if let Some(density) = self.density {
+            domain::non_negative(density, "body density");
+        }
+        if let Some(com) = self.com {
+            domain::finite_vector(com, "a body center of mass");
+        }
+        if let Some(inertia) = self.inertia {
+            assert!(
+                inertia.iter().all(|value| value.is_finite()),
+                "an inertia tensor must be finite"
+            );
+        }
+        if let Some(damping) = self.linear_damping {
+            domain::non_negative(damping, "linear damping");
+        }
+        if let Some(damping) = self.angular_damping {
+            domain::non_negative(damping, "angular damping");
+        }
+        domain::finite(self.gravity_scale, "a body gravity scale");
+        if let Some(velocity) = self.sleep_velocity {
+            domain::non_negative(velocity, "a sleep velocity");
+        }
+        if let Some(velocity) = self.sleep_angular_velocity {
+            domain::non_negative(velocity, "a sleep angular velocity");
+        }
+    }
+
     pub const VACANT: Self = Self {
         colliders: Vec::new(),
         position: [0.0; 3],
@@ -134,18 +175,18 @@ impl BodyDesc {
     }
 
     pub fn position(mut self, position: [f32; 3]) -> Self {
+        domain::finite_vector(position, "a body position");
         self.position = position;
         self
     }
 
     pub fn restitution(mut self, restitution: f32) -> Self {
-        self.colliders[0].restitution = restitution;
+        self.colliders[0].restitution = domain::non_negative(restitution, "restitution");
         self
     }
 
     pub fn friction(mut self, friction: f32) -> Self {
-        assert!(friction >= 0.0, "friction must be non-negative");
-        self.colliders[0].friction = friction;
+        self.colliders[0].friction = domain::non_negative(friction, "friction");
         self
     }
 
@@ -165,76 +206,60 @@ impl BodyDesc {
     }
 
     pub fn orientation(mut self, orientation: [f32; 4]) -> Self {
-        assert!(
-            (orientation[0] * orientation[0]
-                + orientation[1] * orientation[1]
-                + orientation[2] * orientation[2]
-                + orientation[3] * orientation[3]
-                - 1.0)
-                .abs()
-                < 1e-4,
-            "orientation must be a unit quaternion"
-        );
+        domain::unit_quaternion(orientation, "a body orientation");
         self.orientation = orientation;
         self
     }
 
     pub fn velocity(mut self, velocity: [f32; 3]) -> Self {
+        domain::finite_vector(velocity, "a body velocity");
         self.velocity = velocity;
         self
     }
 
     pub fn angular_velocity(mut self, angular_velocity: [f32; 3]) -> Self {
+        domain::finite_vector(angular_velocity, "a body angular velocity");
         self.angular_velocity = angular_velocity;
         self
     }
 
     pub fn mass(mut self, mass: f32) -> Self {
-        assert!(mass >= 0.0, "mass must be non-negative");
-        self.mass = mass;
+        self.mass = domain::non_negative(mass, "mass");
         self.density = None;
         self
     }
 
     pub fn density(mut self, density: f32) -> Self {
-        assert!(density >= 0.0, "density must be non-negative");
-        self.density = Some(density);
+        self.density = Some(domain::non_negative(density, "density"));
         self
     }
 
     pub fn damping(mut self, damping: f32) -> Self {
-        assert!(damping >= 0.0, "damping must be non-negative");
-        self.linear_damping = Some(damping);
+        self.linear_damping = Some(domain::non_negative(damping, "damping"));
         self
     }
 
     pub fn angular_damping(mut self, angular_damping: f32) -> Self {
-        assert!(
-            angular_damping >= 0.0,
-            "angular damping must be non-negative"
-        );
-        self.angular_damping = Some(angular_damping);
+        self.angular_damping = Some(domain::non_negative(angular_damping, "angular damping"));
         self
     }
 
     pub fn gravity_scale(mut self, gravity_scale: f32) -> Self {
-        self.gravity_scale = gravity_scale;
+        self.gravity_scale = domain::finite(gravity_scale, "a gravity scale");
         self
     }
 
     pub fn sleep_thresholds(mut self, velocity: f32, angular_velocity: f32) -> Self {
-        assert!(velocity >= 0.0, "sleep velocity must be non-negative");
-        assert!(
-            angular_velocity >= 0.0,
-            "sleep angular velocity must be non-negative"
-        );
-        self.sleep_velocity = Some(velocity);
-        self.sleep_angular_velocity = Some(angular_velocity);
+        self.sleep_velocity = Some(domain::non_negative(velocity, "a sleep velocity"));
+        self.sleep_angular_velocity = Some(domain::non_negative(
+            angular_velocity,
+            "a sleep angular velocity",
+        ));
         self
     }
 
     pub fn com(mut self, com: [f32; 3]) -> Self {
-        self.com = Some(com);
+        self.com = Some(domain::finite_vector(com, "a center of mass"));
         self
     }
 

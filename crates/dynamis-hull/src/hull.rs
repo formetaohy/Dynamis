@@ -1,5 +1,24 @@
+use dynamis_model::domain;
 use dynamis_model::math::{add, dot, length, mul, sub};
 use std::collections::{HashMap, HashSet};
+
+pub(crate) fn validate(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) {
+    assert!(
+        !triangles.is_empty(),
+        "a mesh must carry at least one triangle"
+    );
+    for vertex in vertices {
+        domain::finite_vector(*vertex, "a mesh vertex");
+    }
+    for triangle in triangles {
+        assert!(
+            triangle
+                .iter()
+                .all(|&vertex| (vertex as usize) < vertices.len()),
+            "a mesh triangle must reference the vertices of its own mesh"
+        );
+    }
+}
 
 struct Face {
     a: usize,
@@ -32,6 +51,7 @@ impl Face {
 }
 
 pub fn hull(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> (Vec<[f32; 3]>, Vec<[u32; 3]>) {
+    validate(vertices, triangles);
     let used = triangles
         .iter()
         .flat_map(|triangle| triangle.iter())

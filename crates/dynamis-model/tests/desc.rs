@@ -6,6 +6,103 @@ use dynamis_model::{
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
+fn a_config_declares_the_domain_of_every_field_it_carries() {
+    let config = PhysicsConfig::default();
+    config.assert_valid();
+    type Break = fn(&mut PhysicsConfig);
+    let refused: [(&str, Break); 13] = [
+        ("gravity", |config| config.gravity = [f32::NAN, 0.0, 0.0]),
+        ("damping", |config| config.damping = f32::INFINITY),
+        ("angular damping", |config| config.angular_damping = -1.0),
+        ("substeps", |config| config.substeps = 0),
+        ("solve iterations", |config| config.solve_iterations = 0),
+        ("position iterations", |config| {
+            config.position_iterations = 0
+        }),
+        ("soft substeps", |config| config.soft_substeps = 0),
+        ("soft iterations", |config| config.soft_iterations = 0),
+        ("relaxation", |config| config.relaxation = 0.0),
+        ("slop", |config| config.slop = f32::NAN),
+        ("contact margin", |config| config.contact_margin = -1.0),
+        ("velocity limit", |config| config.max_velocity = 0.0),
+        ("sleep time", |config| config.sleep_time = f32::INFINITY),
+    ];
+    for (field, break_it) in refused {
+        let mut broken = config;
+        break_it(&mut broken);
+        assert!(
+            catch_unwind(|| broken.assert_valid()).is_err(),
+            "{field} must be refused outside its domain"
+        );
+    }
+    let resting = PhysicsConfig {
+        damping: 0.0,
+        angular_damping: 0.0,
+        slop: 0.0,
+        contact_margin: 0.0,
+        restitution_threshold: 0.0,
+        sleep_velocity: 0.0,
+        sleep_angular_velocity: 0.0,
+        settle_velocity: 0.0,
+        relaxation: 1.0,
+        ..PhysicsConfig::default()
+    };
+    resting.assert_valid();
+}
+
+#[test]
+fn a_description_declares_the_domain_of_every_field_it_carries() {
+    let mut body = BodyDesc::sphere(0.5);
+    body.assert_valid();
+    body.position = [0.0, f32::NAN, 0.0];
+    assert!(catch_unwind(|| body.assert_valid()).is_err());
+    body.position = [0.0; 3];
+    body.velocity = [f32::INFINITY; 3];
+    assert!(catch_unwind(|| body.assert_valid()).is_err());
+    body.velocity = [0.0; 3];
+    body.com = Some([f32::NAN; 3]);
+    assert!(catch_unwind(|| body.assert_valid()).is_err());
+    body.com = None;
+    body.colliders.clear();
+    assert!(catch_unwind(|| body.assert_valid()).is_err());
+    let mut collider = ColliderDesc::new(Shape::sphere(0.5));
+    collider.assert_valid();
+    collider.restitution = f32::NAN;
+    assert!(catch_unwind(|| collider.assert_valid()).is_err());
+    collider.restitution = 1.0;
+    collider.contact_frequency = 0.0;
+    assert!(catch_unwind(|| collider.assert_valid()).is_err());
+    collider.contact_frequency = f32::INFINITY;
+    collider.assert_valid();
+    let dimensionless = Shape::Sphere {
+        radius: f32::INFINITY,
+    };
+    assert!(catch_unwind(|| dimensionless.assert_valid()).is_err());
+    let degenerate = Shape::Cuboid {
+        half_extents: [1.0, 0.0, 1.0],
+    };
+    assert!(catch_unwind(|| degenerate.assert_valid()).is_err());
+    assert!(
+        catch_unwind(|| ConstraintDesc::revolute([0.0; 3], [0.0; 3], [f32::NAN, 0.0, 0.0]))
+            .is_err()
+    );
+    assert!(catch_unwind(|| ConstraintDesc::distance([f32::NAN; 3], [0.0; 3], 1.0)).is_err());
+    let mut soft = SoftBodyDesc::new(vec![[0.0; 3]], Vec::new());
+    soft.assert_valid();
+    soft.inverse_masses = vec![f32::NAN];
+    assert!(catch_unwind(|| soft.assert_valid()).is_err());
+    soft.inverse_masses = Vec::new();
+    assert!(catch_unwind(|| soft.assert_valid()).is_err());
+    soft.inverse_masses = vec![1.0];
+    soft.velocity = [0.0, f32::INFINITY, 0.0];
+    assert!(catch_unwind(|| soft.assert_valid()).is_err());
+    let mut surface = dynamis_model::SurfaceDesc::new();
+    surface.assert_valid();
+    surface.friction = f32::NAN;
+    assert!(catch_unwind(|| surface.assert_valid()).is_err());
+}
+
+#[test]
 fn shape_constructors_reject_degenerate_geometry() {
     assert!(catch_unwind(|| Shape::sphere(0.0)).is_err());
     assert!(catch_unwind(|| Shape::sphere(-1.0)).is_err());

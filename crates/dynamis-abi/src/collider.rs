@@ -45,6 +45,7 @@ impl ColliderRecord {
     }
 
     pub fn build(collider: &ColliderDesc, source: u32, slot: u32) -> Self {
+        collider.assert_valid();
         let role = ShapeRole::of_shape(&collider.shape);
         let factor = role.scale.dimension_factor(collider.scale);
         let mut flags = if collider.sensor { COLLIDER_SENSOR } else { 0 };

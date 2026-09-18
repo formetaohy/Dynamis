@@ -7,6 +7,7 @@ use crate::constant::{
     SHAPE_HULL, SHAPE_SPHERE,
 };
 use bytemuck::Zeroable;
+use dynamis_model::domain;
 use dynamis_model::{QueryFilter, QueryTargets, Shape};
 
 pub fn inert_sweep() -> QueryRecord {
@@ -65,6 +66,7 @@ fn query_record(kind: u32, filter: &QueryFilter) -> QueryRecord {
 }
 
 fn shape_fields(record: &mut QueryRecord, shape: &Shape) {
+    shape.assert_valid();
     let (shape_kind, source) = match shape {
         Shape::Sphere { .. } => (SHAPE_SPHERE, 0),
         Shape::Cuboid { .. } => (SHAPE_CUBOID, 0),
@@ -99,6 +101,10 @@ impl QueryRecord {
         self.max_hits.min(crate::QUERY_CANDIDATES)
     }
     pub fn ray(origin: [f32; 3], direction: [f32; 3], max_t: f32, filter: &QueryFilter) -> Self {
+        domain::finite_vector(origin, "a query origin");
+        domain::finite_vector(direction, "a query direction");
+        assert!(direction != [0.0; 3], "a query direction must be non-zero");
+        domain::positive(max_t, "a query distance");
         let mut record = query_record(QUERY_RAY, filter);
         record.origin = origin;
         record.direction = direction;
@@ -107,6 +113,8 @@ impl QueryRecord {
     }
 
     pub fn sphere(center: [f32; 3], radius: f32, filter: &QueryFilter) -> Self {
+        domain::finite_vector(center, "a query center");
+        domain::positive(radius, "a query radius");
         let mut record = query_record(QUERY_SPHERE, filter);
         record.shape_kind = SHAPE_SPHERE;
         record.origin = center;
@@ -116,6 +124,7 @@ impl QueryRecord {
     }
 
     pub fn point(origin: [f32; 3], filter: &QueryFilter) -> Self {
+        domain::finite_vector(origin, "a query point");
         let mut record = query_record(QUERY_POINT, filter);
         record.shape_kind = SHAPE_SPHERE;
         record.origin = origin;
@@ -123,6 +132,10 @@ impl QueryRecord {
     }
 
     pub fn cuboid(center: [f32; 3], half_extents: [f32; 3], filter: &QueryFilter) -> Self {
+        domain::finite_vector(center, "a query center");
+        for extent in half_extents {
+            domain::positive(extent, "a query half extent");
+        }
         let mut record = query_record(QUERY_CUBOID, filter);
         record.shape_kind = SHAPE_CUBOID;
         record.origin = center;
@@ -136,6 +149,8 @@ impl QueryRecord {
         position: [f32; 3],
         filter: &QueryFilter,
     ) -> Self {
+        domain::finite_vector(position, "a query position");
+        domain::unit_quaternion(orientation, "a query orientation");
         let mut record = query_record(QUERY_CONVEX, filter);
         record.origin = position;
         record.orientation = orientation;
@@ -151,6 +166,11 @@ impl QueryRecord {
         length: f32,
         filter: &QueryFilter,
     ) -> Self {
+        domain::finite_vector(start, "a sweep start");
+        domain::finite_vector(direction, "a sweep direction");
+        assert!(direction != [0.0; 3], "a sweep direction must be non-zero");
+        domain::positive(length, "a sweep length");
+        domain::unit_quaternion(orientation, "a sweep orientation");
         let mut record = query_record(QUERY_SWEEP, filter);
         record.origin = start;
         record.direction = direction;

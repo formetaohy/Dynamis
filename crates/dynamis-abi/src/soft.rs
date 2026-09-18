@@ -10,6 +10,7 @@ use crate::{
     SoftAttachmentRecord, SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementRecord,
     SoftParticleRecord,
 };
+use dynamis_model::domain;
 use dynamis_model::{
     CollisionFilter, ContactEventMode, SoftElement, SoftElementKind, SoftElementState,
 };
@@ -31,6 +32,14 @@ pub struct SoftParticleInit {
 
 impl SoftParticleRecord {
     pub fn build(init: SoftParticleInit) -> Self {
+        domain::finite_vector(init.position, "a soft particle position");
+        domain::finite_vector(init.prev_position, "a soft particle position");
+        domain::finite_vector(init.velocity, "a soft particle velocity");
+        domain::non_negative(init.radius, "a soft particle radius");
+        domain::non_negative(init.inverse_mass, "a soft particle inverse mass");
+        domain::non_negative(init.friction, "soft particle friction");
+        domain::non_negative(init.support, "a fluid support radius");
+        domain::non_negative(init.rest_spacing, "a fluid rest spacing");
         Self {
             position: [
                 init.position[0],
@@ -234,6 +243,7 @@ pub struct SoftAttachmentInit {
 
 impl SoftAttachmentRecord {
     pub fn build(init: SoftAttachmentInit) -> Self {
+        domain::finite_vector(init.local, "a soft attachment anchor");
         Self {
             local: init.local,
             particle: init.particle,
@@ -266,6 +276,20 @@ pub struct SoftElementInit {
 
 impl SoftElementRecord {
     pub fn build(init: SoftElementInit) -> Self {
+        domain::non_negative(init.rest, "a soft element rest measure");
+        domain::non_negative(init.compliance, "a soft element compliance");
+        assert!(
+            init.yield_strain >= 0.0,
+            "a soft yield strain must be non-negative"
+        );
+        assert!(
+            init.break_strain >= 0.0,
+            "a soft break strain must be non-negative"
+        );
+        assert!(
+            (0.0..=1.0).contains(&init.plastic_flow),
+            "a soft plastic flow must be within [0, 1]"
+        );
         Self {
             particles: init.particles,
             rest: init.rest,

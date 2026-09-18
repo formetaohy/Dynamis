@@ -9,6 +9,7 @@ use dynamis_abi::{
     SoftBodyEditRecord, SoftBodyRecord, SoftEditRecord, SoftElementInit, SoftElementRecord,
     SoftParticleInit, SoftParticleRecord,
 };
+use dynamis_model::domain;
 use dynamis_model::math::{add, mul, quat_rotate};
 use dynamis_model::{
     BodyHandle, ContactEventMode, SoftBodyDesc, SoftBodyHandle, SoftElement, SoftElementState,
@@ -625,7 +626,7 @@ impl World {
     }
 
     pub fn add_soft_body(&mut self, desc: SoftBodyDesc) -> SoftBodyHandle {
-        desc.assert_attachments();
+        desc.assert_valid();
         for attachment in &desc.attachments {
             self.validate(attachment.body());
         }
@@ -638,10 +639,7 @@ impl World {
     }
 
     pub fn apply_soft_force(&mut self, handle: SoftBodyHandle, force: [f32; 3]) {
-        assert!(
-            force.iter().all(|value| value.is_finite()),
-            "a soft body force must be finite"
-        );
+        domain::finite_vector(force, "a soft body force");
         let mass = self.soft.mass_of(handle);
         assert!(
             mass > 0.0,
@@ -660,10 +658,7 @@ impl World {
         particle: u32,
         inverse_mass: f32,
     ) {
-        assert!(
-            inverse_mass >= 0.0,
-            "a soft particle inverse mass must be non-negative"
-        );
+        domain::non_negative(inverse_mass, "a soft particle inverse mass");
         let substep_dt = self.soft_substep_dt();
         self.soft.edit(
             handle,
@@ -674,7 +669,7 @@ impl World {
     }
 
     pub fn set_soft_particle_radius(&mut self, handle: SoftBodyHandle, particle: u32, radius: f32) {
-        assert!(radius >= 0.0, "a soft particle radius must be non-negative");
+        domain::non_negative(radius, "a soft particle radius");
         let substep_dt = self.soft_substep_dt();
         self.soft
             .edit(handle, particle, SoftCommand::Radius(radius), substep_dt);
@@ -686,10 +681,7 @@ impl World {
         particle: u32,
         friction: f32,
     ) {
-        assert!(
-            friction >= 0.0,
-            "a soft particle friction must be non-negative"
-        );
+        domain::non_negative(friction, "a soft particle friction");
         let substep_dt = self.soft_substep_dt();
         self.soft.edit(
             handle,
@@ -705,10 +697,7 @@ impl World {
         particle: u32,
         position: [f32; 3],
     ) {
-        assert!(
-            position.iter().all(|value| value.is_finite()),
-            "a soft particle position must be finite"
-        );
+        domain::finite_vector(position, "a soft particle position");
         let substep_dt = self.soft_substep_dt();
         self.soft.edit(
             handle,
@@ -724,10 +713,7 @@ impl World {
         particle: u32,
         velocity: [f32; 3],
     ) {
-        assert!(
-            velocity.iter().all(|value| value.is_finite()),
-            "a soft particle velocity must be finite"
-        );
+        domain::finite_vector(velocity, "a soft particle velocity");
         let substep_dt = self.soft_substep_dt();
         self.soft.edit(
             handle,
@@ -744,6 +730,7 @@ impl World {
         body: BodyHandle,
         local: [f32; 3],
     ) {
+        domain::finite_vector(local, "a soft attachment anchor");
         self.validate(body);
         self.soft.attach(handle, particle, body, local);
     }

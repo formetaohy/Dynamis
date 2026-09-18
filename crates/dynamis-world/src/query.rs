@@ -54,8 +54,6 @@ impl World {
         max_t: f32,
         filter: &QueryFilter,
     ) -> QueryHandle {
-        assert!(max_t > 0.0, "raycast distance must be positive");
-        assert!(direction != [0.0; 3], "raycast direction must be non-zero");
         self.submit_query(QueryRecord::ray(origin, direction, max_t, filter))
     }
 
@@ -65,7 +63,6 @@ impl World {
         radius: f32,
         filter: &QueryFilter,
     ) -> QueryHandle {
-        assert!(radius > 0.0, "sphere query radius must be positive");
         self.submit_query(QueryRecord::sphere(center, radius, filter))
     }
 
@@ -75,10 +72,6 @@ impl World {
         half_extents: [f32; 3],
         filter: &QueryFilter,
     ) -> QueryHandle {
-        assert!(
-            half_extents.iter().all(|extent| *extent > 0.0),
-            "cuboid query half extents must be strictly positive"
-        );
         self.submit_query(QueryRecord::cuboid(center, half_extents, filter))
     }
 
@@ -93,7 +86,6 @@ impl World {
         position: [f32; 3],
         filter: &QueryFilter,
     ) -> QueryHandle {
-        self.assert_unit(orientation);
         assert!(
             ShapeRole::of_shape(shape).convex(),
             "overlap queries require a convex shape"
@@ -110,9 +102,6 @@ impl World {
         length: f32,
         filter: &QueryFilter,
     ) -> QueryHandle {
-        assert!(length > 0.0, "sweep length must be positive");
-        assert!(direction != [0.0; 3], "sweep direction must be non-zero");
-        self.assert_unit(orientation);
         assert!(
             ShapeRole::of_shape(shape).convex(),
             "sweep queries require a convex shape"

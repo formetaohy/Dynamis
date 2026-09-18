@@ -1,6 +1,7 @@
 use super::World;
 use super::pool::Pool;
 use dynamis_abi::{CHARACTER_SWEEPS, CharacterInputRecord, CharacterRecord, CharacterStateRecord};
+use dynamis_model::domain;
 use dynamis_model::{
     BodyDesc, BodyHandle, CharacterDesc, CharacterHandle, CharacterInput, ColliderDesc, Shape,
 };
@@ -182,10 +183,7 @@ fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
 impl World {
     pub fn add_character(&mut self, position: [f32; 3], desc: CharacterDesc) -> CharacterHandle {
         desc.assert_valid();
-        assert!(
-            position.iter().all(|value| value.is_finite()),
-            "a character position must be finite"
-        );
+        domain::finite_vector(position, "a character position");
         let body = self.spawn(
             BodyDesc::new(ColliderDesc::new(Shape::capsule(
                 desc.radius,
@@ -207,10 +205,7 @@ impl World {
 
     pub fn set_character_input(&mut self, handle: CharacterHandle, input: CharacterInput) {
         self.characters.validate(handle);
-        assert!(
-            input.direction.iter().all(|value| value.is_finite()),
-            "a character direction must be finite"
-        );
+        domain::finite_vector(input.direction, "a character direction");
         self.characters.set_input(handle, input);
     }
 

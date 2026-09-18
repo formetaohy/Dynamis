@@ -37,6 +37,7 @@ use collider::ColliderStore;
 use constraint::ConstraintStore;
 use derivation::SceneFacts;
 use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
+use dynamis_model::domain;
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::EventStore;
 use impact::ImpactStore;
@@ -114,6 +115,7 @@ impl World {
     }
 
     pub fn set_gravity(&mut self, gravity: [f32; 3]) {
+        domain::finite_vector(gravity, "gravity");
         self.config.gravity = gravity;
         self.wake_all();
     }

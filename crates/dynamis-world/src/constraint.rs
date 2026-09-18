@@ -99,6 +99,7 @@ impl World {
         second: BodyHandle,
         desc: ConstraintDesc,
     ) -> ConstraintHandle {
+        desc.assert_valid();
         self.validate(first);
         self.validate(second);
         if first == second {
@@ -127,6 +128,7 @@ impl World {
     }
 
     pub fn update_constraint(&mut self, handle: ConstraintHandle, desc: ConstraintDesc) {
+        desc.assert_valid();
         self.validate_constraint(handle);
         self.edit_constraint(handle, |joint| joint.desc = desc);
     }

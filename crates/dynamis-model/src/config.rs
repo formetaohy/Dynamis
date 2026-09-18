@@ -1,3 +1,5 @@
+use crate::domain;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaterialCombine {
     Multiply,
@@ -32,10 +34,9 @@ pub struct PhysicsConfig {
 
 impl PhysicsConfig {
     pub fn assert_valid(&self) {
-        assert!(
-            self.contact_margin >= 0.0,
-            "contact margin must be non-negative"
-        );
+        domain::finite_vector(self.gravity, "gravity");
+        domain::non_negative(self.damping, "linear damping");
+        domain::non_negative(self.angular_damping, "angular damping");
         assert!(
             self.substeps > 0,
             "rigid substeps must be strictly positive"
@@ -49,21 +50,26 @@ impl PhysicsConfig {
             "position iterations must be strictly positive"
         );
         assert!(
-            self.soft_iterations > 0,
-            "soft iterations must be strictly positive"
-        );
-        assert!(
             self.soft_substeps > 0,
             "soft substeps must be strictly positive"
         );
         assert!(
-            self.settle_velocity >= 0.0,
-            "the soft settle velocity must be non-negative"
+            self.soft_iterations > 0,
+            "soft iterations must be strictly positive"
         );
         assert!(
-            (0.0..=1.0).contains(&self.relaxation),
+            self.relaxation > 0.0 && self.relaxation <= 1.0,
             "position relaxation must be within (0, 1]"
         );
+        domain::non_negative(self.slop, "penetration slop");
+        domain::non_negative(self.contact_margin, "contact margin");
+        domain::non_negative(self.restitution_threshold, "restitution threshold");
+        domain::positive(self.max_velocity, "the linear velocity limit");
+        domain::positive(self.max_angular_velocity, "the angular velocity limit");
+        domain::non_negative(self.sleep_velocity, "the sleep velocity");
+        domain::non_negative(self.sleep_angular_velocity, "the sleep angular velocity");
+        domain::positive(self.sleep_time, "sleep time");
+        domain::non_negative(self.settle_velocity, "the soft settle velocity");
     }
 }
 

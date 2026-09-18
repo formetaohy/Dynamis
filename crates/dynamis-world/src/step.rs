@@ -1,17 +1,18 @@
 use super::World;
 use crate::command::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
 use dynamis_abi::{BodyEditRecord, StepParamsRecord};
+use dynamis_model::domain;
 use dynamis_rigid::RigidShape;
 
 impl World {
     pub fn set_time_scale(&mut self, time_scale: f32) {
-        assert!(time_scale > 0.0, "time scale must be strictly positive");
+        domain::positive(time_scale, "a time scale");
         self.clock.time_scale = time_scale;
     }
 
     pub fn update(&mut self, real_dt: f32, sub_dt: f32, max_substeps: u32) {
-        assert!(real_dt >= 0.0, "real dt must be non-negative");
-        assert!(sub_dt > 0.0, "sub dt must be strictly positive");
+        domain::non_negative(real_dt, "a frame duration");
+        domain::positive(sub_dt, "a substep duration");
         assert!(max_substeps > 0, "max substeps must be positive");
         self.clock.sub_dt = sub_dt;
         self.clock.accumulator += real_dt * self.clock.time_scale;
@@ -31,7 +32,7 @@ impl World {
     }
 
     pub fn step(&mut self, dt: f32) {
-        assert!(dt > 0.0, "timestep must be strictly positive");
+        domain::positive(dt, "a timestep");
         self.clock.sub_dt = dt;
         self.execute(dynamis_pass::Run::Step);
         self.clock.step += 1;

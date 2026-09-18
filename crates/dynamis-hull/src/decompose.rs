@@ -1,4 +1,4 @@
-use crate::hull::hull;
+use crate::hull::{hull, validate};
 use dynamis_model::math::{add, cross, dot, length, mul, normalize, sub};
 
 pub struct DecomposeSettings {
@@ -27,7 +27,7 @@ pub fn decompose(
     triangles: &[[u32; 3]],
     settings: &DecomposeSettings,
 ) -> Vec<Part> {
-    validate_mesh(vertices, triangles);
+    validate(vertices, triangles);
     assert!(
         !planar(triangles, vertices, 0..triangles.len()),
         "decomposition requires a volumetric mesh"
@@ -60,18 +60,6 @@ pub fn decompose(
         "decomposition exceeds the {} part limit; raise the concavity threshold",
         settings.max_parts
     );
-}
-
-fn validate_mesh(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) {
-    assert!(!triangles.is_empty(), "decomposition requires triangles");
-    for (index, triangle) in triangles.iter().enumerate() {
-        assert!(
-            triangle
-                .iter()
-                .all(|&vertex| (vertex as usize) < vertices.len()),
-            "decomposition triangle {index} references an out-of-range vertex"
-        );
-    }
 }
 
 fn split(

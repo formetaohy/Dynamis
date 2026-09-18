@@ -4,6 +4,7 @@ mod collider;
 mod collision;
 mod config;
 mod constraint;
+pub mod domain;
 mod event;
 mod impact;
 mod mass;

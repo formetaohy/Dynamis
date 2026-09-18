@@ -1,4 +1,5 @@
 use crate::body::BodyDesc;
+use crate::domain;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VehicleHandle {
@@ -19,13 +20,17 @@ pub struct WheelDesc {
 }
 
 impl WheelDesc {
+    pub fn assert_valid(&self) {
+        domain::positive(self.radius, "a wheel radius");
+        domain::positive(self.travel, "a suspension travel");
+        domain::positive(self.frequency, "a suspension frequency");
+        domain::non_negative(self.damping_ratio, "a suspension damping ratio");
+        domain::non_negative(self.friction, "a wheel friction");
+        domain::finite_vector(self.anchor, "a wheel anchor");
+    }
+
     pub fn new(anchor: [f32; 3], radius: f32) -> Self {
-        assert!(radius > 0.0, "a wheel radius must be strictly positive");
-        assert!(
-            anchor.iter().all(|value| value.is_finite()),
-            "a wheel anchor must be finite"
-        );
-        Self {
+        let wheel = Self {
             anchor,
             radius,
             travel: radius,
@@ -34,19 +39,15 @@ impl WheelDesc {
             friction: 1.0,
             steering: false,
             driving: false,
-        }
+        };
+        wheel.assert_valid();
+        wheel
     }
 
     pub fn suspension(mut self, travel: f32, frequency: f32, damping_ratio: f32) -> Self {
-        assert!(travel > 0.0, "a suspension travel must be positive");
-        assert!(
-            frequency > 0.0,
-            "a suspension frequency must be strictly positive"
-        );
-        assert!(
-            damping_ratio >= 0.0,
-            "a suspension damping ratio must be non-negative"
-        );
+        domain::positive(travel, "a suspension travel");
+        domain::positive(frequency, "a suspension frequency");
+        domain::non_negative(damping_ratio, "a suspension damping ratio");
         self.travel = travel;
         self.frequency = frequency;
         self.damping_ratio = damping_ratio;
@@ -54,7 +55,7 @@ impl WheelDesc {
     }
 
     pub fn friction(mut self, friction: f32) -> Self {
-        assert!(friction >= 0.0, "a wheel friction must be non-negative");
+        domain::non_negative(friction, "a wheel friction");
         self.friction = friction;
         self
     }
@@ -123,41 +124,24 @@ impl VehicleDesc {
     }
 
     pub fn assert_valid(&self) {
+        self.chassis.assert_valid();
+        assert!(
+            !self.chassis.kinematic && self.chassis.mass > 0.0,
+            "a vehicle chassis must be a dynamic body"
+        );
         assert!(
             !self.wheels.is_empty(),
             "a vehicle carries at least one wheel"
         );
         for wheel in &self.wheels {
-            assert!(
-                wheel.radius > 0.0,
-                "a wheel radius must be strictly positive"
-            );
-            assert!(wheel.travel > 0.0, "a suspension travel must be positive");
-            assert!(
-                wheel.frequency > 0.0,
-                "a suspension frequency must be strictly positive"
-            );
-            assert!(
-                wheel.damping_ratio >= 0.0,
-                "a suspension damping ratio must be non-negative"
-            );
-            assert!(
-                wheel.friction >= 0.0,
-                "a wheel friction must be non-negative"
-            );
-            assert!(
-                wheel.anchor.iter().all(|value| value.is_finite()),
-                "a wheel anchor must be finite"
-            );
+            wheel.assert_valid();
         }
         assert!(
             (0.0..std::f32::consts::FRAC_PI_2).contains(&self.max_steer),
             "a vehicle steering limit must be within [0, pi/2)"
         );
-        assert!(
-            self.drive_force >= 0.0 && self.brake_force >= 0.0,
-            "a vehicle drive and brake force must be non-negative"
-        );
+        domain::non_negative(self.drive_force, "a vehicle drive force");
+        domain::non_negative(self.brake_force, "a vehicle brake force");
         assert!(
             self.wheels.iter().any(|wheel| wheel.driving) || self.drive_force == 0.0,
             "a vehicle that drives wheels needs at least one driving wheel"

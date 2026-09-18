@@ -1,14 +1,17 @@
 use crate::constant::{
     BODY_CCD, BODY_KINEMATIC, EDIT_ANGULAR_IMPULSE, EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE,
     EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE, EDIT_WAKE, OVERRIDE_SLEEP_ANGULAR,
-    OVERRIDE_SLEEP_LINEAR, PATCH_ORIENTATION, PATCH_POSITION,
+    OVERRIDE_SLEEP_LINEAR, PATCH_ANGULAR_VELOCITY, PATCH_ORIENTATION, PATCH_POSITION,
+    PATCH_VELOCITY,
 };
 use crate::{BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord};
 use bytemuck::Zeroable;
+use dynamis_model::domain;
 use dynamis_model::{BodyDesc, BodyState, PhysicsConfig, Shape, SolidGeometry};
 
 impl BodyStateRecord {
     pub fn initial(desc: &BodyDesc, body_id: u32, generation: u32) -> Self {
+        desc.assert_valid();
         Self {
             position: desc.position,
             _pad0: 0.0,
@@ -53,6 +56,8 @@ impl BodyDescriptorRecord {
         config: &PhysicsConfig,
         geometry: impl Fn(&Shape) -> Option<SolidGeometry>,
     ) -> Self {
+        desc.assert_valid();
+        config.assert_valid();
         let mass = desc.effective_mass(&geometry);
         let properties = desc.mass_properties(&geometry);
         let mut flags = 0;
@@ -122,16 +127,31 @@ impl BodyEditRecord {
     }
 
     pub fn patch(mask: u32, state: BodyStateRecord) -> Self {
+        if mask & PATCH_POSITION != 0 {
+            domain::finite_vector(state.position, "a body position");
+        }
+        if mask & PATCH_VELOCITY != 0 {
+            domain::finite_vector(state.velocity, "a body velocity");
+        }
+        if mask & PATCH_ORIENTATION != 0 {
+            domain::unit_quaternion(state.orientation, "a body orientation");
+        }
+        if mask & PATCH_ANGULAR_VELOCITY != 0 {
+            domain::finite_vector(state.angular_velocity, "a body angular velocity");
+        }
         Self::edit(EDIT_PATCH, mask, state)
     }
 
     pub fn force(force: [f32; 3]) -> Self {
+        domain::finite_vector(force, "a body force");
         let mut state = BodyStateRecord::zeroed();
         state.force = force;
         Self::edit(EDIT_FORCE, 0, state)
     }
 
     pub fn force_at_point(force: [f32; 3], point: [f32; 3]) -> Self {
+        domain::finite_vector(force, "a body force");
+        domain::finite_vector(point, "a force application point");
         let mut state = BodyStateRecord::zeroed();
         state.force = force;
         state.position = point;
@@ -139,18 +159,22 @@ impl BodyEditRecord {
     }
 
     pub fn torque(torque: [f32; 3]) -> Self {
+        domain::finite_vector(torque, "a body torque");
         let mut state = BodyStateRecord::zeroed();
         state.torque = torque;
         Self::edit(EDIT_TORQUE, 0, state)
     }
 
     pub fn impulse(impulse: [f32; 3]) -> Self {
+        domain::finite_vector(impulse, "a body impulse");
         let mut state = BodyStateRecord::zeroed();
         state.velocity = impulse;
         Self::edit(EDIT_IMPULSE, 0, state)
     }
 
     pub fn impulse_at_point(impulse: [f32; 3], point: [f32; 3]) -> Self {
+        domain::finite_vector(impulse, "a body impulse");
+        domain::finite_vector(point, "an impulse application point");
         let mut state = BodyStateRecord::zeroed();
         state.velocity = impulse;
         state.position = point;
@@ -158,6 +182,7 @@ impl BodyEditRecord {
     }
 
     pub fn angular_impulse(impulse: [f32; 3]) -> Self {
+        domain::finite_vector(impulse, "a body angular impulse");
         let mut state = BodyStateRecord::zeroed();
         state.angular_velocity = impulse;
         Self::edit(EDIT_ANGULAR_IMPULSE, 0, state)

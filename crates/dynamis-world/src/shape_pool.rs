@@ -2,6 +2,7 @@ use super::arena::{Arena, Run, merged};
 use super::pool::Pool;
 use bytemuck::Zeroable;
 use dynamis_abi::{BvhNodeRecord, CellRecord, SurfaceRecord, TriangleRecord};
+use dynamis_model::domain;
 use dynamis_model::{ShapeSourceHandle, SolidGeometry, SurfaceDesc, SurfaceTable};
 use dynamis_state::ShapeCapacity;
 use dynamis_state::{CELL_BYTES, TRIANGLE_BYTES, VERTEX_BYTES};
@@ -465,12 +466,39 @@ impl ShapePool {
     }
 }
 
+fn validate_vertices(vertices: &[[f32; 3]]) {
+    assert!(
+        !vertices.is_empty(),
+        "a shape source requires at least one vertex"
+    );
+    for vertex in vertices {
+        domain::finite_vector(*vertex, "a shape vertex");
+    }
+}
+
+fn validate_triangles(vertices: usize, triangles: &[[u32; 3]]) {
+    assert!(
+        !triangles.is_empty(),
+        "a shape source requires at least one triangle"
+    );
+    for triangle in triangles {
+        for corner in triangle {
+            assert!(
+                (*corner as usize) < vertices,
+                "a shape triangle must reference the vertices of its own source"
+            );
+        }
+    }
+}
+
 fn validate_geometry(
     kind: u32,
     vertices: &[[f32; 3]],
     triangles: &[[u32; 3]],
     surfaces: Option<SurfaceTable<'_>>,
 ) {
+    validate_vertices(vertices);
+    validate_triangles(vertices.len(), triangles);
     assert!(
         kind != dynamis_abi::SHAPE_HULL || surfaces.is_none(),
         "a hull carries no addressable faces for surfaces"
@@ -500,6 +528,7 @@ fn validate_grid(rows: u32, cols: u32, vertices: &[[f32; 3]], surfaces: Option<S
         rows >= 2 && cols >= 2,
         "a height field requires at least two rows and two columns"
     );
+    validate_vertices(vertices);
     assert_eq!(
         vertices.len() as u32,
         rows * cols,
@@ -681,10 +710,16 @@ pub fn height_field_vertices(
         heights.len() as u32 == rows * cols,
         "height field sample count must match rows * cols"
     );
+    for height in heights {
+        domain::finite(*height, "a height field sample");
+    }
     assert!(
         cell_size.iter().all(|size| *size > 0.0),
         "height field cell size must be strictly positive"
     );
+    for size in cell_size {
+        domain::finite(size, "a height field cell size");
+    }
     let mut vertices = Vec::with_capacity((rows * cols) as usize);
     for row in 0..rows {
         for col in 0..cols {
