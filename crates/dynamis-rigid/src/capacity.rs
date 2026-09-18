@@ -32,7 +32,7 @@ pub struct RigidInputs {
     pub characters: u32,
     pub vehicles: u32,
     pub vehicle_wheels: u32,
-    pub joint_islands: u32,
+    pub joint_groups: u32,
     pub immovable_rebuild: bool,
 }
 

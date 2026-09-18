@@ -42,7 +42,7 @@ streams! {
         constraint_scratch, ConstraintScratch: "constraint state scratch", ConstraintRuntimeRecord, 1, Retention::Scratch, demand.constraints;
         joint_rows, JointRows: "joint solve rows", u32, 1, Retention::Scratch, demand.constraints;
         joint_layers, JointLayers: "joint solve layers", u32, 2, Retention::Scratch, demand.constraints;
-        joint_islands, JointIslands: "joint solve islands", u32, 2, Retention::Scratch, demand.constraints;
+        joint_groups, JointGroups: "joint solve groups", u32, 2, Retention::Scratch, demand.constraints;
         joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Retention::Scratch, demand.constraints;
         joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Retention::Scratch, demand.constraints;
         ccd_factor, CcdFactor: "ccd retreat factors", u32, 1, Retention::Scratch, demand.bodies;

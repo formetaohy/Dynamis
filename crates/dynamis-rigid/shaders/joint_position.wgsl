@@ -6,7 +6,7 @@
 @group(0) @binding(5) var<storage, read> constraint_rows: array<ConstraintRows>;
 @group(0) @binding(6) var<storage, read> joint_rows: array<u32>;
 @group(0) @binding(7) var<storage, read> joint_layers: array<u32>;
-@group(0) @binding(8) var<storage, read> joint_islands: array<u32>;
+@group(0) @binding(8) var<storage, read> joint_groups: array<u32>;
 @group(0) @binding(9) var<storage, read_write> resolution: array<vec4f>;
 
 fn project(index: u32) {
@@ -29,12 +29,12 @@ fn project(index: u32) {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(workgroup_id) wgid: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-    let island = wgid.x;
-    if (island >= arrayLength(&joint_islands) / 2u) {
+    let group = wgid.x;
+    if (group >= arrayLength(&joint_groups) / 2u) {
         return;
     }
-    let layer_offset = joint_islands[island * 2u];
-    let layer_count = joint_islands[island * 2u + 1u];
+    let layer_offset = joint_groups[group * 2u];
+    let layer_count = joint_groups[group * 2u + 1u];
     if (layer_count == 0u) {
         return;
     }

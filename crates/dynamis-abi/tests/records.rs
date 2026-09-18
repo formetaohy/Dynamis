@@ -294,7 +294,11 @@ fn a_shortfall_declares_who_bears_it() {
         .collect::<Vec<_>>();
     assert_eq!(
         fatal,
-        ["COUNTER_ENTRY_FAULTS", "COUNTER_LIVE_FAULTS"],
+        [
+            "COUNTER_ENTRY_FAULTS",
+            "COUNTER_ISLAND_FAULTS",
+            "COUNTER_LIVE_FAULTS",
+        ],
         "only a bound a step cannot lose may abort"
     );
     let physics = dynamis_abi::COUNTERS

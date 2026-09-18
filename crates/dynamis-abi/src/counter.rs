@@ -97,6 +97,8 @@ declare_counters! {
     COUNTER_RESTING_GATHER => "resting manifolds gathered", PerStep, None;
     COUNTER_RESTING_INDEX => "resting archive index slots", Maintained, None;
     COUNTER_RESTING_PENDING => "resting manifolds pending reindex", Maintained, None;
+    COUNTER_ISLANDS => "coupled body islands", PerStep, None;
+    COUNTER_ISLAND_FAULTS => "island unions beyond their hook budget", PerStep, Fatal;
     COUNTER_BLOCKS => "solver blocks", Maintained, None;
     COUNTER_SOLVER_ROWS => "solver rows", Maintained, None;
     COUNTER_SOLVE_LINEAR_RESIDUAL => "velocity the solve applied in its last recorded iteration", PerStep, None;

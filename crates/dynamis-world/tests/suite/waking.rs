@@ -1,7 +1,7 @@
 use super::common::{
     DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
 };
-use dynamis_abi::COUNTER_WOKE;
+use dynamis_abi::{COUNTER_ISLANDS, COUNTER_WOKE};
 use dynamis_model::{BodyDesc, BodyHandle, SoftBodyDesc, SoftMaterial};
 use dynamis_world::World;
 
@@ -303,5 +303,55 @@ fn a_spawned_static_body_wakes_the_sleeping_body_it_overlaps() {
         world.read_state(ball).position[0] < -0.3,
         "the awakened ball must leave the spawned static body, got {:?}",
         world.read_state(ball).position
+    );
+}
+
+#[test]
+fn a_shared_support_holds_every_body_it_reaches_in_one_island() {
+    let mut world = observed_world(static_config());
+    world.spawn(BodyDesc::sphere(0.3).position([-0.5, 0.25, 0.0]));
+    world.spawn(BodyDesc::sphere(0.3).position([0.5, 0.25, 0.0]));
+    world.spawn(
+        BodyDesc::cuboid([1.2, 0.25, 1.0])
+            .position([0.0, -0.25, 0.0])
+            .mass(4.0),
+    );
+    settle(&mut world, 4);
+    assert_eq!(
+        world.measured()[COUNTER_ISLANDS],
+        1,
+        "both spheres and the support they rest on must form one island",
+    );
+}
+
+#[test]
+fn a_coupled_body_wakes_when_its_support_leaves() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world);
+    let left = world.spawn(BodyDesc::sphere(0.3).position([-0.5, 1.0, 0.0]));
+    let right = world.spawn(BodyDesc::sphere(0.3).position([0.5, 1.0, 0.0]));
+    let plank = world.spawn(
+        BodyDesc::cuboid([1.2, 0.25, 1.0])
+            .position([0.0, 0.25, 0.0])
+            .mass(4.0)
+            .friction(0.9),
+    );
+    sleep_until_quiet(&mut world);
+    assert!(
+        world.read_state(left).sleeping && world.read_state(right).sleeping,
+        "both resting bodies must sleep before the support leaves"
+    );
+
+    world.set_position(plank, [50.0, 0.25, 0.0]);
+    settle(&mut world, 120);
+    assert!(
+        world.read_state(left).position[1] < 0.5,
+        "the body the support was taken from must fall, got {:?}",
+        world.read_state(left).position
+    );
+    assert!(
+        world.read_state(right).position[1] < 0.5,
+        "every body coupled to the leaving support must fall, got {:?}",
+        world.read_state(right).position
     );
 }

@@ -42,9 +42,14 @@ const CONTACT_ROW: &[&str] = &[
     EVENTS_FRAGMENT,
     BODY_ROW_FRAGMENT,
 ];
-const IDENTITY_LINK: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
-const IDENTITY_LINK_ROW: &[&str] = &[IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT, BODY_ROW_FRAGMENT];
-const CONSTRAINT_LINK: &[&str] = &[ISLAND_LINK_FRAGMENT];
+const IDENTITY_LINK: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
+const IDENTITY_LINK_ROW: &[&str] = &[
+    COUNTERS_FRAGMENT,
+    IDENTITY_FRAGMENT,
+    ISLAND_LINK_FRAGMENT,
+    BODY_ROW_FRAGMENT,
+];
+const CONSTRAINT_LINK: &[&str] = &[COUNTERS_FRAGMENT, ISLAND_LINK_FRAGMENT];
 
 pub(crate) fn geometry_fragments() -> Vec<&'static str> {
     let mut fragments = dynamis_shader::GEOMETRY.to_vec();
@@ -82,7 +87,7 @@ pub struct RigidFrame {
     pub shape: RigidShape,
     pub observed_count: u32,
     pub observed_joints: u32,
-    pub joint_islands: u32,
+    pub joint_groups: u32,
     pub ccd: bool,
     pub impacts: bool,
     pub immovable_rebuild: bool,

@@ -19,8 +19,9 @@ pub struct BuildIslands {
     island_link_contacts: Stage,
     island_link_constraints: Stage,
     island_link_resting: Stage,
-    island_jump: Stage,
+    island_flatten: Stage,
     island_aggregate: Stage,
+    island_count: Stage,
 }
 
 pub struct Wake {
@@ -129,6 +130,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     ("wake_flags", StateStream::WakeFlags.whole()),
                     ("params", StateStream::Params.whole()),
                     ("collider_owners", StateStream::ColliderOwners.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -148,6 +150,7 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -171,15 +174,16 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                     ("body_states", StateStream::BodyStates.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
-            island_jump: Stage::build(
+            island_flatten: Stage::build(
                 context,
-                "island_jump",
+                "island_flatten",
                 rows(
                     context,
-                    include_str!("../shaders/island_jump.wgsl"),
+                    include_str!("../shaders/island_flatten.wgsl"),
                     CORE,
                     Count::Dynamic.bound(),
                 ),
@@ -187,6 +191,23 @@ impl PassRuntime<RigidFrame> for BuildIslands {
                 &[
                     ("params", StateStream::Params.whole()),
                     ("island_parents", RigidStream::IslandParents.whole()),
+                ],
+                &[],
+            ),
+            island_count: Stage::build(
+                context,
+                "island_count",
+                rows(
+                    context,
+                    include_str!("../shaders/island_count.wgsl"),
+                    dynamis_shader::COUNTERS,
+                    Count::Dynamic.bound(),
+                ),
+                streams,
+                &[
+                    ("params", StateStream::Params.whole()),
+                    ("island_parents", RigidStream::IslandParents.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -228,10 +249,11 @@ impl PassRuntime<RigidFrame> for BuildIslands {
             .record_rows(recorder, streams, constraints);
         self.island_link_resting.record_stream(recorder, streams);
         for _ in 0..frame.shape.island_rounds {
-            self.island_jump.record_rows(recorder, streams, dynamic);
+            self.island_flatten.record_rows(recorder, streams, dynamic);
         }
         self.island_aggregate
             .record_rows(recorder, streams, dynamic);
+        self.island_count.record_rows(recorder, streams, dynamic);
     }
 }
 

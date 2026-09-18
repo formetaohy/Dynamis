@@ -26,8 +26,8 @@ impl World {
                 .joint_layers
                 .write(queue, bytemuck::cast_slice(schedule.layers()));
             streams
-                .joint_islands
-                .write(queue, bytemuck::cast_slice(schedule.island_records()));
+                .joint_groups
+                .write(queue, bytemuck::cast_slice(schedule.group_records()));
             schedule.published();
         }
         self.constraints.schedule = schedule;

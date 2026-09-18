@@ -6,6 +6,7 @@
 @group(0) @binding(5) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(6) var<storage, read_write> island_parents: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn work(index: u32) {
     if (resting_live[index] == 0u) {
@@ -17,7 +18,5 @@ fn work(index: u32) {
     if (first_row == NO_BODY || second_row == NO_BODY) {
         return;
     }
-    carry_static_wake(first_row, second_row);
-    carry_static_wake(second_row, first_row);
-    island_link(first_row, second_row);
+    island_couple(first_row, second_row);
 }

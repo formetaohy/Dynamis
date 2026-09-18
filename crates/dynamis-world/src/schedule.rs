@@ -8,10 +8,10 @@ const NO_DEPTH: u32 = u32::MAX;
 pub(crate) struct JointSchedule {
     pub(crate) pending: bool,
     pub(crate) dirty: bool,
-    pub(crate) islands: u32,
+    pub(crate) groups: u32,
     rows: Vec<u32>,
     layers: Vec<u32>,
-    island_records: Vec<u32>,
+    group_records: Vec<u32>,
 }
 
 impl JointSchedule {
@@ -19,10 +19,10 @@ impl JointSchedule {
         Self {
             pending: true,
             dirty: true,
-            islands: 0,
+            groups: 0,
             rows: Vec::new(),
             layers: Vec::new(),
-            island_records: Vec::new(),
+            group_records: Vec::new(),
         }
     }
 
@@ -50,24 +50,24 @@ impl JointSchedule {
         &self.layers
     }
 
-    pub(crate) fn island_records(&self) -> &[u32] {
-        &self.island_records
+    pub(crate) fn group_records(&self) -> &[u32] {
+        &self.group_records
     }
 
     pub(crate) fn rebuild(&mut self, constraints: &ConstraintStore, bodies: &BodyStore) {
-        let (islands, rows, layers, island_records) = solve_order(constraints, bodies);
+        let (groups, rows, layers, group_records) = solve_order(constraints, bodies);
         self.pending = false;
         self.dirty = true;
-        self.islands = islands;
+        self.groups = groups;
         self.rows = rows;
         self.layers = layers;
-        self.island_records = island_records;
+        self.group_records = group_records;
     }
 }
 
-/// The order the whole joint graph is solved in. An island is a connected component of the joint
+/// The order the whole joint graph is solved in. A group is a connected component of the joint
 /// graph, and a layer holds joints that touch disjoint bodies and that hang off the layers before
-/// it, so one ordered sweep of an island carries an impulse the whole length of its chains while the
+/// it, so one ordered sweep of a group carries an impulse the whole length of its chains while the
 /// joints of one layer are solved together. The schedule is a pure derivation of the authored
 /// topology: bodies and joints are its only inputs, and it is derived again whenever either moves.
 fn solve_order(
@@ -100,18 +100,18 @@ fn solve_order(
         roots[first_root as usize] = root;
         roots[second_root as usize] = root;
     }
-    let islands: Vec<u32> = ends
+    let groups: Vec<u32> = ends
         .iter()
         .map(|(first, _)| find(&mut roots, *first))
         .collect();
-    let mut island_holds_anchor: Vec<bool> = vec![false; body_rows as usize];
-    let mut island_head: Vec<u32> = vec![NO_ROW; body_rows as usize];
+    let mut group_holds_anchor: Vec<bool> = vec![false; body_rows as usize];
+    let mut group_head: Vec<u32> = vec![NO_ROW; body_rows as usize];
     for (index, (first, second)) in ends.iter().enumerate() {
-        let root = islands[index] as usize;
-        island_holds_anchor[root] |= anchor[*first as usize] || anchor[*second as usize];
-        let held = island_head[root];
+        let root = groups[index] as usize;
+        group_holds_anchor[root] |= anchor[*first as usize] || anchor[*second as usize];
+        let held = group_head[root];
         let lowest = (*first).min(*second).min(held);
-        island_head[root] = lowest;
+        group_head[root] = lowest;
     }
     let mut depth: Vec<u32> = vec![NO_DEPTH; body_rows as usize];
     let mut frontier: Vec<u32> = Vec::new();
@@ -122,9 +122,9 @@ fn solve_order(
         }
     }
     for root in 0..body_rows as usize {
-        if island_head[root] != NO_ROW && !island_holds_anchor[root] {
-            depth[island_head[root] as usize] = 0;
-            frontier.push(island_head[root]);
+        if group_head[root] != NO_ROW && !group_holds_anchor[root] {
+            depth[group_head[root] as usize] = 0;
+            frontier.push(group_head[root]);
         }
     }
     let mut adjacency: Vec<Vec<(u32, u32)>> = vec![Vec::new(); body_rows as usize];
@@ -148,7 +148,7 @@ fn solve_order(
         let (first, second) = ends[*row as usize];
         (
             depth[first as usize].max(depth[second as usize]),
-            islands[*row as usize],
+            groups[*row as usize],
             *row,
         )
     });
@@ -159,34 +159,34 @@ fn solve_order(
         let layer = held_layer[first as usize].max(held_layer[second as usize]) + 1;
         held_layer[first as usize] = layer;
         held_layer[second as usize] = layer;
-        order.push((islands[row as usize], layer, row));
+        order.push((groups[row as usize], layer, row));
     }
     order.sort_unstable();
     let mut rows: Vec<u32> = Vec::with_capacity(joints as usize);
     let mut layer_records: Vec<u32> = Vec::new();
-    let mut island_records: Vec<u32> = Vec::new();
+    let mut group_records: Vec<u32> = Vec::new();
     let mut index = 0usize;
     while index < order.len() {
-        let island = order[index].0;
-        let island_first_layer = layer_records.len() as u32 / 2;
-        while index < order.len() && order[index].0 == island {
+        let group = order[index].0;
+        let group_first_layer = layer_records.len() as u32 / 2;
+        while index < order.len() && order[index].0 == group {
             let layer = order[index].1;
             let first = rows.len() as u32;
-            while index < order.len() && order[index].0 == island && order[index].1 == layer {
+            while index < order.len() && order[index].0 == group && order[index].1 == layer {
                 rows.push(order[index].2);
                 index += 1;
             }
             layer_records.push(first);
             layer_records.push(rows.len() as u32 - first);
         }
-        island_records.push(island_first_layer);
-        island_records.push(layer_records.len() as u32 / 2 - island_first_layer);
+        group_records.push(group_first_layer);
+        group_records.push(layer_records.len() as u32 / 2 - group_first_layer);
     }
     (
-        island_records.len() as u32 / 2,
+        group_records.len() as u32 / 2,
         rows,
         layer_records,
-        island_records,
+        group_records,
     )
 }
 
