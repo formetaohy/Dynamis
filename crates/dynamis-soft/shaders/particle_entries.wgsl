@@ -28,7 +28,7 @@ fn work(index: u32) {
     }
     let box = particle_swept_bounds(particle, params.dt, params.gravity.xyz);
     let base = grid_base_cell();
-    let level = grid_entry_level(box, base, false);
+    let level = grid_entry_level(box, base, ENTRY_REGION_AWAKE);
     if (level > 0u) {
         counter_add(COUNTER_COARSE_ACTIVE, 1u);
     }
@@ -38,10 +38,10 @@ fn work(index: u32) {
     if (count > emitted) {
         counter_add(COUNTER_ENTRY_FAULTS, count - emitted);
     }
-    let entry_base = entry_immovable_base();
+    let awake_base = counter_load(COUNTER_AWAKE_BASE);
     let limit = arrayLength(&entries);
     for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {
-        let slot = entry_base + counter_add(COUNTER_ENTRIES, 1u);
+        let slot = awake_base + counter_add(COUNTER_ENTRIES, 1u);
         emit_entry(
             slot,
             limit,

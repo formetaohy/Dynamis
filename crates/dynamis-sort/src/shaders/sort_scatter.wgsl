@@ -7,6 +7,7 @@
 @group(0) @binding(6) var<storage, read_write> keys_hi_out: array<u32>;
 @group(0) @binding(7) var<storage, read_write> payload_out: array<u32>;
 @group(0) @binding(8) var<storage, read> length_holder: array<u32>;
+@group(0) @binding(9) var<storage, read> base_holder: array<u32>;
 
 __PARTITION__
 
@@ -45,15 +46,18 @@ fn mark_count(bin: u32) -> u32 {
 fn main(
     @builtin(workgroup_id) wgid: vec3u,
     @builtin(local_invocation_id) lid: vec3u,
+    @builtin(num_workgroups) groups: vec3u,
 ) {
     let lane = lid.x;
     let unit = wgid.y * UNITS_PER_ROW + wgid.x;
     let length = sort_length();
-    if (unit >= sort_units(length)) {
+    let units = sort_budget(length, groups);
+    if (unit >= units) {
         return;
     }
+    let origin = sort_base();
     let chunk = unit / CHUNK;
-    let chunks = (sort_units(length) + CHUNK - 1u) / CHUNK;
+    let chunks = (units + CHUNK - 1u) / CHUNK;
     var total = 0u;
     var prefix = 0u;
     for (var other = 0u; other < chunks; other = other + 1u) {
@@ -72,7 +76,7 @@ fn main(
     }
     digit_base[lane] = base;
     workgroupBarrier();
-    let tiles = sort_tiles(unit, length);
+    let tiles = sort_tiles(unit, length, units);
     let at = unit * BINS;
     for (var tile = tiles.first; tile < tiles.last; tile = tile + 1u) {
         for (var word_at = lane; word_at < BINS * WORDS; word_at = word_at + TILE) {
@@ -83,16 +87,16 @@ fn main(
         let valid = index < length;
         var digit = EMPTY;
         if (valid) {
-            let key = select(keys_lo[index], keys_hi[index], DIGIT_WORD != 0u);
+            let key = select(keys_lo[origin + index], keys_hi[origin + index], DIGIT_WORD != 0u);
             digit = (key >> DIGIT_SHIFT) & BINS_MASK;
             atomicOr(&marks[digit * WORDS + lane / 32u], 1u << (lane & 31u));
         }
         workgroupBarrier();
         if (valid) {
             let place = digit_base[digit] + offsets[at + digit] + running[digit] + mark_rank(digit, lane);
-            keys_lo_out[place] = keys_lo[index];
-            keys_hi_out[place] = keys_hi[index];
-            payload_out[place] = payload_in[index];
+            keys_lo_out[origin + place] = keys_lo[origin + index];
+            keys_hi_out[origin + place] = keys_hi[origin + index];
+            payload_out[origin + place] = payload_in[origin + index];
         }
         running[lane] = running[lane] + mark_count(lane);
         workgroupBarrier();

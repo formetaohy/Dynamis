@@ -14,6 +14,7 @@ pub struct BroadphaseFrame {
     pub entry_base: u32,
     pub moving_slots: u32,
     pub immovable_rebuild: bool,
+    pub resting_rebuild: bool,
 }
 
 impl Domain for BroadphaseDomain {
@@ -73,6 +74,7 @@ impl Domain for BroadphaseDomain {
             entry_base: inputs.entry_base,
             moving_slots: inputs.moving_slots,
             immovable_rebuild: inputs.immovable_rebuild,
+            resting_rebuild: inputs.resting_rebuild,
         }
     }
 

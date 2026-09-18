@@ -6,8 +6,10 @@
 const GRID_WALK_CELLS: u32 = 4096u;
 const GRID_WALK_ENTRIES: u32 = 4096u;
 
-const ENTRY_REGION_MOVING: u32 = 0u;
-const ENTRY_REGION_IMMOVABLE: u32 = 1u;
+const ENTRY_REGION_RESTING: u32 = 0u;
+const ENTRY_REGION_AWAKE: u32 = 1u;
+const ENTRY_REGION_IMMOVABLE: u32 = 2u;
+const ENTRY_REGION_COUNT: u32 = 3u;
 
 struct GridCells {
     min: vec3i,
@@ -23,7 +25,8 @@ struct GridSlice {
 }
 
 struct EntryRanges {
-    moving: vec2u,
+    resting: vec2u,
+    awake: vec2u,
     immovable: vec2u,
 }
 
@@ -90,10 +93,12 @@ fn shape_levels(box: Aabb, base: f32) -> u32 {
     return level;
 }
 
-fn grid_entry_level(box: Aabb, base: f32, immovable: bool) -> u32 {
+fn grid_entry_level(box: Aabb, base: f32, region: u32) -> u32 {
     let level = shape_levels(box, base);
-    if (immovable) {
+    if (region == ENTRY_REGION_IMMOVABLE) {
         counter_or(COUNTER_IMMOVABLE_LEVELS, 1u << level);
+    } else if (region == ENTRY_REGION_RESTING) {
+        counter_or(COUNTER_RESTING_LEVELS, 1u << level);
     } else {
         counter_or(COUNTER_GRID_LEVELS, 1u << level);
     }
@@ -101,7 +106,9 @@ fn grid_entry_level(box: Aabb, base: f32, immovable: bool) -> u32 {
 }
 
 fn grid_occupied() -> u32 {
-    return counter_load(COUNTER_GRID_LEVELS) | counter_load(COUNTER_IMMOVABLE_LEVELS);
+    return counter_load(COUNTER_GRID_LEVELS)
+        | counter_load(COUNTER_RESTING_LEVELS)
+        | counter_load(COUNTER_IMMOVABLE_LEVELS);
 }
 
 fn grid_coarser_levels(occupied: u32, level: u32) -> u32 {
@@ -119,19 +126,21 @@ fn entry_immovable_base() -> u32 {
 struct EntryView {
     base: u32,
     immovable_live: u32,
-    moving_live: u32,
+    resting_live: u32,
+    awake_live: u32,
 }
 
 fn entry_view() -> EntryView {
     let base = entry_immovable_base();
     let immovable_live = min(counter_load(COUNTER_IMMOVABLE_ENTRIES), base);
+    let resting_live = counter_load(COUNTER_RESTING_ENTRIES);
     let capacity = arrayLength(&entries) - min(base, arrayLength(&entries));
-    let moving_live = min(counter_load(COUNTER_ENTRIES), capacity);
-    return EntryView(base, immovable_live, moving_live);
+    let awake_live = min(counter_load(COUNTER_ENTRIES), capacity - min(resting_live, capacity));
+    return EntryView(base, immovable_live, resting_live, awake_live);
 }
 
 fn entry_live(view: EntryView) -> u32 {
-    return view.immovable_live + view.moving_live;
+    return view.immovable_live + view.resting_live + view.awake_live;
 }
 
 fn entry_is_immovable(view: EntryView, index: u32) -> bool {
@@ -139,11 +148,33 @@ fn entry_is_immovable(view: EntryView, index: u32) -> bool {
 }
 
 fn entry_region_first(view: EntryView, region: u32) -> u32 {
-    return select(view.immovable_live, 0u, region == ENTRY_REGION_IMMOVABLE);
+    if (region == ENTRY_REGION_IMMOVABLE) {
+        return 0u;
+    }
+    if (region == ENTRY_REGION_RESTING) {
+        return view.immovable_live;
+    }
+    return view.immovable_live + view.resting_live;
 }
 
 fn entry_region_end(view: EntryView, region: u32) -> u32 {
-    return select(entry_live(view), view.immovable_live, region == ENTRY_REGION_IMMOVABLE);
+    if (region == ENTRY_REGION_IMMOVABLE) {
+        return view.immovable_live;
+    }
+    if (region == ENTRY_REGION_RESTING) {
+        return view.immovable_live + view.resting_live;
+    }
+    return entry_live(view);
+}
+
+fn entry_region_of(view: EntryView, index: u32) -> u32 {
+    if (index < view.immovable_live) {
+        return ENTRY_REGION_IMMOVABLE;
+    }
+    if (index < view.immovable_live + view.resting_live) {
+        return ENTRY_REGION_RESTING;
+    }
+    return ENTRY_REGION_AWAKE;
 }
 
 fn entry_slot(view: EntryView, index: u32) -> u32 {
@@ -238,13 +269,20 @@ fn entry_region_bounds(view: EntryView, region: u32, key: u32) -> vec2u {
 fn entry_cell_ranges(view: EntryView, level: u32, coord: vec3i) -> EntryRanges {
     let key = cell_key(level, coord);
     var ranges: EntryRanges;
-    ranges.moving = entry_region_bounds(view, ENTRY_REGION_MOVING, key);
+    ranges.resting = entry_region_bounds(view, ENTRY_REGION_RESTING, key);
+    ranges.awake = entry_region_bounds(view, ENTRY_REGION_AWAKE, key);
     ranges.immovable = entry_region_bounds(view, ENTRY_REGION_IMMOVABLE, key);
     return ranges;
 }
 
 fn entry_range(ranges: EntryRanges, region: u32) -> vec2u {
-    return select(ranges.moving, ranges.immovable, region == ENTRY_REGION_IMMOVABLE);
+    if (region == ENTRY_REGION_IMMOVABLE) {
+        return ranges.immovable;
+    }
+    if (region == ENTRY_REGION_RESTING) {
+        return ranges.resting;
+    }
+    return ranges.awake;
 }
 
 fn entry_level_bounds(view: EntryView, level: u32, region: u32) -> vec2u {
@@ -333,15 +371,23 @@ fn grid_cell_slice(box: Aabb, index: u32, region: u32, view: EntryView) -> GridS
 }
 
 fn grid_slices(box: Aabb) -> u32 {
-    return 2u * (grid_whole_slices(box) + grid_cell_slices(box));
+    return ENTRY_REGION_COUNT * (grid_whole_slices(box) + grid_cell_slices(box));
+}
+
+fn grid_whole_slice_count(box: Aabb) -> u32 {
+    return ENTRY_REGION_COUNT * grid_whole_slices(box);
+}
+
+fn grid_cell_slice_count(box: Aabb) -> u32 {
+    return ENTRY_REGION_COUNT * grid_cell_slices(box);
 }
 
 fn grid_slice(box: Aabb, index: u32) -> GridSlice {
-    let whole = grid_whole_slices(box);
+    let whole = grid_whole_slice_count(box);
     let view = entry_view();
-    let region = select(ENTRY_REGION_MOVING, ENTRY_REGION_IMMOVABLE, (index % 2u) != 0u);
-    if (index < whole * 2u) {
-        return grid_whole_slice(box, index / 2u, region, view);
+    let region = index % ENTRY_REGION_COUNT;
+    if (index < whole) {
+        return grid_whole_slice(box, index / ENTRY_REGION_COUNT, region, view);
     }
-    return grid_cell_slice(box, (index - whole * 2u) / 2u, region, view);
+    return grid_cell_slice(box, (index - whole) / ENTRY_REGION_COUNT, region, view);
 }

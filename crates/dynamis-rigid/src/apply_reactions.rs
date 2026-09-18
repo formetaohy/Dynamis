@@ -1,6 +1,7 @@
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_abi::{COUNTER_WOKE, COUNTER_WOKE_DEFERRED};
+use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
@@ -34,6 +35,7 @@ impl PassRuntime<RigidFrame> for ApplyReactions {
                         "deferred_woke_count",
                         dynamis_state::counter(COUNTER_WOKE_DEFERRED),
                     ),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                 ],
                 &[],
             ),

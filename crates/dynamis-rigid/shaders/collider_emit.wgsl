@@ -3,9 +3,9 @@ struct EntryCells {
     cells: GridCells,
 }
 
-fn collider_cells(collider: u32, immovable: bool) -> EntryCells {
+fn collider_cells(collider: u32, region: u32) -> EntryCells {
     let base = grid_base_cell();
-    let level = grid_entry_level(aabbs[collider], base, immovable);
+    let level = grid_entry_level(aabbs[collider], base, region);
     var entry: EntryCells;
     entry.level = level;
     entry.cells = grid_cells(aabbs[collider], level_cell_size(level, base));

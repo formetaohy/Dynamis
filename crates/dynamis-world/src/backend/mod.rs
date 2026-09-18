@@ -10,7 +10,7 @@ use dynamis_domain::Settling;
 use dynamis_gpu::GpuPassTiming;
 use dynamis_gpu::{GpuContext, SubmissionEncoder};
 use readback::ReadbackBuffers;
-use registry::{Activity, Live, Plan, Rest, StepPasses, Streams};
+use registry::{Activity, Live, Plan, Rest, Resting, StepPasses, Streams};
 use segment::{Arrival, SegmentTransport};
 use wgpu::SubmissionIndex;
 
@@ -86,6 +86,7 @@ pub(crate) struct Backend {
     pub(crate) passes: StepPasses,
     pub(crate) settling: Settling,
     pub(crate) immovable: Immovable,
+    pub(crate) resting: Resting,
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) written_params: Option<dynamis_abi::StepParamsRecord>,
@@ -103,6 +104,7 @@ impl Backend {
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
         let immovable = Immovable::new(plan.broadphase.immovable);
         write_entry_base(&streams, &gpu, immovable.entries());
+        seed_resting_counters(&streams, &gpu);
         let readback = ReadbackBuffers::new(gpu.device(), &streams);
         let segments = SegmentTransport::new(gpu.device(), &streams);
         let passes = StepPasses::new(&gpu, &streams);
@@ -114,6 +116,7 @@ impl Backend {
             passes,
             settling: Settling::IDLE,
             immovable,
+            resting: Resting::IDLE,
             measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,
             written_params: None,
@@ -124,6 +127,20 @@ impl Backend {
             #[cfg(feature = "profile")]
             pass_timings: Vec::new(),
         }
+    }
+}
+
+fn seed_resting_counters(streams: &Streams, gpu: &GpuContext) {
+    let counters = streams.state.counters.gpu();
+    for counter in [
+        dynamis_abi::COUNTER_RESTING_ENTRIES,
+        dynamis_abi::COUNTER_RESTING_LEVELS,
+    ] {
+        counters.write_at(
+            gpu.queue(),
+            counter as u64 * dynamis_abi::COUNTER_STRIDE,
+            &0u32.to_le_bytes(),
+        );
     }
 }
 
@@ -186,6 +203,7 @@ impl World {
             .segments
             .reserve(&device, &self.backend.streams);
         self.submit(encoder);
+        self.backend.resting.invalidate();
     }
 
     pub(crate) fn reconcile_layout(&mut self, live: &mut Live) {

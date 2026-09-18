@@ -5,7 +5,7 @@ use super::common::{
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE,
     COUNTER_IMMOVABLE_EMITTED, COUNTER_IMMOVABLE_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS,
-    COUNTER_RESTING, Shortfall,
+    COUNTER_RESTING, COUNTER_RESTING_ENTRIES, COUNTER_RESTING_REBUILD, Shortfall,
 };
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 
@@ -792,4 +792,127 @@ fn a_wide_immovable_index_is_not_rederived_every_step() {
         assert_eq!(world.measured()[COUNTER_IMMOVABLE_ENTRIES], declared);
     }
     assert_unrefused(&world);
+}
+
+#[test]
+fn a_settled_index_holds_its_resting_entries_across_quiet_steps() {
+    let mut world = observed_world(gravity_config());
+    wide_static_floor(&mut world);
+    let sleeper = world.spawn(BodyDesc::sphere(0.4).position([0.0, 0.4, 0.0]));
+    let hover = world.spawn(BodyDesc::sphere(0.3).position([20.0, 8.0, 20.0]).mass(1.0));
+    settle_until(&mut world, 400, |world| world.read_state(sleeper).sleeping);
+    for _ in 0..4 {
+        world.apply_force(hover, [0.0, 9.81, 0.0]);
+        world.step(DT);
+        world.wait();
+    }
+    let resting = world.measured()[COUNTER_RESTING_ENTRIES];
+    assert!(
+        resting > 0,
+        "a settled body must leave the per step index for the resting region, got {resting}"
+    );
+    assert!(
+        world.measured()[COUNTER_ENTRIES] < resting,
+        "a settled body must leave the per step index for the resting region, awake {} resting {resting}",
+        world.measured()[COUNTER_ENTRIES],
+    );
+    for step in 0..8 {
+        world.apply_force(hover, [0.0, 9.81, 0.0]);
+        world.step(DT);
+        world.wait();
+        assert_eq!(
+            world.measured()[COUNTER_RESTING_REBUILD],
+            0,
+            "a quiet step must reuse the resting region instead of deriving it again on step {step}"
+        );
+        assert_eq!(
+            world.measured()[COUNTER_RESTING_ENTRIES],
+            resting,
+            "a quiet step must keep the resting region it derived"
+        );
+    }
+    world.set_velocity(sleeper, [0.5, 0.0, 0.0]);
+    let mut derived = 0;
+    for _ in 0..4 {
+        world.apply_force(hover, [0.0, 9.81, 0.0]);
+        world.step(DT);
+        world.wait();
+        derived += world.measured()[COUNTER_RESTING_REBUILD];
+    }
+    assert!(
+        derived > 0,
+        "a body that leaves the resting region must derive it again"
+    );
+    assert!(
+        world.measured()[COUNTER_ENTRIES] >= 4,
+        "a body that left the resting region must own a per step grid entry, awake {}",
+        world.measured()[COUNTER_ENTRIES],
+    );
+}
+
+#[test]
+fn a_resting_region_answers_the_queries_of_a_quiet_world() {
+    let mut world = observed_world(static_config());
+    let sleeper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 4.0]));
+    world.sleep(sleeper);
+    settle(&mut world, 2);
+    assert!(
+        world.measured()[COUNTER_RESTING_ENTRIES] > 0,
+        "a sleeping body must enter the resting region"
+    );
+    let hit = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    assert_eq!(
+        world.query_hit(hit).map(|hit| hit.body()),
+        Some(sleeper),
+        "a reused resting region must answer a query"
+    );
+
+    world.set_position(sleeper, [0.0, 0.0, 9.0]);
+    settle(&mut world, 2);
+    let hit = world.ray_query(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+        &QueryFilter::default(),
+    );
+    world.wait();
+    let found = world
+        .query_hit(hit)
+        .expect("an edited sleeper must stay in the index");
+    assert_eq!(found.body(), sleeper);
+    assert!(
+        (found.distance - 8.5).abs() < 1e-3,
+        "an edited sleeper must answer at its new pose, got {}",
+        found.distance
+    );
+}
+
+#[test]
+fn a_moving_body_pairs_with_the_resting_region_it_reaches() {
+    let mut world = observed_world(static_config());
+    let sleeper = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.0, 0.0]));
+    world.sleep(sleeper);
+    settle(&mut world, 2);
+    let resting = world.measured()[COUNTER_RESTING_ENTRIES];
+    assert!(resting > 0, "the sleeper must rest in its own region");
+    let mover = world.spawn(
+        BodyDesc::sphere(0.5)
+            .position([-1.2, 0.0, 0.0])
+            .velocity([2.0, 0.0, 0.0]),
+    );
+    settle(&mut world, 60);
+    assert!(
+        !world.read_state(sleeper).sleeping,
+        "a moving body must wake the sleeping body its region reaches"
+    );
+    assert!(
+        world.read_state(mover).velocity[0] < 2.0,
+        "the sleeping body must answer with an impulse"
+    );
 }

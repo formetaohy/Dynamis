@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> woke_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> deferred_woke_count: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> body_admitted: array<u32>;
 
 fn take(row: u32, word: u32) -> f32 {
     return reaction_value(atomicExchange(&reactions[row * REACTION_WORDS + word], 0u));
@@ -16,6 +17,7 @@ fn work(index: u32) {
         return;
     }
     var state = body_states[index];
+    body_admitted[index] = 0u;
     if (state.sleeping != 0u) {
         atomicAdd(&woke_count[0], 1u);
         atomicAdd(&deferred_woke_count[0], 1u);

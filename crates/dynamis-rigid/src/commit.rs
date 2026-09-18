@@ -288,7 +288,8 @@ impl PassRuntime<RigidFrame> for RestingIndex {
             RigidStream::RestingIndexMinor.whole(),
             RigidStream::RestingIndexSlots.whole(),
         );
-        self.sort.sort(recorder, &channels, words, words);
+        let plan = dynamis_sort::units_for(streams.measured(COUNTER_RESTING_GATHER).unwrap_or(0));
+        self.sort.sort(recorder, &channels, plan, words, words);
     }
 }
 

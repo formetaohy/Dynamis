@@ -4,6 +4,7 @@ use dynamis_abi::Count;
 use dynamis_abi::{
     COUNTER_ACTIVE, COUNTER_JOINTS, COUNTER_SLEPT, COUNTER_STEP_RESET_SLOTS, COUNTER_WOKE,
 };
+use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
@@ -116,6 +117,7 @@ impl PassRuntime<RigidFrame> for ApplyCommands {
                     ("row_streams", StateStream::RowStreams.whole()),
                     ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
                     ("woke_count", dynamis_state::counter(COUNTER_WOKE)),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                 ],
                 &[],
             ),

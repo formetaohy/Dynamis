@@ -19,6 +19,9 @@ fn collider_fragments() -> Vec<&'static str> {
 pub struct EmitEntries {
     reset: Stage,
     immovable: Stage,
+    gate: Stage,
+    resting: Stage,
+    commit: Stage,
     moving: Stage,
 }
 
@@ -36,6 +39,8 @@ impl PassRuntime<RigidFrame> for EmitEntries {
             ("entries", BroadphaseStream::Entries.whole()),
             ("counters", StateStream::Counters.whole()),
         ];
+        let mut flagged = bindings.to_vec();
+        flagged.push(("body_admitted", BroadphaseStream::BodyAdmitted.whole()));
         let fragments = collider_fragments();
         Self {
             reset: Stage::build(
@@ -66,6 +71,43 @@ impl PassRuntime<RigidFrame> for EmitEntries {
                 &bindings,
                 &[],
             ),
+            gate: Stage::build(
+                context,
+                "grid resting gate",
+                workgroups(
+                    context,
+                    include_str!("../shaders/grid_resting_gate.wgsl"),
+                    COUNTERS,
+                ),
+                streams,
+                &[("counters", StateStream::Counters.whole())],
+                &[],
+            ),
+            resting: Stage::build(
+                context,
+                "grid resting entries",
+                rows(
+                    context,
+                    include_str!("../shaders/grid_resting_entries.wgsl"),
+                    &fragments,
+                    Count::Colliders.bound(),
+                ),
+                streams,
+                &flagged,
+                &[],
+            ),
+            commit: Stage::build(
+                context,
+                "grid resting commit",
+                workgroups(
+                    context,
+                    include_str!("../shaders/grid_resting_commit.wgsl"),
+                    COUNTERS,
+                ),
+                streams,
+                &[("counters", StateStream::Counters.whole())],
+                &[],
+            ),
             moving: Stage::build(
                 context,
                 "collider_entries",
@@ -76,7 +118,7 @@ impl PassRuntime<RigidFrame> for EmitEntries {
                     Count::Colliders.bound(),
                 ),
                 streams,
-                &bindings,
+                &flagged,
                 &[],
             ),
         }
@@ -84,7 +126,7 @@ impl PassRuntime<RigidFrame> for EmitEntries {
 
     fn record(
         &mut self,
-        recorder: &mut ComputeRecorder<'_>,
+        recorder: &mut ComputeRecorder,
         streams: &impl ResourceSource,
         frame: &RigidFrame,
     ) {
@@ -92,6 +134,11 @@ impl PassRuntime<RigidFrame> for EmitEntries {
         if frame.immovable_rebuild {
             self.reset.record_workgroups(recorder, streams, 1);
             self.immovable.record_rows(recorder, streams, colliders);
+        }
+        if frame.resting_rebuild {
+            self.gate.record_workgroups(recorder, streams, 1);
+            self.resting.record_rows(recorder, streams, colliders);
+            self.commit.record_workgroups(recorder, streams, 1);
         }
         self.moving.record_rows(recorder, streams, colliders);
     }

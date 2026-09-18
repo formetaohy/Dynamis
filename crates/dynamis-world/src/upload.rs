@@ -79,6 +79,10 @@ impl World {
         if self.shapes.dirty {
             self.upload_shapes(&queue);
         }
+        if self.shapes.dirty || self.bodies.layout_changed {
+            self.backend.resting.invalidate();
+        }
+        self.bodies.layout_changed = false;
         if self.soft.pending_edits() > 0 || self.soft.pending_body_edits() > 0 {
             self.invalidate_immovable();
         }

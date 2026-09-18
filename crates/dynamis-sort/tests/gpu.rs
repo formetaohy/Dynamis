@@ -2,7 +2,7 @@ use dynamis_gpu::{
     ComputeRecorder, GpuBuffer, GpuContext, GpuSlot, StreamElement, TypedSlot, WarmupBudget,
     read_regions,
 };
-use dynamis_sort::{RadixSort, SortChannels, key_words};
+use dynamis_sort::{RadixSort, SortChannels, key_words, units_for};
 use std::sync::OnceLock;
 use wgpu::{Backend, BufferUsages};
 
@@ -88,6 +88,7 @@ impl Channels {
         }
         SortChannels {
             count: words(&self.count),
+            base: None,
             major: words(&self.major),
             minor: words(&self.minor),
             payload: words(&self.payload),
@@ -102,6 +103,7 @@ fn sort_once(
     context: &GpuContext,
     sort: &mut RadixSort,
     channels: &Channels,
+    plan: u32,
     major_words: u32,
     minor_words: u32,
 ) {
@@ -111,7 +113,13 @@ fn sort_once(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     {
         let mut recorder = ComputeRecorder::begin(&mut encoder, "sort", row);
-        sort.sort(&mut recorder, &channels.lanes(), major_words, minor_words);
+        sort.sort(
+            &mut recorder,
+            &channels.lanes(),
+            plan,
+            major_words,
+            minor_words,
+        );
     }
     context.queue().submit([encoder.finish()]);
 }
@@ -140,17 +148,20 @@ fn run_sort(
         major,
         minor,
         payload,
+        units_for(major.len() as u32),
         major_words,
         minor_words,
         major.len().max(1),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_sort_slots(
     context: &GpuContext,
     major: &[u32],
     minor: &[u32],
     payload: &[u32],
+    plan: u32,
     major_words: u32,
     minor_words: u32,
     slots: usize,
@@ -158,7 +169,14 @@ fn run_sort_slots(
     let channels = Channels::sized(context, major, minor, payload, slots);
     let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
-    sort_once(context, &mut sort, &channels, major_words, minor_words);
+    sort_once(
+        context,
+        &mut sort,
+        &channels,
+        plan,
+        major_words,
+        minor_words,
+    );
     (
         read_u32s(context, &channels.major, major.len()),
         read_u32s(context, &channels.minor, minor.len()),
@@ -331,7 +349,14 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
     let mut sort = RadixSort::new(context);
     context.warmup(WarmupBudget::All);
     let first = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
-    sort_once(context, &mut sort, &first, 1, 0);
+    sort_once(
+        context,
+        &mut sort,
+        &first,
+        units_for(keys.len() as u32),
+        1,
+        0,
+    );
     assert_sorted(context, &first, &keys);
 
     let rebound = vec![9u32, 8, 7, 6, 5, 4, 3, 2, 1, 0];
@@ -341,7 +366,14 @@ fn rebinding_a_lane_sorts_the_storage_the_channels_name() {
         &rebound,
         &counting_payload(rebound.len()),
     );
-    sort_once(context, &mut sort, &second, 1, 0);
+    sort_once(
+        context,
+        &mut sort,
+        &second,
+        units_for(rebound.len() as u32),
+        1,
+        0,
+    );
     assert_sorted(context, &second, &rebound);
 }
 
@@ -353,7 +385,14 @@ fn reusing_the_channels_reuses_their_bindings() {
     context.warmup(WarmupBudget::All);
     let channels = Channels::new(context, &keys, &keys, &counting_payload(keys.len()));
     for _ in 0..3 {
-        sort_once(context, &mut sort, &channels, 1, 0);
+        sort_once(
+            context,
+            &mut sort,
+            &channels,
+            units_for(keys.len() as u32),
+            1,
+            0,
+        );
         assert_sorted(context, &channels, &keys);
     }
 }
@@ -366,8 +405,16 @@ fn a_stream_inside_a_wider_reservation_sorts_only_what_it_holds() {
         let minor = scattered_keys(len, 6);
         let payload = counting_payload(len);
         let reservation = 65_536;
-        let (sorted, _, carried) =
-            run_sort_slots(context, &major, &minor, &payload, 4, 4, reservation);
+        let (sorted, _, carried) = run_sort_slots(
+            context,
+            &major,
+            &minor,
+            &payload,
+            units_for(len as u32),
+            4,
+            4,
+            reservation,
+        );
         let mut expected: Vec<(u32, u32, u32)> = (0..len as u32)
             .map(|at| (major[at as usize], minor[at as usize], at))
             .collect();
@@ -385,5 +432,41 @@ fn a_stream_inside_a_wider_reservation_sorts_only_what_it_holds() {
             expected.iter().map(|&(_, _, at)| at).collect::<Vec<_>>(),
             "a stream of {len} records inside a {reservation} slot reservation must carry its payload",
         );
+    }
+}
+
+#[test]
+fn a_sort_needs_no_more_parallelism_than_the_caller_grants() {
+    let context = shared();
+    for len in [0usize, 1, 255, 256, 1000, 5000, 60_000] {
+        let major = scattered_keys(len, 7);
+        let minor = scattered_keys(len, 9);
+        let payload = counting_payload(len);
+        for plan in [1u32, 2, 7, 64] {
+            let (sorted, _, carried) =
+                run_sort_slots(context, &major, &minor, &payload, plan, 4, 4, len.max(1));
+            let mut expected: Vec<(u32, u32, u32)> = (0..len as u32)
+                .map(|at| (major[at as usize], minor[at as usize], at))
+                .collect();
+            expected.sort();
+            let found: Vec<(u32, u32, u32)> = sorted
+                .iter()
+                .copied()
+                .zip(carried.iter().copied())
+                .map(|(major, payload)| (major, 0, payload))
+                .collect();
+            assert_eq!(
+                found.len(),
+                expected.len(),
+                "a plan of {plan} must still sort {len} elements"
+            );
+            for (found, expected) in found.iter().zip(expected.iter()) {
+                assert_eq!(
+                    (found.0, found.2),
+                    (expected.0, expected.2),
+                    "a plan of {plan} must order {len} elements by their major lane"
+                );
+            }
+        }
     }
 }

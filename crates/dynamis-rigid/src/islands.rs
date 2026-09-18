@@ -6,6 +6,7 @@ use dynamis_abi::{
     COUNTER_ARCHIVED, COUNTER_CONTACTS, COUNTER_EVENTS, COUNTER_REFUSED_EVENTS, COUNTER_RESTING,
     COUNTER_RESTING_INDEX, COUNTER_SLEPT, COUNTER_WOKE, COUNTER_WOKE_DEFERRED,
 };
+use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::{PassRuntime, Stage};
@@ -281,6 +282,7 @@ impl PassRuntime<RigidFrame> for Wake {
                         "deferred_woke_count",
                         dynamis_state::counter(COUNTER_WOKE_DEFERRED),
                     ),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                 ],
                 &[],
             ),
@@ -322,6 +324,7 @@ impl PassRuntime<RigidFrame> for Sleep {
                     ("island_state", RigidStream::IslandState.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
                     ("slept_count", dynamis_state::counter(COUNTER_SLEPT)),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                 ],
                 &[],
             ),

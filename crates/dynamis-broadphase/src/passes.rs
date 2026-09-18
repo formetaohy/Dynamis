@@ -1,7 +1,10 @@
 use crate::domain::BroadphaseFrame;
 use crate::streams::BroadphaseStream;
-use dynamis_abi::{COUNTER_ENTRIES, COUNTER_IMMOVABLE_ENTRIES};
-use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource, SlotRef};
+use dynamis_abi::{
+    COUNTER_AWAKE_BASE, COUNTER_ENTRIES, COUNTER_ENTRY_BASE, COUNTER_IMMOVABLE_ENTRIES,
+    COUNTER_RESTING_SORT,
+};
+use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource, TypedSlot};
 use dynamis_pass::{Execution, PassRuntime, Stage, domain_passes};
 use dynamis_shader::{Extent, GRID_INDEX, stream};
 
@@ -12,45 +15,55 @@ fn pair_fragments() -> Vec<&'static str> {
     fragments.push(PAIR_EMIT);
     fragments
 }
-use dynamis_sort::{RadixSort, SortChannels};
+use dynamis_sort::{RadixSort, SortChannels, units_for};
 use dynamis_state::StateStream;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EntryRegion {
     Immovable,
-    Moving,
+    Resting,
+    Awake,
 }
 
 impl EntryRegion {
-    const fn base(self, frame: &BroadphaseFrame) -> u32 {
-        match self {
-            Self::Immovable => 0,
-            Self::Moving => frame.entry_base,
-        }
-    }
-
     const fn slots(self, frame: &BroadphaseFrame) -> u32 {
         match self {
             Self::Immovable => frame.entry_base,
-            Self::Moving => frame.moving_slots,
+            Self::Resting | Self::Awake => frame.moving_slots,
         }
     }
 
     const fn count(self) -> usize {
         match self {
             Self::Immovable => COUNTER_IMMOVABLE_ENTRIES,
-            Self::Moving => COUNTER_ENTRIES,
+            Self::Resting => COUNTER_RESTING_SORT,
+            Self::Awake => COUNTER_ENTRIES,
+        }
+    }
+
+    const fn origin(self) -> Option<usize> {
+        match self {
+            Self::Immovable => None,
+            Self::Resting => Some(COUNTER_ENTRY_BASE),
+            Self::Awake => Some(COUNTER_AWAKE_BASE),
         }
     }
 }
 
-fn region_range(stream: BroadphaseStream, base: u32, slots: u32) -> SlotRef {
-    SlotRef::range(
-        stream.into(),
-        u64::from(base) * stream.element().bytes(),
-        u64::from(slots) * stream.element().bytes(),
-        stream.element(),
-    )
+fn channels<'a, R: ResourceSource>(streams: &'a R, region: EntryRegion) -> SortChannels<'a> {
+    let scratch = |stream: BroadphaseStream| -> TypedSlot<'a> { stream.whole().resolve(streams) };
+    SortChannels {
+        count: dynamis_state::counter(region.count()).resolve(streams),
+        base: region
+            .origin()
+            .map(|counter| dynamis_state::counter(counter).resolve(streams)),
+        major: BroadphaseStream::EntryKeys.whole().resolve(streams),
+        minor: BroadphaseStream::SortDummy.whole().resolve(streams),
+        payload: BroadphaseStream::EntryOrder.whole().resolve(streams),
+        scratch_major: scratch(BroadphaseStream::SortScratchMajor),
+        scratch_minor: scratch(BroadphaseStream::SortScratchMinor),
+        scratch_payload: scratch(BroadphaseStream::SortScratchPayload),
+    }
 }
 
 pub struct Broadphase {
@@ -67,24 +80,12 @@ impl Broadphase {
         region: EntryRegion,
         frame: &BroadphaseFrame,
     ) {
-        let base = region.base(frame);
-        let slots = region.slots(frame);
-        if slots == 0 {
+        if region.slots(frame) == 0 {
             return;
         }
-        let channels = SortChannels {
-            count: dynamis_state::counter(region.count()).resolve(streams),
-            major: region_range(BroadphaseStream::EntryKeys, base, slots).resolve(streams),
-            minor: region_range(BroadphaseStream::SortDummy, base, slots).resolve(streams),
-            payload: region_range(BroadphaseStream::EntryOrder, base, slots).resolve(streams),
-            scratch_major: region_range(BroadphaseStream::SortScratchMajor, 0, slots)
-                .resolve(streams),
-            scratch_minor: region_range(BroadphaseStream::SortScratchMinor, 0, slots)
-                .resolve(streams),
-            scratch_payload: region_range(BroadphaseStream::SortScratchPayload, 0, slots)
-                .resolve(streams),
-        };
-        self.sort.sort(recorder, &channels, 4, 0);
+        let channels = channels(streams, region);
+        let plan = units_for(streams.measured(region.count()).unwrap_or(0));
+        self.sort.sort(recorder, &channels, plan, 4, 0);
     }
 }
 
@@ -100,7 +101,7 @@ impl PassRuntime<BroadphaseFrame> for Broadphase {
                     include_str!("../shaders/level_links.wgsl"),
                     &pair_fragments(),
                     "work",
-                    Extent::of_sum([COUNTER_IMMOVABLE_ENTRIES, COUNTER_ENTRIES], "entries"),
+                    Extent::of_offset(COUNTER_AWAKE_BASE, COUNTER_ENTRIES, "entries"),
                 ),
                 streams,
                 &[
@@ -109,6 +110,7 @@ impl PassRuntime<BroadphaseFrame> for Broadphase {
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                     ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
@@ -121,7 +123,7 @@ impl PassRuntime<BroadphaseFrame> for Broadphase {
                     include_str!("../shaders/cell_pairs.wgsl"),
                     &pair_fragments(),
                     "work",
-                    Extent::of_sum([COUNTER_IMMOVABLE_ENTRIES, COUNTER_ENTRIES], "entries"),
+                    Extent::of_offset(COUNTER_AWAKE_BASE, COUNTER_ENTRIES, "entries"),
                 ),
                 streams,
                 &[
@@ -130,6 +132,7 @@ impl PassRuntime<BroadphaseFrame> for Broadphase {
                     ("entry_keys", BroadphaseStream::EntryKeys.whole()),
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                     ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
@@ -146,7 +149,10 @@ impl PassRuntime<BroadphaseFrame> for Broadphase {
         if frame.immovable_rebuild {
             self.sort_region(recorder, streams, EntryRegion::Immovable, frame);
         }
-        self.sort_region(recorder, streams, EntryRegion::Moving, frame);
+        if frame.resting_rebuild {
+            self.sort_region(recorder, streams, EntryRegion::Resting, frame);
+        }
+        self.sort_region(recorder, streams, EntryRegion::Awake, frame);
         self.level_links.record_stream(recorder, streams);
         self.cell_pairs.record_stream(recorder, streams);
     }

@@ -91,6 +91,7 @@ pub struct RigidFrame {
     pub ccd: bool,
     pub impacts: bool,
     pub immovable_rebuild: bool,
+    pub resting_rebuild: bool,
 }
 
 use apply_commands::ApplyCommands;

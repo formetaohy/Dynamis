@@ -190,6 +190,13 @@ impl World {
         if self.backend.measured[dynamis_abi::COUNTER_IMMOVABLE_WOKE] > 0 {
             self.backend.immovable.invalidate();
         }
+        if self.backend.measured[dynamis_abi::COUNTER_SLEPT]
+            + self.backend.measured[dynamis_abi::COUNTER_WOKE]
+            + self.backend.measured[dynamis_abi::COUNTER_WOKE_DEFERRED]
+            > 0
+        {
+            self.backend.resting.invalidate();
+        }
         self.backend.measured_step = Some(step);
         self.backend.segments.close(&self.backend.measured, step);
     }

@@ -1,6 +1,6 @@
 use super::streams::{BroadphaseDemand, BroadphaseStreams};
 use dynamis_abi::{COUNTER_MOVABLE_COLLIDERS, COUNTER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER};
-use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, product, settled, unreported};
+use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled, unreported};
 
 const FRESH_PARTNERS_PER_MOVABLE_COLLIDER: u32 = 16;
 
@@ -17,6 +17,7 @@ pub struct BroadphaseCapacity {
 
 #[derive(Clone, Copy, Debug)]
 pub struct BroadphaseInputs {
+    pub bodies: u32,
     pub colliders: u32,
     pub movable_colliders: u32,
     pub immovable_colliders: u32,
@@ -24,6 +25,7 @@ pub struct BroadphaseInputs {
     pub entry_base: u32,
     pub moving_slots: u32,
     pub immovable_rebuild: bool,
+    pub resting_rebuild: bool,
 }
 
 pub fn plan(
@@ -73,6 +75,7 @@ pub fn plan(
         entries,
         pairs,
         sort: entries.max(pairs).max(MIN_SLOTS),
+        bodies: grown(current.body_admitted.slots(), inputs.bodies, MIN_SLOTS),
     }
 }
 
@@ -85,5 +88,6 @@ pub fn floor() -> BroadphaseDemand {
         entries,
         pairs,
         sort: entries.max(pairs).max(MIN_SLOTS),
+        bodies: MIN_SLOTS,
     }
 }

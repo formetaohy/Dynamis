@@ -86,6 +86,7 @@ impl World {
             .streams
             .write(self.backend.gpu.queue(), &snapshot.streams);
         self.backend.immovable.invalidate();
+        self.backend.resting.invalidate();
     }
 
     fn abandon_observations(&mut self) {

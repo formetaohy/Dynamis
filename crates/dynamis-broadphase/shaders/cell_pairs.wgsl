@@ -1,5 +1,6 @@
 @group(0) @binding(4) var<storage, read_write> pair_major: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pair_minor: array<u32>;
+@group(0) @binding(6) var<storage, read> body_admitted: array<u32>;
 
 
 fn emit_cell_mate(first: u32, second: u32, cell_size: f32) {
@@ -30,13 +31,16 @@ fn work(index: u32) {
     let level = shape_levels(entry_box(node), grid);
     let cell_size = level_cell_size(level, grid);
     let ranges = entry_cell_ranges(view, level, entry_cell(node, cell_size));
-    for (var region = 0u; region < 2u; region = region + 1u) {
+    for (var region = 0u; region < ENTRY_REGION_COUNT; region = region + 1u) {
         let range = entry_range(ranges, region);
         for (var entry = range.x; entry < range.y; entry = entry + 1u) {
             if (entry == index) {
                 continue;
             }
             let other = entry_node(view, entry);
+            if (region == ENTRY_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
+                continue;
+            }
             if (entry_awake(entries[other].info) && entry < index) {
                 continue;
             }

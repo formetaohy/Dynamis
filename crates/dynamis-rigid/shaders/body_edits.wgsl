@@ -6,11 +6,13 @@
 @group(0) @binding(5) var<storage, read> row_streams: RowStreams;
 @group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> woke_count: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> body_admitted: array<u32>;
 
 fn mark_disturbed(body: ptr<function, BodyState>, desc: BodyDescriptor, row: u32, disturbed: bool) {
     if ((*body).sleeping != 0u) {
         atomicAdd(&woke_count[0], 1u);
         atomicOr(&wake_flags[row], 1u);
+        body_admitted[row] = 0u;
     } else if (disturbed) {
         atomicOr(&wake_flags[row], 1u);
     }
@@ -83,12 +85,14 @@ fn work(index: u32) {
         } else if (edit.kind == EDIT_SLEEP) {
             if (state.sleeping == 0u) {
                 atomicAdd(&slept_count[0], 1u);
+                body_admitted[run.row] = 0u;
             }
             freeze_body(&state);
             atomicStore(&wake_flags[run.row], 0u);
         } else if (edit.kind == EDIT_WAKE) {
             if (state.sleeping != 0u) {
                 atomicAdd(&woke_count[0], 1u);
+                body_admitted[run.row] = 0u;
             }
             state.sleep_timer = 0.0;
             state.sleeping = 0u;

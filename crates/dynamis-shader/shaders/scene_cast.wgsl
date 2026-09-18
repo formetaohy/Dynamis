@@ -122,11 +122,11 @@ fn collect_cell_slice(slice: GridSlice, query_box: Aabb, query: Query) {
 }
 
 fn collect_candidates(query_box: Aabb, invocation: u32, query: Query) {
-    let whole = 2u * grid_whole_slices(query_box);
+    let whole = grid_whole_slice_count(query_box);
     for (var index = 0u; index < whole; index = index + 1u) {
         collect_whole_slice(grid_slice(query_box, index), query_box, invocation, query);
     }
-    let cells = 2u * grid_cell_slices(query_box);
+    let cells = grid_cell_slice_count(query_box);
     var index = invocation;
     while (index < cells) {
         collect_cell_slice(grid_slice(query_box, whole + index), query_box, query);

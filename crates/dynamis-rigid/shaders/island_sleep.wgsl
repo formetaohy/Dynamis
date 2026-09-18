@@ -5,6 +5,7 @@
 @group(0) @binding(4) var<storage, read_write> island_state: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> wake_flags: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read_write> slept_count: array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read_write> body_admitted: array<u32>;
 
 fn work(index: u32) {
     var state = body_states[index];
@@ -21,6 +22,7 @@ fn work(index: u32) {
         if (state.sleep_timer >= params.sleep_time) {
             freeze_body(&state);
             atomicAdd(&slept_count[0], 1u);
+            body_admitted[index] = 0u;
         }
     }
     body_states[index] = state;

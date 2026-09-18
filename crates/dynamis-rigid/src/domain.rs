@@ -107,6 +107,7 @@ impl Domain for RigidDomain {
             ccd: inputs.ccd,
             impacts: inputs.impacts,
             immovable_rebuild: inputs.immovable_rebuild,
+            resting_rebuild: inputs.resting_rebuild,
         }
     }
 

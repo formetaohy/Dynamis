@@ -56,7 +56,8 @@ impl Prepare {
                 RigidStream::JointFilterMajor.whole(),
                 RigidStream::JointFilterMinor.whole(),
             );
-            self.sort.sort(recorder, &channels, words, words);
+            let plan = dynamis_sort::units_for(streams.measured(COUNTER_JOINTS).unwrap_or(0));
+            self.sort.sort(recorder, &channels, plan, words, words);
         }
     }
 }

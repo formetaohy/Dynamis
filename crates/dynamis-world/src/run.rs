@@ -24,6 +24,10 @@ struct Declarations {
 impl World {
     pub(crate) fn execute(&mut self, run: Run) {
         self.sync(Facts::Arrived);
+        self.backend
+            .resting
+            .settle(self.clock.step, self.resting_resolution());
+        let derive_resting = self.backend.resting.stale();
         self.rebuild_joint_schedule();
         let census = self.census();
         let mut live = self.live(&census);
@@ -58,7 +62,7 @@ impl World {
         }
         self.consume_segments(segments);
         self.consume(declarations);
-        self.finish(run);
+        self.finish(run, derive_resting);
     }
 
     fn prepare(&mut self, run: Run) -> Option<HostWork> {
@@ -205,11 +209,16 @@ impl World {
         }
     }
 
-    fn finish(&mut self, run: Run) {
+    fn finish(&mut self, run: Run, derive_resting: bool) {
         match run {
             Run::Step => {
                 self.wake_all = false;
                 self.backend.immovable.advance();
+                if derive_resting {
+                    self.backend
+                        .resting
+                        .derived(self.clock.step, self.resting_resolution());
+                }
             }
             Run::Query => {
                 let census = self.census();

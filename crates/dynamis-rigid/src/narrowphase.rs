@@ -121,7 +121,8 @@ impl PassRuntime<RigidFrame> for Narrowphase {
             BroadphaseStream::PairMajor.whole(),
             BroadphaseStream::PairMinor.whole(),
         );
-        self.sort.sort(recorder, &channels, words, words);
+        let plan = dynamis_sort::units_for(streams.measured(COUNTER_PAIRS).unwrap_or(0));
+        self.sort.sort(recorder, &channels, plan, words, words);
         self.narrowphase.record_stream(recorder, streams);
         self.compact_scan.record_workgroups(
             recorder,

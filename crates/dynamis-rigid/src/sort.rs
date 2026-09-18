@@ -22,6 +22,7 @@ pub(crate) fn keyed<'a, R: ResourceSource>(
     let [scratch_major, scratch_minor, scratch_payload] = scratch(resources);
     SortChannels {
         count: count.resolve(resources),
+        base: None,
         major: major.resolve(resources),
         minor: minor.resolve(resources),
         payload: payload.resolve(resources),
@@ -40,6 +41,7 @@ pub(crate) fn lanes_dual<'a, R: ResourceSource>(
     let [scratch_major, scratch_minor, scratch_payload] = scratch(resources);
     SortChannels {
         count: count.resolve(resources),
+        base: None,
         major: major.resolve(resources),
         minor: minor.resolve(resources),
         payload: RigidStream::SortDummyPayload.whole().resolve(resources),

@@ -74,6 +74,7 @@ fn {name}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) gr
 pub enum Live {
     One(usize),
     Sum([usize; 2]),
+    Offset { base: usize, counter: usize },
 }
 
 impl Live {
@@ -84,6 +85,10 @@ impl Live {
                 .measured(first)
                 .zip(resources.measured(second))
                 .map(|(first, second)| first.saturating_add(second)),
+            Self::Offset { base, counter } => resources
+                .measured(base)
+                .zip(resources.measured(counter))
+                .map(|(base, counter)| base.saturating_add(counter)),
         }
     }
 }
@@ -98,6 +103,12 @@ pub enum Extent {
     },
     Sum {
         counters: [usize; 2],
+        array: &'static str,
+        lanes: u32,
+    },
+    Offset {
+        base: usize,
+        counter: usize,
         array: &'static str,
         lanes: u32,
     },
@@ -126,6 +137,15 @@ impl Extent {
         }
     }
 
+    pub const fn of_offset(base: usize, counter: usize, array: &'static str) -> Self {
+        Self::Offset {
+            base,
+            counter,
+            array,
+            lanes: 1,
+        }
+    }
+
     pub const fn slot(counter: usize, count: &'static str, array: &'static str) -> Self {
         Self::Slot {
             counter,
@@ -148,6 +168,17 @@ impl Extent {
                 counters, array, ..
             } => Self::Sum {
                 counters,
+                array,
+                lanes,
+            },
+            Self::Offset {
+                base,
+                counter,
+                array,
+                ..
+            } => Self::Offset {
+                base,
+                counter,
                 array,
                 lanes,
             },
@@ -179,6 +210,11 @@ impl Extent {
                 let [first, second] = counters.map(|counter| dynamis_abi::COUNTERS[counter].name);
                 format!("counter_load({first}) + counter_load({second})")
             }
+            Self::Offset { base, counter, .. } => {
+                let base = dynamis_abi::COUNTERS[base].name;
+                let counter = dynamis_abi::COUNTERS[counter].name;
+                format!("counter_load({base}) + counter_load({counter})")
+            }
             Self::Slot { count, .. } => format!("atomicLoad(&{count}[0])"),
         }
     }
@@ -188,6 +224,7 @@ impl Extent {
             Self::None => panic!("a stage without a declared extent guards no array"),
             Self::Shared { array, lanes, .. }
             | Self::Sum { array, lanes, .. }
+            | Self::Offset { array, lanes, .. }
             | Self::Slot { array, lanes, .. } => (array, lanes),
         };
         match lanes {
@@ -231,6 +268,13 @@ fn extent() -> u32 {{
                 );
                 Some(slot(slots, label, array).resource())
             }
+            Self::Offset { array, .. } => {
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} offsets device counters through the whole counter stream",
+                );
+                Some(slot(slots, label, array).resource())
+            }
             Self::Slot { array, .. } => {
                 assert_declared_counter(self, label, slots);
                 Some(slot(slots, label, array).resource())
@@ -258,6 +302,13 @@ fn extent() -> u32 {{
                     "{label:?} sums device counters through the whole counter stream",
                 );
                 Live::Sum(counters)
+            }
+            Self::Offset { base, counter, .. } => {
+                assert!(
+                    matches!(slot(slots, label, "counters"), SlotRef::Whole { .. }),
+                    "{label:?} offsets device counters through the whole counter stream",
+                );
+                Live::Offset { base, counter }
             }
             Self::Slot { counter, .. } => {
                 assert_declared_counter(self, label, slots);

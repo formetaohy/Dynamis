@@ -74,6 +74,11 @@ macro_rules! declare_counters {
 
 declare_counters! {
     COUNTER_ENTRIES => "grid entries", PerStep, None;
+    COUNTER_RESTING_ENTRIES => "grid entries of resting bodies", Maintained, None;
+    COUNTER_RESTING_LEVELS => "resting grid levels", Maintained, None;
+    COUNTER_RESTING_REBUILD => "resting grid entries derived this step", PerStep, None;
+    COUNTER_RESTING_SORT => "resting grid entries to sort", PerStep, None;
+    COUNTER_AWAKE_BASE => "grid entry base of awake bodies", Maintained, None;
     COUNTER_IMMOVABLE_ENTRIES => "immovable grid entries", Maintained, None;
     COUNTER_IMMOVABLE_EMITTED => "immovable grid entries derived this step", PerStep, None;
     COUNTER_IMMOVABLE_LEVELS => "immovable grid levels", Maintained, None;

@@ -11,8 +11,10 @@ streams! {
         entries: u32,
         pairs: u32,
         sort: u32,
+        bodies: u32,
     }
     streams {
+        body_admitted, BodyAdmitted: "body resting entries", u32, 1, Retention::Scratch, demand.bodies;
         entry_keys, EntryKeys: "grid entry keys", u32, 1, Retention::Scratch, demand.entries;
         entry_order, EntryOrder: "grid entry order", u32, 1, Retention::Scratch, demand.entries;
         entries, Entries: "grid entries", GridEntryRecord, 1, Retention::Scratch, demand.entries;

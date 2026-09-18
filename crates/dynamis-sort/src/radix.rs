@@ -60,10 +60,13 @@ impl Declared {
     }
 }
 
-fn reserved_units(channels: &SortChannels<'_>) -> u32 {
-    let slots = channels.major.elements();
-    (slots.div_ceil(TILE)).clamp(1, UNITS)
+pub fn units_for(live: u32) -> u32 {
+    live.div_ceil(TILE)
+        .saturating_add(PLAN_SLACK)
+        .clamp(1, UNITS)
 }
+
+const PLAN_SLACK: u32 = 64;
 
 pub fn key_words(elements: u32) -> u32 {
     let bits = 32 - elements.saturating_sub(1).leading_zeros();
@@ -72,6 +75,7 @@ pub fn key_words(elements: u32) -> u32 {
 
 pub struct SortChannels<'a> {
     pub count: TypedSlot<'a>,
+    pub base: Option<TypedSlot<'a>>,
     pub major: TypedSlot<'a>,
     pub minor: TypedSlot<'a>,
     pub payload: TypedSlot<'a>,
@@ -83,6 +87,7 @@ pub struct SortChannels<'a> {
 #[derive(PartialEq, Eq)]
 struct ChannelsKey {
     count: StorageId,
+    base: StorageId,
     major: StorageId,
     minor: StorageId,
     payload: StorageId,
@@ -92,9 +97,10 @@ struct ChannelsKey {
 }
 
 impl ChannelsKey {
-    fn of(channels: &SortChannels<'_>) -> Self {
+    fn of(channels: &SortChannels<'_>, base: StorageId) -> Self {
         Self {
             count: channels.count.storage_id(),
+            base,
             major: channels.major.storage_id(),
             minor: channels.minor.storage_id(),
             payload: channels.payload.storage_id(),
@@ -129,6 +135,7 @@ impl ChannelGroups {
         offsets: &GpuBuffer,
         block_totals: &GpuBuffer,
         digits: &[Digit],
+        base: TypedSlot<'_>,
         declared: &DeclaredSet<'_>,
     ) -> Self {
         let length = words(length);
@@ -160,6 +167,7 @@ impl ChannelGroups {
                             ("keys_hi", in_major[source]),
                             ("counts", counts),
                             ("length_holder", length),
+                            ("base_holder", base),
                         ],
                     )
                 })
@@ -172,6 +180,7 @@ impl ChannelGroups {
                 ("offsets", offsets),
                 ("block_totals", block_totals),
                 ("length_holder", length),
+                ("base_holder", base),
             ],
         );
         let scatter = digits
@@ -190,6 +199,7 @@ impl ChannelGroups {
                             ("keys_hi_out", out_major[source]),
                             ("payload_out", out_payload[source]),
                             ("length_holder", length),
+                            ("base_holder", base),
                         ],
                     )
                 })
@@ -205,10 +215,11 @@ impl ChannelGroups {
                 ("keys_hi_out", channels.major),
                 ("payload_out", channels.payload),
                 ("length_holder", length),
+                ("base_holder", base),
             ],
         );
         Self {
-            channels: ChannelsKey::of(channels),
+            channels: ChannelsKey::of(channels, base.storage_id()),
             digits: digits.to_vec(),
             length: length_group,
             histogram,
@@ -239,6 +250,18 @@ const CHUNK: u32 = {CHUNK}u;
 const CHUNKS: u32 = {CHUNKS}u;
 const DIGIT_SHIFT: u32 = {}u;
 const DIGIT_WORD: u32 = {}u;
+
+fn sort_spans(length: u32) -> u32 {{
+    return (length + TILE - 1u) / TILE;
+}}
+
+fn sort_units(length: u32) -> u32 {{
+    return min(UNITS, max(sort_spans(length), 1u));
+}}
+
+fn sort_budget(length: u32, groups: vec3u) -> u32 {{
+    return min(sort_units(length), groups.x * groups.y);
+}}
 ",
         BINS - 1,
         (digit % 4) * 8,
@@ -254,21 +277,16 @@ struct SortTiles {{
     last: u32,
 }}
 
+fn sort_base() -> u32 {{
+    return base_holder[0];
+}}
+
 fn sort_length() -> u32 {{
     return length_holder[0];
 }}
 
-fn sort_spans(length: u32) -> u32 {{
-    return (length + TILE - 1u) / TILE;
-}}
-
-fn sort_units(length: u32) -> u32 {{
-    return min(UNITS, max(sort_spans(length), 1u));
-}}
-
-fn sort_tiles(unit: u32, length: u32) -> SortTiles {{
+fn sort_tiles(unit: u32, length: u32, units: u32) -> SortTiles {{
     let spans = sort_spans(length);
-    let units = sort_units(length);
     let span = (spans + units - 1u) / units;
     var tiles: SortTiles;
     tiles.first = min(unit * span, spans);
@@ -308,6 +326,7 @@ pub struct RadixSort {
     prefix: Declared,
     copy: Declared,
     length_holder: GpuBuffer,
+    zero: GpuBuffer,
     counts: GpuBuffer,
     offsets: GpuBuffer,
     block_totals: GpuBuffer,
@@ -346,10 +365,11 @@ impl RadixSort {
             COPY.replace("__PARTITION__", &partition(row, 0)),
             "main",
         );
-        let storage = wgpu::BufferUsages::STORAGE;
+        let storage = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST);
         let table = (UNITS * BINS * 4) as u64;
         let block_table = (CHUNKS * BINS * 4) as u64;
         let length_holder = GpuBuffer::new(&device, &format!("{LABEL} length"), 4, storage);
+        let zero = GpuBuffer::zeroed(&device, &format!("{LABEL} base zero"), 4, storage);
         let counts = GpuBuffer::new(&device, &format!("{LABEL} counts"), table, storage);
         let offsets = GpuBuffer::new(&device, &format!("{LABEL} offsets"), table, storage);
         let block_totals = GpuBuffer::new(
@@ -366,6 +386,7 @@ impl RadixSort {
             prefix,
             copy,
             length_holder,
+            zero,
             counts,
             offsets,
             block_totals,
@@ -377,9 +398,11 @@ impl RadixSort {
         &mut self,
         recorder: &mut ComputeRecorder,
         channels: &SortChannels<'_>,
+        plan: u32,
         major_words: u32,
         minor_words: u32,
     ) {
+        let plan = plan.clamp(1, UNITS).div_ceil(CHUNK) * CHUNK;
         let digits = digit_passes(minor_words, major_words);
         assert!(
             !digits.is_empty(),
@@ -393,12 +416,14 @@ impl RadixSort {
             prefix,
             copy,
             length_holder,
+            zero,
             counts,
             offsets,
             block_totals,
             groups,
         } = self;
-        let key = ChannelsKey::of(channels);
+        let base = channels.base.unwrap_or_else(|| words(zero));
+        let key = ChannelsKey::of(channels, base.storage_id());
         let index = groups
             .iter()
             .position(|entry| entry.holds(&key, &digits))
@@ -421,12 +446,13 @@ impl RadixSort {
                     offsets,
                     block_totals,
                     &digits,
+                    base,
                     &declared,
                 ));
                 groups.len() - 1
             });
         let bound = &groups[index];
-        let units = reserved_units(channels);
+        let units = plan;
         let chunks = units.div_ceil(CHUNK);
         recorder.record(length.pipeline(), &[&bound.length], 1);
         for (order, digit) in digits.iter().enumerate() {

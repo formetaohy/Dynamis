@@ -26,6 +26,46 @@ pub(crate) struct Rest {
     quiet: u32,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct Resting {
+    pending: bool,
+    derived: u32,
+    resolution: Option<(u32, u32)>,
+}
+
+impl Resting {
+    pub(crate) const IDLE: Self = Self {
+        pending: true,
+        derived: 0,
+        resolution: None,
+    };
+
+    pub(crate) const REGION_LIFETIME: u32 = 64;
+
+    pub(crate) fn stale(&self) -> bool {
+        self.pending
+    }
+
+    pub(crate) fn invalidate(&mut self) {
+        self.pending = true;
+    }
+
+    pub(crate) fn settle(&mut self, step: u64, resolution: (u32, u32)) {
+        if self.resolution != Some(resolution) {
+            self.pending = true;
+        }
+        if step.wrapping_sub(u64::from(self.derived)) >= u64::from(Self::REGION_LIFETIME) {
+            self.pending = true;
+        }
+    }
+
+    pub(crate) fn derived(&mut self, step: u64, resolution: (u32, u32)) {
+        self.pending = false;
+        self.derived = step as u32;
+        self.resolution = Some(resolution);
+    }
+}
+
 impl Rest {
     pub(crate) const IDLE: Self = Self { quiet: 0 };
 
@@ -183,6 +223,7 @@ impl World {
                 observed_joints: census.observed_joint_demand,
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
+                bodies: census.bodies,
                 colliders: census.live_colliders,
                 movable_colliders: census.movable_colliders,
                 immovable_colliders: census.immovable_colliders,
@@ -190,6 +231,7 @@ impl World {
                 entry_base: 0,
                 moving_slots: 0,
                 immovable_rebuild: false,
+                resting_rebuild: self.backend.resting.stale(),
             },
             rigid: dynamis_rigid::RigidInputs {
                 bodies: census.bodies,
@@ -206,6 +248,7 @@ impl World {
                 vehicle_wheels: census.vehicle_wheels,
                 joint_groups: self.constraints.schedule.groups,
                 immovable_rebuild: false,
+                resting_rebuild: self.backend.resting.stale(),
             },
             soft: dynamis_soft::SoftInputs {
                 particles: census.particles,

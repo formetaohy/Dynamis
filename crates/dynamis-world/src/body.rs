@@ -21,6 +21,7 @@ pub(crate) struct BodyStore {
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
+    pub(crate) layout_changed: bool,
 }
 
 impl BodyStore {
@@ -34,6 +35,7 @@ impl BodyStore {
             commands: Vec::new(),
             last_moves: 0,
             last_edits: 0,
+            layout_changed: false,
         }
     }
 
@@ -122,6 +124,7 @@ impl World {
     }
 
     fn swap_slots(&mut self, first: u32, second: u32) {
+        self.bodies.layout_changed = true;
         self.bodies.pool.swap_rows(first, second);
         self.bodies
             .commands
@@ -130,6 +133,7 @@ impl World {
 
     fn encode_body(&mut self, handle: BodyHandle) {
         self.constraints.schedule.invalidate();
+        self.bodies.layout_changed = true;
         let id = handle.id as usize;
         let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
             self.shape_solid(shape)
