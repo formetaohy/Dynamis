@@ -15,6 +15,7 @@ pub const COMPACT_BLOCK: u32 = 256;
 
 pub const DELTA_WORDS: u32 = dynamis_abi::SOLVER_DELTA_WORDS;
 pub const BLOCK_LANES: u32 = 2;
+pub const JOINT_BATCH_LANES: u32 = dynamis_shader::WORKGROUP_SIZE;
 
 streams! {
     RigidStreams, RigidStream, RigidDemand, RigidDomain::ID, demand,
@@ -42,7 +43,8 @@ streams! {
         constraint_scratch, ConstraintScratch: "constraint state scratch", ConstraintRuntimeRecord, 1, Retention::Scratch, demand.constraints;
         joint_rows, JointRows: "joint solve rows", u32, 1, Retention::Scratch, demand.constraints;
         joint_layers, JointLayers: "joint solve layers", u32, 2, Retention::Scratch, demand.constraints;
-        joint_groups, JointGroups: "joint solve groups", u32, 2, Retention::Scratch, demand.constraints;
+        joint_components, JointComponents: "joint solve components", u32, 2, Retention::Scratch, demand.constraints;
+        joint_batches, JointBatches: "joint solve batches", u32, 4, Retention::Scratch, demand.constraints;
         joint_filter_major, JointFilterMajor: "joint filter major", u32, 1, Retention::Scratch, demand.constraints;
         joint_filter_minor, JointFilterMinor: "joint filter minor", u32, 1, Retention::Scratch, demand.constraints;
         ccd_factor, CcdFactor: "ccd retreat factors", u32, 1, Retention::Scratch, demand.bodies;

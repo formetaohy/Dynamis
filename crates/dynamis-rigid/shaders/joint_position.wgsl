@@ -6,8 +6,11 @@
 @group(0) @binding(5) var<storage, read> constraint_rows: array<ConstraintRows>;
 @group(0) @binding(6) var<storage, read> joint_rows: array<u32>;
 @group(0) @binding(7) var<storage, read> joint_layers: array<u32>;
-@group(0) @binding(8) var<storage, read> joint_groups: array<u32>;
+@group(0) @binding(8) var<storage, read> joint_components: array<u32>;
 @group(0) @binding(9) var<storage, read_write> resolution: array<vec4f>;
+@group(0) @binding(10) var<storage, read> joint_batches: array<u32>;
+
+const JOINT_BATCH_WORDS: u32 = 4u;
 
 fn project(index: u32) {
     let pair = joint_correction(index);
@@ -29,24 +32,30 @@ fn project(index: u32) {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(workgroup_id) wgid: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-    let group = wgid.x;
-    if (group >= arrayLength(&joint_groups) / 2u) {
-        return;
-    }
-    let layer_offset = joint_groups[group * 2u];
-    let layer_count = joint_groups[group * 2u + 1u];
-    if (layer_count == 0u) {
-        return;
+    let batch = wgid.x * JOINT_BATCH_WORDS;
+    let lanes = joint_batches[batch + 2u];
+    let span = joint_batches[batch + 3u];
+    let component = joint_batches[batch] + lid.x / lanes;
+    let lane = lid.x % lanes;
+    var layer_offset = 0u;
+    var layer_count = 0u;
+    if (component < joint_batches[batch] + joint_batches[batch + 1u]) {
+        layer_offset = joint_components[component * 2u];
+        layer_count = joint_components[component * 2u + 1u];
     }
     for (var sweep = 0u; sweep < 2u; sweep = sweep + 1u) {
-        for (var step = 0u; step < layer_count; step = step + 1u) {
-            let layer = select(layer_offset + step, layer_offset + layer_count - 1u - step, sweep == 1u);
-            let first = joint_layers[layer * 2u];
-            let count = joint_layers[layer * 2u + 1u];
-            for (var index = lid.x; index < count; index = index + WORKGROUP_SIZE) {
-                project(joint_rows[first + index]);
+        for (var step = 0u; step < span; step = step + 1u) {
+            if (layer_count > step) {
+                let layer = select(layer_offset + step, layer_offset + layer_count - 1u - step, sweep == 1u);
+                let first = joint_layers[layer * 2u];
+                let count = joint_layers[layer * 2u + 1u];
+                for (var index = lane; index < count; index = index + lanes) {
+                    project(joint_rows[first + index]);
+                }
             }
-            workgroupBarrier();
+            if (lanes > 1u) {
+                workgroupBarrier();
+            }
         }
     }
 }

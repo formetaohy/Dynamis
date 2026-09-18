@@ -246,7 +246,7 @@ impl World {
                 characters: census.characters,
                 vehicles: census.vehicles,
                 vehicle_wheels: census.vehicle_wheels,
-                joint_groups: self.constraints.schedule.groups,
+                joint_batches: self.constraints.schedule.batches,
                 immovable_rebuild: false,
                 resting_rebuild: self.backend.resting.stale(),
             },

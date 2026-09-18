@@ -56,6 +56,7 @@ impl BodyStore {
 impl World {
     pub fn spawn(&mut self, desc: BodyDesc) -> BodyHandle {
         self.validate_world_geometry(&desc);
+        self.constraints.schedule.invalidate();
         let handle = self.bodies.pool.acquire();
         self.bodies.grow_to(handle.id);
         self.bodies.descs[handle.id as usize] = desc.clone();
@@ -78,6 +79,7 @@ impl World {
     pub fn remove(&mut self, handle: BodyHandle) {
         self.validate(handle);
         self.assert_unreferenced(handle);
+        self.constraints.schedule.invalidate();
         let slot = self.bodies.pool.row_of(handle);
         if slot < self.bodies.dynamic {
             let tail_dynamic = self.bodies.dynamic - 1;
@@ -132,13 +134,15 @@ impl World {
     }
 
     fn encode_body(&mut self, handle: BodyHandle) {
-        self.constraints.schedule.invalidate();
         self.bodies.layout_changed = true;
         let id = handle.id as usize;
         let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
             self.shape_solid(shape)
         });
         let previous = self.bodies.records[id];
+        if (previous.inverse_mass == 0.0) != (record.inverse_mass == 0.0) {
+            self.constraints.schedule.invalidate();
+        }
         self.bodies.ccd = match (previous.flags & BODY_CCD != 0, record.flags & BODY_CCD != 0) {
             (false, true) => self.bodies.ccd + 1,
             (true, false) => self.bodies.ccd - 1,

@@ -167,7 +167,8 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
                     ("joint_rows", RigidStream::JointRows.whole()),
                     ("joint_layers", RigidStream::JointLayers.whole()),
-                    ("joint_groups", RigidStream::JointGroups.whole()),
+                    ("joint_components", RigidStream::JointComponents.whole()),
+                    ("joint_batches", RigidStream::JointBatches.whole()),
                     ("counters", StateStream::Counters.whole()),
                     ("solver_rounds", RigidStream::SolverRounds.whole()),
                 ],
@@ -243,7 +244,8 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
                     ("constraint_rows", RigidStream::ConstraintRows.whole()),
                     ("joint_rows", RigidStream::JointRows.whole()),
                     ("joint_layers", RigidStream::JointLayers.whole()),
-                    ("joint_groups", RigidStream::JointGroups.whole()),
+                    ("joint_components", RigidStream::JointComponents.whole()),
+                    ("joint_batches", RigidStream::JointBatches.whole()),
                     ("resolution", RigidStream::SolverResolution.whole()),
                 ],
                 &[],
@@ -310,20 +312,20 @@ impl PassRuntime<RigidFrame> for SolveSubsteps {
             self.integrate.record(recorder, streams);
             if substep == 0 {
                 self.joint_velocity
-                    .record_workgroups_warm(recorder, streams, frame.joint_groups);
+                    .record_workgroups_warm(recorder, streams, frame.joint_batches);
                 self.block_solve.record_warm(recorder, streams);
                 self.block_apply.record_stream(recorder, streams);
             }
             for _ in 0..frame.params.solve_iterations {
                 self.joint_velocity
-                    .record_workgroups(recorder, streams, frame.joint_groups);
+                    .record_workgroups(recorder, streams, frame.joint_batches);
                 self.block_solve.record_stream(recorder, streams);
                 self.block_apply.record_stream(recorder, streams);
             }
             self.integrate.record_advance(recorder, streams);
             for _ in 0..frame.params.position_iterations {
                 self.joint_position
-                    .record_workgroups(recorder, streams, frame.joint_groups);
+                    .record_workgroups(recorder, streams, frame.joint_batches);
                 self.position_block.record_stream(recorder, streams);
                 self.position_apply.record_stream(recorder, streams);
             }

@@ -87,7 +87,7 @@ pub struct RigidFrame {
     pub shape: RigidShape,
     pub observed_count: u32,
     pub observed_joints: u32,
-    pub joint_groups: u32,
+    pub joint_batches: u32,
     pub ccd: bool,
     pub impacts: bool,
     pub immovable_rebuild: bool,
@@ -111,7 +111,9 @@ use wake::{WAKE_ALL_EXECUTION, WakeAll};
 pub use capacity::{RigidCapacity, RigidInputs, capacity, floor, plan};
 pub use ccd::{CcdApply, CcdPasses, CcdRuntime, CcdSweep};
 pub use domain::{RigidDomain, RigidDomainPasses, RigidDomainRuntime, RigidWork};
-pub use streams::{RigidDemand, RigidStream, RigidStreams, event_capacity, impact_capacity};
+pub use streams::{
+    JOINT_BATCH_LANES, RigidDemand, RigidStream, RigidStreams, event_capacity, impact_capacity,
+};
 
 domain_passes!(
     RigidPasses,
