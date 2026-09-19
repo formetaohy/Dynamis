@@ -339,3 +339,82 @@ fn a_new_vehicle_takes_over_the_wheel_span_of_a_retired_one() {
         state.position
     );
 }
+
+#[test]
+fn a_braking_vehicle_is_held_by_the_floor_it_stands_on() {
+    let mut world = observed_world(gravity_config());
+    let floor = world.spawn(
+        BodyDesc::cuboid([6.0, 0.25, 6.0])
+            .position([0.0, 0.0, 0.0])
+            .kinematic(true)
+            .velocity([1.0, 0.0, 0.0]),
+    );
+    let vehicle = settled_vehicle(&mut world);
+    let chassis = world.vehicle_body(vehicle);
+    world.observe_bodies(&[chassis]);
+    let before = world.read_state(chassis).position;
+    drive(
+        &mut world,
+        vehicle,
+        VehicleInput {
+            throttle: 0.0,
+            steering: 0.0,
+            brake: 1.0,
+        },
+        120,
+    );
+    let after = world.read_state(chassis).position;
+    assert!(
+        after[0] - before[0] > 0.5,
+        "a braking vehicle must be held by the floor it stands on, got {} from {}",
+        after[0],
+        before[0],
+    );
+    assert!(
+        after[0] < world.read_state(floor).position[0],
+        "a vehicle must ride the floor instead of outrunning it, got {} against {}",
+        after[0],
+        world.read_state(floor).position[0],
+    );
+    assert!(
+        (after[1] - before[1]).abs() < 0.2,
+        "a held vehicle must keep its ride height, got {} from {}",
+        after[1],
+        before[1],
+    );
+}
+
+#[test]
+fn a_braking_vehicle_follows_the_turn_of_the_floor_it_stands_on() {
+    let mut world = observed_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([12.0, 0.25, 12.0])
+            .position([0.0, 0.0, 0.0])
+            .kinematic(true)
+            .angular_velocity([0.0, 0.2, 0.0]),
+    );
+    let vehicle = world.add_vehicle(car());
+    let chassis = world.vehicle_body(vehicle);
+    world.observe_bodies(&[chassis]);
+    for _ in 0..40 {
+        world.step(DT);
+    }
+    world.wait();
+    let yaw = |orientation: [f32; 4]| {
+        let [x, y, z, w] = orientation;
+        (2.0 * (w * y + x * z)).atan2(1.0 - 2.0 * (x * x + y * y))
+    };
+    let braking = VehicleInput {
+        throttle: 0.0,
+        steering: 0.0,
+        brake: 1.0,
+    };
+    drive(&mut world, vehicle, braking, 180);
+    let held = yaw(world.read_state(chassis).orientation);
+    drive(&mut world, vehicle, braking, 60);
+    let turned = yaw(world.read_state(chassis).orientation) - held;
+    assert!(
+        (turned - 0.2).abs() < 0.05,
+        "a braking vehicle must turn with the floor it stands on, turned {turned} rad per second against 0.2"
+    );
+}

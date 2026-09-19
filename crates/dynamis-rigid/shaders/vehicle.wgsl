@@ -14,6 +14,9 @@ const TAU: f32 = 6.283185307179586;
 
 struct WheelHit {
     touching: bool,
+    body: u32,
+    generation: u32,
+    point: vec3f,
     distance: f32,
     normal: vec3f,
 }
@@ -24,12 +27,31 @@ struct WheelLoad {
     grounded: u32,
 }
 
+fn load_body(row: u32) -> Body {
+    return Body(body_states[row], body_descs[row]);
+}
+
 fn wheel_hit(id: u32) -> WheelHit {
     if (vehicle_sweeps[id].count == 0u) {
-        return WheelHit(false, NO_HIT, vec3f(0.0, 1.0, 0.0));
+        return WheelHit(false, NO_BODY, 0u, vec3f(0.0), NO_HIT, vec3f(0.0, 1.0, 0.0));
     }
     let record = vehicle_hits[id];
-    return WheelHit(true, record.distance, record.normal);
+    return WheelHit(
+        true,
+        record.body_id,
+        record.body_generation,
+        record.point,
+        record.distance,
+        record.normal,
+    );
+}
+
+fn wheel_ground_velocity(hit: WheelHit) -> vec3f {
+    let row = resolve_row(hit.body, hit.generation);
+    if (row == NO_BODY) {
+        return vec3f(0.0);
+    }
+    return point_velocity(load_body(row), hit.point);
 }
 
 fn wheel_query(vehicle: Vehicle, base: u32, wheel: VehicleWheel, origin: vec3f, axis: vec3f) -> Query {
@@ -93,7 +115,7 @@ fn wheel_load(
     let stiffness = share * omega * omega;
     let damping = 2.0 * wheel.damping_ratio * share * omega;
     let lever = contact - body_com_of(state, desc);
-    let velocity = state.velocity + cross(state.angular_velocity, lever);
+    let velocity = state.velocity + cross(state.angular_velocity, lever) - wheel_ground_velocity(hit);
     let compression = wheel.travel - length;
     let normal_force = max(stiffness * compression - damping * dot(velocity, normal), 0.0);
     let grip = wheel.friction * normal_force;

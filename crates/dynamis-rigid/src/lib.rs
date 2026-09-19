@@ -27,6 +27,8 @@ const ISLAND_LINK_FRAGMENT: &str = include_str!("../shaders/island_link.wgsl");
 const JOINED_PAIRS_FRAGMENT: &str = include_str!("../shaders/joined_pairs.wgsl");
 const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
+pub(crate) const ROW_RESOLUTION: &[&str] = &[IDENTITY_FRAGMENT, BODY_ROW_FRAGMENT];
+
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
 const CONTACT: &[&str] = &[
     COUNTERS_FRAGMENT,

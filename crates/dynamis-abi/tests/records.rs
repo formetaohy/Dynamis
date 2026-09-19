@@ -4,16 +4,16 @@ use dynamis_abi::{
     CONSTRAINT_DISABLE_COLLISIONS, CONSTRAINT_DISTANCE, CONSTRAINT_FIXED, CONSTRAINT_GEAR,
     CONSTRAINT_HAS_BREAK, CONSTRAINT_HAS_LIMIT, CONSTRAINT_HAS_MOTOR, CONSTRAINT_HAS_SWING,
     CONSTRAINT_IS_SPRING, CONSTRAINT_PRISMATIC, CONSTRAINT_PULLEY, CONSTRAINT_REVOLUTE,
-    ColliderRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE,
-    EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE,
-    EDIT_WAKE, ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, EVENT_MODE_BEGIN_END,
-    EVENT_MODE_PERSIST, FIELD_REGION_CUBOID, FIELD_REGION_GLOBAL, FIELD_REGION_SPHERE,
-    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
-    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
-    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS,
-    QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
-    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
-    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
+    CharacterStateRecord, ColliderRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE,
+    EDIT_FORCE, EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP,
+    EDIT_TORQUE, EDIT_WAKE, ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME,
+    EVENT_MODE_BEGIN_END, EVENT_MODE_PERSIST, FIELD_REGION_CUBOID, FIELD_REGION_GLOBAL,
+    FIELD_REGION_SPHERE, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
+    FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
+    PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
+    QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams,
+    RowStreamsRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
+    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
     SoftAnnouncementRecord, SoftBodyEditRecord, SoftElementInit, SoftElementRecord,
     SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord, TriangleRecord,
     dof_driven, dof_limited, dof_locked, event_flags,
@@ -23,9 +23,9 @@ use dynamis_abi::{
     SoftContactRecord, SoftFactRecord,
 };
 use dynamis_model::{
-    BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind, ConstraintMotor,
-    ConstraintPositionTarget, DofDesc, FieldDesc, FieldRegion, PhysicsConfig, QueryFilter,
-    QueryTargets, Shape, SoftElementKind, SoftElementState, SurfaceDesc,
+    BodyDesc, BodyHandle, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind,
+    ConstraintMotor, ConstraintPositionTarget, DofDesc, FieldDesc, FieldRegion, PhysicsConfig,
+    QueryFilter, QueryTargets, Shape, SoftElementKind, SoftElementState, SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -1114,5 +1114,42 @@ fn every_declared_count_bounds_its_own_step_field() {
         values,
         (1..=14).chain(21..=25).collect::<Vec<_>>(),
         "every declared count must resolve to the census field it was declared from, got {declared:?}"
+    );
+}
+
+#[test]
+fn a_character_state_names_the_support_it_stands_on() {
+    let placed = CharacterStateRecord::placed(3, 7, [1.0, 2.0, 3.0]);
+    assert_eq!(
+        placed.support(),
+        None,
+        "a character its host placed stands on ground its sweeps have yet to answer"
+    );
+    assert_eq!(placed.state().position, [1.0, 2.0, 3.0]);
+    assert!(placed.state().grounded);
+
+    let landed = CharacterStateRecord {
+        support: 11,
+        support_generation: 4,
+        ..placed
+    };
+    assert_eq!(
+        landed.support(),
+        Some(BodyHandle {
+            id: 11,
+            generation: 4
+        }),
+        "a character must answer the body its landing sweep found"
+    );
+    assert_eq!(landed.state().support, landed.support());
+    assert_eq!(
+        CharacterStateRecord::cleared().support(),
+        None,
+        "a retired character stands on nothing"
+    );
+    assert_eq!(
+        size_of::<CharacterStateRecord>(),
+        48,
+        "a character state must stay inside the record the device streams"
     );
 }

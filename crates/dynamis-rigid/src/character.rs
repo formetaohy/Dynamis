@@ -1,4 +1,5 @@
 use super::streams::RigidStream;
+use crate::ROW_RESOLUTION;
 use crate::RigidFrame;
 use dynamis_abi::{CHARACTER_SWEEPS, Count};
 use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
@@ -24,7 +25,7 @@ impl PassRuntime<RigidFrame> for Character {
                 rows(
                     context,
                     include_str!("../shaders/character.wgsl"),
-                    &[],
+                    ROW_RESOLUTION,
                     Count::Characters.bound(),
                 ),
                 streams,
@@ -35,6 +36,7 @@ impl PassRuntime<RigidFrame> for Character {
                     ("character_sweeps", RigidStream::CharacterSweeps.whole()),
                     ("character_hits", RigidStream::CharacterHits.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
+                    ("body_descs", StateStream::BodyDescriptors.whole()),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("wake_flags", StateStream::WakeFlags.whole()),
                     ("params", StateStream::Params.whole()),

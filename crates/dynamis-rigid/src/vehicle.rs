@@ -1,4 +1,5 @@
 use super::streams::RigidStream;
+use crate::ROW_RESOLUTION;
 use crate::RigidFrame;
 use dynamis_abi::Count;
 use dynamis_gpu::{ComputeRecorder, GpuContext, ResourceSource};
@@ -24,7 +25,7 @@ impl PassRuntime<RigidFrame> for Vehicle {
                 rows(
                     context,
                     include_str!("../shaders/vehicle.wgsl"),
-                    &[],
+                    ROW_RESOLUTION,
                     Count::Vehicles.bound(),
                 ),
                 streams,

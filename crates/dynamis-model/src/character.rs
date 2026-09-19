@@ -1,3 +1,5 @@
+use crate::BodyHandle;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CharacterDesc {
     pub radius: f32,
@@ -59,6 +61,9 @@ pub struct CharacterState {
     pub position: [f32; 3],
     pub vertical_speed: f32,
     pub grounded: bool,
+    /// The body the landing sweep answered underneath the character, which the character rides
+    /// while it stands on it, and no body while it answers none.
+    pub support: Option<BodyHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

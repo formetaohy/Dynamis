@@ -4,9 +4,10 @@
 @group(0) @binding(3) var<storage, read_write> character_sweeps: array<Query>;
 @group(0) @binding(4) var<storage, read_write> character_hits: array<QueryHit>;
 @group(0) @binding(5) var<storage, read_write> body_states: array<BodyState>;
-@group(0) @binding(6) var<storage, read> row_of_body: array<u32>;
-@group(0) @binding(7) var<storage, read_write> wake_flags: array<atomic<u32>>;
-@group(0) @binding(8) var<uniform> params: StepParams;
+@group(0) @binding(6) var<storage, read> body_descs: array<BodyDescriptor>;
+@group(0) @binding(7) var<storage, read> row_of_body: array<u32>;
+@group(0) @binding(8) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(9) var<uniform> params: StepParams;
 
 const CHARACTER_SKIN: f32 = 0.05;
 const SWEEP_FORWARD: u32 = 0u;
@@ -19,6 +20,19 @@ struct CharacterSweep {
     hit: bool,
     distance: f32,
     normal: vec3f,
+}
+
+struct CharacterFooting {
+    hit: bool,
+    body: u32,
+    generation: u32,
+    distance: f32,
+    normal: vec3f,
+    point: vec3f,
+}
+
+fn load_body(slot: u32) -> Body {
+    return Body(body_states[slot], body_descs[slot]);
 }
 
 fn character_up(gravity: vec3f) -> vec3f {
@@ -36,6 +50,36 @@ fn character_sweep(index: u32, lane: u32) -> CharacterSweep {
     }
     let hit = character_hits[base];
     return CharacterSweep(true, hit.distance, hit.normal);
+}
+
+fn character_footing(index: u32) -> CharacterFooting {
+    let base = index * CHARACTER_SWEEPS + SWEEP_DOWN;
+    if (character_sweeps[base].count == 0u) {
+        return CharacterFooting(false, NO_BODY, 0u, NO_HIT, vec3f(0.0), vec3f(0.0));
+    }
+    let hit = character_hits[base];
+    return CharacterFooting(
+        true,
+        hit.body_id,
+        hit.body_generation,
+        hit.distance,
+        hit.normal,
+        hit.point,
+    );
+}
+
+fn footing_row(footing: CharacterFooting) -> u32 {
+    if (!footing.hit) {
+        return NO_BODY;
+    }
+    return resolve_row(footing.body, footing.generation);
+}
+
+fn footing_ride(footing: CharacterFooting, row: u32) -> vec3f {
+    if (row == NO_BODY) {
+        return vec3f(0.0);
+    }
+    return point_velocity(load_body(row), footing.point);
 }
 
 fn floor_like(normal: vec3f, up: vec3f) -> bool {
@@ -108,7 +152,7 @@ fn work(index: u32) {
     let forward = character_sweep(index, SWEEP_FORWARD);
     let forward_low = character_sweep(index, SWEEP_FORWARD_LOW);
     let lifted_forward = character_sweep(index, SWEEP_LIFTED_FORWARD);
-    let landing = character_sweep(index, SWEEP_DOWN);
+    let footing = character_footing(index);
     let ceiling = character_sweep(index, SWEEP_CEILING);
     var jumped = false;
     var vertical = state.vertical;
@@ -126,9 +170,9 @@ fn work(index: u32) {
     var vertical_after = vertical;
     var horizontal_step = horizontal;
     var press_dir = vec3f(0.0);
-    if (!jumped && landing.hit) {
-        support = support + up * -(clamp(landing.distance - CHARACTER_SKIN, 0.0, state.down_length));
-        grounded = dot(landing.normal, up) > character.cos_slope_limit;
+    if (!jumped && footing.hit) {
+        support = support + up * -(clamp(footing.distance - CHARACTER_SKIN, 0.0, state.down_length));
+        grounded = dot(footing.normal, up) > character.cos_slope_limit;
         if (grounded) {
             vertical_after = 0.0;
         }
@@ -148,18 +192,29 @@ fn work(index: u32) {
             press_dir = normalize(horizontal);
         }
     }
-    if (ceiling.hit && vertical_after > 0.0) {
-        vertical_after = 0.0;
+    let standing_on = select(NO_BODY, footing_row(footing), grounded);
+    var carried = select(vec3f(0.0), footing_ride(footing, standing_on), grounded);
+    if (ceiling.hit && (vertical_after > 0.0 || dot(carried, up) > 0.0)) {
+        vertical_after = min(vertical_after, 0.0);
+        carried = carried - up * max(dot(carried, up), 0.0);
     }
-    let velocity = horizontal + up * vertical_after;
-    let position = support + horizontal_step * params.dt + up * (vertical_after * params.dt);
+    let velocity = carried + horizontal + up * vertical_after;
+    let position = support
+        + carried * params.dt
+        + horizontal_step * params.dt
+        + up * (vertical_after * params.dt);
     let down_length = CHARACTER_SKIN + (abs(vertical_after) + horizontal_speed) * params.dt;
-    let up_length = CHARACTER_SKIN + max(vertical_after, 0.0) * params.dt;
+    let up_length = CHARACTER_SKIN
+        + max(vertical_after, 0.0) * params.dt
+        + max(dot(carried, up), 0.0) * params.dt;
     let forward_length = horizontal_speed * params.dt + CHARACTER_SKIN;
     state.position = position;
     state.vertical = vertical_after;
     state.down_length = down_length;
     state.grounded = select(0u, 1u, grounded);
+    let supported = grounded && standing_on != NO_BODY;
+    state.support = select(NO_BODY, footing.body, supported);
+    state.support_generation = select(0u, footing.generation, supported);
     character_states[index] = state;
     let row = row_of_body[character.body_id];
     let pre_move = support + press_dir * (CHARACTER_SKIN * 0.5);

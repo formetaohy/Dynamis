@@ -544,8 +544,12 @@ struct CharacterState {
     vertical: f32,
     down_length: f32,
     grounded: u32,
+    support: u32,
+    support_generation: u32,
     owner: u32,
     generation: u32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
 struct VehicleWheel {
