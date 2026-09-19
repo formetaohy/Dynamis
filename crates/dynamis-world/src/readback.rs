@@ -5,8 +5,8 @@ use dynamis_abi::COUNTER_RESTING;
 use dynamis_abi::{
     COUNTER_CONTACTS, COUNTER_DEVICE_COUNT, COUNTER_SOLVE_ANGULAR_RESIDUAL,
     COUNTER_SOLVE_LINEAR_RESIDUAL, COUNTER_STRIDE, ConstraintReactionRecord, ContactRecord,
-    Counters, DeclaredCounters, FEATURE_KIND_MASK, FEATURE_TRIANGLE, FEATURE_TRIANGLE_MASK,
-    JointStateRecord, NO_SURFACE, SHAPE_HEIGHTFIELD, SHAPE_MESH, solve_velocity,
+    Counters, DeclaredCounters, JointStateRecord, NO_SURFACE, NO_TRIANGLE, SHAPE_HEIGHTFIELD,
+    SHAPE_MESH, solve_velocity,
 };
 use dynamis_model::{BodyHandle, ConstraintHandle, JointState, SurfaceDesc};
 use std::collections::HashSet;
@@ -307,10 +307,6 @@ pub(crate) fn constraint_force_of(
     }
 }
 
-fn feature_triangle(feature: u32) -> Option<u32> {
-    ((feature & FEATURE_KIND_MASK) == FEATURE_TRIANGLE).then_some(feature & FEATURE_TRIANGLE_MASK)
-}
-
 fn manifold_of(record: &ContactRecord, step: u64, surface: Option<SurfaceDesc>) -> ContactManifold {
     ContactManifold {
         first: BodyHandle {
@@ -342,7 +338,7 @@ fn manifold_of(record: &ContactRecord, step: u64, surface: Option<SurfaceDesc>) 
                     + point.accumulated_tangent_2 * point.accumulated_tangent_2)
                     .sqrt(),
                 feature: point.feature,
-                triangle: feature_triangle(point.feature),
+                triangle: (record.triangle != NO_TRIANGLE).then_some(record.triangle),
             })
             .collect(),
         step,

@@ -58,15 +58,12 @@ declare_constants! {
     pub const FEATURE_VERTEX: u32 = 1 << 28;
     pub const FEATURE_EDGE: u32 = 2 << 28;
     pub const FEATURE_FACE: u32 = 3 << 28;
-    pub const FEATURE_TRIANGLE: u32 = 4 << 28;
     pub const FEATURE_KIND_MASK: u32 = 0xF000_0000;
     pub const FEATURE_FIELD_BITS: u32 = 14;
     pub const FEATURE_FIELD_MASK: u32 = (1 << FEATURE_FIELD_BITS) - 1;
     pub const FEATURE_INDEX_LIMIT: u32 = 1 << 12;
     pub const FEATURE_CLIP: u32 = 1 << 12;
     pub const FEATURE_FACE_BIT: u32 = 1 << 13;
-    pub const FEATURE_TRIANGLE_SIDE: u32 = 1 << 27;
-    pub const FEATURE_TRIANGLE_MASK: u32 = FEATURE_TRIANGLE_SIDE - 1;
     pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
     pub const GRID_REGION_RESTING: u32 = 0;
@@ -176,8 +173,7 @@ const _: () = assert!(
     "a shape point id must not collide with the shape tags"
 );
 const _: () = assert!(
-    FEATURE_KIND_MASK & FEATURE_FIELD_MASK == 0
-        && FEATURE_TRIANGLE & FEATURE_KIND_MASK == FEATURE_TRIANGLE,
+    FEATURE_KIND_MASK & FEATURE_FIELD_MASK == 0,
     "a feature kind must sit above its shape fields"
 );
 const _: () = assert!(

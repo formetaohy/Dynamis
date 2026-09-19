@@ -47,6 +47,7 @@ pub mod soft;
 pub mod soft_authoring;
 pub mod solver;
 pub mod surface;
+pub mod terrain;
 #[cfg(feature = "profile")]
 pub mod timing;
 pub mod validation;

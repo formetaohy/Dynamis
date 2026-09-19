@@ -339,6 +339,7 @@ struct Contact {
     normal: vec3f,
     events: u32,
     surface: u32,
+    triangle: u32,
     friction: f32,
     restitution: f32,
     rolling_friction: f32,

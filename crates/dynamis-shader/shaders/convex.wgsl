@@ -899,7 +899,7 @@ fn feature_radius(points: ptr<function, array<vec3f, FEATURE_MAX>>, count: u32) 
     return radius;
 }
 
-const CLIP_POINTS: u32 = 16u;
+const CLIP_POINTS: u32 = MANIFOLD_CANDIDATES;
 
 struct ClippedFeature {
     points: array<vec3f, CLIP_POINTS>,
@@ -1042,9 +1042,9 @@ fn convex_pair_manifold(
         }
     }
     let clipped = clip_feature_to_ring(incident, incident_ids, incident_count, reference, reference_count, ref_dir);
-    var candidates: array<ManifoldPoint, CONTACT_MAX_POINTS>;
+    var candidates: array<ManifoldPoint, MANIFOLD_CANDIDATES>;
     var candidate_count = 0u;
-    for (var i = 0u; i < clipped.count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+    for (var i = 0u; i < clipped.count && candidate_count < MANIFOLD_CANDIDATES; i = i + 1u) {
         let depth = dot(center - clipped.points[i], ref_dir);
         if (depth > 0.0) {
             candidates[candidate_count] = manifold_candidate(
@@ -1066,18 +1066,7 @@ fn convex_pair_manifold(
         manifold_push(contact, deepest - ref_dir * (deepest_depth * 0.5), deepest_depth, feature_point());
         return true;
     }
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
-            if (candidates[j].depth > candidates[i].depth) {
-                let tmp = candidates[i];
-                candidates[i] = candidates[j];
-                candidates[j] = tmp;
-            }
-        }
-    }
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        manifold_push(contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
-    }
+    manifold_keep(contact, &candidates, candidate_count);
     return true;
 }
 

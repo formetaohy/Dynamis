@@ -268,10 +268,10 @@ fn collider_record_fills_its_alignment_room_with_the_contact_softness() {
 
 #[test]
 fn contact_record_fills_its_alignment_room_with_the_carried_impulse() {
-    assert_eq!(offset_of!(ContactRecord, carried_normal), 68);
-    assert_eq!(offset_of!(ContactRecord, carried_tangent), 72);
-    assert_eq!(offset_of!(ContactRecord, relaxation), 76);
-    assert_eq!(offset_of!(ContactRecord, damping_ratio), 80);
+    assert_eq!(offset_of!(ContactRecord, carried_normal), 72);
+    assert_eq!(offset_of!(ContactRecord, carried_tangent), 76);
+    assert_eq!(offset_of!(ContactRecord, relaxation), 80);
+    assert_eq!(offset_of!(ContactRecord, damping_ratio), 84);
     assert_eq!(offset_of!(ContactRecord, points), 96);
     assert_eq!(size_of::<ContactRecord>(), 352);
 }
@@ -1063,9 +1063,10 @@ fn query_hit_record_pins_the_hit_triangle_and_surface() {
 fn contact_record_pins_the_manifold_surface() {
     assert_eq!(offset_of!(ContactRecord, events), 44);
     assert_eq!(offset_of!(ContactRecord, surface), 48);
-    assert_eq!(offset_of!(ContactRecord, friction), 52);
-    assert_eq!(offset_of!(ContactRecord, relaxation), 76);
-    assert_eq!(offset_of!(ContactRecord, damping_ratio), 80);
+    assert_eq!(offset_of!(ContactRecord, triangle), 52);
+    assert_eq!(offset_of!(ContactRecord, friction), 56);
+    assert_eq!(offset_of!(ContactRecord, relaxation), 80);
+    assert_eq!(offset_of!(ContactRecord, damping_ratio), 84);
     assert_eq!(offset_of!(ContactRecord, points), 96);
 }
 

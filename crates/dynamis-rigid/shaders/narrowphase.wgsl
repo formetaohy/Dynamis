@@ -19,6 +19,7 @@ fn load_body(slot: u32) -> Body {
 fn manifold_emit(contact: ptr<function, Contact>, normal: vec3f) {
     (*contact).point_count = 0u;
     (*contact).normal = normal;
+    (*contact).triangle = NO_TRIANGLE;
 }
 
 fn pair_margin(first: Body, second: Body) -> f32 {
@@ -429,9 +430,9 @@ margin: f32,
             break;
         }
     }
-    var candidates: array<ManifoldPoint, CONTACT_MAX_POINTS>;
+    var candidates: array<ManifoldPoint, MANIFOLD_CANDIDATES>;
     var candidate_count = 0u;
-    for (var i = 0u; i < polygon_count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+    for (var i = 0u; i < polygon_count && candidate_count < MANIFOLD_CANDIDATES; i = i + 1u) {
         let point_depth = dot(ref_center - polygon_a[i], ref_normal);
         if (point_depth >= -margin) {
             candidates[candidate_count] = manifold_candidate(
@@ -447,7 +448,7 @@ margin: f32,
         }
     }
     if (candidate_count == 0u) {
-        for (var i = 0u; i < 4u && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+        for (var i = 0u; i < 4u && candidate_count < MANIFOLD_CANDIDATES; i = i + 1u) {
             let point_depth = dot(ref_center - incident_corners[i], ref_normal);
             if (point_depth >= -margin) {
                 candidates[candidate_count] = manifold_candidate(
@@ -467,43 +468,17 @@ margin: f32,
         manifold_push(&contact, ref_center - ref_normal * (face_depth * 0.5), face_depth, feature_point());
         return contact;
     }
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
-            if (candidates[j].depth > candidates[i].depth) {
-                let tmp = candidates[i];
-                candidates[i] = candidates[j];
-                candidates[j] = tmp;
-            }
-        }
-    }
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        manifold_push(&contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
-    }
+    manifold_keep(&contact, &candidates, candidate_count);
     return contact;
 }
 
-fn contact_triangle(contact: Contact) -> u32 {
-    var deepest = 0u;
-    for (var point = 1u; point < contact.point_count; point = point + 1u) {
-        if (contact.points[point].depth > contact.points[deepest].depth) {
-            deepest = point;
-        }
-    }
-    let feature = contact.points[deepest].feature;
-    if ((feature & FEATURE_KIND_MASK) != FEATURE_TRIANGLE) {
-        return NO_TRIANGLE;
-    }
-    return feature & FEATURE_TRIANGLE_MASK;
-}
-
 fn contact_triangle_of(contact: Contact, world_geom: bool) -> u32 {
-    return select(NO_TRIANGLE, contact_triangle(contact), world_geom);
+    return select(NO_TRIANGLE, contact.triangle, world_geom);
 }
 
 fn manifold_from_hit(contact: ptr<function, Contact>, hit: ShapeHit, margin: f32) {
     if (hit.distance <= margin) {
-        let feature = select(feature_point(), feature_triangle(hit.triangle), hit.triangle != NO_TRIANGLE);
-        manifold_push(contact, hit.point, -hit.distance, feature);
+        manifold_push(contact, hit.point, -hit.distance, feature_point());
     }
 }
 
@@ -518,21 +493,21 @@ fn plane_convex(plane: WorldShape, convex: WorldShape, margin: f32) -> Contact {
     var feature = 0u;
     var ring = false;
     let count = shape_feature(convex, -facing, &points, &ids, &feature, &ring);
-    var touching: array<vec3f, FEATURE_MAX>;
-    var touching_ids: array<u32, FEATURE_MAX>;
-    var touching_count = 0u;
+    var candidates: array<ManifoldPoint, MANIFOLD_CANDIDATES>;
+    var candidate_count = 0u;
     for (var i = 0u; i < count; i = i + 1u) {
-        if (dot(plane.center - points[i], facing) > -margin) {
-            touching[touching_count] = points[i];
-            touching_ids[touching_count] = ids[i];
-            touching_count = touching_count + 1u;
+        let depth = dot(plane.center - points[i], facing);
+        if (depth <= -margin) {
+            continue;
         }
+        candidates[candidate_count] = manifold_candidate(
+            points[i] + facing * (depth * 0.5),
+            depth,
+            feature_vertex(feature_field_face(0u), ids[i]),
+        );
+        candidate_count = candidate_count + 1u;
     }
-    let stride = max(1u, (touching_count + CONTACT_MAX_POINTS - 1u) / CONTACT_MAX_POINTS);
-    for (var i = 0u; i < touching_count && contact.point_count < CONTACT_MAX_POINTS; i = i + stride) {
-        let depth = dot(plane.center - touching[i], facing);
-        manifold_push(&contact, touching[i] + facing * (depth * 0.5), depth, feature_vertex(feature_field_face(0u), touching_ids[i]));
-    }
+    manifold_keep(&contact, &candidates, candidate_count);
     return contact;
 }
 
@@ -572,8 +547,7 @@ fn work(index: u32) {
     let second_world_geom = shape_world_geometry(second_collider.kind);
     if (first_world_geom && second_world_geom) {
         return;
-    }
-    let margin = pair_margin(first, second);
+    }    let margin = pair_margin(first, second);
     if (first_world_geom) {
         let scene = world_collider(first.state, first_collider);
         let world_second = world_collider(second.state, second_collider);
@@ -584,8 +558,9 @@ fn work(index: u32) {
             let hit = scene_convex_hit(scene, world_second);
             if (hit.distance <= margin) {
                 manifold_emit(&contact, hit.normal);
+                contact.triangle = hit.triangle;
                 generated = true;
-                if (!scene_convex_manifold(scene, world_second, margin, &contact)) {
+                if (!scene_convex_manifold(scene, world_second, hit.triangle, margin, &contact)) {
                     manifold_from_hit(&contact, hit, margin);
                 }
             }
@@ -603,8 +578,9 @@ fn work(index: u32) {
             let hit = scene_convex_hit(scene, world_first);
             if (hit.distance <= margin) {
                 manifold_emit(&contact, -hit.normal);
+                contact.triangle = hit.triangle;
                 generated = true;
-                if (!scene_convex_manifold(scene, world_first, margin, &contact)) {
+                if (!scene_convex_manifold(scene, world_first, hit.triangle, margin, &contact)) {
                     let reversed_hit = ShapeHit(hit.distance, hit.point, -hit.normal, hit.triangle);
                     manifold_from_hit(&contact, reversed_hit, margin);
                 }

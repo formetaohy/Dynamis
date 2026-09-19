@@ -81,12 +81,20 @@ fn feature_carries_over(held: u32, current: u32) -> bool {
 
 fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
     var relayed = current;
+    var taken: array<bool, CONTACT_MAX_POINTS>;
+    for (var index = 0u; index < CONTACT_MAX_POINTS; index = index + 1u) {
+        taken[index] = false;
+    }
     for (var point_index = 0u; point_index < current.point_count; point_index = point_index + 1u) {
         for (var held_index = 0u; held_index < held.point_count; held_index = held_index + 1u) {
+            if (taken[held_index]) {
+                continue;
+            }
             let held_point = held.points[held_index];
             if (!feature_carries_over(held_point.feature, relayed.points[point_index].feature)) {
                 continue;
             }
+            taken[held_index] = true;
             relayed.points[point_index].accumulated_normal = held_point.accumulated_normal;
             relayed.points[point_index].accumulated_tangent_1 = held_point.accumulated_tangent_1;
             relayed.points[point_index].accumulated_tangent_2 = held_point.accumulated_tangent_2;

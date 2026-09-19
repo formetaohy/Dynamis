@@ -528,11 +528,6 @@ fn validate_geometry(
         "a hull must not exceed {} vertices so its features stay addressable",
         dynamis_abi::FEATURE_INDEX_LIMIT
     );
-    assert!(
-        triangles.len() <= dynamis_abi::FEATURE_TRIANGLE_MASK as usize,
-        "a shape source must not exceed {} triangles so its features stay addressable",
-        dynamis_abi::FEATURE_TRIANGLE_MASK
-    );
 }
 
 fn validate_grid(rows: u32, cols: u32, vertices: &[[f32; 3]], surfaces: Option<SurfaceTable<'_>>) {
@@ -549,11 +544,6 @@ fn validate_grid(rows: u32, cols: u32, vertices: &[[f32; 3]], surfaces: Option<S
     assert!(
         surfaces.is_none_or(|table| table.count() == ((rows - 1) * (cols - 1)) as usize),
         "a height field carries one surface per cell"
-    );
-    assert!(
-        (rows - 1) * (cols - 1) <= dynamis_abi::FEATURE_TRIANGLE_MASK / 2,
-        "a height field must not exceed {} cells so its features stay addressable",
-        dynamis_abi::FEATURE_TRIANGLE_MASK / 2
     );
 }
 

@@ -635,10 +635,6 @@ fn feature_face(first: u32, second: u32) -> u32 {
     return feature_pair(FEATURE_FACE, first, second);
 }
 
-fn feature_triangle(triangle: u32) -> u32 {
-    return FEATURE_TRIANGLE | triangle;
-}
-
 fn feature_field_clip(id: u32) -> u32 {
     return FEATURE_CLIP | id;
 }
@@ -651,9 +647,6 @@ fn feature_mirror(feature: u32) -> u32 {
     let kind = feature & FEATURE_KIND_MASK;
     if (kind == FEATURE_POINT) {
         return feature;
-    }
-    if (kind == FEATURE_TRIANGLE) {
-        return feature ^ FEATURE_TRIANGLE_SIDE;
     }
     let first = (feature >> FEATURE_FIELD_BITS) & FEATURE_FIELD_MASK;
     let second = feature & FEATURE_FIELD_MASK;
@@ -692,5 +685,77 @@ fn manifold_arm(contact: Contact, body: Body, point: ManifoldPoint, first: bool)
         return quat_rotate(body.state.orientation, point.local_a) + body.state.position;
     }
     return quat_rotate(body.state.orientation, point.local_b) + body.state.position;
+}
+
+const MANIFOLD_CANDIDATES: u32 = 16u;
+
+fn manifold_swap(
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    first: u32,
+    second: u32,
+) {
+    let held = (*candidates)[first];
+    (*candidates)[first] = (*candidates)[second];
+    (*candidates)[second] = held;
+}
+
+fn manifold_gap(
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    kept: u32,
+    index: u32,
+) -> f32 {
+    var gap = 3.402823466e38;
+    for (var held = 0u; held < kept; held = held + 1u) {
+        gap = min(gap, length((*candidates)[index].position - (*candidates)[held].position));
+    }
+    return gap;
+}
+
+/// Orders the points a contact keeps: the point reaching deepest leads the manifold, equal depths
+/// resolve on the declared feature, and every point that follows is the one standing furthest from
+/// the points already kept. A manifold that kept only the deepest points of the feature it found
+/// would leave the rest of the contact area unsupported, so a body whose face answers more points
+/// than a manifold holds - a cylinder's cap ring, a hull's face, the triangles of a tessellated floor
+/// - would be held up by one corner of it and tip over.
+fn manifold_order(
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    count: u32,
+) {
+    var lead = 0u;
+    for (var index = 1u; index < count; index = index + 1u) {
+        let depth = (*candidates)[index].depth;
+        let held = (*candidates)[lead].depth;
+        if (depth > held || (depth == held && (*candidates)[index].feature < (*candidates)[lead].feature)) {
+            lead = index;
+        }
+    }
+    manifold_swap(candidates, 0u, lead);
+    for (var kept = 1u; kept < count; kept = kept + 1u) {
+        var best = kept;
+        var best_gap = manifold_gap(candidates, kept, kept);
+        for (var index = kept + 1u; index < count; index = index + 1u) {
+            let gap = manifold_gap(candidates, kept, index);
+            if (gap > best_gap) {
+                best_gap = gap;
+                best = index;
+            }
+        }
+        if (best != kept) {
+            manifold_swap(candidates, kept, best);
+        }
+    }
+}
+
+/// Keeps the points a manifold publishes, the spread ones first, and answers how many.
+fn manifold_keep(
+    contact: ptr<function, Contact>,
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    count: u32,
+) -> u32 {
+    manifold_order(candidates, count);
+    for (var index = 0u; index < count && (*contact).point_count < CONTACT_MAX_POINTS; index = index + 1u) {
+        manifold_push(contact, (*candidates)[index].position, (*candidates)[index].depth, (*candidates)[index].feature);
+    }
+    return (*contact).point_count;
 }
 

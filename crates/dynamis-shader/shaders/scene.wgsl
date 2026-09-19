@@ -544,10 +544,11 @@ fn plane_distance(triangle: u32, source_index: u32, scale: vec3f, world: WorldSh
     let deep = support(world, -n);
     let extent = dot(deep - world.center, -n);
     let separation = offset - extent;
+    var weights: vec3f;
     var result: ConvexClosest;
     result.distance = separation;
-    result.point_a = world.center - n * extent;
-    result.point_b = result.point_a;
+    result.point_a = deep;
+    result.point_b = closest_on_triangle(deep, points[0], points[1], points[2], &weights);
     result.normal = n;
     result.penetrating = separation < 0.0;
     return result;
@@ -868,47 +869,240 @@ fn shape_ray(world: WorldShape, origin: vec3f, direction: vec3f, extent: f32) ->
     return hit;
 }
 
-fn manifold_candidate_at(
-    triangle: u32,
-    scene: WorldShape,
-    local: WorldShape,
-    margin: f32,
-    candidates: ptr<function, array<ManifoldPoint, 8>>,
-    candidate_count: ptr<function, u32>,
+/// The reference plane a scene contact is resolved along: its two in-plane axes, so the whole
+/// contact area is compared as one flat picture however many triangles the surface is made of.
+struct ScenePlane {
+    origin: vec3f,
+    normal: vec3f,
+    first: vec3f,
+    second: vec3f,
+}
+
+fn scene_plane_of(origin: vec3f, normal: vec3f) -> ScenePlane {
+    var helper = vec3f(1.0, 0.0, 0.0);
+    if (abs(normal.x) > 0.9) {
+        helper = vec3f(0.0, 1.0, 0.0);
+    }
+    var plane: ScenePlane;
+    plane.origin = origin;
+    plane.normal = normal;
+    plane.first = normalize(cross(normal, helper));
+    plane.second = cross(normal, plane.first);
+    return plane;
+}
+
+fn scene_plane_flat(plane: ScenePlane, point: vec3f) -> vec2f {
+    return vec2f(dot(point - plane.origin, plane.first), dot(point - plane.origin, plane.second));
+}
+
+fn scene_plane_cross(first: vec2f, second: vec2f) -> f32 {
+    return first.x * second.y - first.y * second.x;
+}
+
+fn scene_plane_holds(corner: array<vec2f, 3>, point: vec2f) -> bool {
+    let first = scene_plane_cross(corner[1] - corner[0], point - corner[0]) >= -CLIP_MARGIN;
+    let second = scene_plane_cross(corner[2] - corner[1], point - corner[1]) >= -CLIP_MARGIN;
+    let third = scene_plane_cross(corner[0] - corner[2], point - corner[2]) >= -CLIP_MARGIN;
+    return first && second && third;
+}
+
+fn scene_plane_crossing(start: vec2f, finish: vec2f, edge_start: vec2f, edge_finish: vec2f, out_t: ptr<function, f32>) -> bool {
+    let heading = finish - start;
+    let edge = edge_finish - edge_start;
+    let denominator = scene_plane_cross(heading, edge);
+    if (abs(denominator) < 1e-12) {
+        return false;
+    }
+    let offset = edge_start - start;
+    let along = scene_plane_cross(offset, edge) / denominator;
+    let across = scene_plane_cross(offset, heading) / denominator;
+    if (along < 0.0 || along > 1.0 || across < 0.0 || across > 1.0) {
+        return false;
+    }
+    *out_t = along;
+    return true;
+}
+
+/// One scene triangle projected into the reference plane and wound so that its inside is one side.
+fn scene_plane_triangle(triangle: u32, scene: WorldShape, plane: ScenePlane) -> array<vec2f, 3> {
+    let points = triangle_points(scene.source, triangle, scene.scale);
+    let first = scene_plane_flat(plane, points[0]);
+    let second = scene_plane_flat(plane, points[1]);
+    let third = scene_plane_flat(plane, points[2]);
+    if (scene_plane_cross(second - first, third - first) < 0.0) {
+        return array<vec2f, 3>(first, third, second);
+    }
+    return array<vec2f, 3>(first, second, third);
+}
+
+/// The part of a body's support feature one scene triangle covers: which feature points it holds, and
+/// how far along each feature edge it starts and stops. Merging triangles instead of collecting their
+/// clips keeps the contact area whole: a surface made of many triangles answers the extremes of the
+/// area the body actually covers, so a body spanning a tessellated floor is supported across its whole
+/// footprint rather than by the triangles a walk happened to visit first.
+struct SceneCover {
+    held: u32,
+    crossed: u32,
+    entered: array<f32, FEATURE_MAX>,
+    left: array<f32, FEATURE_MAX>,
+}
+
+fn scene_cover_new() -> SceneCover {
+    var cover: SceneCover;
+    cover.held = 0u;
+    cover.crossed = 0u;
+    return cover;
+}
+
+fn scene_cover_triangle(
+    cover: ptr<function, SceneCover>,
+    feature: array<vec2f, FEATURE_MAX>,
+    count: u32,
+    edges: u32,
+    closed: bool,
+    corner: array<vec2f, 3>,
 ) {
-    let probe = plane_distance(triangle, scene.source, scene.scale, local);
-    if (probe.distance > margin) {
+    for (var index = 0u; index < count; index = index + 1u) {
+        if (scene_plane_holds(corner, feature[index])) {
+            (*cover).held = (*cover).held | (1u << index);
+        }
+    }
+    for (var index = 0u; index < edges; index = index + 1u) {
+        let next = select(index + 1u, (index + 1u) % count, closed);
+        for (var side = 0u; side < 3u; side = side + 1u) {
+            var along = 0.0;
+            if (!scene_plane_crossing(feature[index], feature[next], corner[side], corner[(side + 1u) % 3u], &along)) {
+                continue;
+            }
+            let first = ((*cover).crossed & (1u << index)) == 0u;
+            if (first || along < (*cover).entered[index]) {
+                (*cover).entered[index] = along;
+            }
+            if (first || along > (*cover).left[index]) {
+                (*cover).left[index] = along;
+            }
+            (*cover).crossed = (*cover).crossed | (1u << index);
+        }
+    }
+}
+
+/// The points one scene contact asserts: every feature point the surface holds and, on every feature
+/// edge that leaves the surface, where it enters and where it leaves. Each point lies on the body's
+/// own surface, and its depth is how far it reaches below the plane the contact is resolved along.
+fn scene_candidate_push(
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    candidate_count: ptr<function, u32>,
+    scene: WorldShape,
+    plane: ScenePlane,
+    margin: f32,
+    point: vec3f,
+    feature: u32,
+) {
+    if (*candidate_count >= MANIFOLD_CANDIDATES) {
         return;
     }
-    (*candidates)[*candidate_count] = manifold_candidate(scene_place_point(scene, probe.point_a), -probe.distance, feature_triangle(triangle));
+    let depth = dot(plane.origin - point, plane.normal);
+    if (depth < -margin) {
+        return;
+    }
+    let position = scene_place_point(scene, point - plane.normal * (depth * 0.5));
+    (*candidates)[*candidate_count] = manifold_candidate(position, depth, feature);
     *candidate_count = *candidate_count + 1u;
+}
+
+fn scene_cover_candidates(
+    cover: SceneCover,
+    scene: WorldShape,
+    plane: ScenePlane,
+    margin: f32,
+    points: array<vec3f, FEATURE_MAX>,
+    ids: array<u32, FEATURE_MAX>,
+    count: u32,
+    edges: u32,
+    closed: bool,
+    candidates: ptr<function, array<ManifoldPoint, MANIFOLD_CANDIDATES>>,
+    candidate_count: ptr<function, u32>,
+) {
+    let face = feature_field_face(0u);
+    for (var index = 0u; index < count; index = index + 1u) {
+        if ((cover.held & (1u << index)) != 0u) {
+            scene_candidate_push(candidates, candidate_count, scene, plane, margin, points[index], feature_vertex(face, ids[index]));
+        }
+    }
+    for (var index = 0u; index < edges; index = index + 1u) {
+        if ((cover.crossed & (1u << index)) == 0u) {
+            continue;
+        }
+        let next = select(index + 1u, (index + 1u) % count, closed);
+        if ((cover.held & (1u << index)) == 0u) {
+            scene_candidate_push(
+                candidates,
+                candidate_count,
+                scene,
+                plane,
+                margin,
+                mix(points[index], points[next], cover.entered[index]),
+                feature_vertex(face, feature_field_clip(index)),
+            );
+        }
+        if ((cover.held & (1u << next)) == 0u) {
+            scene_candidate_push(
+                candidates,
+                candidate_count,
+                scene,
+                plane,
+                margin,
+                mix(points[index], points[next], cover.left[index]),
+                feature_vertex(face, feature_field_clip(FEATURE_MAX + index)),
+            );
+        }
+    }
 }
 
 fn scene_convex_manifold(
     scene: WorldShape,
     world: WorldShape,
+    reference: u32,
     margin: f32,
     contact: ptr<function, Contact>,
 ) -> bool {
-    if (!shape_source(scene.kind)) {
+    if (!shape_source(scene.kind) || reference == NO_TRIANGLE) {
         return false;
     }
     let source = shape_sources[scene.source];
     let local = scene_local_shape(scene, world);
+    let reference_points = triangle_points(scene.source, reference, scene.scale);
+    var normal = sign_normalize(cross(reference_points[1] - reference_points[0], reference_points[2] - reference_points[0]));
+    if (dot(local.center - reference_points[0], normal) < 0.0) {
+        normal = -normal;
+    }
+    let plane = scene_plane_of(reference_points[0], normal);
+    var points: array<vec3f, FEATURE_MAX>;
+    var ids: array<u32, FEATURE_MAX>;
+    var face = 0u;
+    var closed = false;
+    let count = shape_feature(local, -normal, &points, &ids, &face, &closed);
+    if (count == 0u) {
+        return false;
+    }
+    var feature: array<vec2f, FEATURE_MAX>;
+    for (var index = 0u; index < count; index = index + 1u) {
+        feature[index] = scene_plane_flat(plane, points[index]);
+    }
+    let edges = select(count - 1u, count, closed);
+    var cover = scene_cover_new();
     let world_aabb = world_aabb_of(local);
     let pad = (world_aabb.max - world_aabb.min) * 0.5;
-    var candidates: array<ManifoldPoint, 8>;
-    var candidate_count = 0u;
     if (shape_height_grid(source.kind)) {
         let span = grid_span(source, scene.scale, world_aabb.min - pad, world_aabb.max + pad);
         if (span.empty) {
             return false;
         }
-        for (var row = span.first.y; row <= span.last.y && candidate_count < 8u; row = row + 1u) {
-            for (var col = span.first.x; col <= span.last.x && candidate_count < 8u; col = col + 1u) {
+        for (var row = span.first.y; row <= span.last.y; row = row + 1u) {
+            for (var col = span.first.x; col <= span.last.x; col = col + 1u) {
                 let first = grid_cell_first_triangle(source, vec2u(col, row));
-                for (var which = 0u; which < 2u && candidate_count < 8u; which = which + 1u) {
-                    manifold_candidate_at(first + which, scene, local, margin, &candidates, &candidate_count);
+                for (var which = 0u; which < 2u; which = which + 1u) {
+                    scene_cover_triangle(&cover, feature, count, edges, closed, scene_plane_triangle(first + which, scene, plane));
                 }
             }
         }
@@ -916,7 +1110,7 @@ fn scene_convex_manifold(
         var stack: array<u32, 64>;
         var stack_count = 1u;
         stack[0] = source.node_offset;
-        while (stack_count > 0u && candidate_count < 8u) {
+        while (stack_count > 0u) {
             stack_count = stack_count - 1u;
             let node_index = stack[stack_count];
             let node = shape_nodes[node_index];
@@ -926,8 +1120,8 @@ fn scene_convex_manifold(
                 continue;
             }
             if (node.leaf == 1u) {
-                for (var i = 0u; i < node.right && candidate_count < 8u; i = i + 1u) {
-                    manifold_candidate_at(node.left + i, scene, local, margin, &candidates, &candidate_count);
+                for (var i = 0u; i < node.right; i = i + 1u) {
+                    scene_cover_triangle(&cover, feature, count, edges, closed, scene_plane_triangle(node.left + i, scene, plane));
                 }
             } else {
                 if (stack_count + 2u > 64u) {
@@ -940,30 +1134,13 @@ fn scene_convex_manifold(
             }
         }
     }
+    var candidates: array<ManifoldPoint, MANIFOLD_CANDIDATES>;
+    var candidate_count = 0u;
+    scene_cover_candidates(cover, scene, plane, margin, points, ids, count, edges, closed, &candidates, &candidate_count);
     if (candidate_count == 0u) {
         return false;
     }
-    var keep = min(candidate_count, CONTACT_MAX_POINTS);
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        for (var j = i + 1u; j < candidate_count; j = j + 1u) {
-            if (candidates[j].depth > candidates[i].depth) {
-                let tmp = candidates[i];
-                candidates[i] = candidates[j];
-                candidates[j] = tmp;
-            }
-        }
-    }
-    for (var i = 0u; i < keep; i = i + 1u) {
-        let point = candidates[i].position;
-        var merged = false;
-        for (var j = 0u; j < i; j = j + 1u) {
-            if (length(point - candidates[j].position) < 0.05 * shape_scale(world)) {
-                merged = true;
-            }
-        }
-        if (!merged) {
-            manifold_push(contact, point, candidates[i].depth, candidates[i].feature);
-        }
-    }
+    manifold_keep(contact, &candidates, candidate_count);
     return contact.point_count > 0u;
 }
+
