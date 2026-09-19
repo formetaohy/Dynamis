@@ -24,7 +24,7 @@ domain_groups!(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RigidWork {
     pub body_commands: u32,
-    pub constraint_commands: u32,
+    pub constraint_declarations: u32,
     pub character_declarations: bool,
     pub vehicle_inputs: bool,
     pub wake_all: bool,
@@ -56,7 +56,7 @@ impl Domain for RigidDomain {
 
     fn pending(work: &RigidWork) -> bool {
         work.body_commands > 0
-            || work.constraint_commands > 0
+            || work.constraint_declarations > 0
             || work.character_declarations
             || work.vehicle_inputs
             || work.wake_all

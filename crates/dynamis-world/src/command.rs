@@ -12,12 +12,6 @@ pub(crate) enum Consumption {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum ConstraintCommand {
-    Add { slot: u32, id: u32, generation: u32 },
-    Swap { slot: u32, tail: u32 },
-}
-
-#[derive(Clone, Copy)]
 pub(crate) enum BodyCommand {
     Add {
         row: u32,
@@ -125,7 +119,7 @@ pub(crate) struct CompiledBodyCommands {
     pub(crate) runs: Vec<BodyEditRunRecord>,
 }
 
-pub(crate) struct CompiledConstraintCommands {
+pub(crate) struct CompiledConstraintRows {
     pub(crate) moves: Vec<RowMoveRecord>,
     pub(crate) fresh: Vec<ConstraintRuntimeRecord>,
 }
@@ -134,13 +128,9 @@ impl World {
     pub(crate) fn compile_body_commands(&self, consumption: Consumption) -> CompiledBodyCommands {
         let mut map = RowMap::new();
         let mut journal: EditJournal<RowIdentity, BodyCommand> = EditJournal::new();
-        let mut fresh: Vec<BodyStateRecord> = Vec::new();
         for command in &self.bodies.commands {
             match command {
-                BodyCommand::Add { row, state } => {
-                    map.add(*row, fresh.len() as u32);
-                    fresh.push(*state);
-                }
+                BodyCommand::Add { row, .. } => map.add(*row),
                 BodyCommand::Remove { hole, tail } => map.remove(*hole, *tail),
                 BodyCommand::Swap { first, second } => map.swap(*first, *second),
                 _ => {
@@ -152,7 +142,7 @@ impl World {
             }
         }
         let rows = self.bodies.pool.len();
-        let moves = map.moves(rows);
+        let (moves, fresh) = self.bodies.row_moves();
         let mut edits = Vec::new();
         let mut runs = Vec::new();
         for (identity, commands) in journal.iter() {
@@ -182,25 +172,8 @@ impl World {
         }
     }
 
-    pub(crate) fn compile_constraint_commands(&self) -> CompiledConstraintCommands {
-        let mut map = RowMap::new();
-        let mut fresh: Vec<ConstraintRuntimeRecord> = Vec::new();
-        for command in &self.constraints.commands {
-            match *command {
-                ConstraintCommand::Add {
-                    slot,
-                    id,
-                    generation,
-                } => {
-                    map.add(slot, fresh.len() as u32);
-                    fresh.push(ConstraintRuntimeRecord::fresh(id, generation));
-                }
-                ConstraintCommand::Swap { slot, tail } => map.swap(slot, tail),
-            }
-        }
-        CompiledConstraintCommands {
-            moves: map.moves(self.constraints.pool.len()),
-            fresh,
-        }
+    pub(crate) fn compile_constraint_rows(&self) -> CompiledConstraintRows {
+        let (moves, fresh) = self.constraints.row_moves();
+        CompiledConstraintRows { moves, fresh }
     }
 }

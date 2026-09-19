@@ -66,7 +66,7 @@ impl PassRuntime<RigidFrame> for ApplyCommands {
                 rows(
                     context,
                     include_str!("../shaders/body_move_gather.wgsl"),
-                    CORE,
+                    dynamis_shader::COUNTERS,
                     Count::BodyMoves.bound(),
                 ),
                 streams,
@@ -76,6 +76,7 @@ impl PassRuntime<RigidFrame> for ApplyCommands {
                     ("row_moves", StateStream::BodyRowMoves.whole()),
                     ("fresh_rows", StateStream::BodyFreshRows.whole()),
                     ("row_streams", StateStream::RowStreams.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),
@@ -166,7 +167,7 @@ impl PassRuntime<RigidFrame> for ApplyCommands {
                 rows(
                     context,
                     include_str!("../shaders/constraint_move_gather.wgsl"),
-                    CORE,
+                    dynamis_shader::COUNTERS,
                     Count::ConstraintMoves.bound(),
                 ),
                 streams,
@@ -182,6 +183,7 @@ impl PassRuntime<RigidFrame> for ApplyCommands {
                     ),
                     ("row_of_body", StateStream::BodyRowOfId.whole()),
                     ("body_states", StateStream::BodyStates.whole()),
+                    ("counters", StateStream::Counters.whole()),
                 ],
                 &[],
             ),

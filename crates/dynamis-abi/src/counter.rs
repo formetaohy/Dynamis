@@ -115,6 +115,7 @@ declare_counters! {
     COUNTER_COARSE_NEIGHBOURS => "coarse neighbours", PerStep, None;
     COUNTER_LIVE => "live body rows", PerStep, None;
     COUNTER_LIVE_FAULTS => "live body rows beyond the row stream", PerStep, Fatal;
+    COUNTER_ROW_FAULTS => "row moves that answer no state their row could hold", PerStep, Fatal;
     COUNTER_SOFT_ACTIVE => "active soft bodies", PerStep, None;
     COUNTER_SOFT_SLEPT => "soft bodies that fell asleep", PerStep, None;
     COUNTER_SOFT_WOKE => "soft bodies that woke", PerStep, None;
@@ -230,7 +231,7 @@ pub mod host {
     pub const COUNTER_CONSTRAINTS: usize = COUNTER_DEVICE_COUNT + 2;
     pub const COUNTER_BODY_EDITS: usize = COUNTER_DEVICE_COUNT + 3;
     pub const COUNTER_BODY_MOVES: usize = COUNTER_DEVICE_COUNT + 4;
-    pub const COUNTER_CONSTRAINT_COMMANDS: usize = COUNTER_DEVICE_COUNT + 5;
+    pub const COUNTER_CONSTRAINT_DECLARATIONS: usize = COUNTER_DEVICE_COUNT + 5;
     pub const COUNTER_CONSTRAINT_MOVES: usize = COUNTER_DEVICE_COUNT + 6;
     pub const COUNTER_MOVABLE_COLLIDERS: usize = COUNTER_DEVICE_COUNT + 7;
 }
@@ -249,7 +250,7 @@ pub struct DeclaredCounters {
     pub constraints: u32,
     pub body_edits: u32,
     pub body_moves: u32,
-    pub constraint_commands: u32,
+    pub constraint_declarations: u32,
     pub constraint_moves: u32,
 }
 
@@ -261,7 +262,7 @@ impl DeclaredCounters {
         counters[host::COUNTER_CONSTRAINTS] = self.constraints;
         counters[host::COUNTER_BODY_EDITS] = self.body_edits;
         counters[host::COUNTER_BODY_MOVES] = self.body_moves;
-        counters[host::COUNTER_CONSTRAINT_COMMANDS] = self.constraint_commands;
+        counters[host::COUNTER_CONSTRAINT_DECLARATIONS] = self.constraint_declarations;
         counters[host::COUNTER_CONSTRAINT_MOVES] = self.constraint_moves;
     }
 }

@@ -6,6 +6,7 @@
 @group(0) @binding(5) var<storage, read> constraint_descs: array<ConstraintDescriptor>;
 @group(0) @binding(6) var<storage, read> row_of_body: array<u32>;
 @group(0) @binding(7) var<storage, read> body_states: array<BodyState>;
+@group(0) @binding(8) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn captured_reference(descriptor: ConstraintDescriptor) -> vec4f {
     let first = body_states[row_of_body[descriptor.first_body_id]].orientation;
@@ -25,5 +26,6 @@ fn work(index: u32) {
         constraint_scratch[entry.row] = constraint_runtime[entry.source];
         return;
     }
+    counter_add(COUNTER_ROW_FAULTS, 1u);
     constraint_scratch[entry.row] = ConstraintRuntime();
 }

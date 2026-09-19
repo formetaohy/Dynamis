@@ -2,16 +2,19 @@ use super::World;
 use super::collider::ColliderDelta;
 use super::command::BodyCommand;
 use super::pool::Pool;
+use super::row::RowLayout;
 use bytemuck::Zeroable;
 use dynamis_abi::{
     BODY_CCD, BodyDescriptorRecord, BodyStateRecord, ColliderRecord, PATCH_ANGULAR_VELOCITY,
-    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, assert_body_kind, shape_source_handle,
+    PATCH_ORIENTATION, PATCH_POSITION, PATCH_VELOCITY, RowMoveRecord, assert_body_kind,
+    shape_source_handle,
 };
 use dynamis_model::domain;
 use dynamis_model::{
     BodyDesc, BodyHandle, BodyKind, BodyState, ColliderDesc, CollisionFilter, ContactEventMode,
     Shape, ShapeSourceHandle,
 };
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub(crate) struct BodyStore {
@@ -23,6 +26,7 @@ pub(crate) struct BodyStore {
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
+    pub(crate) rows: RowLayout<BodyHandle>,
 }
 
 impl BodyStore {
@@ -36,7 +40,48 @@ impl BodyStore {
             commands: Vec::new(),
             last_moves: 0,
             last_edits: 0,
+            rows: RowLayout::new(),
         }
+    }
+
+    /// The moves the device owes to hold the rows at hand, and the state a row whose body the
+    /// device has never held must be seeded with: the state the body's birth declared.
+    pub(crate) fn row_moves(&self) -> (Vec<RowMoveRecord>, Vec<BodyStateRecord>) {
+        if self.rows.settled() {
+            return (Vec::new(), Vec::new());
+        }
+        let births = self.births();
+        self.rows.difference(self.pool.alive(), |handle| {
+            births
+                .get(&handle.id)
+                .copied()
+                .filter(|state| state.generation == handle.generation)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "row of {handle:?} must be seeded with the state its birth declared, while no pending command carries it"
+                    )
+                })
+        })
+    }
+
+    /// Records that the device holds the rows at hand, which the handover of the move stream does.
+    pub(crate) fn settle_rows(&mut self) {
+        let alive = self.pool.alive();
+        self.rows.settle(alive);
+    }
+
+    pub(crate) fn rows_held(&self) -> u32 {
+        self.rows.rows()
+    }
+
+    fn births(&self) -> HashMap<u32, BodyStateRecord> {
+        self.commands
+            .iter()
+            .filter_map(|command| match *command {
+                BodyCommand::Add { state, .. } => Some((state.body_id, state)),
+                _ => None,
+            })
+            .collect()
     }
 
     pub(crate) fn handle_of(&self, id: u32) -> Option<BodyHandle> {
@@ -69,6 +114,7 @@ impl World {
             self.retain_shape_ref(handle.id, &collider.shape);
         }
         let slot = self.bodies.pool.insert(handle);
+        self.bodies.rows.touch(slot);
         let state = BodyStateRecord::initial(&desc, handle.id, handle.generation);
         self.bodies
             .commands
@@ -134,6 +180,8 @@ impl World {
 
     fn swap_slots(&mut self, first: u32, second: u32) {
         self.facts.layout += 1;
+        self.bodies.rows.touch(first);
+        self.bodies.rows.touch(second);
         self.bodies.pool.swap_rows(first, second);
         self.bodies
             .commands

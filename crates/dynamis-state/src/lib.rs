@@ -13,7 +13,7 @@ pub use streams::{
 use dynamis_abi::{COUNTER_STRIDE, counter};
 use dynamis_gpu::SlotRef;
 
-pub const MOVE_ENTRIES_PER_COMMAND: u32 = 2;
+pub const MOVE_ENTRIES_PER_DECLARATION: u32 = 2;
 
 pub fn counter(slot: usize) -> SlotRef {
     counter::spec(slot);

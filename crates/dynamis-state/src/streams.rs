@@ -27,7 +27,7 @@ streams! {
         constraint_ids: u32,
         fields: u32,
         body_commands: u32,
-        constraint_commands: u32,
+        constraint_declarations: u32,
         shapes: crate::ShapeCapacity,
         observed: u32,
         observed_joints: u32,
@@ -51,7 +51,7 @@ streams! {
         wake_flags, WakeFlags: "body wake flags", u32, 1, Retention::Scratch, StreamWriters::Device, demand.bodies;
         body_reactions, BodyReactions: "body reactions", u32, REACTION_WORDS, Retention::Scratch, StreamWriters::Device, demand.body_reactions();
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", RowMoveRecord, 1, Retention::Scratch, StreamWriters::Host, demand.constraint_moves();
-        constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", ConstraintRuntimeRecord, 1, Retention::Scratch, StreamWriters::Host, demand.constraint_commands;
+        constraint_fresh_rows, ConstraintFreshRows: "fresh constraint rows", ConstraintRuntimeRecord, 1, Retention::Scratch, StreamWriters::Host, demand.constraint_declarations;
         constraint_breaks, ConstraintBreaks: "constraint breaks", BrokenConstraintRecord, 1, Retention::Scratch, StreamWriters::Device, demand.constraints.saturating_mul(SEGMENT_COUNT);
         shape_sources, ShapeSources: "shape sources", ShapeSourceRecord, 1, Retention::Durable, StreamWriters::Host, demand.shapes.sources;
         shape_vertices, ShapeVertices: "shape vertices", [f32; 4], 1, Retention::Durable, StreamWriters::Host, demand.shapes.vertices;
@@ -71,12 +71,12 @@ streams! {
 impl StateDemand {
     pub fn body_moves(&self) -> u32 {
         self.body_commands
-            .saturating_mul(crate::MOVE_ENTRIES_PER_COMMAND)
+            .saturating_mul(crate::MOVE_ENTRIES_PER_DECLARATION)
     }
 
     pub fn constraint_moves(&self) -> u32 {
-        self.constraint_commands
-            .saturating_mul(crate::MOVE_ENTRIES_PER_COMMAND)
+        self.constraint_declarations
+            .saturating_mul(crate::MOVE_ENTRIES_PER_DECLARATION)
     }
 
     pub fn body_reactions(&self) -> u32 {

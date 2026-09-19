@@ -102,7 +102,7 @@ handovers! {
     Step {
         StateStream::ConstraintRowMoves,
         StateStream::ConstraintFreshRows,
-    } => World::flush_constraint_commands,
+    } => World::flush_constraint_rows,
     Step {
         SoftStream::Edits,
         SoftStream::BodyEdits,

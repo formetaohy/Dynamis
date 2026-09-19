@@ -40,7 +40,7 @@ impl World {
 
     pub(crate) fn apply_pending_commands(&mut self, consumption: Consumption) {
         if self.bodies.commands.is_empty()
-            && self.constraints.commands.is_empty()
+            && self.constraints.declarations == 0
             && !self.soft.pending_uploads()
             && !self.characters.pending()
             && !self.vehicles.pending()
@@ -49,21 +49,20 @@ impl World {
             return;
         }
         let body_commands = self.compile_body_commands(consumption);
-        let constraint_commands = self.compile_constraint_commands();
+        let constraint_rows = self.compile_constraint_rows();
         self.note_command_edits(&body_commands);
         let soft_commands = self.compile_soft_commands(consumption);
         self.bodies.last_moves = body_commands.moves.len() as u32;
         self.bodies.last_edits = body_commands.runs.len() as u32;
-        self.constraints.last_moves = constraint_commands.moves.len() as u32;
-        self.constraints.last_commands = self.constraints.commands.len() as u32;
+        self.constraints.last_moves = constraint_rows.moves.len() as u32;
+        self.constraints.last_declarations = self.constraints.declarations;
         self.soft.last_body_edits = soft_commands.body_edits.len() as u32;
         self.soft.last_edits = soft_commands.edits.len() as u32;
         self.backend.staged.body_commands = Some(body_commands);
-        self.backend.staged.constraint_commands = Some(constraint_commands);
+        self.backend.staged.constraint_rows = Some(constraint_rows);
         self.backend.staged.soft_commands = Some(soft_commands);
         if consumption == Consumption::Step {
             self.bodies.commands.clear();
-            self.constraints.commands.clear();
             self.soft.consume();
             self.characters.consume();
             self.vehicles.consume();
@@ -73,7 +72,7 @@ impl World {
     fn clear_work(&mut self) {
         self.bodies.last_edits = 0;
         self.bodies.last_moves = 0;
-        self.constraints.last_commands = 0;
+        self.constraints.last_declarations = 0;
         self.constraints.last_moves = 0;
         self.soft.last_body_edits = 0;
         self.soft.last_edits = 0;
@@ -135,10 +134,11 @@ impl World {
             .state
             .body_edit_runs
             .write(queue, bytemuck::cast_slice(&compiled.runs));
+        self.bodies.settle_rows();
     }
 
-    pub(crate) fn flush_constraint_commands(&mut self) {
-        let compiled = std::mem::take(&mut self.backend.staged.constraint_commands);
+    pub(crate) fn flush_constraint_rows(&mut self) {
+        let compiled = std::mem::take(&mut self.backend.staged.constraint_rows);
         let Some(compiled) = compiled else {
             return;
         };
@@ -153,6 +153,8 @@ impl World {
             .state
             .constraint_fresh_rows
             .write(queue, bytemuck::cast_slice(&compiled.fresh));
+        self.constraints.settle_rows();
+        self.constraints.declarations = 0;
     }
 
     /// Notes the facts a compiled command stream declares: that a pose was declared, and, when the

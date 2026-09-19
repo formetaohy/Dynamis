@@ -93,7 +93,7 @@ census! {
         query_hits,
         adjacency,
         body_commands,
-        constraint_commands,
+        constraint_declarations,
         pending_soft_edits,
         pending_soft_body_edits,
     }

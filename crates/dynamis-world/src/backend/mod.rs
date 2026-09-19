@@ -17,7 +17,7 @@ use wgpu::SubmissionIndex;
 pub(crate) use registry::StepFrames;
 
 use crate::World;
-use crate::command::{CompiledBodyCommands, CompiledConstraintCommands};
+use crate::command::{CompiledBodyCommands, CompiledConstraintRows};
 use crate::derivation::{GridStorage, ImmovableGrid, JointOrderStorage, RestingGrid};
 use crate::soft::CompiledSoftCommands;
 use dynamis_abi::{QueryRecord, RowStreamsRecord, StepParamsRecord};
@@ -118,7 +118,7 @@ impl Resting {
 #[derive(Default)]
 pub(crate) struct Staged {
     pub(crate) body_commands: Option<CompiledBodyCommands>,
-    pub(crate) constraint_commands: Option<CompiledConstraintCommands>,
+    pub(crate) constraint_rows: Option<CompiledConstraintRows>,
     pub(crate) soft_commands: Option<CompiledSoftCommands>,
     pub(crate) step_records: Option<(StepParamsRecord, RowStreamsRecord)>,
     pub(crate) observations: bool,

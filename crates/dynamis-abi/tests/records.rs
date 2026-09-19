@@ -361,6 +361,7 @@ fn a_shortfall_declares_who_bears_it() {
             "COUNTER_ENTRY_FAULTS",
             "COUNTER_ISLAND_FAULTS",
             "COUNTER_LIVE_FAULTS",
+            "COUNTER_ROW_FAULTS",
         ],
         "only a bound a step cannot lose may abort"
     );
@@ -669,16 +670,11 @@ fn body_edits_encode_their_payloads() {
 }
 
 #[test]
-fn row_moves_encode_their_source() {
+fn row_moves_encode_what_the_row_takes() {
     let moved = RowMoveRecord::source(7, 3);
     assert_eq!((moved.row, moved.source, moved.fresh), (7, 3, u32::MAX));
     let fresh = RowMoveRecord::fresh(7, 2);
     assert_eq!((fresh.row, fresh.source, fresh.fresh), (7, u32::MAX, 2));
-    let cleared = RowMoveRecord::clear(7);
-    assert_eq!(
-        (cleared.row, cleared.source, cleared.fresh),
-        (7, u32::MAX, u32::MAX)
-    );
 }
 
 #[test]

@@ -1,8 +1,10 @@
-use super::common::{DT, observed_world, static_config};
+use super::common::{DT, gravity_config, observed_world, static_config};
 use dynamis_abi::{
     COUNTER_BODY_EDITS, COUNTER_BODY_MOVES, COUNTER_CONSTRAINT_MOVES, COUNTER_CONSTRAINTS,
+    COUNTER_ROW_FAULTS,
 };
-use dynamis_model::{BodyDesc, ConstraintDesc};
+use dynamis_model::{BodyDesc, BodyHandle, ConstraintDesc, QueryFilter};
+use dynamis_world::World;
 
 #[test]
 fn batch_spawn_lands_every_row() {
@@ -328,5 +330,156 @@ fn a_scene_reset_before_a_step_keeps_collider_writes_inside_the_stream() {
         world.read_state(refreshed).position,
         [0.0, 1.0, 0.0],
         "a collider slot recycled from a scene reset must carry the fresh collider"
+    );
+}
+
+fn fall_scene(world: &mut World) -> Vec<BodyHandle> {
+    world.spawn(
+        BodyDesc::cuboid([20.0, 0.5, 20.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    (0..5)
+        .map(|index| {
+            world.spawn(
+                BodyDesc::sphere(0.4)
+                    .position([index as f32, 4.0 + index as f32, 0.0])
+                    .velocity([0.1 * index as f32, 0.0, 0.0]),
+            )
+        })
+        .collect()
+}
+
+fn positions(world: &mut World, bodies: &[BodyHandle]) -> Vec<[f32; 3]> {
+    bodies
+        .iter()
+        .map(|body| world.read_state(*body).position)
+        .collect()
+}
+
+#[test]
+fn a_run_that_carries_a_row_move_settles_it() {
+    let mut control = observed_world(gravity_config());
+    let control_bodies = fall_scene(&mut control);
+    let mut probe = observed_world(gravity_config());
+    let probe_bodies = fall_scene(&mut probe);
+    for world in [&mut control, &mut probe] {
+        world.step(DT);
+        world.wait();
+    }
+
+    control.remove(control_bodies[1]);
+    probe.remove(probe_bodies[1]);
+    let handle = probe.ray_query(
+        [0.0, 30.0, 0.0],
+        [0.0, -1.0, 0.0],
+        60.0,
+        &QueryFilter::default(),
+    );
+    probe.resolve_queries();
+    probe.wait_query(handle);
+
+    control.step(DT);
+    probe.step(DT);
+    control.wait();
+    probe.wait();
+    assert!(
+        control.measured()[COUNTER_BODY_MOVES] > 0,
+        "the step that carries a removal must declare the rows it moves"
+    );
+    assert_eq!(
+        probe.measured()[COUNTER_BODY_MOVES],
+        0,
+        "the query that carries the removal must settle it, leaving the step no move to declare"
+    );
+    assert_eq!(
+        probe.measured()[COUNTER_ROW_FAULTS],
+        0,
+        "every row move must answer a state its row can hold"
+    );
+
+    let survivors = [0usize, 2, 3, 4];
+    let expected = positions(
+        &mut control,
+        &survivors
+            .iter()
+            .map(|index| control_bodies[*index])
+            .collect::<Vec<_>>(),
+    );
+    let observed = positions(
+        &mut probe,
+        &survivors
+            .iter()
+            .map(|index| probe_bodies[*index])
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        expected, observed,
+        "a run between a row move and its step must not move the rows twice"
+    );
+}
+
+#[test]
+fn a_run_that_carries_a_joint_move_settles_it() {
+    let joint_scene = |world: &mut World| {
+        let anchor = world.spawn(BodyDesc::static_sphere(0.25).position([0.0, 5.0, 0.0]));
+        (0..5)
+            .map(|index| {
+                let ball = world.spawn(BodyDesc::sphere(0.25).position([
+                    index as f32,
+                    2.0 + index as f32,
+                    0.0,
+                ]));
+                world.add_constraint(
+                    anchor,
+                    ball,
+                    ConstraintDesc::distance([0.0; 3], [0.0; 3], 3.0),
+                );
+                ball
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut control = observed_world(gravity_config());
+    let control_bodies = joint_scene(&mut control);
+    let mut probe = observed_world(gravity_config());
+    let probe_bodies = joint_scene(&mut probe);
+    for world in [&mut control, &mut probe] {
+        world.step(DT);
+        world.wait();
+    }
+
+    control.remove_constraint(control.constraints()[2]);
+    probe.remove_constraint(probe.constraints()[2]);
+    let handle = probe.ray_query(
+        [0.0, 30.0, 0.0],
+        [0.0, -1.0, 0.0],
+        60.0,
+        &QueryFilter::default(),
+    );
+    probe.resolve_queries();
+    probe.wait_query(handle);
+
+    control.step(DT);
+    probe.step(DT);
+    control.wait();
+    probe.wait();
+    assert!(
+        control.measured()[COUNTER_CONSTRAINT_MOVES] > 0,
+        "the step that carries a joint retirement must declare the rows it moves"
+    );
+    assert_eq!(
+        probe.measured()[COUNTER_CONSTRAINT_MOVES],
+        0,
+        "the query that carries the retirement must settle it, leaving the step no move to declare"
+    );
+    assert_eq!(
+        probe.measured()[COUNTER_ROW_FAULTS],
+        0,
+        "every row move must answer a state its row can hold"
+    );
+    assert_eq!(
+        positions(&mut control, &control_bodies),
+        positions(&mut probe, &probe_bodies),
+        "a run between a joint move and its step must not move the rows twice"
     );
 }

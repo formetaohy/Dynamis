@@ -1,9 +1,11 @@
 use super::World;
-use super::command::ConstraintCommand;
 use super::device::Facts;
-use super::pool::{Pool, Retired};
+use super::pool::Pool;
+use super::row::RowLayout;
 use super::schedule::JointSchedule;
-use dynamis_abi::{BrokenConstraintRecord, ConstraintDescriptorRecord};
+use dynamis_abi::{
+    BrokenConstraintRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, RowMoveRecord,
+};
 use dynamis_model::{
     BodyHandle, ConstraintBreak, ConstraintDesc, ConstraintHandle, ConstraintLimit,
     ConstraintMotor, ConstraintSpring, ConstraintSwing, DofDesc,
@@ -34,10 +36,11 @@ pub(crate) struct ConstraintStore {
     pub(crate) pool: Pool<ConstraintHandle>,
     pub(crate) joints: Vec<JointDesc>,
     pub(crate) attached: Vec<Vec<u32>>,
-    pub(crate) commands: Vec<ConstraintCommand>,
+    pub(crate) declarations: u32,
     pub(crate) last_moves: u32,
-    pub(crate) last_commands: u32,
+    pub(crate) last_declarations: u32,
     pub(crate) broken: Vec<ConstraintHandle>,
+    pub(crate) rows: RowLayout<ConstraintHandle>,
 }
 
 impl ConstraintStore {
@@ -47,11 +50,33 @@ impl ConstraintStore {
             pool: Pool::compact("constraint"),
             joints: Vec::new(),
             attached: Vec::new(),
-            commands: Vec::new(),
+            declarations: 0,
             last_moves: 0,
-            last_commands: 0,
+            last_declarations: 0,
             broken: Vec::new(),
+            rows: RowLayout::new(),
         }
+    }
+
+    /// The moves the device owes to hold the rows at hand, and the runtime a row whose joint the
+    /// device has never held must be seeded with.
+    pub(crate) fn row_moves(&self) -> (Vec<RowMoveRecord>, Vec<ConstraintRuntimeRecord>) {
+        if self.rows.settled() {
+            return (Vec::new(), Vec::new());
+        }
+        self.rows.difference(self.pool.alive(), |handle| {
+            ConstraintRuntimeRecord::fresh(handle.id, handle.generation)
+        })
+    }
+
+    /// Records that the device holds the rows at hand, which the handover of the move stream does.
+    pub(crate) fn settle_rows(&mut self) {
+        let alive = self.pool.alive();
+        self.rows.settle(alive);
+    }
+
+    pub(crate) fn rows_held(&self) -> u32 {
+        self.rows.rows()
     }
 
     pub(crate) fn attached_to(&self, body_id: u32) -> &[u32] {
@@ -108,7 +133,7 @@ impl World {
         let handle = self.constraints.pool.acquire();
         let first_id = first.id;
         let second_id = second.id;
-        let slot = self.constraints.attach(
+        let row = self.constraints.attach(
             handle,
             JointDesc {
                 first: first_id,
@@ -116,14 +141,11 @@ impl World {
                 desc,
             },
         );
+        self.constraints.rows.touch(row);
         self.constraints.attach_to(first_id, handle.id);
         self.constraints.attach_to(second_id, handle.id);
         self.facts.joints += 1;
-        self.constraints.commands.push(ConstraintCommand::Add {
-            slot,
-            id: handle.id,
-            generation: handle.generation,
-        });
+        self.constraints.declarations += 1;
         handle
     }
 
@@ -224,15 +246,11 @@ impl World {
         let joint = self.joint(handle);
         self.constraints.detach_from(joint.first, handle.id);
         self.constraints.detach_from(joint.second, handle.id);
-        let Retired { row, moved } = self.constraints.pool.retire(handle);
+        let retired = self.constraints.pool.retire(handle);
+        self.constraints.rows.touch(retired.row);
         self.constraints.joints[handle.id as usize] = JointDesc::VACANT;
         self.facts.joints += 1;
-        if moved.is_some() {
-            self.constraints.commands.push(ConstraintCommand::Swap {
-                slot: row,
-                tail: self.constraints.pool.len(),
-            });
-        }
+        self.constraints.declarations += 1;
         self.observed.joints.stop_watching(handle.id);
     }
 

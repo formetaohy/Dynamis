@@ -20,13 +20,15 @@ pub struct StateCapacity {
 #[derive(Clone, Copy, Debug)]
 pub struct StateInputs {
     pub bodies: u32,
+    pub body_rows_held: u32,
     pub body_ids: u32,
     pub collider_pool: u32,
     pub constraints: u32,
+    pub constraint_rows_held: u32,
     pub constraint_ids: u32,
     pub fields: u32,
     pub body_commands: u32,
-    pub constraint_commands: u32,
+    pub constraint_declarations: u32,
     pub shapes: ShapeCapacity,
     pub observed: u32,
     pub observed_joints: u32,
@@ -55,7 +57,7 @@ pub fn floor() -> StateDemand {
         constraint_ids: MIN_SLOTS,
         fields: MIN_SLOTS,
         body_commands: STREAM_FLOOR,
-        constraint_commands: STREAM_FLOOR,
+        constraint_declarations: STREAM_FLOOR,
         shapes: ShapeCapacity {
             sources: MIN_SLOTS,
             vertices: MIN_SLOTS,
@@ -69,7 +71,12 @@ pub fn floor() -> StateDemand {
 }
 
 pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> StateDemand {
-    let bodies = grown(current.body_states.slots(), inputs.bodies, MIN_SLOTS);
+    let bodies = settled(
+        current.body_states.slots(),
+        inputs.bodies.max(inputs.body_rows_held),
+        MIN_SLOTS,
+        release,
+    );
     let body_ids = current
         .body_row_of_id
         .slots()
@@ -82,7 +89,7 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         .max(MIN_SLOTS);
     let constraints = settled(
         current.constraint_runtime.slots(),
-        inputs.constraints,
+        inputs.constraints.max(inputs.constraint_rows_held),
         MIN_SLOTS,
         release,
     );
@@ -98,9 +105,9 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         STREAM_FLOOR,
         release,
     );
-    let constraint_commands = settled(
+    let constraint_declarations = settled(
         current.constraint_fresh_rows.slots(),
-        inputs.constraint_commands,
+        inputs.constraint_declarations,
         STREAM_FLOOR,
         release,
     );
@@ -112,7 +119,7 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         constraint_ids,
         fields,
         body_commands,
-        constraint_commands,
+        constraint_declarations,
         shapes: ShapeCapacity {
             sources: grown(
                 current.shape_sources.slots(),

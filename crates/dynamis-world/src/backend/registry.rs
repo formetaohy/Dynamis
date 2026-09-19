@@ -162,7 +162,7 @@ impl World {
             queries: self.queries.pending.len() as u32,
             query_hits: self.queries.pending_hits,
             body_commands: self.bodies.commands.len() as u32,
-            constraint_commands: self.constraints.commands.len() as u32,
+            constraint_declarations: self.constraints.declarations,
             pending_soft_edits: self.soft.pending_edits(),
             pending_soft_body_edits: self.soft.pending_body_edits(),
         }
@@ -172,13 +172,15 @@ impl World {
         Live {
             state: dynamis_state::StateInputs {
                 bodies: census.bodies,
+                body_rows_held: self.bodies.rows_held(),
                 body_ids: census.body_ids,
                 collider_pool: census.colliders,
                 constraints: census.constraints,
+                constraint_rows_held: self.constraints.rows_held(),
                 constraint_ids: census.constraint_ids,
                 fields: census.fields,
                 body_commands: census.body_commands,
-                constraint_commands: census.constraint_commands,
+                constraint_declarations: census.constraint_declarations,
                 shapes: self.shapes.pool.used(),
                 observed: census.observed,
                 observed_joints: census.observed_joints,
@@ -235,7 +237,8 @@ impl World {
             broadphase: self.backend.owed,
             rigid: dynamis_rigid::RigidWork {
                 body_commands: self.bodies.last_edits + self.bodies.last_moves,
-                constraint_commands: self.constraints.last_commands + self.constraints.last_moves,
+                constraint_declarations: self.constraints.last_declarations
+                    + self.constraints.last_moves,
                 character_declarations: self.characters.last_declarations > 0,
                 vehicle_inputs: self.vehicles.last_inputs > 0,
                 wake_all: self.wake_all,
@@ -270,7 +273,7 @@ impl World {
             constraints: census.constraints,
             body_edits: rows.body_edit_runs,
             body_moves: rows.body_moves,
-            constraint_commands: self.constraints.last_commands,
+            constraint_declarations: self.constraints.last_declarations,
             constraint_moves: rows.constraint_moves,
         }
     }

@@ -3,6 +3,7 @@
 @group(0) @binding(2) var<storage, read> row_moves: array<RowMove>;
 @group(0) @binding(3) var<storage, read> fresh_rows: array<BodyState>;
 @group(0) @binding(4) var<storage, read> row_streams: RowStreams;
+@group(0) @binding(5) var<storage, read_write> counters: array<atomic<u32>>;
 
 fn work(index: u32) {
     let entry = row_moves[index];
@@ -14,5 +15,6 @@ fn work(index: u32) {
         state_scratch[entry.row] = body_states[entry.source];
         return;
     }
+    counter_add(COUNTER_ROW_FAULTS, 1u);
     state_scratch[entry.row] = BodyState();
 }
