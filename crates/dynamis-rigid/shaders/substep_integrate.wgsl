@@ -4,6 +4,7 @@
 @group(0) @binding(3) var<storage, read> live_bodies: array<u32>;
 @group(0) @binding(4) var<storage, read_write> live_count: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> solver_rounds: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read> fields: array<Field>;
 
 const GYROSCOPIC_ITERATIONS: u32 = 4u;
 
@@ -39,19 +40,35 @@ fn work(index: u32) {
     }
     var state = body_states[row];
     let q = state.orientation;
-    state.velocity =
-        state.velocity
-        + (params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass) * params.substep_dt;
+    var acceleration = params.gravity.xyz * desc.gravity_scale + state.force * desc.inverse_mass;
+    var spin = state.angular_velocity;
+    let center = body_com_of(state, desc);
+    let reach = vec2u(desc.collision_group, desc.collision_mask);
+    let field_count = min(params.field_count, arrayLength(&fields));
+    for (var field = 0u; field < field_count; field = field + 1u) {
+        let force = field_force(
+            fields[field],
+            center,
+            state.velocity,
+            params.gravity.xyz,
+            reach,
+            params.substep_dt,
+        );
+        acceleration = acceleration + force.acceleration;
+        state.velocity = state.velocity + force.velocity;
+        spin = spin * force.spin;
+    }
+    state.velocity = state.velocity + acceleration * params.substep_dt;
     state.angular_velocity =
-        gyroscopic_spin(desc, q, state.angular_velocity)
+        gyroscopic_spin(desc, q, spin)
         + apply_inverse_inertia_of(desc, q, state.torque * params.substep_dt);
     let speed = length(state.velocity);
     if (speed > params.max_velocity) {
         state.velocity = state.velocity * (params.max_velocity / speed);
     }
-    let spin = length(state.angular_velocity);
-    if (spin > params.max_angular_velocity) {
-        state.angular_velocity = state.angular_velocity * (params.max_angular_velocity / spin);
+    let spin_speed = length(state.angular_velocity);
+    if (spin_speed > params.max_angular_velocity) {
+        state.angular_velocity = state.angular_velocity * (params.max_angular_velocity / spin_speed);
     }
     state.velocity = state.velocity / (1.0 + desc.linear_damping * params.substep_dt);
     state.angular_velocity = state.angular_velocity / (1.0 + desc.angular_damping * params.substep_dt);

@@ -32,6 +32,7 @@ identity!(
     dynamis_model::BodyHandle,
     dynamis_model::CharacterHandle,
     dynamis_model::ConstraintHandle,
+    dynamis_model::FieldHandle,
     dynamis_model::SoftBodyHandle,
     dynamis_model::ShapeSourceHandle,
     dynamis_model::VehicleHandle,

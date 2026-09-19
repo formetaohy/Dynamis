@@ -7,24 +7,25 @@ use dynamis_abi::{
     ColliderRecord, ConstraintDescriptorRecord, EDIT_ANGULAR_IMPULSE, EDIT_FORCE,
     EDIT_FORCE_AT_POINT, EDIT_IMPULSE, EDIT_IMPULSE_AT_POINT, EDIT_PATCH, EDIT_SLEEP, EDIT_TORQUE,
     EDIT_WAKE, ELEMENT_BROKEN, ELEMENT_PARTICLES, ELEMENT_VOLUME, EVENT_MODE_BEGIN_END,
-    EVENT_MODE_PERSIST, FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING,
-    FILTER_IGNORE_STATIC, NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR,
-    PATCH_POSITION, PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP,
-    QUERY_TARGET_COLLIDERS, QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams,
-    RowStreamsRecord, SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL,
-    SHAPE_MESH, SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
+    EVENT_MODE_PERSIST, FIELD_REGION_CUBOID, FIELD_REGION_GLOBAL, FIELD_REGION_SPHERE,
+    FILTER_IGNORE_KINEMATIC, FILTER_IGNORE_SENSORS, FILTER_IGNORE_SLEEPING, FILTER_IGNORE_STATIC,
+    NO_BODY, NO_SLOT, OVERRIDE_SLEEP_ANGULAR, OVERRIDE_SLEEP_LINEAR, PATCH_POSITION,
+    PATCH_VELOCITY, QUERY_CUBOID, QUERY_RAY, QUERY_SPHERE, QUERY_SWEEP, QUERY_TARGET_COLLIDERS,
+    QUERY_TARGET_PARTICLES, QueryRecord, RowMoveRecord, RowStreams, RowStreamsRecord,
+    SHAPE_CAPSULE, SHAPE_CUBOID, SHAPE_CYLINDER, SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH,
+    SHAPE_PLANE, SHAPE_SPHERE, SOFT_BODY_EDIT_ACCELERATION, SOFT_BODY_EDIT_WAKE,
     SoftAnnouncementRecord, SoftBodyEditRecord, SoftElementInit, SoftElementRecord,
     SoftParticleInit, SoftParticleRecord, StepParamsRecord, SurfaceRecord, TriangleRecord,
     dof_driven, dof_limited, dof_locked, event_flags,
 };
 use dynamis_abi::{
-    Census, ContactEventRecord, ContactRecord, Count, QueryHitRecord, SoftContactRecord,
-    SoftFactRecord,
+    Census, ContactEventRecord, ContactRecord, Count, FieldRecord, QueryHitRecord,
+    SoftContactRecord, SoftFactRecord,
 };
 use dynamis_model::{
     BodyDesc, ColliderDesc, CollisionFilter, ConstraintDesc, ConstraintKind, ConstraintMotor,
-    ConstraintPositionTarget, DofDesc, PhysicsConfig, QueryFilter, QueryTargets, Shape,
-    SoftElementKind, SoftElementState, SurfaceDesc,
+    ConstraintPositionTarget, DofDesc, FieldDesc, FieldRegion, PhysicsConfig, QueryFilter,
+    QueryTargets, Shape, SoftElementKind, SoftElementState, SurfaceDesc,
 };
 use std::mem::{offset_of, size_of};
 use std::panic::catch_unwind;
@@ -180,6 +181,60 @@ fn collider_record_encodes_every_shape_kind() {
     let inherited = ColliderRecord::build(&ColliderDesc::new(Shape::sphere(0.5)), 0, 0);
     assert_eq!(inherited.collision_group, u32::MAX);
     assert_eq!(inherited.collision_mask, u32::MAX);
+}
+
+#[test]
+fn field_record_encodes_regions_effects_and_filters() {
+    let global = FieldRecord::build(&FieldDesc::uniform(FieldRegion::Global, [1.0, 2.0, 3.0]));
+    assert_eq!(global.region, FIELD_REGION_GLOBAL);
+    assert_eq!(global.push, [1.0, 2.0, 3.0]);
+    assert_eq!(global.radius, 0.0);
+    assert_eq!(global.half_extents, [0.0; 3]);
+    assert_eq!(global.collision_group, CollisionFilter::DEFAULT.group());
+    assert_eq!(global.collision_mask, CollisionFilter::DEFAULT.mask());
+
+    let wind = FieldRecord::build(&FieldDesc::wind(
+        FieldRegion::sphere(2.5),
+        [4.0, 0.0, 0.0],
+        3.0,
+    ));
+    assert_eq!(wind.region, FIELD_REGION_SPHERE);
+    assert_eq!(wind.radius, 2.5);
+    assert_eq!(wind.medium, [4.0, 0.0, 0.0]);
+    assert_eq!(wind.linear_drag, 3.0);
+    assert_eq!(wind.quadratic_drag, 0.0);
+    assert_eq!(wind.push, [0.0; 3]);
+
+    let medium = FieldRecord::build(
+        &FieldDesc::radial(FieldRegion::cuboid([1.0, 2.0, 3.0]), [1.0, 2.0, 3.0], 4.0)
+            .filter(CollisionFilter::new(7, 3))
+            .buoyancy(1.5)
+            .angular_drag(0.5),
+    );
+    assert_eq!(medium.region, FIELD_REGION_CUBOID);
+    assert_eq!(medium.half_extents, [1.0, 2.0, 3.0]);
+    assert_eq!(medium.orientation, [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(medium.position, [1.0, 2.0, 3.0]);
+    assert_eq!(medium.pull, 4.0);
+    assert_eq!(medium.collision_group, 7);
+    assert_eq!(medium.collision_mask, 3);
+    assert_eq!(medium.angular_drag, 0.5);
+    assert_eq!(medium.buoyancy, 1.5);
+
+    let vortex = FieldRecord::build(&FieldDesc::vortex(
+        FieldRegion::Global,
+        [0.0; 3],
+        [0.0, 1.0, 0.0],
+        -2.0,
+    ));
+    assert_eq!(vortex.axis, [0.0, 1.0, 0.0]);
+    assert_eq!(vortex.swirl, -2.0);
+
+    assert_eq!(offset_of!(FieldRecord, orientation), 80);
+    assert_eq!(offset_of!(FieldRecord, angular_drag), 96);
+    assert_eq!(offset_of!(FieldRecord, buoyancy), 100);
+    assert_eq!(offset_of!(FieldRecord, region), 104);
+    assert_eq!(size_of::<FieldRecord>(), 128);
 }
 
 #[test]
@@ -1034,6 +1089,7 @@ fn every_declared_count_bounds_its_own_step_field() {
         characters: 11,
         vehicles: 12,
         vehicle_wheels: 13,
+        fields: 14,
         ..Census::default()
     };
     let rows = RowStreams {
@@ -1060,7 +1116,7 @@ fn every_declared_count_bounds_its_own_step_field() {
     values.sort_unstable();
     assert_eq!(
         values,
-        (1..=13).chain(21..=25).collect::<Vec<_>>(),
+        (1..=14).chain(21..=25).collect::<Vec<_>>(),
         "every declared count must resolve to the census field it was declared from, got {declared:?}"
     );
 }

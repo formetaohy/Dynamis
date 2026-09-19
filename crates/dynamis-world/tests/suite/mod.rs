@@ -17,6 +17,7 @@ pub mod device;
 pub mod driven;
 pub mod dynamics;
 pub mod event;
+pub mod field;
 pub mod filter;
 pub mod fluid;
 pub mod heightfield;

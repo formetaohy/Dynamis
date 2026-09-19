@@ -439,7 +439,7 @@ impl PassRuntime<SoftFrame> for SolveSoftSubsteps {
                 rows(
                     context,
                     include_str!("../shaders/soft_integrate.wgsl"),
-                    CORE,
+                    &[dynamis_shader::FIELD],
                     Count::Particles.bound(),
                 ),
                 streams,
@@ -447,6 +447,7 @@ impl PassRuntime<SoftFrame> for SolveSoftSubsteps {
                     ("params", StateStream::Params.whole()),
                     ("particles", particles.whole()),
                     ("bodies", bodies.whole()),
+                    ("fields", StateStream::Fields.whole()),
                 ],
                 &[],
             ),

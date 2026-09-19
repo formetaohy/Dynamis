@@ -43,6 +43,7 @@ struct StepParams {
     vehicle_count: u32,
     vehicle_wheel_count: u32,
     wake_all: u32,
+    field_count: u32,
 }
 
 struct RowStreams {
@@ -230,6 +231,25 @@ struct Surface {
     restitution: f32,
     rolling_friction: f32,
     spin_friction: f32,
+}
+
+struct Field {
+    position: vec3f,
+    pull: f32,
+    half_extents: vec3f,
+    swirl: f32,
+    push: vec3f,
+    radius: f32,
+    medium: vec3f,
+    linear_drag: f32,
+    axis: vec3f,
+    quadratic_drag: f32,
+    orientation: vec4f,
+    angular_drag: f32,
+    buoyancy: f32,
+    region: u32,
+    collision_group: u32,
+    collision_mask: u32,
 }
 
 struct ShapeSource {

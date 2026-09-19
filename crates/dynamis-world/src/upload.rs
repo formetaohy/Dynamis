@@ -83,6 +83,7 @@ impl World {
         if self.shapes.dirty {
             self.upload_shapes(&queue);
         }
+        self.fields.upload(&queue, &self.backend.streams.state);
         self.flush_joint_schedule(&queue);
         self.soft.upload(&queue, &self.backend.streams.soft);
         self.characters.upload(&queue, &self.backend.streams.rigid);

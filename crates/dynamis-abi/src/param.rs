@@ -79,6 +79,7 @@ census! {
         Characters: characters = character_count,
         Vehicles: vehicles = vehicle_count,
         VehicleWheels: vehicle_wheels = vehicle_wheel_count,
+        Fields: fields = field_count,
     }
     host {
         body_ids,

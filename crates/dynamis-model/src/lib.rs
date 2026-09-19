@@ -6,6 +6,7 @@ mod config;
 mod constraint;
 pub mod domain;
 mod event;
+mod field;
 mod impact;
 mod mass;
 pub mod math;
@@ -27,6 +28,7 @@ pub use constraint::{
     DofDesc, JointDof, JointState,
 };
 pub use event::{ContactEvent, ContactEventKind};
+pub use field::{FieldDesc, FieldHandle, FieldRegion};
 pub use impact::ImpactEvent;
 pub use mass::{
     MassProperties, MassSource, analytic_solid, compute_mass_properties, mass_properties_of_intent,

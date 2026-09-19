@@ -146,7 +146,7 @@ impl SubstepIntegrate {
                 stream(
                     context,
                     include_str!("../shaders/substep_integrate.wgsl"),
-                    CORE,
+                    &[dynamis_shader::FIELD],
                     "work",
                     Extent::slot(COUNTER_LIVE, "live_count", "live_bodies"),
                 ),
@@ -158,6 +158,7 @@ impl SubstepIntegrate {
                     ("live_bodies", RigidStream::LiveBodies.whole()),
                     ("live_count", dynamis_state::counter(COUNTER_LIVE)),
                     ("solver_rounds", RigidStream::SolverRounds.whole()),
+                    ("fields", StateStream::Fields.whole()),
                 ],
                 &[],
             ),

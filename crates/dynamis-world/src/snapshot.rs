@@ -6,6 +6,7 @@ use super::clock::Clock;
 use super::collider::ColliderStore;
 use super::constraint::ConstraintStore;
 use super::device::Facts;
+use super::field::FieldStore;
 use super::query_pool::QueryPool;
 use super::shape::ShapeStore;
 use super::soft::SoftBodyStore;
@@ -23,6 +24,7 @@ struct Scene {
     soft: SoftBodyStore,
     characters: CharacterStore,
     vehicles: VehicleStore,
+    fields: FieldStore,
 }
 
 impl Scene {
@@ -35,6 +37,7 @@ impl Scene {
             soft: world.soft.clone(),
             characters: world.characters.clone(),
             vehicles: world.vehicles.clone(),
+            fields: world.fields.clone(),
         }
     }
 
@@ -46,6 +49,7 @@ impl Scene {
         world.soft = self.soft.clone();
         world.characters = self.characters.clone();
         world.vehicles = self.vehicles.clone();
+        world.fields = self.fields.clone();
     }
 }
 

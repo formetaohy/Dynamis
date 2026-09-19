@@ -2,9 +2,9 @@ use crate::StateDomain;
 use dynamis_abi::{
     BodyDescriptorRecord, BodyEditRecord, BodyEditRunRecord, BodyStateRecord,
     BrokenConstraintRecord, BvhNodeRecord, COUNTER_DEVICE_COUNT, COUNTER_STRIDE, CellRecord,
-    ColliderRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, JointStateRecord,
-    REACTION_WORDS, RowMoveRecord, RowStreamsRecord, ShapeSourceRecord, StepParamsRecord,
-    TriangleRecord,
+    ColliderRecord, ConstraintDescriptorRecord, ConstraintRuntimeRecord, FieldRecord,
+    JointStateRecord, REACTION_WORDS, RowMoveRecord, RowStreamsRecord, ShapeSourceRecord,
+    StepParamsRecord, TriangleRecord,
 };
 use dynamis_domain::Domain;
 use dynamis_domain::streams;
@@ -24,6 +24,7 @@ streams! {
         colliders: u32,
         constraints: u32,
         constraint_ids: u32,
+        fields: u32,
         body_commands: u32,
         constraint_commands: u32,
         shapes: crate::ShapeCapacity,
@@ -45,6 +46,7 @@ streams! {
         constraint_descriptors, ConstraintDescriptors: "constraint descriptors", ConstraintDescriptorRecord, 1, Retention::Durable, demand.constraints;
         constraint_runtime, ConstraintRuntime: "constraint runtime", ConstraintRuntimeRecord, 1, Retention::Durable, demand.constraints;
         constraint_row_of_id, ConstraintRowOfId: "constraint row of id", u32, 1, Retention::Durable, demand.constraint_ids;
+        fields, Fields: "force fields", FieldRecord, 1, Retention::Durable, demand.fields;
         wake_flags, WakeFlags: "body wake flags", u32, 1, Retention::Scratch, demand.bodies;
         body_reactions, BodyReactions: "body reactions", u32, REACTION_WORDS, Retention::Scratch, demand.body_reactions();
         constraint_row_moves, ConstraintRowMoves: "constraint row moves", RowMoveRecord, 1, Retention::Scratch, demand.constraint_moves();

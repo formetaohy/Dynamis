@@ -10,6 +10,7 @@ mod derivation;
 mod device;
 mod event;
 mod fact;
+mod field;
 mod id;
 mod impact;
 mod journal;
@@ -40,6 +41,7 @@ use dynamis_gpu::{GpuBuffer, GpuContext, WarmupBudget, WarmupProgress};
 use dynamis_model::domain;
 use dynamis_model::{BodyHandle, PhysicsConfig};
 use event::EventStore;
+use field::FieldStore;
 use impact::ImpactStore;
 use observation::ObservationStore;
 use query::QueryStore;
@@ -73,6 +75,7 @@ pub struct World {
     characters: CharacterStore,
     events: EventStore,
     impacts: ImpactStore,
+    fields: FieldStore,
     observed: ObservationStore,
     soft: SoftBodyStore,
     vehicles: VehicleStore,
@@ -97,6 +100,7 @@ impl World {
             characters: CharacterStore::new(),
             events: EventStore::new(),
             impacts: ImpactStore::new(),
+            fields: FieldStore::new(),
             observed: ObservationStore::new(),
             soft: SoftBodyStore::new(),
             vehicles: VehicleStore::new(),

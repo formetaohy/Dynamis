@@ -14,6 +14,7 @@ pub struct ShapeCapacity {
 pub struct StateCapacity {
     pub shapes: ShapeCapacity,
     pub observed: u32,
+    pub fields: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -23,6 +24,7 @@ pub struct StateInputs {
     pub collider_pool: u32,
     pub constraints: u32,
     pub constraint_ids: u32,
+    pub fields: u32,
     pub body_commands: u32,
     pub constraint_commands: u32,
     pub shapes: ShapeCapacity,
@@ -40,6 +42,7 @@ pub fn capacity(streams: &StateStreams) -> StateCapacity {
             cells: streams.shape_cells.slots(),
         },
         observed: streams.observed_ids.slots(),
+        fields: streams.fields.slots(),
     }
 }
 
@@ -50,6 +53,7 @@ pub fn floor() -> StateDemand {
         colliders: MIN_SLOTS,
         constraints: MIN_SLOTS,
         constraint_ids: MIN_SLOTS,
+        fields: MIN_SLOTS,
         body_commands: STREAM_FLOOR,
         constraint_commands: STREAM_FLOOR,
         shapes: ShapeCapacity {
@@ -87,6 +91,7 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         .slots()
         .max(inputs.constraint_ids)
         .max(MIN_SLOTS);
+    let fields = settled(current.fields.slots(), inputs.fields, MIN_SLOTS, release);
     let body_commands = settled(
         current.body_edits.slots(),
         inputs.body_commands,
@@ -105,6 +110,7 @@ pub fn plan(inputs: &StateInputs, current: &StateStreams, release: bool) -> Stat
         colliders,
         constraints,
         constraint_ids,
+        fields,
         body_commands,
         constraint_commands,
         shapes: ShapeCapacity {

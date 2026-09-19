@@ -104,6 +104,9 @@ declare_constants! {
     pub const DOF_LIMITED: u32 = 1 << 14;
     pub const DOF_DRIVEN: u32 = 1 << 20;
     pub const DOF_LIMIT_ROW_BASE: u32 = 8;
+    pub const FIELD_REGION_GLOBAL: u32 = 0;
+    pub const FIELD_REGION_SPHERE: u32 = 1;
+    pub const FIELD_REGION_CUBOID: u32 = 2;
     pub const QUERY_RAY: u32 = 0;
     pub const QUERY_SPHERE: u32 = 1;
     pub const QUERY_CUBOID: u32 = 2;
@@ -166,6 +169,10 @@ const _: () = assert!(
         && ENTRY_MOBILE & ENTRY_AWAKE == 0
         && ENTRY_AWAKE & ENTRY_PRIMARY == 0,
     "a grid entry kind, mobile bit, awake bit and primary bit must be disjoint"
+);
+const _: () = assert!(
+    FIELD_REGION_GLOBAL < FIELD_REGION_SPHERE && FIELD_REGION_SPHERE < FIELD_REGION_CUBOID,
+    "field region kinds must fill their code space"
 );
 const _: () = assert!(
     ENTRY_INDEX_MASK < 1 << ENTRY_CELL_SHIFT
