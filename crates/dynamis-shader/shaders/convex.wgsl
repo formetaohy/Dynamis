@@ -622,85 +622,12 @@ fn penetration_hit(probe: WorldShape, solid: WorldShape) -> ShapeHit {
     return ShapeHit(hit.distance, hit.point, -hit.normal, hit.triangle);
 }
 
-const BOX_INTERIOR_POINT: u32 = 8u;
-const SEGMENT_FAR_POINT: u32 = 0u;
-const SEGMENT_NEAR_POINT: u32 = 1u;
-const SEGMENT_CENTER_POINT: u32 = 2u;
-
 fn box_corner_id(face_axis: u32, face_sign: f32, first: f32, second: f32) -> u32 {
     var id = 0u;
     id = id | select(0u, 1u << face_axis, face_sign > 0.0);
     id = id | select(0u, 1u << ((face_axis + 1u) % 3u), first > 0.0);
     id = id | select(0u, 1u << ((face_axis + 2u) % 3u), second > 0.0);
     return id;
-}
-
-fn convex_sample_points(
-    world: WorldShape,
-    plane_adverse: vec3f,
-    out_points: ptr<function, array<vec3f, 4>>,
-    out_ids: ptr<function, array<u32, 4>>,
-) -> u32 {
-    if (world.kind == SHAPE_SPHERE) {
-        (*out_points)[0] = world.center + plane_adverse * world.radius;
-        (*out_ids)[0] = 0u;
-        return 1u;
-    }
-    if (world.kind == SHAPE_CUBOID) {
-        let axes = world_rotated_axes(world);
-        let e = world.half_extents;
-        var count = 0u;
-        for (var i = 0u; i < 8u && count < 4u; i = i + 1u) {
-            let corner = world.center + axes[0] * select(-e.x, e.x, (i & 1u) != 0u)
-                + axes[1] * select(-e.y, e.y, (i & 2u) != 0u)
-                + axes[2] * select(-e.z, e.z, (i & 4u) != 0u);
-            if (dot(corner - world.center, plane_adverse) < 0.0) {
-                (*out_points)[count] = corner;
-                (*out_ids)[count] = i;
-                count = count + 1u;
-            }
-        }
-        if (count == 0u) {
-            (*out_points)[0] = world.center - plane_adverse * min(min(e.x, e.y), e.z);
-            (*out_ids)[0] = BOX_INTERIOR_POINT;
-            return 1u;
-        }
-        return count;
-    }
-    if (world.kind == SHAPE_CAPSULE || world.kind == SHAPE_CYLINDER) {
-        let axis = shape_axis(world);
-        let far = world.center - axis * world.half_height;
-        let near = world.center + axis * world.half_height;
-        if (dot(far - world.center, plane_adverse) < 0.0) {
-            (*out_points)[0] = far;
-            (*out_ids)[0] = SEGMENT_FAR_POINT;
-            (*out_points)[1] = world.center;
-            (*out_ids)[1] = SEGMENT_CENTER_POINT;
-            return 2u;
-        }
-        (*out_points)[0] = near;
-        (*out_ids)[0] = SEGMENT_NEAR_POINT;
-        (*out_points)[1] = world.center;
-        (*out_ids)[1] = SEGMENT_CENTER_POINT;
-        return 2u;
-    }
-    let source = shape_sources[world.source];
-    var best = vec3f(0.0);
-    var best_dot = 3.402823466e38;
-    var best_id = 0u;
-    for (var i = 0u; i < source.vertex_count; i = i + 1u) {
-        let local = shape_vertices[source.vertex_offset + i].xyz * world.scale;
-        let p = world.center + quat_rotate(world.rotation, local);
-        let s = dot(p - world.center, plane_adverse);
-        if (s < best_dot) {
-            best_dot = s;
-            best = p;
-            best_id = i;
-        }
-    }
-    (*out_points)[0] = best;
-    (*out_ids)[0] = best_id;
-    return 1u;
 }
 
 const EMPTY_RING_FACE: u32 = FEATURE_INDEX_LIMIT;

@@ -575,14 +575,25 @@ fn plane_convex(plane: WorldShape, convex: WorldShape, margin: f32) -> Contact {
     let center_side = dot(convex.center - plane.center, n);
     let facing = select(n, -n, center_side < 0.0);
     manifold_emit(&contact, facing);
-    var points: array<vec3f, 4>;
-    var ids: array<u32, 4>;
-    let count = convex_sample_points(convex, -facing, &points, &ids);
+    var points: array<vec3f, FEATURE_MAX>;
+    var ids: array<u32, FEATURE_MAX>;
+    var feature = 0u;
+    var flat = false;
+    let count = shape_feature(convex, -facing, &points, &ids, &feature, &flat);
+    var touching: array<vec3f, FEATURE_MAX>;
+    var touching_ids: array<u32, FEATURE_MAX>;
+    var touching_count = 0u;
     for (var i = 0u; i < count; i = i + 1u) {
-        let depth = dot(plane.center - points[i], facing);
-        if (depth > -margin) {
-            manifold_push(&contact, points[i] + facing * (depth * 0.5), depth, feature_vertex(feature_field_face(0u), ids[i]));
+        if (dot(plane.center - points[i], facing) > -margin) {
+            touching[touching_count] = points[i];
+            touching_ids[touching_count] = ids[i];
+            touching_count = touching_count + 1u;
         }
+    }
+    let stride = max(1u, (touching_count + CONTACT_MAX_POINTS - 1u) / CONTACT_MAX_POINTS);
+    for (var i = 0u; i < touching_count && contact.point_count < CONTACT_MAX_POINTS; i = i + stride) {
+        let depth = dot(plane.center - touching[i], facing);
+        manifold_push(&contact, touching[i] + facing * (depth * 0.5), depth, feature_vertex(feature_field_face(0u), touching_ids[i]));
     }
     return contact;
 }
