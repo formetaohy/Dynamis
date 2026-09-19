@@ -57,6 +57,25 @@ impl BindingTable {
             .collect()
     }
 
+    pub(crate) fn assert_device_writable<R: ResourceSource>(
+        &self,
+        label: &str,
+        group: u32,
+        slots: &[(&'static str, SlotRef)],
+        resources: &R,
+    ) {
+        for (declaration, slot) in self.matched(label, group, slots, |slot| slot.element()) {
+            if declaration.kind != BindingKind::ReadWriteStorage {
+                continue;
+            }
+            assert!(
+                resources.device_writes(slot.resource()),
+                "stage {label:?} writes its binding {:?}, while the stream table hands that stream to the host alone",
+                declaration.name,
+            );
+        }
+    }
+
     pub fn group(
         &self,
         label: &str,

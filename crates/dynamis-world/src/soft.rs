@@ -257,13 +257,7 @@ impl SoftBodyStore {
         self.body_commands.push(handle.id, SoftBodyCommand::Wake);
     }
 
-    fn edit(
-        &mut self,
-        handle: SoftBodyHandle,
-        particle: u32,
-        command: SoftCommand,
-        substep_dt: f32,
-    ) {
+    fn edit(&mut self, handle: SoftBodyHandle, particle: u32, command: SoftCommand) {
         let slot = self.particle_slot_of(handle, particle);
         let id = handle.id as usize;
         match command {
@@ -285,21 +279,7 @@ impl SoftBodyStore {
             SoftCommand::Friction(friction) => {
                 self.particles.records_mut()[slot as usize].velocity[3] = friction;
             }
-            SoftCommand::Position(position) => {
-                let record = &mut self.particles.records_mut()[slot as usize];
-                record.position[..3].copy_from_slice(&position);
-                record.prev_position[..3].copy_from_slice(&position);
-            }
-            SoftCommand::Velocity(velocity) => {
-                let record = &mut self.particles.records_mut()[slot as usize];
-                let position = [record.position[0], record.position[1], record.position[2]];
-                record.velocity[..3].copy_from_slice(&velocity);
-                record.prev_position[..3].copy_from_slice(&[
-                    position[0] - velocity[0] * substep_dt,
-                    position[1] - velocity[1] * substep_dt,
-                    position[2] - velocity[2] * substep_dt,
-                ]);
-            }
+            SoftCommand::Position(_) | SoftCommand::Velocity(_) => {}
         }
         self.body_commands.push(handle.id, SoftBodyCommand::Wake);
         self.commands.push(slot, command);
@@ -621,10 +601,6 @@ fn assemble_adjacency(
 }
 
 impl World {
-    fn soft_substep_dt(&self) -> f32 {
-        self.clock.sub_dt / self.config.soft_substeps as f32
-    }
-
     pub fn add_soft_body(&mut self, desc: SoftBodyDesc) -> SoftBodyHandle {
         desc.assert_valid();
         for attachment in &desc.attachments {
@@ -662,13 +638,8 @@ impl World {
         inverse_mass: f32,
     ) {
         domain::non_negative(inverse_mass, "a soft particle inverse mass");
-        let substep_dt = self.soft_substep_dt();
-        self.soft.edit(
-            handle,
-            particle,
-            SoftCommand::InverseMass(inverse_mass),
-            substep_dt,
-        );
+        self.soft
+            .edit(handle, particle, SoftCommand::InverseMass(inverse_mass));
     }
 
     pub fn set_soft_particle_radius(&mut self, handle: SoftBodyHandle, particle: u32, radius: f32) {
@@ -676,9 +647,8 @@ impl World {
         if self.soft.particle_state(handle, particle).radius() != radius {
             self.facts.geometry += 1;
         }
-        let substep_dt = self.soft_substep_dt();
         self.soft
-            .edit(handle, particle, SoftCommand::Radius(radius), substep_dt);
+            .edit(handle, particle, SoftCommand::Radius(radius));
     }
 
     pub fn set_soft_particle_friction(
@@ -688,13 +658,8 @@ impl World {
         friction: f32,
     ) {
         domain::non_negative(friction, "a soft particle friction");
-        let substep_dt = self.soft_substep_dt();
-        self.soft.edit(
-            handle,
-            particle,
-            SoftCommand::Friction(friction),
-            substep_dt,
-        );
+        self.soft
+            .edit(handle, particle, SoftCommand::Friction(friction));
     }
 
     pub fn set_soft_particle_position(
@@ -704,13 +669,8 @@ impl World {
         position: [f32; 3],
     ) {
         domain::finite_vector(position, "a soft particle position");
-        let substep_dt = self.soft_substep_dt();
-        self.soft.edit(
-            handle,
-            particle,
-            SoftCommand::Position(position),
-            substep_dt,
-        );
+        self.soft
+            .edit(handle, particle, SoftCommand::Position(position));
     }
 
     pub fn set_soft_particle_velocity(
@@ -720,13 +680,8 @@ impl World {
         velocity: [f32; 3],
     ) {
         domain::finite_vector(velocity, "a soft particle velocity");
-        let substep_dt = self.soft_substep_dt();
-        self.soft.edit(
-            handle,
-            particle,
-            SoftCommand::Velocity(velocity),
-            substep_dt,
-        );
+        self.soft
+            .edit(handle, particle, SoftCommand::Velocity(velocity));
     }
 
     pub fn attach_soft_particle(

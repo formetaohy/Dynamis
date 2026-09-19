@@ -27,6 +27,27 @@ fn shared() -> &'static GpuContext {
 
 struct Slots {
     storage: Stream,
+    declared_device: bool,
+}
+
+impl Slots {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, declared_device: bool) -> Self {
+        Self {
+            storage: Stream::new(
+                device,
+                queue,
+                StreamDesc {
+                    label: "stage out",
+                    slots: 64,
+                    element: ELEMENT,
+                    elements_per_slot: 1,
+                    usage: STREAM,
+                    retention: Retention::Durable,
+                },
+            ),
+            declared_device,
+        }
+    }
 }
 
 impl ResourceSource for Slots {
@@ -43,6 +64,11 @@ impl ResourceSource for Slots {
     fn range(&self, resource: ResourceId, offset: u64, size: u64) -> GpuSlot<'_> {
         assert_eq!(resource, SLOT, "the stage names one stream");
         GpuSlot::range(self.storage.gpu(), offset, size)
+    }
+
+    fn device_writes(&self, resource: ResourceId) -> bool {
+        assert_eq!(resource, SLOT, "the stage names one stream");
+        self.declared_device
     }
 }
 
@@ -103,6 +129,7 @@ fn a_stage_follows_the_storage_it_replaces() {
                 retention: Retention::Durable,
             },
         ),
+        declared_device: true,
     };
     let mut stage = Stage::build(
         context,
@@ -147,6 +174,7 @@ fn an_empty_dispatch_resolves_no_kernel() {
                 retention: Retention::Durable,
             },
         ),
+        declared_device: true,
     };
     let mut stage = Stage::build(
         &context,
@@ -217,6 +245,7 @@ fn a_streaming_stage_declares_the_counter_and_the_array_its_work_covers() {
                 retention: Retention::Durable,
             },
         ),
+        declared_device: true,
     };
     let counter = dynamis_abi::COUNTER_PAIRS;
     let mut stage = stream_stage(
@@ -269,4 +298,41 @@ fn stage_streams_over(stage: &mut Stage, slots: &Slots) -> bool {
     let mut recorder = ComputeRecorder::begin(&mut encoder, "stage", shared().workgroups_per_row());
     stage.record_stream(&mut recorder, slots);
     true
+}
+
+#[test]
+fn a_stage_that_writes_a_stream_the_host_alone_owns_is_refused() {
+    let context = shared();
+    let device = context.device().clone();
+    let queue = context.queue().clone();
+    let declared = Slots::new(&device, &queue, true);
+    let host_only = Slots::new(&device, &queue, false);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            Stage::build(
+                context,
+                "host stage",
+                Program::new(SOURCE.to_owned(), Dispatch::Workgroups, Extent::None, false),
+                &host_only,
+                &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
+                &[],
+            );
+        }))
+        .is_err(),
+        "a stage must not write a stream the table hands to the host alone"
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            Stage::build(
+                context,
+                "declared stage",
+                Program::new(SOURCE.to_owned(), Dispatch::Workgroups, Extent::None, false),
+                &declared,
+                &[("stage_out", SlotRef::whole(SLOT, ELEMENT))],
+                &[],
+            );
+        }))
+        .is_ok(),
+        "a stage may write a stream the table declares the device writes"
+    );
 }

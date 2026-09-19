@@ -92,4 +92,9 @@ pub trait ResourceSource {
     fn measured(&self, _counter: usize) -> Option<u32> {
         None
     }
+
+    /// Whether the stream table declares the device a writer of a resource. A device program that
+    /// writes a resource the table hands to the host alone would take over a record no side of the
+    /// world declared the device owns.
+    fn device_writes(&self, resource: ResourceId) -> bool;
 }

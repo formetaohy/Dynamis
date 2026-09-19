@@ -196,11 +196,12 @@ macro_rules! domains {
             $( pub $field: <$domain as $crate::Domain>::Capacity, )*
         }
 
-        /// Every device stream of the registered composition and the side of the world that hands
-        /// it its records. The host's declaration of writers is checked against this, so a stream
-        /// the host fills cannot be added without the path that uploads it.
-        pub const STREAM_FILLS: &[&[(&str, $crate::StreamFill)]] = &[
-            $( <$domain as $crate::Domain>::Streams::FILLS, )*
+        /// Every device stream of the registered composition and the sides of the world that write
+        /// it. The host's declaration of handovers and every device program are checked against
+        /// this, so a stream the host hands over cannot be added without the path that uploads it,
+        /// and a device program cannot take over a stream the table hands to the host alone.
+        pub const STREAM_WRITERS: &[&[(&str, $crate::StreamWriters)]] = &[
+            $( <$domain as $crate::Domain>::Streams::WRITERS, )*
         ];
 
         pub(crate) struct Streams {
@@ -313,6 +314,19 @@ macro_rules! domains {
                 $(
                     if resource.domain() == <$domain as $crate::Domain>::ID {
                         return self.$field.range(resource.local(), offset, size);
+                    }
+                )*
+                panic!(
+                    "resource domain {} is outside the stream composition",
+                    resource.domain(),
+                )
+            }
+
+            fn device_writes(&self, resource: dynamis_gpu::ResourceId) -> bool {
+                use $crate::DomainStreams as _;
+                $(
+                    if resource.domain() == <$domain as $crate::Domain>::ID {
+                        return self.$field.device_writes(resource.local());
                     }
                 )*
                 panic!(

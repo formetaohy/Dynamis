@@ -1,6 +1,6 @@
 use super::World;
-use crate::backend::registry::STREAM_FILLS;
-use dynamis_domain::StreamFill;
+use crate::backend::registry::STREAM_WRITERS;
+use dynamis_domain::StreamWriters;
 use dynamis_rigid::RigidStream;
 use dynamis_scene::SceneStream;
 use dynamis_soft::SoftStream;
@@ -8,32 +8,32 @@ use dynamis_state::StateStream;
 
 pub(crate) type Flush = fn(&mut World);
 
-/// Where a declared writer hands its records over. A scene writer hands over the records a scene
-/// mutation moved, and runs with every mutation the world sweeps. A step writer hands over the
-/// records the step itself composes, and runs once the step has composed all of them.
+/// Where a declared handover runs. A scene handover carries the records a scene mutation moved,
+/// and runs with every mutation the world sweeps. A step handover carries the records the step
+/// itself composes, and runs once the step has composed all of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stage {
     Scene,
     Step,
 }
 
-/// One declared writer of device records: the streams it hands over and the path that does it.
-/// Every device stream the host declares is written by exactly one entry here, so a scene record
-/// cannot be added to a stream table without the path that uploads it, and a stream only the
-/// device fills cannot be claimed by a host writer.
-pub(crate) struct Writer {
+/// One declared handover of host records to the device: the streams it carries and the path that
+/// performs it. Every stream the stream table declares the host writes owes exactly one entry
+/// here, so a scene record cannot be added to a stream table without the path that uploads it,
+/// and a stream no handover carries cannot be claimed by one.
+pub(crate) struct Handover {
     pub(crate) streams: &'static [&'static str],
     pub(crate) stage: Stage,
     pub(crate) flush: Flush,
 }
 
-macro_rules! writers {
+macro_rules! handovers {
     ( $( $stage:ident { $( $stream:expr ),* $(,)? } => $flush:path ),* $(,)? ) => {
         /// Every declared handover of host records to the device, in the order a sweep runs them:
         /// the streams each hands over, the stage that composes them, and the path that does it.
-        pub(crate) const WRITERS: &[Writer] = &[
+        pub(crate) const HANDOVERS: &[Handover] = &[
             $(
-                Writer {
+                Handover {
                     streams: &[ $( $stream.label() ),* ],
                     stage: Stage::$stage,
                     flush: $flush,
@@ -43,7 +43,7 @@ macro_rules! writers {
     };
 }
 
-writers! {
+handovers! {
     Scene {
         StateStream::ShapeSources,
         StateStream::ShapeVertices,
@@ -120,74 +120,74 @@ writers! {
     } => World::flush_queries,
 }
 
-const _: () = assert_writers(STREAM_FILLS, WRITERS);
+const _: () = assert_handovers(STREAM_WRITERS, HANDOVERS);
 
 impl World {
     /// Hands the device every record a scene mutation moved. A mutation records the change it made
     /// in the stream table it owns, so the sweep only has to hand over what the tables hold.
     pub(crate) fn flush_scene_records(&mut self) {
-        for writer in WRITERS {
-            if writer.stage == Stage::Scene {
-                (writer.flush)(self);
+        for handover in HANDOVERS {
+            if handover.stage == Stage::Scene {
+                (handover.flush)(self);
             }
         }
     }
 
     /// Hands the device every record the step composed, once the step has composed all of them.
     pub(crate) fn flush_step_records(&mut self) {
-        for writer in WRITERS {
-            if writer.stage == Stage::Step {
-                (writer.flush)(self);
+        for handover in HANDOVERS {
+            if handover.stage == Stage::Step {
+                (handover.flush)(self);
             }
         }
     }
 }
 
-const fn assert_writers(fills: &[&[(&str, StreamFill)]], writers: &[Writer]) {
+const fn assert_handovers(declared: &[&[(&str, StreamWriters)]], handovers: &[Handover]) {
     let mut table = 0;
-    while table < fills.len() {
-        let fills = fills[table];
+    while table < declared.len() {
+        let streams = declared[table];
         let mut index = 0;
-        while index < fills.len() {
-            let (label, fill) = fills[index];
-            let declared = declared_by(writers, label);
-            match fill {
-                StreamFill::Host => assert!(
-                    declared == 1,
+        while index < streams.len() {
+            let (label, sides) = streams[index];
+            let held = declared_by(handovers, label);
+            match sides {
+                StreamWriters::Host | StreamWriters::HostThenDevice => assert!(
+                    held == 1,
                     "a device stream the host hands records to must have exactly one declared writer, and one that names only streams the host declares",
                 ),
-                StreamFill::Device => assert!(
-                    declared == 0,
-                    "a device stream only the device fills must not be claimed by a host writer",
+                StreamWriters::Device => assert!(
+                    held == 0,
+                    "a device stream no handover carries must not be claimed by one",
                 ),
             }
             index += 1;
         }
         table += 1;
     }
-    let mut writer = 0;
-    while writer < writers.len() {
-        let streams = writers[writer].streams;
+    let mut handover = 0;
+    while handover < handovers.len() {
+        let streams = handovers[handover].streams;
         let mut index = 0;
         while index < streams.len() {
             assert!(
-                declared_once(fills, streams[index]),
+                declared_once(declared, streams[index]),
                 "a declared writer must name a device stream the composition declares once",
             );
             index += 1;
         }
-        writer += 1;
+        handover += 1;
     }
 }
 
-const fn declared_once(fills: &[&[(&str, StreamFill)]], label: &str) -> bool {
+const fn declared_once(streams: &[&[(&str, StreamWriters)]], label: &str) -> bool {
     let mut declared = 0;
     let mut table = 0;
-    while table < fills.len() {
-        let fills = fills[table];
+    while table < streams.len() {
+        let streams = streams[table];
         let mut index = 0;
-        while index < fills.len() {
-            if same(fills[index].0, label) {
+        while index < streams.len() {
+            if same(streams[index].0, label) {
                 declared += 1;
             }
             index += 1;
@@ -197,11 +197,11 @@ const fn declared_once(fills: &[&[(&str, StreamFill)]], label: &str) -> bool {
     declared == 1
 }
 
-const fn declared_by(writers: &[Writer], label: &str) -> usize {
+const fn declared_by(handovers: &[Handover], label: &str) -> usize {
     let mut declared = 0;
-    let mut writer = 0;
-    while writer < writers.len() {
-        let streams = writers[writer].streams;
+    let mut handover = 0;
+    while handover < handovers.len() {
+        let streams = handovers[handover].streams;
         let mut index = 0;
         while index < streams.len() {
             if same(streams[index], label) {
@@ -209,7 +209,7 @@ const fn declared_by(writers: &[Writer], label: &str) -> usize {
             }
             index += 1;
         }
-        writer += 1;
+        handover += 1;
     }
     declared
 }

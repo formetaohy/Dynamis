@@ -116,6 +116,7 @@ impl Stage {
         let (source, declarations, dispatch, extent, warm) = program.into_parts();
         let bindings = BindingTable::new(declarations);
         let storage = bindings.table(label, 0, slots);
+        bindings.assert_device_writable(label, 0, slots, resources);
         let extent_source = match dispatch {
             Dispatch::Stream => Some(
                 extent

@@ -1,13 +1,23 @@
 use dynamis_gpu::Stream;
 use wgpu::{CommandEncoder, Device, Queue};
 
-/// The side of the world that hands a stream its records. A stream the host declares owes exactly
-/// one host-side writer, so a scene record cannot reach the device without the path that uploads
-/// it having been declared, and a stream only the device writes cannot be claimed by one.
+/// Which sides of the world write a stream. The host hands over the records it declares and the
+/// device answers what those records become, so a stream is handed over by the host, advanced by
+/// the device, or both. A stream the host declares owes exactly one host-side handover, so a
+/// record cannot reach the device without the path that uploads it having been declared, and a
+/// stream no host handover carries cannot be claimed by one. A stream the device advances is
+/// declared so, so a device program cannot take a stream over by writing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StreamFill {
+pub enum StreamWriters {
     Host,
+    HostThenDevice,
     Device,
+}
+
+impl StreamWriters {
+    pub const fn device(self) -> bool {
+        matches!(self, Self::HostThenDevice | Self::Device)
+    }
 }
 
 pub trait DomainStreams: Sized {
@@ -32,6 +42,8 @@ pub trait DomainStreams: Sized {
     );
 
     fn durable(&self) -> Vec<(&'static str, &Stream)>;
+
+    fn device_writes(&self, local: u32) -> bool;
 }
 
 #[macro_export]
@@ -52,7 +64,7 @@ macro_rules! streams {
         demand { $( $field:ident: $ty:ty, )* }
         streams {
             $(
-                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $retention:expr, $fill:expr, $slots:expr $(, $usage:expr)?;
+                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $retention:expr, $writers:expr, $slots:expr $(, $usage:expr)?;
             )*
         }
     ) => {
@@ -71,14 +83,14 @@ macro_rules! streams {
 
             pub const RETENTION: &'static [::dynamis_gpu::Retention] = &[ $( $retention ),* ];
 
-            pub const FILL: &'static [$crate::StreamFill] = &[ $( $fill ),* ];
-
             pub const fn retention(self) -> ::dynamis_gpu::Retention {
                 Self::RETENTION[self as usize]
             }
 
-            pub const fn fill(self) -> $crate::StreamFill {
-                Self::FILL[self as usize]
+            pub const fn writers(self) -> $crate::StreamWriters {
+                match self {
+                    $( Self::$variant => $writers, )*
+                }
             }
 
             pub const fn label(self) -> &'static str {
@@ -197,13 +209,17 @@ macro_rules! streams {
                     .map(|id| (id.label(), id.stream(self)))
                     .collect()
             }
+
+            fn device_writes(&self, local: u32) -> bool {
+                $id::of(local).writers().device()
+            }
         }
 
         impl $table {
-            /// Every stream of this table and the side of the world that hands it its records:
-            /// the one declaration a host-side writer set is checked against.
-            pub const FILLS: &'static [(&'static str, $crate::StreamFill)] = &[
-                $( ($label, $fill), )*
+            /// Every stream of this table and the sides of the world that write it: the one
+            /// declaration a host-side writer set and every device program are checked against.
+            pub const WRITERS: &'static [(&'static str, $crate::StreamWriters)] = &[
+                $( ($label, $writers), )*
             ];
 
             pub fn slots(&self, local: u32) -> u32 {

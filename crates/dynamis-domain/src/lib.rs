@@ -7,7 +7,7 @@ pub use capacity::{
     MIN_SLOTS, SETTLE_STEPS, STREAM_FLOOR, Settling, grown, product, settled, unreported,
 };
 pub use fact::StepFacts;
-pub use streams::{DomainStreams, StreamFill};
+pub use streams::{DomainStreams, StreamWriters};
 
 use dynamis_abi::Counters;
 use dynamis_gpu::ComputeRecorder;
