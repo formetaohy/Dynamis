@@ -196,6 +196,13 @@ macro_rules! domains {
             $( pub $field: <$domain as $crate::Domain>::Capacity, )*
         }
 
+        /// Every device stream of the registered composition and the side of the world that hands
+        /// it its records. The host's declaration of writers is checked against this, so a stream
+        /// the host fills cannot be added without the path that uploads it.
+        pub const STREAM_FILLS: &[&[(&str, $crate::StreamFill)]] = &[
+            $( <$domain as $crate::Domain>::Streams::FILLS, )*
+        ];
+
         pub(crate) struct Streams {
             $( pub(crate) $field: <$domain as $crate::Domain>::Streams, )*
             measured: Option<::dynamis_abi::Counters>,

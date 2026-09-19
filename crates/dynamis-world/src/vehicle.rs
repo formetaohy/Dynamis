@@ -210,6 +210,11 @@ fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, run: Run) {
 }
 
 impl World {
+    pub(crate) fn flush_vehicles(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
+        self.vehicles.upload(&queue, &self.backend.streams.rigid);
+    }
+
     pub fn add_vehicle(&mut self, desc: VehicleDesc) -> VehicleHandle {
         desc.assert_valid();
         let body = self.spawn(desc.chassis.clone());

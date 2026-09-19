@@ -14,80 +14,50 @@ impl World {
         self.constraints.schedule = schedule;
     }
 
-    fn flush_joint_schedule(&mut self, queue: &wgpu::Queue) {
+    pub(crate) fn flush_joint_order(&mut self) {
         self.rebuild_joint_schedule();
         let storage = self.joint_order_storage();
-        let mut schedule = std::mem::replace(&mut self.constraints.schedule, JointSchedule::new());
-        if schedule.owes_upload(storage) {
-            let streams = &self.backend.streams.rigid;
-            streams
-                .joint_rows
-                .write(queue, bytemuck::cast_slice(schedule.rows()));
-            streams
-                .joint_layers
-                .write(queue, bytemuck::cast_slice(schedule.layers()));
-            streams
-                .joint_components
-                .write(queue, bytemuck::cast_slice(schedule.components()));
-            streams
-                .joint_batches
-                .write(queue, bytemuck::cast_slice(schedule.packing()));
-            schedule.uploaded(storage);
+        if !self.constraints.schedule.owes_upload(storage) {
+            return;
         }
-        self.constraints.schedule = schedule;
-    }
-}
-
-fn flush_pool_range(
-    state: &StateStreams,
-    queue: &wgpu::Queue,
-    head: Option<(u32, u32)>,
-    records: &[ColliderRecord],
-    owners: &[u32],
-) {
-    let Some((start, end)) = head else {
-        return;
-    };
-    debug_assert_eq!((end - start) as usize, records.len());
-    if records.is_empty() {
-        return;
-    }
-    state.colliders.write_at(
-        queue,
-        start as u64 * std::mem::size_of::<ColliderRecord>() as u64,
-        bytemuck::cast_slice(records),
-    );
-    state
-        .collider_owners
-        .write_at(queue, start as u64 * 4, bytemuck::cast_slice(owners));
-}
-
-fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
-    let mut runs = Vec::new();
-    let mut start = 0usize;
-    for index in 1..=slots.len() {
-        let breaks = index == slots.len() || slots[index] != slots[index - 1] + 1;
-        if breaks {
-            if index > start {
-                runs.push(&slots[start..index]);
-            }
-            start = index;
-        }
-    }
-    runs
-}
-
-impl World {
-    pub(crate) fn flush_rows(&mut self) {
         let queue = self.backend.gpu.queue().clone();
-        if self.shapes.dirty {
-            self.upload_shapes(&queue);
+        let streams = &self.backend.streams.rigid;
+        let schedule = &self.constraints.schedule;
+        streams
+            .joint_rows
+            .write(&queue, bytemuck::cast_slice(schedule.rows()));
+        streams
+            .joint_layers
+            .write(&queue, bytemuck::cast_slice(schedule.layers()));
+        streams
+            .joint_components
+            .write(&queue, bytemuck::cast_slice(schedule.components()));
+        streams
+            .joint_batches
+            .write(&queue, bytemuck::cast_slice(schedule.packing()));
+        self.constraints.schedule.uploaded(storage);
+    }
+
+    pub(crate) fn flush_shapes(&mut self) {
+        if !self.shapes.dirty {
+            return;
         }
-        self.fields.upload(&queue, &self.backend.streams.state);
-        self.flush_joint_schedule(&queue);
-        self.soft.upload(&queue, &self.backend.streams.soft);
-        self.characters.upload(&queue, &self.backend.streams.rigid);
-        self.vehicles.upload(&queue, &self.backend.streams.rigid);
+        let queue = self.backend.gpu.queue().clone();
+        let state = &self.backend.streams.state;
+        self.shapes.pool.upload_pending(
+            &queue,
+            &state.shape_sources,
+            &state.shape_vertices,
+            &state.shape_triangles,
+            &state.shape_nodes,
+            &state.shape_cells,
+        );
+        self.shapes.dirty = false;
+        self.shapes.uploaded = true;
+    }
+
+    pub(crate) fn flush_body_records(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
         let rows = {
             let mut rows = self
                 .bodies
@@ -112,7 +82,11 @@ impl World {
                 bytemuck::cast_slice(&descriptors),
             );
         }
-        self.upload_colliders(&queue, &rows);
+        self.flush_collider_records(&queue, &rows);
+    }
+
+    pub(crate) fn flush_constraint_records(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
         let rows = {
             let mut rows = self
                 .constraints
@@ -140,22 +114,25 @@ impl World {
         }
     }
 
-    fn upload_shapes(&mut self, queue: &wgpu::Queue) {
-        self.facts.geometry += 1;
-        let state = &self.backend.streams.state;
-        self.shapes.pool.upload_pending(
-            queue,
-            &state.shape_sources,
-            &state.shape_vertices,
-            &state.shape_triangles,
-            &state.shape_nodes,
-            &state.shape_cells,
-        );
-        self.shapes.dirty = false;
-        self.shapes.uploaded = true;
+    pub(crate) fn flush_field_records(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
+        self.fields.upload(&queue, &self.backend.streams.state);
     }
 
-    fn upload_colliders(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
+    pub(crate) fn flush_entry_base(&mut self) {
+        let base = self.backend.immovable.entries();
+        if self.backend.written_entry_base == Some(base) {
+            return;
+        }
+        self.backend
+            .streams
+            .state
+            .entry_base
+            .write(self.backend.gpu.queue(), bytemuck::cast_slice(&[base]));
+        self.backend.written_entry_base = Some(base);
+    }
+
+    fn flush_collider_records(&mut self, queue: &wgpu::Queue, dirty: &[u32]) {
         let cleared = self.colliders.take_cleared();
         for cleared in cleared {
             let records = vec![ColliderRecord::cleared(); cleared.len as usize];
@@ -197,4 +174,43 @@ impl World {
         }
         flush_pool_range(&self.backend.streams.state, queue, head, &records, &owners);
     }
+}
+
+fn flush_pool_range(
+    state: &StateStreams,
+    queue: &wgpu::Queue,
+    head: Option<(u32, u32)>,
+    records: &[ColliderRecord],
+    owners: &[u32],
+) {
+    let Some((start, end)) = head else {
+        return;
+    };
+    debug_assert_eq!((end - start) as usize, records.len());
+    if records.is_empty() {
+        return;
+    }
+    state.colliders.write_at(
+        queue,
+        start as u64 * std::mem::size_of::<ColliderRecord>() as u64,
+        bytemuck::cast_slice(records),
+    );
+    state
+        .collider_owners
+        .write_at(queue, start as u64 * 4, bytemuck::cast_slice(owners));
+}
+
+fn contiguous_runs(slots: &[u32]) -> Vec<&[u32]> {
+    let mut runs = Vec::new();
+    let mut start = 0usize;
+    for index in 1..=slots.len() {
+        let breaks = index == slots.len() || slots[index] != slots[index - 1] + 1;
+        if breaks {
+            if index > start {
+                runs.push(&slots[start..index]);
+            }
+            start = index;
+        }
+    }
+    runs
 }

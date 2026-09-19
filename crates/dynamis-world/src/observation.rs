@@ -657,7 +657,14 @@ impl World {
         self.clock.step.checked_sub(1)
     }
 
-    pub(crate) fn flush_observed(&mut self) {
+    pub(crate) fn stage_observations(&mut self) {
+        self.backend.staged.observations = true;
+    }
+
+    pub(crate) fn flush_observations(&mut self) {
+        if !std::mem::take(&mut self.backend.staged.observations) {
+            return;
+        }
         let queue = self.backend.gpu.queue().clone();
         if self.observed.bodies.take_dirty() && !self.observed.bodies.is_empty() {
             self.backend

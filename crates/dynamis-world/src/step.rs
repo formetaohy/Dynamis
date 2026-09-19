@@ -1,5 +1,5 @@
 use super::World;
-use crate::command::{CompiledBodyCommands, CompiledConstraintCommands, Consumption};
+use crate::command::{CompiledBodyCommands, Consumption};
 use dynamis_abi::{BodyEditRecord, StepParamsRecord};
 use dynamis_model::domain;
 use dynamis_rigid::RigidShape;
@@ -58,9 +58,9 @@ impl World {
         self.constraints.last_commands = self.constraints.commands.len() as u32;
         self.soft.last_body_edits = soft_commands.body_edits.len() as u32;
         self.soft.last_edits = soft_commands.edits.len() as u32;
-        self.upload_body_commands(&body_commands);
-        self.upload_constraint_commands(&constraint_commands);
-        self.upload_soft_commands(&soft_commands);
+        self.backend.staged.body_commands = Some(body_commands);
+        self.backend.staged.constraint_commands = Some(constraint_commands);
+        self.backend.staged.soft_commands = Some(soft_commands);
         if consumption == Consumption::Step {
             self.bodies.commands.clear();
             self.constraints.commands.clear();
@@ -85,7 +85,14 @@ impl World {
         RigidShape::of(&self.census())
     }
 
-    pub(crate) fn write_step_records(&mut self, params: StepParamsRecord) {
+    pub(crate) fn stage_step_records(&mut self, params: StepParamsRecord) {
+        self.backend.staged.step_records = Some((params, self.row_streams().into()));
+    }
+
+    pub(crate) fn flush_step_parameters(&mut self) {
+        let Some((params, rows)) = self.backend.staged.step_records.take() else {
+            return;
+        };
         let queue = self.backend.gpu.queue();
         if self.backend.written_params != Some(params) {
             self.backend
@@ -95,12 +102,57 @@ impl World {
                 .write(queue, bytemuck::cast_slice(&[params]));
             self.backend.written_params = Some(params);
         }
-        let rows: dynamis_abi::RowStreamsRecord = self.row_streams().into();
         self.backend
             .streams
             .state
             .row_streams
             .write(queue, bytemuck::cast_slice(&[rows]));
+    }
+
+    pub(crate) fn flush_body_commands(&mut self) {
+        let compiled = std::mem::take(&mut self.backend.staged.body_commands);
+        let Some(compiled) = compiled else {
+            return;
+        };
+        let queue = self.backend.gpu.queue();
+        self.backend
+            .streams
+            .state
+            .body_row_moves
+            .write(queue, bytemuck::cast_slice(&compiled.moves));
+        self.backend
+            .streams
+            .state
+            .body_fresh_rows
+            .write(queue, bytemuck::cast_slice(&compiled.fresh));
+        self.backend
+            .streams
+            .state
+            .body_edits
+            .write(queue, bytemuck::cast_slice(&compiled.edits));
+        self.backend
+            .streams
+            .state
+            .body_edit_runs
+            .write(queue, bytemuck::cast_slice(&compiled.runs));
+    }
+
+    pub(crate) fn flush_constraint_commands(&mut self) {
+        let compiled = std::mem::take(&mut self.backend.staged.constraint_commands);
+        let Some(compiled) = compiled else {
+            return;
+        };
+        let queue = self.backend.gpu.queue();
+        self.backend
+            .streams
+            .state
+            .constraint_row_moves
+            .write(queue, bytemuck::cast_slice(&compiled.moves));
+        self.backend
+            .streams
+            .state
+            .constraint_fresh_rows
+            .write(queue, bytemuck::cast_slice(&compiled.fresh));
     }
 
     /// Notes the facts a compiled command stream declares: that a pose was declared, and, when the
@@ -125,44 +177,6 @@ impl World {
         if posed {
             self.facts.poses += 1;
         }
-    }
-
-    fn upload_body_commands(&mut self, compiled: &CompiledBodyCommands) {
-        let queue = self.backend.gpu.queue();
-        self.backend
-            .streams
-            .state
-            .body_row_moves
-            .write(queue, bytemuck::cast_slice(&compiled.moves));
-        self.backend
-            .streams
-            .state
-            .body_fresh_rows
-            .write(queue, bytemuck::cast_slice(&compiled.fresh));
-        self.backend
-            .streams
-            .state
-            .body_edits
-            .write(queue, bytemuck::cast_slice(&compiled.edits));
-        self.backend
-            .streams
-            .state
-            .body_edit_runs
-            .write(queue, bytemuck::cast_slice(&compiled.runs));
-    }
-
-    fn upload_constraint_commands(&mut self, compiled: &CompiledConstraintCommands) {
-        let queue = self.backend.gpu.queue();
-        self.backend
-            .streams
-            .state
-            .constraint_row_moves
-            .write(queue, bytemuck::cast_slice(&compiled.moves));
-        self.backend
-            .streams
-            .state
-            .constraint_fresh_rows
-            .write(queue, bytemuck::cast_slice(&compiled.fresh));
     }
 
     #[cfg(feature = "profile")]

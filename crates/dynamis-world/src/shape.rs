@@ -70,13 +70,13 @@ impl World {
             self.shapes
                 .pool
                 .allocate_grid(SHAPE_HEIGHTFIELD, rows, cols, &vertices, surfaces);
-        self.shapes.dirty = true;
+        self.declare_shape_geometry();
         handle
     }
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
         self.shapes.pool.remove(handle);
-        self.shapes.dirty = true;
+        self.declare_shape_geometry();
     }
 
     pub fn update_mesh(
@@ -89,7 +89,7 @@ impl World {
         self.shapes
             .pool
             .update_mesh(handle, vertices, triangles, surfaces);
-        self.shapes.dirty = true;
+        self.declare_shape_geometry();
         self.encode_shape_readers(handle);
     }
 
@@ -106,7 +106,7 @@ impl World {
         self.shapes
             .pool
             .update_grid(handle, rows, cols, &vertices, surfaces);
-        self.shapes.dirty = true;
+        self.declare_shape_geometry();
         self.encode_shape_readers(handle);
     }
 
@@ -121,8 +121,16 @@ impl World {
             .shapes
             .pool
             .allocate(kind, vertices, &triangles, surfaces);
-        self.shapes.dirty = true;
+        self.declare_shape_geometry();
         handle
+    }
+
+    /// Declares that the geometry a shape source answers has moved. A grid entry is keyed at a
+    /// resolution the bounds of every source reachable from a collider answer, so the source that
+    /// moved owes the index a derivation whether or not a collider already reads it.
+    fn declare_shape_geometry(&mut self) {
+        self.shapes.dirty = true;
+        self.facts.geometry += 1;
     }
 
     pub(super) fn shape_solid(&self, shape: &Shape) -> Option<SolidGeometry> {

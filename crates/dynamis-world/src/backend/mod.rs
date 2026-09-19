@@ -17,7 +17,10 @@ use wgpu::SubmissionIndex;
 pub(crate) use registry::StepFrames;
 
 use crate::World;
+use crate::command::{CompiledBodyCommands, CompiledConstraintCommands};
 use crate::derivation::{GridStorage, ImmovableGrid, JointOrderStorage, RestingGrid};
+use crate::soft::CompiledSoftCommands;
+use dynamis_abi::{QueryRecord, RowStreamsRecord, StepParamsRecord};
 
 /// The immovable half of the broadphase grid index: a prefix of the entry streams that the device
 /// holds until the facts its entries are built from, the range it reserved, or the storage it lives
@@ -108,6 +111,20 @@ pub(crate) struct Derived {
     pub(crate) resting: bool,
 }
 
+/// The records a step composes before it hands them over: the compiled command streams, the step
+/// parameters with the row counts they answer, the observation watch lists a scene change moved,
+/// and the queries the run registered. A declared writer takes what its stage composed and leaves
+/// nothing behind, so a run that composes nothing hands over nothing.
+#[derive(Default)]
+pub(crate) struct Staged {
+    pub(crate) body_commands: Option<CompiledBodyCommands>,
+    pub(crate) constraint_commands: Option<CompiledConstraintCommands>,
+    pub(crate) soft_commands: Option<CompiledSoftCommands>,
+    pub(crate) step_records: Option<(StepParamsRecord, RowStreamsRecord)>,
+    pub(crate) observations: bool,
+    pub(crate) queries: Option<Vec<QueryRecord>>,
+}
+
 pub(crate) struct Backend {
     pub(crate) gpu: GpuContext,
     pub(crate) streams: Streams,
@@ -119,7 +136,9 @@ pub(crate) struct Backend {
     pub(crate) resting: Resting,
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
+    pub(crate) staged: Staged,
     pub(crate) written_params: Option<dynamis_abi::StepParamsRecord>,
+    pub(crate) written_entry_base: Option<u32>,
     pub(crate) published: bool,
     pub(crate) rest: Rest,
     pub(crate) inspect: Option<dynamis_gpu::Readback>,
@@ -133,8 +152,6 @@ impl Backend {
         let plan = Plan::minimum();
         let streams = Streams::new(gpu.device(), gpu.queue(), &plan);
         let immovable = Immovable::new(plan.broadphase.immovable);
-        write_entry_base(&streams, &gpu, immovable.entries());
-        seed_resting_counters(&streams, &gpu);
         let readback = ReadbackBuffers::new(gpu.device(), &streams);
         let segments = SegmentTransport::new(gpu.device(), &streams);
         let passes = StepPasses::new(&gpu, &streams);
@@ -149,7 +166,9 @@ impl Backend {
             resting: Resting::IDLE,
             measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,
+            staged: Staged::default(),
             written_params: None,
+            written_entry_base: None,
             published: false,
             rest: Rest::IDLE,
             inspect: None,
@@ -158,27 +177,6 @@ impl Backend {
             pass_timings: Vec::new(),
         }
     }
-}
-
-fn seed_resting_counters(streams: &Streams, gpu: &GpuContext) {
-    let counters = streams.state.counters.gpu();
-    for counter in [
-        dynamis_abi::COUNTER_RESTING_ENTRIES,
-        dynamis_abi::COUNTER_RESTING_LEVELS,
-    ] {
-        counters.write_at(
-            gpu.queue(),
-            counter as u64 * dynamis_abi::COUNTER_STRIDE,
-            &0u32.to_le_bytes(),
-        );
-    }
-}
-
-fn write_entry_base(streams: &Streams, gpu: &GpuContext, base: u32) {
-    streams
-        .state
-        .entry_base
-        .write(gpu.queue(), bytemuck::cast_slice(&[base]));
 }
 
 impl World {
@@ -207,7 +205,6 @@ impl World {
         let immovable = plan.broadphase.immovable;
         if self.backend.immovable.entries() != immovable {
             self.backend.immovable.install(immovable);
-            write_entry_base(&self.backend.streams, &self.backend.gpu, immovable);
         }
         if self.backend.streams.matches(&plan) {
             return;

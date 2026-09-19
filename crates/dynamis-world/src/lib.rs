@@ -11,6 +11,7 @@ mod device;
 mod event;
 mod fact;
 mod field;
+mod host;
 mod id;
 mod impact;
 mod journal;

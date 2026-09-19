@@ -20,6 +20,7 @@ pub mod event;
 pub mod field;
 pub mod filter;
 pub mod fluid;
+pub mod flush;
 pub mod heightfield;
 pub mod impact;
 pub mod interop;

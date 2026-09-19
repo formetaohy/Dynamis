@@ -1,6 +1,15 @@
 use dynamis_gpu::Stream;
 use wgpu::{CommandEncoder, Device, Queue};
 
+/// The side of the world that hands a stream its records. A stream the host declares owes exactly
+/// one host-side writer, so a scene record cannot reach the device without the path that uploads
+/// it having been declared, and a stream only the device writes cannot be claimed by one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamFill {
+    Host,
+    Device,
+}
+
 pub trait DomainStreams: Sized {
     type Demand;
 
@@ -43,7 +52,7 @@ macro_rules! streams {
         demand { $( $field:ident: $ty:ty, )* }
         streams {
             $(
-                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $retention:expr, $slots:expr $(, $usage:expr)?;
+                $name:ident, $variant:ident: $label:literal, $element:ty, $per_slot:expr, $retention:expr, $fill:expr, $slots:expr $(, $usage:expr)?;
             )*
         }
     ) => {
@@ -62,8 +71,14 @@ macro_rules! streams {
 
             pub const RETENTION: &'static [::dynamis_gpu::Retention] = &[ $( $retention ),* ];
 
+            pub const FILL: &'static [$crate::StreamFill] = &[ $( $fill ),* ];
+
             pub const fn retention(self) -> ::dynamis_gpu::Retention {
                 Self::RETENTION[self as usize]
+            }
+
+            pub const fn fill(self) -> $crate::StreamFill {
+                Self::FILL[self as usize]
             }
 
             pub const fn label(self) -> &'static str {
@@ -185,6 +200,12 @@ macro_rules! streams {
         }
 
         impl $table {
+            /// Every stream of this table and the side of the world that hands it its records:
+            /// the one declaration a host-side writer set is checked against.
+            pub const FILLS: &'static [(&'static str, $crate::StreamFill)] = &[
+                $( ($label, $fill), )*
+            ];
+
             pub fn slots(&self, local: u32) -> u32 {
                 $id::of(local).stream(self).slots()
             }

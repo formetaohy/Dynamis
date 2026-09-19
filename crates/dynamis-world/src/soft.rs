@@ -814,7 +814,11 @@ impl World {
         }
     }
 
-    pub(crate) fn upload_soft_commands(&mut self, compiled: &CompiledSoftCommands) {
+    pub(crate) fn flush_soft_commands(&mut self) {
+        let compiled = std::mem::take(&mut self.backend.staged.soft_commands);
+        let Some(compiled) = compiled else {
+            return;
+        };
         let queue = self.backend.gpu.queue().clone();
         if !compiled.body_edits.is_empty() {
             self.backend
@@ -830,5 +834,10 @@ impl World {
                 .edits
                 .write(&queue, bytemuck::cast_slice(&compiled.edits));
         }
+    }
+
+    pub(crate) fn flush_soft_records(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
+        self.soft.upload(&queue, &self.backend.streams.soft);
     }
 }

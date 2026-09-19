@@ -67,7 +67,7 @@ impl World {
         let census = self.census();
         let live = self.live(&census);
         self.apply_plan(&live);
-        self.flush_rows();
+        self.flush_scene_records();
     }
 
     fn publish_observations(&mut self) {
@@ -81,7 +81,7 @@ impl World {
             return;
         }
         self.settle();
-        self.flush_observed();
+        self.stage_observations();
         self.execute(dynamis_pass::Run::Publish);
     }
 

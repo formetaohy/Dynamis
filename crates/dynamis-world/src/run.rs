@@ -10,6 +10,19 @@ use dynamis_gpu::SubmissionEncoder;
 use dynamis_pass::Run;
 use std::mem::size_of;
 
+impl World {
+    pub(crate) fn flush_queries(&mut self) {
+        let Some(records) = self.backend.staged.queries.take() else {
+            return;
+        };
+        self.backend
+            .streams
+            .scene
+            .query_records
+            .write(self.backend.gpu.queue(), bytemuck::cast_slice(&records));
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Batch {
     id: u64,
@@ -29,7 +42,7 @@ impl World {
         let census = self.census();
         let mut live = self.live(&census);
         self.apply_plan(&live);
-        self.flush_observed();
+        self.stage_observations();
         let work = self.prepare(run);
         let derived = self.reconcile_derivations(&mut live);
         let facts = StepFacts::of(
@@ -39,12 +52,13 @@ impl World {
             self.row_streams(),
             self.wake_all,
         );
-        self.write_step_records(facts.params);
+        self.stage_step_records(facts.params);
         let frames = self.frames_of(&live, work.as_ref(), &facts, run);
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, run.label());
         let segments = self.copy_segments(&mut encoder);
         let batch = self.declare(run);
+        self.flush_step_records();
         self.backend.streams.measure(&self.backend.measured);
         let indexing = frames.indexing();
         self.backend
@@ -66,7 +80,7 @@ impl World {
     fn prepare(&mut self, run: Run) -> Option<HostWork> {
         match run {
             Run::Step => {
-                self.flush_rows();
+                self.flush_scene_records();
                 self.apply_pending_commands(Consumption::Step);
                 let work = self.host_work();
                 self.backend.published = work.pending();
@@ -75,7 +89,7 @@ impl World {
                 Some(work)
             }
             Run::Query => {
-                self.flush_rows();
+                self.flush_scene_records();
                 self.apply_pending_commands(Consumption::Preview);
                 None
             }
@@ -102,7 +116,7 @@ impl World {
 
     fn declare(&mut self, run: Run) -> Option<Batch> {
         match run {
-            Run::Step | Run::Query => self.register_queries(),
+            Run::Step | Run::Query => self.stage_queries(),
             Run::Publish => None,
         }
     }
@@ -140,20 +154,16 @@ impl World {
         }
     }
 
-    fn register_queries(&mut self) -> Option<Batch> {
+    fn stage_queries(&mut self) -> Option<Batch> {
         let width = self.queries.pending.len();
         if width == 0 {
             return None;
         }
         let id = self.queries.next_batch;
         let hits = self.queries.pending_hits;
-        self.backend.streams.scene.query_records.write(
-            self.backend.gpu.queue(),
-            bytemuck::cast_slice(&self.queries.pending),
-        );
+        self.backend.staged.queries = Some(std::mem::take(&mut self.queries.pending));
         self.queries.pool.submit(id, self.clock.step, width);
         self.queries.next_batch += 1;
-        self.queries.pending.clear();
         self.queries.pending_hits = 0;
         Some(Batch {
             id,

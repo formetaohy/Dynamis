@@ -181,6 +181,11 @@ fn reset_scratch(queue: &wgpu::Queue, streams: &RigidStreams, slot: u32) {
 }
 
 impl World {
+    pub(crate) fn flush_characters(&mut self) {
+        let queue = self.backend.gpu.queue().clone();
+        self.characters.upload(&queue, &self.backend.streams.rigid);
+    }
+
     pub fn add_character(&mut self, position: [f32; 3], desc: CharacterDesc) -> CharacterHandle {
         desc.assert_valid();
         domain::finite_vector(position, "a character position");
