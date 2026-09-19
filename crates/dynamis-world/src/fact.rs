@@ -2,6 +2,8 @@ use dynamis_gpu::{Publication, SubmissionEncoder};
 use wgpu::{Buffer, Device};
 
 pub(crate) trait Kind {
+    const LABEL: &'static str;
+
     type Manifest;
     type Context<'a>: Copy;
     type Value;
@@ -21,7 +23,7 @@ const ABSENT: u32 = u32::MAX;
 struct Watch {
     keys: Vec<u32>,
     slots: Vec<u32>,
-    dirty: bool,
+    revision: u64,
 }
 
 impl Watch {
@@ -47,7 +49,7 @@ impl Watch {
         self.hold(id);
         self.slots[id as usize] = self.keys.len() as u32;
         self.keys.push(id);
-        self.dirty = true;
+        self.revision += 1;
         true
     }
 
@@ -60,13 +62,16 @@ impl Watch {
         if let Some(moved) = self.keys.get(slot) {
             self.slots[*moved as usize] = slot as u32;
         }
-        self.dirty = true;
+        self.revision += 1;
     }
 
     fn clear(&mut self) {
+        if self.keys.is_empty() {
+            return;
+        }
         self.keys.clear();
         self.slots.fill(ABSENT);
-        self.dirty = true;
+        self.revision += 1;
     }
 }
 
@@ -78,21 +83,19 @@ struct Stored<V> {
 pub(crate) struct FactStore<K: Kind> {
     watch: Watch,
     mirrors: Vec<Option<Stored<K::Value>>>,
-    subscription: Vec<u32>,
     sequence: u64,
     publication: Publication<K::Manifest>,
-    published: Option<u64>,
+    published: Option<(u64, u64)>,
     age: Option<u64>,
 }
 
 impl<K: Kind> FactStore<K> {
-    pub(crate) fn new(label: &'static str, depth: usize) -> Self {
+    pub(crate) fn new(depth: usize) -> Self {
         Self {
             watch: Watch::default(),
             mirrors: Vec::new(),
-            subscription: Vec::new(),
             sequence: 0,
-            publication: Publication::new(label, depth),
+            publication: Publication::new(K::LABEL, depth),
             published: None,
             age: None,
         }
@@ -120,28 +123,24 @@ impl<K: Kind> FactStore<K> {
         self.watch.keys.is_empty()
     }
 
-    pub(crate) fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.watch.dirty)
-    }
-
-    pub(crate) fn declared(&self) -> &[u32] {
-        &self.subscription
-    }
-
-    pub(crate) fn set_declared(&mut self, ids: Vec<u32>) {
-        self.subscription = ids;
-    }
-
-    pub(crate) fn demand(&self) -> u32 {
-        self.watch.keys.len().max(self.subscription.len()) as u32
+    /// Whether the device still holds a watch set another revision than the one at hand: the ids
+    /// the pass that publishes this kind reads are the ids of the watch set at hand, so a watch set
+    /// that moved owes the device the list it moved to.
+    pub(crate) fn watch_moved(&self) -> bool {
+        !self.watch.keys.is_empty()
+            && self.published.map(|(_, revision)| revision) != Some(self.watch.revision)
     }
 
     pub(crate) fn age(&self) -> Option<u64> {
         self.age
     }
 
+    /// Whether the host still owes an observation of this kind: a kind owes one while it watches
+    /// something and the publication it last declared did not carry the watch set at hand at the
+    /// step this one follows.
     pub(crate) fn needs_publication(&self, step: u64) -> bool {
-        !self.watch.keys.is_empty() && (self.watch.dirty || self.published != step.checked_sub(1))
+        !self.watch.keys.is_empty()
+            && self.published != step.checked_sub(1).map(|step| (step, self.watch.revision))
     }
 
     pub(crate) fn get(&self, id: u32) -> Option<&K::Value> {
@@ -193,7 +192,6 @@ impl<K: Kind> FactStore<K> {
 
     pub(crate) fn reset(&mut self) {
         self.stop();
-        self.subscription.clear();
         self.publication.clear();
     }
 
@@ -208,7 +206,7 @@ impl<K: Kind> FactStore<K> {
     ) {
         self.publication.reserve(device, budget);
         self.sequence += 1;
-        self.published = Some(K::step(&manifest));
+        self.published = Some((K::step(&manifest), self.watch.revision));
         if let Some((manifest, bytes)) =
             self.publication
                 .declare(encoder, regions, self.sequence, manifest)

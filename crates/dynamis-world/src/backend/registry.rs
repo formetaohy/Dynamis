@@ -159,7 +159,6 @@ impl World {
             fields: self.fields.len(),
             observed: self.observed.bodies.len(),
             observed_joints: self.observed.joints.len(),
-            observed_joint_demand: self.observed.joints.demand(),
             queries: self.queries.pending.len() as u32,
             query_hits: self.queries.pending_hits,
             body_commands: self.bodies.commands.len() as u32,
@@ -182,7 +181,7 @@ impl World {
                 constraint_commands: census.constraint_commands,
                 shapes: self.shapes.pool.used(),
                 observed: census.observed,
-                observed_joints: census.observed_joint_demand,
+                observed_joints: census.observed_joints,
             },
             broadphase: dynamis_broadphase::BroadphaseInputs {
                 bodies: census.bodies,

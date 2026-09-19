@@ -36,6 +36,8 @@ pub(crate) struct ConstraintRow {
 pub(crate) struct BodyFacts;
 
 impl Kind for BodyFacts {
+    const LABEL: &'static str = "body state observation";
+
     type Manifest = u64;
     type Context<'a> = (&'a IdSpace, &'a [BodyDescriptorRecord]);
     type Value = BodyState;
@@ -86,6 +88,8 @@ pub(crate) struct JointFact {
 }
 
 impl Kind for JointFacts {
+    const LABEL: &'static str = "joint state observation";
+
     type Manifest = JointManifest;
     type Context<'a> = ();
     type Value = JointFact;
@@ -147,6 +151,8 @@ pub(crate) struct CharacterFact {
 }
 
 impl Kind for CharacterFacts {
+    const LABEL: &'static str = "character state observation";
+
     type Manifest = CharacterManifest;
     type Context<'a> = ();
     type Value = CharacterFact;
@@ -195,6 +201,8 @@ pub(crate) struct VehicleFact {
 }
 
 impl Kind for VehicleFacts {
+    const LABEL: &'static str = "vehicle state observation";
+
     type Manifest = VehicleManifest;
     type Context<'a> = ();
     type Value = VehicleFact;
@@ -244,6 +252,8 @@ pub(crate) struct SoftFact {
 }
 
 impl Kind for SoftFacts {
+    const LABEL: &'static str = "soft particle observation";
+
     type Manifest = SoftManifest;
     type Context<'a> = ();
     type Value = SoftFact;
@@ -301,27 +311,152 @@ impl Kind for SoftFacts {
     }
 }
 
-pub(crate) struct ObservationStore {
-    pub(crate) bodies: FactStore<BodyFacts>,
-    pub(crate) joints: FactStore<JointFacts>,
-    pub(crate) characters: FactStore<CharacterFacts>,
-    pub(crate) vehicles: FactStore<VehicleFacts>,
-    pub(crate) soft: FactStore<SoftFacts>,
-    whole_body_set: bool,
+/// One kind of device fact the host observes: the label it is declared under, the path that
+/// declares its publication, and the paths that land its arrivals into the host mirror.
+struct ObservedFact {
+    label: &'static str,
+    declare: fn(&mut World, &Device, &mut SubmissionEncoder, &Census, u64),
+    collect: fn(&mut World),
+    drain: fn(&mut World),
+}
+
+/// The observed facts the host mirrors from the device. One list declares every kind the world
+/// observes: the store, the publication a wait owes, and every sweep over the kinds are derived
+/// from it, so a kind cannot be declared without the path that lands it, and no sweep can name
+/// fewer kinds than the world observes.
+macro_rules! observed_facts {
+    ( $( $field:ident: $kind:ty, depth $depth:expr,
+            declared by $declare:expr, collected by $collect:expr, drained by $drain:expr; )* ) => {
+        pub(crate) struct ObservationStore {
+            $( pub(crate) $field: FactStore<$kind>, )*
+            whole_body_set: bool,
+        }
+
+        const OBSERVED_FACTS: &[ObservedFact] = &[
+            $( ObservedFact {
+                label: <$kind as Kind>::LABEL,
+                declare: $declare,
+                collect: $collect,
+                drain: $drain,
+            }, )*
+        ];
+
+        const _: () = assert_each_observed_once(OBSERVED_FACTS);
+
+        impl ObservationStore {
+            pub(crate) fn new() -> Self {
+                Self {
+                    $( $field: FactStore::<$kind>::new($depth), )*
+                    whole_body_set: false,
+                }
+            }
+
+            pub(crate) fn reset(&mut self) {
+                $( self.$field.reset(); )*
+                self.whole_body_set = false;
+            }
+
+            /// Whether the host still waits for an observation of a declared kind: a kind owes a
+            /// publication while it watches something and the step it last published is not the
+            /// step the wait follows.
+            pub(crate) fn owes_publication(&self, step: u64) -> bool {
+                false $( || self.$field.needs_publication(step) )*
+            }
+        }
+
+        impl World {
+            pub(crate) fn declare_observations(
+                &mut self,
+                encoder: &mut SubmissionEncoder,
+                census: &Census,
+                step: u64,
+            ) {
+                let device = self.backend.gpu.device().clone();
+                for fact in OBSERVED_FACTS {
+                    (fact.declare)(self, &device, encoder, census, step);
+                }
+            }
+
+            pub(crate) fn collect_observations(&mut self) {
+                for fact in OBSERVED_FACTS {
+                    (fact.collect)(self);
+                }
+            }
+
+            pub(crate) fn drain_observations(&mut self) {
+                for fact in OBSERVED_FACTS {
+                    (fact.drain)(self);
+                }
+            }
+        }
+    };
+}
+
+observed_facts! {
+    bodies: BodyFacts, depth DEPTH,
+        declared by World::declare_bodies,
+        collected by |world| {
+            let context = (world.bodies.pool.identities(), world.bodies.records.as_slice());
+            world.observed.bodies.collect(context);
+        },
+        drained by |world| {
+            let context = (world.bodies.pool.identities(), world.bodies.records.as_slice());
+            world.observed.bodies.drain(context);
+        };
+    joints: JointFacts, depth DEPTH,
+        declared by World::declare_joints,
+        collected by |world| world.observed.joints.collect(()),
+        drained by |world| world.observed.joints.drain(());
+    characters: CharacterFacts, depth DEPTH,
+        declared by World::declare_characters,
+        collected by |world| world.observed.characters.collect(()),
+        drained by |world| world.observed.characters.drain(());
+    vehicles: VehicleFacts, depth DEPTH,
+        declared by World::declare_vehicles,
+        collected by |world| world.observed.vehicles.collect(()),
+        drained by |world| world.observed.vehicles.drain(());
+    soft: SoftFacts, depth SOFT_DEPTH,
+        declared by World::declare_soft,
+        collected by |world| world.observed.soft.collect(()),
+        drained by |world| world.observed.soft.drain(());
+}
+
+const fn assert_each_observed_once(facts: &[ObservedFact]) {
+    assert!(
+        !facts.is_empty(),
+        "a world that observes device facts must declare the kinds it observes",
+    );
+    let mut index = 0;
+    while index < facts.len() {
+        let mut other = index + 1;
+        while other < facts.len() {
+            assert!(
+                !same_label(facts[index].label, facts[other].label),
+                "an observed fact kind must be declared once",
+            );
+            other += 1;
+        }
+        index += 1;
+    }
+}
+
+const fn same_label(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
 
 impl ObservationStore {
-    pub(crate) fn new() -> Self {
-        Self {
-            bodies: FactStore::new("body state observation", DEPTH),
-            joints: FactStore::new("joint state observation", DEPTH),
-            characters: FactStore::new("character state observation", DEPTH),
-            vehicles: FactStore::new("vehicle state observation", DEPTH),
-            soft: FactStore::new("soft particle observation", SOFT_DEPTH),
-            whole_body_set: false,
-        }
-    }
-
     pub(crate) fn observe_body(&mut self, id: u32) {
         self.bodies.watch(id);
     }
@@ -338,15 +473,6 @@ impl ObservationStore {
     pub(crate) fn stop_observing_whole_body_set(&mut self) {
         self.whole_body_set = false;
         self.bodies.stop();
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.bodies.reset();
-        self.joints.reset();
-        self.characters.reset();
-        self.vehicles.reset();
-        self.soft.reset();
-        self.whole_body_set = false;
     }
 }
 
@@ -666,39 +792,20 @@ impl World {
             return;
         }
         let queue = self.backend.gpu.queue().clone();
-        if self.observed.bodies.take_dirty() && !self.observed.bodies.is_empty() {
+        if self.observed.bodies.watch_moved() {
             self.backend
                 .streams
                 .state
                 .observed_ids
                 .write(&queue, bytemuck::cast_slice(self.observed.bodies.keys()));
         }
-        let declared = self.observed.joints.keys().to_vec();
-        if declared.is_empty() {
-            self.observed.joints.set_declared(Vec::new());
-        } else if declared.as_slice() != self.observed.joints.declared() {
+        if self.observed.joints.watch_moved() {
             self.backend
                 .streams
                 .state
                 .observed_joint_ids
-                .write(&queue, bytemuck::cast_slice(&declared));
-            self.observed.joints.set_declared(declared);
+                .write(&queue, bytemuck::cast_slice(self.observed.joints.keys()));
         }
-    }
-
-    pub(crate) fn declare_observations(
-        &mut self,
-        encoder: &mut SubmissionEncoder,
-        census: &Census,
-        step: u64,
-    ) {
-        let device = self.backend.gpu.device().clone();
-        let dt = self.clock.sub_dt;
-        self.declare_joints(&device, encoder, step, dt);
-        self.declare_soft(&device, encoder, step);
-        self.declare_characters(&device, encoder, census, step);
-        self.declare_vehicles(&device, encoder, census, step);
-        self.declare_bodies(&device, encoder, census, step);
     }
 
     fn declare_bodies(
@@ -728,10 +835,10 @@ impl World {
         &mut self,
         device: &Device,
         encoder: &mut SubmissionEncoder,
+        _: &Census,
         step: u64,
-        dt: f32,
     ) {
-        if self.observed.joints.declared().is_empty() {
+        if self.observed.joints.is_empty() {
             return;
         }
         let watched = self.joint_rows();
@@ -743,7 +850,11 @@ impl World {
             (runtimes.buffer(), 0, count * runtimes.stride()),
         ];
         let budget = states.size() + runtimes.size();
-        let manifest = JointManifest { step, dt, watched };
+        let manifest = JointManifest {
+            step,
+            dt: self.clock.sub_dt,
+            watched,
+        };
         self.observed
             .joints
             .publish((), device, encoder, budget, &regions, manifest);
@@ -793,7 +904,13 @@ impl World {
             .publish((), device, encoder, states.size(), &regions, manifest);
     }
 
-    fn declare_soft(&mut self, device: &Device, encoder: &mut SubmissionEncoder, step: u64) {
+    fn declare_soft(
+        &mut self,
+        device: &Device,
+        encoder: &mut SubmissionEncoder,
+        _: &Census,
+        step: u64,
+    ) {
         if self.observed.soft.is_empty() {
             return;
         }
@@ -833,7 +950,7 @@ impl World {
     fn joint_rows(&self) -> Vec<ConstraintRow> {
         self.observed
             .joints
-            .declared()
+            .keys()
             .iter()
             .map(|id| {
                 let handle = ConstraintHandle {
@@ -855,29 +972,5 @@ impl World {
                 }
             })
             .collect()
-    }
-
-    pub(crate) fn collect_observations(&mut self) {
-        let context = (
-            self.bodies.pool.identities(),
-            self.bodies.records.as_slice(),
-        );
-        self.observed.bodies.collect(context);
-        self.observed.joints.collect(());
-        self.observed.characters.collect(());
-        self.observed.vehicles.collect(());
-        self.observed.soft.collect(());
-    }
-
-    pub(crate) fn drain_observations(&mut self) {
-        let context = (
-            self.bodies.pool.identities(),
-            self.bodies.records.as_slice(),
-        );
-        self.observed.bodies.drain(context);
-        self.observed.joints.drain(());
-        self.observed.characters.drain(());
-        self.observed.vehicles.drain(());
-        self.observed.soft.drain(());
     }
 }

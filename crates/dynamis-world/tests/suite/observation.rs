@@ -516,6 +516,113 @@ fn a_declaration_after_a_step_lands_without_another_step() {
     assert!(world.read_state(body).position[1] < 5.0);
 }
 
+fn car(world: &mut dynamis_world::World) -> dynamis_model::VehicleHandle {
+    let wheels = [
+        dynamis_model::WheelDesc::new([0.8, -0.2, 1.2], 0.35)
+            .steering()
+            .driving()
+            .suspension(0.3, 1.5, 0.7),
+        dynamis_model::WheelDesc::new([-0.8, -0.2, -1.2], 0.35)
+            .driving()
+            .suspension(0.3, 1.5, 0.7),
+    ];
+    world.add_vehicle(dynamis_model::VehicleDesc::new(
+        BodyDesc::cuboid([0.9, 0.3, 1.8])
+            .mass(900.0)
+            .position([0.0, 0.75, 0.0]),
+        wheels.into_iter().collect(),
+    ))
+}
+
+#[test]
+fn a_declaration_after_a_step_lands_every_kind_of_fact() {
+    let mut world = new_world(gravity_config());
+    let (arm, joint) = hinge(&mut world);
+    let character = world.add_character([0.0, 6.0, 0.0], dynamis_model::CharacterDesc::default());
+    let vehicle = car(&mut world);
+    let soft = cloth(&mut world);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.try_state(arm).is_none()
+            && world.try_joint_state(joint).is_none()
+            && world.try_character_state(character).is_none()
+            && world.try_vehicle_state(vehicle).is_none()
+            && world.try_soft_particles(soft).is_none(),
+        "a mirror must report nothing before a step publishes it"
+    );
+    world.wait();
+    assert_eq!(
+        world
+            .try_state(arm)
+            .expect("a body mirror declared after a step must land")
+            .step,
+        0,
+    );
+    assert_eq!(
+        world
+            .try_joint_state(joint)
+            .expect("a joint mirror declared after a step must land")
+            .step,
+        0,
+    );
+    assert_eq!(
+        world
+            .try_character_state(character)
+            .expect("a character mirror declared after a step must land")
+            .step,
+        0,
+    );
+    assert_eq!(
+        world
+            .try_vehicle_state(vehicle)
+            .expect("a vehicle mirror declared after a step must land")
+            .step,
+        0,
+    );
+    assert_eq!(
+        world
+            .try_soft_particles(soft)
+            .expect("a soft mirror declared after a step must land")
+            .step,
+        0,
+    );
+    let submissions = world.submissions();
+    world.wait();
+    assert_eq!(
+        world.submissions(),
+        submissions,
+        "a wait over every landed mirror must publish nothing new"
+    );
+}
+
+#[test]
+fn a_run_that_publishes_nothing_leaves_every_declaration_standing() {
+    let mut world = new_world(gravity_config());
+    let declared = falling_sphere(&mut world);
+    let late = world.spawn(BodyDesc::sphere(0.5).position([2.0, 5.0, 0.0]));
+    world.try_state(declared);
+    for _ in 0..3 {
+        world.step(DT);
+        world.poll();
+    }
+    world.wait();
+    assert_eq!(world.read_state(declared).step, 2);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| world.read_state(late))).is_err(),
+        "an undeclared body must not answer with the state of the last step"
+    );
+    world.try_state(late);
+    world.point_query([0.0, 0.0, 0.0], &QueryFilter::default());
+    world.resolve_queries();
+    world.wait();
+    assert_eq!(
+        world.read_state(late).step,
+        2,
+        "a declaration must survive a run that publishes nothing"
+    );
+}
+
 #[test]
 fn stopping_the_whole_body_set_leaves_every_body_behind() {
     let mut world = observed_world(gravity_config());

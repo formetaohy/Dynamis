@@ -74,10 +74,7 @@ impl World {
         if self.completed_step().is_none() {
             return;
         }
-        let stale = self.observed.bodies.needs_publication(self.clock.step)
-            || self.observed.characters.needs_publication(self.clock.step)
-            || self.observed.vehicles.needs_publication(self.clock.step);
-        if !stale {
+        if !self.observed.owes_publication(self.clock.step) {
             return;
         }
         self.settle();

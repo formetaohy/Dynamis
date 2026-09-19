@@ -96,7 +96,6 @@ census! {
         constraint_commands,
         pending_soft_edits,
         pending_soft_body_edits,
-        observed_joint_demand,
     }
     rows {
         BodyEditRuns: body_edit_runs,
