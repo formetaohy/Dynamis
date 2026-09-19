@@ -53,7 +53,6 @@ impl World {
             &state.shape_cells,
         );
         self.shapes.dirty = false;
-        self.shapes.uploaded = true;
     }
 
     pub(crate) fn flush_body_records(&mut self) {

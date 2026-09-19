@@ -1,10 +1,11 @@
 use super::World;
 use super::device::Facts;
-use crate::backend::Derived;
-use crate::backend::registry::HostWork;
+use crate::backend::StepFrames;
+use crate::backend::registry::{HostWork, Live};
 use crate::command::Consumption;
 use dynamis_abi::DeclaredCounters;
 use dynamis_abi::QueryHitRecord;
+use dynamis_broadphase::BroadphaseWork;
 use dynamis_domain::StepFacts;
 use dynamis_gpu::SubmissionEncoder;
 use dynamis_pass::Run;
@@ -43,8 +44,13 @@ impl World {
         let mut live = self.live(&census);
         self.apply_plan(&live);
         self.stage_observations();
-        let work = self.prepare(run);
-        let derived = self.reconcile_derivations(&mut live);
+        self.prepare(run);
+        let rebuild = self.reconcile_derivations(&mut live);
+        let work = self.host_work();
+        if run == Run::Step {
+            self.backend.published = work.pending();
+            self.soft.uploaded = false;
+        }
         let facts = StepFacts::of(
             &self.config,
             self.clock.sub_dt,
@@ -53,7 +59,7 @@ impl World {
             self.wake_all,
         );
         self.stage_step_records(facts.params);
-        let frames = self.frames_of(&live, work.as_ref(), &facts, run);
+        let frames = self.frames_of(&live, &work, &facts, run);
         let device = self.backend.gpu.device().clone();
         let mut encoder = SubmissionEncoder::new(&device, run.label());
         let segments = self.copy_segments(&mut encoder);
@@ -74,41 +80,32 @@ impl World {
         }
         self.consume_segments(segments);
         self.consume(declarations);
-        self.finish(run, derived, indexing);
+        self.finish(run, rebuild, indexing);
     }
 
-    fn prepare(&mut self, run: Run) -> Option<HostWork> {
+    fn prepare(&mut self, run: Run) {
         match run {
             Run::Step => {
                 self.flush_scene_records();
                 self.apply_pending_commands(Consumption::Step);
-                let work = self.host_work();
-                self.backend.published = work.pending();
-                self.shapes.uploaded = false;
-                self.soft.uploaded = false;
-                Some(work)
             }
             Run::Query => {
                 self.flush_scene_records();
                 self.apply_pending_commands(Consumption::Preview);
-                None
             }
-            Run::Publish => None,
+            Run::Publish => {}
         }
     }
 
     fn frames_of(
         &mut self,
-        live: &crate::backend::registry::Live,
-        work: Option<&HostWork>,
+        live: &Live,
+        work: &HostWork,
         facts: &StepFacts,
         run: Run,
-    ) -> crate::backend::StepFrames {
+    ) -> StepFrames {
         match run {
-            Run::Step => {
-                let work = work.expect("a step frames its graph from the host work it prepared");
-                self.frames(live, work, facts)
-            }
+            Run::Step => self.frames(live, work, facts),
             Run::Query => self.query_frames(live, facts),
             Run::Publish => self.publish_frames(live, facts),
         }
@@ -217,17 +214,19 @@ impl World {
         }
     }
 
-    /// Records the derivations a run actually made. A run that indexes the scene derived every
-    /// index it owed, so the facts at hand become the facts the device holds; a run that did not
-    /// index leaves the difference standing for the next run that does.
-    fn finish(&mut self, run: Run, derived: Derived, indexing: bool) {
+    /// Records the derivations a run actually made, so the work the spatial index owed this step
+    /// stops being owed. A run that indexes the scene derived every index it owed, so the facts at
+    /// hand become the facts the device holds; a run that did not index leaves the difference
+    /// standing for the next run that does.
+    fn finish(&mut self, run: Run, rebuild: BroadphaseWork, indexing: bool) {
         if indexing {
-            if derived.immovable {
+            if rebuild.immovable {
                 self.backend.immovable.derived();
             }
-            if derived.resting {
+            if rebuild.resting {
                 self.backend.resting.derived(self.clock.step);
             }
+            self.backend.owed = BroadphaseWork::NONE;
         }
         match run {
             Run::Step => self.wake_all = false,

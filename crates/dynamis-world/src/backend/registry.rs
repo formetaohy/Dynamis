@@ -231,10 +231,8 @@ impl World {
 
     pub(crate) fn host_work(&self) -> HostWork {
         HostWork {
-            state: dynamis_state::StateWork {
-                shape_uploads: self.shapes.uploaded,
-            },
-            broadphase: (),
+            state: (),
+            broadphase: self.backend.owed,
             rigid: dynamis_rigid::RigidWork {
                 body_commands: self.bodies.last_edits + self.bodies.last_moves,
                 constraint_commands: self.constraints.last_commands + self.constraints.last_moves,

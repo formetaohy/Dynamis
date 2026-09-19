@@ -41,6 +41,7 @@ fn a_pile_at_rest_leaves_the_simulation_domain() {
             && measured[COUNTER_ENTRIES] == 0
             && measured[COUNTER_PAIRS] == 0
             && measured[COUNTER_CONTACTS] == 0
+            && world.is_idle()
     });
     let settled = world.measured();
     assert_eq!(
@@ -84,7 +85,7 @@ fn a_slept_constrained_island_leaves_the_simulation_domain() {
     assert!(!world.is_idle(), "a fresh constrained island must simulate");
     world.sleep(first);
     world.sleep(second);
-    settle(&mut world, 4);
+    settle_until(&mut world, 32, |world| asleep(world) && world.is_idle());
     assert!(asleep(&world), "the constrained island must be asleep");
     assert!(
         world.is_idle(),
@@ -599,5 +600,36 @@ fn a_query_never_wakes_a_sleeping_simulation() {
     assert_eq!(
         measured[COUNTER_LIVE], 0,
         "a query must not open the live set"
+    );
+}
+
+#[test]
+fn a_collider_edit_asks_the_domain_for_work() {
+    let mut world = observed_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([5.0, 0.5, 5.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
+    settle_until(&mut world, 600, |world| world.read_state(ball).sleeping);
+    settle(&mut world, 32);
+    assert!(
+        world.is_idle(),
+        "the edit must reach a world that owes nothing else"
+    );
+
+    world.set_collider(ball, 0, ColliderDesc::new(Shape::sphere(1.0)));
+    world.step(DT);
+    world.wait();
+    assert!(
+        !world.is_idle(),
+        "an edit the index must derive must ask the domain for work"
+    );
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.is_idle(),
+        "the derivation an edit asked for must not keep the world awake"
     );
 }

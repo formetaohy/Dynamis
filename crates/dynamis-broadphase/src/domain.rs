@@ -9,6 +9,26 @@ use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct BroadphaseDomain;
 
+/// The derivations the device owes the spatial index: the halves of the grid the scene facts at
+/// hand have outgrown. Every entry is keyed at a fact the host declares, so a fact that moved
+/// leaves the half the device still holds behind, and a run that owes one indexes the scene again.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BroadphaseWork {
+    pub immovable: bool,
+    pub resting: bool,
+}
+
+impl BroadphaseWork {
+    pub const NONE: Self = Self {
+        immovable: false,
+        resting: false,
+    };
+
+    pub const fn any(self) -> bool {
+        self.immovable || self.resting
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BroadphaseFrame {
     pub entry_base: u32,
@@ -26,7 +46,7 @@ impl Domain for BroadphaseDomain {
 
     type Demand = BroadphaseDemand;
     type Inputs = BroadphaseInputs;
-    type Work = ();
+    type Work = BroadphaseWork;
     type Streams = BroadphaseStreams;
     type Passes = BroadphasePasses;
     type Runtime = BroadphaseRuntime;
@@ -38,11 +58,14 @@ impl Domain for BroadphaseDomain {
     }
 
     fn occupied(inputs: &BroadphaseInputs) -> bool {
-        inputs.colliders > 0 || inputs.particles > 0
+        inputs.colliders > 0
+            || inputs.particles > 0
+            || inputs.immovable_rebuild
+            || inputs.resting_rebuild
     }
 
-    fn pending(_: &()) -> bool {
-        false
+    fn pending(work: &BroadphaseWork) -> bool {
+        work.any()
     }
 
     fn active(_: &Counters) -> bool {

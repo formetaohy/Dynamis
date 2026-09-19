@@ -4,7 +4,7 @@ mod passes;
 mod streams;
 
 pub use capacity::{BroadphaseCapacity, BroadphaseInputs, floor, plan};
-pub use domain::{BroadphaseDomain, BroadphaseFrame};
+pub use domain::{BroadphaseDomain, BroadphaseFrame, BroadphaseWork};
 pub use passes::{Broadphase, BroadphasePasses, BroadphaseRuntime};
 pub use streams::{
     BroadphaseDemand, BroadphaseStream, BroadphaseStreams, entry_capacity, pair_capacity,

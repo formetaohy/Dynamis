@@ -21,6 +21,7 @@ use crate::command::{CompiledBodyCommands, CompiledConstraintCommands};
 use crate::derivation::{GridStorage, ImmovableGrid, JointOrderStorage, RestingGrid};
 use crate::soft::CompiledSoftCommands;
 use dynamis_abi::{QueryRecord, RowStreamsRecord, StepParamsRecord};
+use dynamis_broadphase::BroadphaseWork;
 
 /// The immovable half of the broadphase grid index: a prefix of the entry streams that the device
 /// holds until the facts its entries are built from, the range it reserved, or the storage it lives
@@ -46,18 +47,19 @@ impl Immovable {
         self.entries
     }
 
-    pub(crate) fn rebuild(&self) -> bool {
-        self.held.is_none() || self.due != self.held
-    }
-
     pub(crate) fn install(&mut self, entries: u32) {
         self.entries = entries;
     }
 
-    /// Records the facts at hand and answers whether the device still owes the entries they answer.
-    pub(crate) fn reconcile(&mut self, grid: ImmovableGrid) -> bool {
+    /// Whether the facts at hand have outgrown the entries the device holds.
+    fn outgrown(&self, grid: ImmovableGrid) -> bool {
+        self.held != Some(grid)
+    }
+
+    /// Records the facts at hand and answers whether the device owes the entries they answer.
+    fn record(&mut self, grid: ImmovableGrid) -> bool {
         self.due = Some(grid);
-        self.rebuild()
+        self.outgrown(grid)
     }
 
     /// Records that the step ran the derivation, so the device now holds the entries the facts at
@@ -87,11 +89,17 @@ impl Resting {
 
     pub(crate) const REGION_LIFETIME: u32 = 64;
 
-    /// Records the facts at hand and answers whether the device still owes the entries they answer.
-    pub(crate) fn reconcile(&mut self, step: u64, grid: RestingGrid) -> bool {
+    /// Whether the facts at hand have outgrown the entries the device holds.
+    fn outgrown(&self, grid: RestingGrid) -> bool {
+        self.held != Some(grid)
+    }
+
+    /// Records the facts at hand and answers whether the device owes the entries they answer, which
+    /// it owes once the facts have outgrown them or once the region has outlived the counters that
+    /// vouch for it.
+    fn record(&mut self, step: u64, grid: RestingGrid) -> bool {
         self.due = Some(grid);
-        self.held.is_none()
-            || self.held != self.due
+        self.outgrown(grid)
             || step.wrapping_sub(u64::from(self.derived)) >= u64::from(Self::REGION_LIFETIME)
     }
 
@@ -101,14 +109,6 @@ impl Resting {
         self.held = self.due;
         self.derived = step as u32;
     }
-}
-
-/// The derivations a step owes the device. A run that indexes the scene derives them, so what it
-/// owed is what the device holds from then on.
-#[derive(Clone, Copy)]
-pub(crate) struct Derived {
-    pub(crate) immovable: bool,
-    pub(crate) resting: bool,
 }
 
 /// The records a step composes before it hands them over: the compiled command streams, the step
@@ -134,6 +134,7 @@ pub(crate) struct Backend {
     pub(crate) settling: Settling,
     pub(crate) immovable: Immovable,
     pub(crate) resting: Resting,
+    pub(crate) owed: BroadphaseWork,
     pub(crate) measured: dynamis_abi::Counters,
     pub(crate) measured_step: Option<u64>,
     pub(crate) staged: Staged,
@@ -164,6 +165,7 @@ impl Backend {
             settling: Settling::IDLE,
             immovable,
             resting: Resting::IDLE,
+            owed: BroadphaseWork::NONE,
             measured: [0; dynamis_abi::COUNTER_COUNT],
             measured_step: None,
             staged: Staged::default(),
@@ -227,11 +229,13 @@ impl World {
         self.submit(encoder);
     }
 
-    /// Derives every device index the host maintains from the facts at hand, and answers whether
-    /// the resting region is owed a rebuild this step. Each index compares the inputs it recorded
-    /// against the facts the step presents, so a mutation, a capacity plan, or a snapshot install
-    /// that replaces the storage behind an index is seen without any of them having to announce it.
-    pub(crate) fn reconcile_derivations(&mut self, live: &mut Live) -> Derived {
+    /// Derives every device index the host maintains from the facts at hand, records the work the
+    /// spatial index owes the device, and answers the halves this step rebuilds, which adds the
+    /// regions the device counters can no longer vouch for. Each index compares the inputs it
+    /// recorded against the facts the step presents, so a mutation, a capacity plan, or a snapshot
+    /// install that replaces the storage behind an index is seen without any of them having to
+    /// announce it.
+    pub(crate) fn reconcile_derivations(&mut self, live: &mut Live) -> BroadphaseWork {
         let facts = self.facts;
         let storage = GridStorage {
             keys: self.backend.streams.broadphase.entry_keys.identity(),
@@ -239,25 +243,35 @@ impl World {
             entries: self.backend.streams.broadphase.entries.identity(),
         };
         let reservation = self.backend.immovable.entries();
-        let immovable = self.backend.immovable.reconcile(ImmovableGrid {
+        let immovable_grid = ImmovableGrid {
             geometry: facts.geometry,
             immovable_colliders: facts.immovable_colliders,
             immovable_edits: facts.immovable_edits,
             reservation,
             storage,
-        });
-        let resting = self.backend.resting.reconcile(
-            self.clock.step,
-            RestingGrid {
-                geometry: facts.geometry,
-                movable_colliders: facts.movable_colliders,
-                poses: facts.poses,
-                layout: facts.layout,
-                activity: facts.activity,
-                reservation,
-                storage,
-            },
-        );
+        };
+        let immovable_owes = self.backend.immovable.outgrown(immovable_grid);
+        let immovable_rebuild = self.backend.immovable.record(immovable_grid);
+        let resting_grid = RestingGrid {
+            geometry: facts.geometry,
+            movable_colliders: facts.movable_colliders,
+            poses: facts.poses,
+            layout: facts.layout,
+            activity: facts.activity,
+            reservation,
+            storage,
+        };
+        let resting_owes = self.backend.resting.outgrown(resting_grid);
+        let resting_rebuild = self.backend.resting.record(self.clock.step, resting_grid);
+        let owed = BroadphaseWork {
+            immovable: immovable_owes,
+            resting: resting_owes,
+        };
+        self.backend.owed = owed;
+        let rebuild = BroadphaseWork {
+            immovable: immovable_rebuild,
+            resting: resting_rebuild,
+        };
         let entries = self.backend.streams.broadphase.entry_keys.slots();
         assert!(
             entries >= reservation,
@@ -265,11 +279,11 @@ impl World {
         );
         live.broadphase.entry_base = reservation;
         live.broadphase.moving_slots = entries - reservation;
-        live.broadphase.immovable_rebuild = immovable;
-        live.broadphase.resting_rebuild = resting;
-        live.rigid.immovable_rebuild = immovable;
-        live.rigid.resting_rebuild = resting;
-        Derived { immovable, resting }
+        live.broadphase.immovable_rebuild = immovable_rebuild;
+        live.broadphase.resting_rebuild = resting_rebuild;
+        live.rigid.immovable_rebuild = immovable_rebuild;
+        live.rigid.resting_rebuild = resting_rebuild;
+        rebuild
     }
 
     pub(crate) fn joint_order_storage(&self) -> JointOrderStorage {

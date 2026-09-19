@@ -38,7 +38,9 @@ fn a_settled_soft_body_leaves_the_simulation_domain() {
     let mut world = observed_world(gravity_config());
     ground(&mut world);
     let _cloth = world.add_soft_body(cloth([0.0, 0.6, 0.0]));
-    settle_until(&mut world, 240, |world| asleep(world) && soft_asleep(world));
+    settle_until(&mut world, 240, |world| {
+        asleep(world) && soft_asleep(world) && world.is_idle()
+    });
     assert!(
         soft_asleep(&world),
         "a settled soft body must report no active soft work"

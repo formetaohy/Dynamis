@@ -8,7 +8,6 @@ use dynamis_model::{Shape, ShapeSourceHandle, SolidGeometry, SurfaceTable};
 pub(crate) struct ShapeStore {
     pub(crate) pool: ShapePool,
     pub(crate) dirty: bool,
-    pub(crate) uploaded: bool,
 }
 
 impl ShapeStore {
@@ -16,7 +15,6 @@ impl ShapeStore {
         Self {
             pool: ShapePool::new(),
             dirty: false,
-            uploaded: false,
         }
     }
 }

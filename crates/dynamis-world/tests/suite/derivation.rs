@@ -110,6 +110,11 @@ fn an_edited_resting_collider_derives_the_resting_grid() {
     ground(&mut world, 20.0);
     let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
     settle_until(&mut world, 600, |world| asleep(world));
+    hold_quiet(&mut world, 32);
+    assert!(
+        world.is_idle(),
+        "the edit must reach a world that owes nothing else"
+    );
     world.set_collider(ball, 0, ColliderDesc::new(Shape::sphere(1.0)));
     world.step(DT);
     world.wait();
@@ -117,6 +122,51 @@ fn an_edited_resting_collider_derives_the_resting_grid() {
         world.measured()[COUNTER_RESTING_REBUILD],
         1,
         "editing the collider of a resting body must derive the resting entries again"
+    );
+}
+
+#[test]
+fn a_region_that_outlives_its_counters_costs_an_idle_world_nothing() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 20.0);
+    world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
+    settle_until(&mut world, 600, |world| asleep(world));
+    hold_quiet(&mut world, 128);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.is_idle(),
+        "a region that outlived the counters that vouch for it must not ask a resting world for work"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_RESTING_REBUILD],
+        0,
+        "a region that outlived its counters must not derive itself while every body rests"
+    );
+}
+
+#[test]
+fn a_body_that_leaves_the_movable_half_derives_both_grids() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world, 20.0);
+    let ball = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
+    settle_until(&mut world, 600, |world| asleep(world));
+    hold_quiet(&mut world, 32);
+    assert!(
+        world.is_idle(),
+        "the edit must reach a world that owes nothing else"
+    );
+    world.set_mass(ball, 0.0);
+    world.step(DT);
+    world.wait();
+    assert!(
+        world.measured()[COUNTER_IMMOVABLE_EMITTED] > 0,
+        "a body that became immovable must derive the immovable entries it joins"
+    );
+    assert_eq!(
+        world.measured()[COUNTER_RESTING_REBUILD],
+        1,
+        "a body that left the movable half must derive the resting entries it left"
     );
 }
 

@@ -10,11 +10,6 @@ use dynamis_pass::{PassGroup, Pipeline};
 
 pub struct StateDomain;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct StateWork {
-    pub shape_uploads: bool,
-}
-
 impl Domain for StateDomain {
     const ID: u32 = 0;
 
@@ -24,7 +19,7 @@ impl Domain for StateDomain {
 
     type Demand = StateDemand;
     type Inputs = StateInputs;
-    type Work = StateWork;
+    type Work = ();
     type Streams = StateStreams;
     type Passes = StatePasses;
     type Runtime = StateRuntime;
@@ -39,8 +34,8 @@ impl Domain for StateDomain {
         true
     }
 
-    fn pending(work: &StateWork) -> bool {
-        work.shape_uploads
+    fn pending(_: &()) -> bool {
+        false
     }
 
     fn active(_: &Counters) -> bool {
