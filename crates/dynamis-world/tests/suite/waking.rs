@@ -2,7 +2,7 @@ use super::common::{
     DT, asleep, gravity_config, observed_world, settle, settle_until, static_config,
 };
 use dynamis_abi::{COUNTER_ISLANDS, COUNTER_WOKE};
-use dynamis_model::{BodyDesc, BodyHandle, SoftBodyDesc, SoftMaterial};
+use dynamis_model::{BodyDesc, BodyHandle, CharacterDesc, SoftBodyDesc, SoftMaterial};
 use dynamis_world::World;
 
 fn ground(world: &mut World) {
@@ -303,6 +303,28 @@ fn a_spawned_static_body_wakes_the_sleeping_body_it_overlaps() {
         world.read_state(ball).position[0] < -0.3,
         "the awakened ball must leave the spawned static body, got {:?}",
         world.read_state(ball).position
+    );
+}
+
+#[test]
+fn a_placed_character_wakes_the_sleeping_body_it_overlaps() {
+    let mut world = observed_world(gravity_config());
+    ground(&mut world);
+    let box_body = world.spawn(BodyDesc::cuboid([0.4; 3]).position([0.0, 0.4, 0.0]));
+    sleep_until_quiet(&mut world);
+    assert!(world.read_state(box_body).sleeping);
+
+    let character = world.add_character([5.0, 1.0, 0.0], CharacterDesc::default());
+    settle(&mut world, 5);
+    world.place_character(character, [0.6, 0.6, 0.0]);
+    assert!(
+        woken_bodies_over(&mut world, 30) > 0,
+        "a character placed over a sleeping body must wake it"
+    );
+    assert!(
+        world.read_state(box_body).position[0] < -0.1,
+        "the awakened box must leave the placed character, got {:?}",
+        world.read_state(box_body).position
     );
 }
 

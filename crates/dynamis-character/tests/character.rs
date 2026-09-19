@@ -4,6 +4,7 @@ use common::{DT, gravity_config, new_world};
 use dynamis_character::{Character, CharacterDesc};
 use dynamis_model::{BodyDesc, CharacterState, ColliderDesc, Shape};
 use dynamis_world::World;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn ground(world: &mut World) {
     world.spawn(
@@ -339,6 +340,140 @@ fn character_drives_its_kinematic_body() {
     assert!(
         body.position[1] > 0.0,
         "the kinematic body must stay above the floor"
+    );
+}
+
+#[test]
+fn character_stands_where_the_host_places_it() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    walk(&mut world, &character, 40, [1.0, 0.0, 0.0]);
+    let walked = settled(&mut world, &character);
+    assert!(
+        walked.position[0] > 1.0,
+        "the character must walk before the host places it, got {walked:?}"
+    );
+
+    character.place(&mut world, [-6.0, 1.0, 0.0]);
+    walk(&mut world, &character, 40, [0.0; 3]);
+    let placed = settled(&mut world, &character);
+    assert!(
+        (placed.position[0] + 6.0).abs() < 0.05,
+        "a placed character must stand where the host placed it, got {placed:?}"
+    );
+    assert!(
+        placed.grounded,
+        "a placed character must ground itself on the floor beneath its pose"
+    );
+    let body = world.read_state(character.body(&world));
+    assert!(
+        (body.position[0] + 6.0).abs() < 0.1,
+        "the body the character drives must answer the placement, got {:?}",
+        body.position
+    );
+}
+
+#[test]
+fn a_placement_drops_the_ground_of_the_pose_it_replaces() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    walk(&mut world, &character, 20, [0.0; 3]);
+    assert!(settled(&mut world, &character).grounded);
+
+    character.place(&mut world, [3.0, 6.0, 0.0]);
+    walk(&mut world, &character, 1, [0.0; 3]);
+    let falling = settled(&mut world, &character);
+    assert!(
+        !falling.grounded,
+        "the pose a character is placed at answers no ground yet, got {falling:?}"
+    );
+    walk(&mut world, &character, 90, [0.0; 3]);
+    let landed = settled(&mut world, &character);
+    assert!(
+        landed.grounded && (landed.position[1] - falling.position[1]).abs() > 3.0,
+        "a placed character must fall to the ground beneath its pose, got {landed:?}"
+    );
+    assert!(
+        (landed.position[0] - 3.0).abs() < 0.05,
+        "a placed character must keep the pose the host declared, got {landed:?}"
+    );
+}
+
+#[test]
+fn a_placement_answers_only_the_character_it_places() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let first = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    let second = Character::spawn(&mut world, [4.0, 1.0, 0.0], CharacterDesc::default());
+    walk(&mut world, &first, 20, [1.0, 0.0, 0.0]);
+    walk(&mut world, &second, 20, [0.0; 3]);
+    let held = settled(&mut world, &second);
+
+    first.drive(&mut world, [0.0; 3], false);
+    first.place(&mut world, [-8.0, 1.0, 0.0]);
+    for _ in 0..20 {
+        world.step(DT);
+    }
+    let after = settled(&mut world, &second);
+    assert!(
+        (after.position[0] - held.position[0]).abs() < 1.0e-2
+            && (after.position[1] - held.position[1]).abs() < 1.0e-2,
+        "a placement must answer only the character it places, got {after:?} against {held:?}"
+    );
+    let placed = settled(&mut world, &first);
+    assert!(
+        (placed.position[0] + 8.0).abs() < 0.05,
+        "the placed character must stand at its own pose, got {placed:?}"
+    );
+}
+
+#[test]
+fn a_placement_refuses_a_character_the_world_retired() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let character = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    let handle = character.handle();
+    world.remove_character(handle);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            world.place_character(handle, [1.0, 1.0, 0.0])
+        }))
+        .is_err(),
+        "a placement of a retired character must be refused"
+    );
+    assert_eq!(world.character_count(), 0);
+}
+
+#[test]
+fn a_placement_of_a_retired_character_never_reaches_the_character_that_takes_its_slot() {
+    let mut world = new_world(gravity_config());
+    ground(&mut world);
+    let retired = Character::spawn(&mut world, [0.0, 1.0, 0.0], CharacterDesc::default());
+    let slot = retired.handle();
+    retired.place(&mut world, [-6.0, 1.0, 0.0]);
+    world.remove_character(slot);
+
+    let introduced = Character::spawn(&mut world, [6.0, 1.0, 0.0], CharacterDesc::default());
+    assert_eq!(
+        introduced.handle().id,
+        slot.id,
+        "the world must introduce a character at the slot the retired one left"
+    );
+    walk(&mut world, &introduced, 10, [0.0; 3]);
+    assert!(
+        introduced.try_state(&mut world).is_none(),
+        "a character state that no run has published must not be invented by the host"
+    );
+    world.wait();
+    let state = introduced
+        .try_state(&mut world)
+        .expect("wait() must publish the character the world introduced");
+    assert!(
+        (state.value.position[0] - 6.0).abs() < 0.05,
+        "the character that took over the slot must answer its own pose, got {:?}",
+        state.value.position
     );
 }
 

@@ -192,12 +192,13 @@ impl World {
         desc.assert_valid();
         let kind = self.body_kind_of(desc);
         assert_body_kind(desc, kind);
-        self.assert_motion_owner(id, kind);
+        self.assert_kind_owner(id, kind);
     }
 
-    /// A character declares the kinematic motion of the body it drives, and a vehicle drives a
-    /// chassis the solver must evolve, so no host edit may declare the opposite of either.
-    fn assert_motion_owner(&self, id: u32, kind: BodyKind) {
+    /// The one authority a body's declared kind passes: a character declares the kinematic motion of
+    /// the body it drives, and a vehicle drives a chassis the solver must evolve, so no host edit
+    /// may declare the opposite of either.
+    fn assert_kind_owner(&self, id: u32, kind: BodyKind) {
         assert!(
             !(self.characters.owns_body(id) && kind != BodyKind::Kinematic),
             "a character declares the motion of the body it drives, which stays kinematic: {kind:?}",
@@ -205,6 +206,18 @@ impl World {
         assert!(
             !(self.vehicles.owns_body(id) && !kind.simulates()),
             "a vehicle drives its chassis through the solver, which stays simulated: {kind:?}",
+        );
+    }
+
+    /// The one authority a declaration of a body's motion passes: a body the solver evolves answers
+    /// the state the host loads it at, and a body the device never moves keeps the motion the host
+    /// declares, so a declaration reaches both. A character declares the motion of the body it
+    /// drives from the pose the character holds, so a host declaration of that motion would be
+    /// overwritten by the character's next declaration rather than reach the simulation.
+    fn assert_motion_owner(&self, handle: BodyHandle, what: &str) {
+        assert!(
+            !self.characters.owns_body(handle.id),
+            "a character declares the motion of the body it drives, so the host cannot {what}: place the character instead",
         );
     }
 
@@ -316,6 +329,7 @@ impl World {
     pub fn set_position(&mut self, handle: BodyHandle, position: [f32; 3]) {
         self.validate(handle);
         domain::finite_vector(position, "a body position");
+        self.assert_motion_owner(handle, "declare its position");
         self.observed.bodies.patch(handle.id, |state| {
             state.position = position;
             state.prev_position = position;
@@ -329,6 +343,7 @@ impl World {
     pub fn set_orientation(&mut self, handle: BodyHandle, orientation: [f32; 4]) {
         domain::unit_quaternion(orientation, "a body orientation");
         self.validate(handle);
+        self.assert_motion_owner(handle, "declare its orientation");
         self.observed.bodies.patch(handle.id, |state| {
             state.orientation = orientation;
             state.prev_orientation = orientation;
@@ -342,6 +357,7 @@ impl World {
     pub fn set_velocity(&mut self, handle: BodyHandle, velocity: [f32; 3]) {
         self.validate(handle);
         domain::finite_vector(velocity, "a body velocity");
+        self.assert_motion_owner(handle, "declare its velocity");
         self.observed.bodies.patch(handle.id, |state| {
             state.velocity = velocity;
         });
@@ -354,6 +370,7 @@ impl World {
     pub fn set_angular_velocity(&mut self, handle: BodyHandle, angular_velocity: [f32; 3]) {
         self.validate(handle);
         domain::finite_vector(angular_velocity, "a body angular velocity");
+        self.assert_motion_owner(handle, "declare its angular velocity");
         self.observed.bodies.patch(handle.id, |state| {
             state.angular_velocity = angular_velocity;
         });
@@ -554,6 +571,7 @@ impl World {
 
     pub fn apply_force(&mut self, handle: BodyHandle, force: [f32; 3]) {
         domain::finite_vector(force, "a body force");
+        self.assert_simulating(handle, "answer a force");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -563,6 +581,7 @@ impl World {
     pub fn apply_force_at_point(&mut self, handle: BodyHandle, force: [f32; 3], point: [f32; 3]) {
         domain::finite_vector(force, "a body force");
         domain::finite_vector(point, "a force application point");
+        self.assert_simulating(handle, "answer a force");
         let slot = self.command_slot(handle);
         self.bodies.commands.push(BodyCommand::ForceAtPoint {
             row: slot,
@@ -573,6 +592,7 @@ impl World {
 
     pub fn apply_torque(&mut self, handle: BodyHandle, torque: [f32; 3]) {
         domain::finite_vector(torque, "a body torque");
+        self.assert_simulating(handle, "answer a torque");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -581,6 +601,7 @@ impl World {
 
     pub fn apply_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
         domain::finite_vector(impulse, "a body impulse");
+        self.assert_simulating(handle, "answer an impulse");
         let slot = self.command_slot(handle);
         self.bodies
             .commands
@@ -595,6 +616,7 @@ impl World {
     ) {
         domain::finite_vector(impulse, "a body impulse");
         domain::finite_vector(point, "an impulse application point");
+        self.assert_simulating(handle, "answer an impulse");
         let slot = self.command_slot(handle);
         self.bodies.commands.push(BodyCommand::ImpulseAtPoint {
             row: slot,
@@ -605,6 +627,7 @@ impl World {
 
     pub fn apply_angular_impulse(&mut self, handle: BodyHandle, impulse: [f32; 3]) {
         domain::finite_vector(impulse, "a body angular impulse");
+        self.assert_simulating(handle, "answer an angular impulse");
         let slot = self.command_slot(handle);
         self.bodies
             .commands

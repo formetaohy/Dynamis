@@ -239,7 +239,7 @@ impl World {
             rigid: dynamis_rigid::RigidWork {
                 body_commands: self.bodies.last_edits + self.bodies.last_moves,
                 constraint_commands: self.constraints.last_commands + self.constraints.last_moves,
-                character_inputs: self.characters.last_inputs > 0,
+                character_declarations: self.characters.last_declarations > 0,
                 vehicle_inputs: self.vehicles.last_inputs > 0,
                 wake_all: self.wake_all,
             },

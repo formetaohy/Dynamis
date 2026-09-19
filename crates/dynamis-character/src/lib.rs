@@ -25,6 +25,10 @@ impl Character {
         world.set_character_input(self.handle, CharacterInput { direction, jump });
     }
 
+    pub fn place(&self, world: &mut World, position: [f32; 3]) {
+        world.place_character(self.handle, position);
+    }
+
     pub fn try_state(&self, world: &mut World) -> Option<Observation<CharacterState>> {
         world.try_character_state(self.handle)
     }

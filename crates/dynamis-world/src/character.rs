@@ -28,8 +28,9 @@ impl Slot {
 pub(crate) struct CharacterStore {
     pub(crate) pool: Pool<CharacterHandle>,
     slots: Vec<Slot>,
-    pending_inputs: u32,
-    pub(crate) last_inputs: u32,
+    declarations: u32,
+    pub(crate) last_declarations: u32,
+    placements: Vec<u32>,
 }
 
 impl CharacterStore {
@@ -37,8 +38,9 @@ impl CharacterStore {
         Self {
             pool: Pool::vacate("character"),
             slots: Vec::new(),
-            pending_inputs: 0,
-            last_inputs: 0,
+            declarations: 0,
+            last_declarations: 0,
+            placements: Vec::new(),
         }
     }
 
@@ -68,15 +70,15 @@ impl CharacterStore {
     }
 
     pub(crate) fn pending(&self) -> bool {
-        self.pending_inputs > 0
+        self.declarations > 0
     }
 
     pub(crate) fn consume(&mut self) {
-        self.last_inputs = std::mem::take(&mut self.pending_inputs);
+        self.last_declarations = std::mem::take(&mut self.declarations);
     }
 
     pub(crate) fn clear_work(&mut self) {
-        self.last_inputs = 0;
+        self.last_declarations = 0;
     }
 
     pub(crate) fn validate(&self, handle: CharacterHandle) {
@@ -108,7 +110,7 @@ impl CharacterStore {
             body: Some(body),
             record,
             input: CharacterInputRecord::idle(),
-            state: CharacterStateRecord::spawn(handle.id, handle.generation, position),
+            state: CharacterStateRecord::placed(handle.id, handle.generation, position),
         };
         handle
     }
@@ -120,7 +122,18 @@ impl CharacterStore {
             jump: u32::from(input.jump),
         };
         self.pool.mark(handle);
-        self.pending_inputs += 1;
+        self.declarations += 1;
+    }
+
+    /// Declares where the character stands, at rest and on ground its sweeps have yet to answer: the
+    /// pose the character declares replaces the one it carried, so no sweep of the pose it left
+    /// survives.
+    pub(crate) fn place(&mut self, handle: CharacterHandle, position: [f32; 3]) {
+        let slot = self.slot_of(handle) as usize;
+        self.slots[slot].state =
+            CharacterStateRecord::placed(handle.id, handle.generation, position);
+        self.placements.push(slot as u32);
+        self.declarations += 1;
     }
 
     pub(crate) fn retire(&mut self, handle: CharacterHandle) {
@@ -134,6 +147,10 @@ impl CharacterStore {
             write_slot(queue, streams, slot, &Slot::RETIRED);
         }
         for slot in self.pool.take_fresh() {
+            reset_scratch(queue, streams, slot);
+            write_slot(queue, streams, slot, &self.slots[slot as usize]);
+        }
+        for slot in std::mem::take(&mut self.placements) {
             reset_scratch(queue, streams, slot);
             write_slot(queue, streams, slot, &self.slots[slot as usize]);
         }
@@ -212,6 +229,12 @@ impl World {
         self.characters.validate(handle);
         domain::finite_vector(input.direction, "a character direction");
         self.characters.set_input(handle, input);
+    }
+
+    pub fn place_character(&mut self, handle: CharacterHandle, position: [f32; 3]) {
+        domain::finite_vector(position, "a character position");
+        self.characters.validate(handle);
+        self.characters.place(handle, position);
     }
 
     pub fn characters(&self) -> &[CharacterHandle] {

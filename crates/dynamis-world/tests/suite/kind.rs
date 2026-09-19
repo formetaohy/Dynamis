@@ -219,6 +219,169 @@ fn an_actor_body_keeps_the_kind_its_actor_declares() {
 }
 
 #[test]
+fn an_actor_body_takes_no_motion_from_the_host() {
+    let mut world = observed_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([10.0, 0.5, 10.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let character = world.add_character([0.0, 1.0, 0.0], CharacterDesc::default());
+    let character_body = world.character_body(character);
+    let vehicle = world.add_vehicle(VehicleDesc::new(
+        BodyDesc::cuboid([0.9, 0.3, 1.8]).position([4.0, 0.8, 0.0]),
+        vec![
+            WheelDesc::new([0.8, -0.3, 0.9], 0.3).driving(),
+            WheelDesc::new([-0.8, -0.3, 0.9], 0.3),
+        ],
+    ));
+    let chassis = world.vehicle_body(vehicle);
+    settle(&mut world, 60);
+    let held = world.read_state(character_body);
+
+    let raws: Vec<(&'static str, Attempt)> = vec![
+        (
+            "a character body placed by the host",
+            Box::new(move |world: &mut World| world.set_position(character_body, [4.0, 2.0, 0.0])),
+        ),
+        (
+            "a character body turned by the host",
+            Box::new(move |world: &mut World| {
+                world.set_orientation(character_body, [0.0, 0.0, 0.0, 1.0])
+            }),
+        ),
+        (
+            "a character body driven by the host",
+            Box::new(move |world: &mut World| world.set_velocity(character_body, [2.0, 0.0, 0.0])),
+        ),
+        (
+            "a character body spun by the host",
+            Box::new(move |world: &mut World| {
+                world.set_angular_velocity(character_body, [0.0, 2.0, 0.0])
+            }),
+        ),
+        (
+            "a character body pushed by the host",
+            Box::new(move |world: &mut World| world.apply_force(character_body, [9.0, 0.0, 0.0])),
+        ),
+        (
+            "a character body pushed off its center by the host",
+            Box::new(move |world: &mut World| {
+                world.apply_force_at_point(character_body, [9.0, 0.0, 0.0], [0.0, 0.3, 0.0])
+            }),
+        ),
+        (
+            "a character body torqued by the host",
+            Box::new(move |world: &mut World| world.apply_torque(character_body, [0.0, 2.0, 0.0])),
+        ),
+        (
+            "a character body impelled by the host",
+            Box::new(move |world: &mut World| world.apply_impulse(character_body, [2.0, 0.0, 0.0])),
+        ),
+        (
+            "a character body impelled off its center by the host",
+            Box::new(move |world: &mut World| {
+                world.apply_impulse_at_point(character_body, [2.0, 0.0, 0.0], [0.0, 0.3, 0.0])
+            }),
+        ),
+        (
+            "a character body spun by an angular impulse",
+            Box::new(move |world: &mut World| {
+                world.apply_angular_impulse(character_body, [0.0, 2.0, 0.0])
+            }),
+        ),
+    ];
+
+    for (what, attempt) in raws {
+        refuses(what, &mut world, attempt);
+        let chassis_motion = catch_unwind(AssertUnwindSafe(|| {
+            world.set_position(chassis, [4.0, 0.8, 0.0]);
+            world.apply_force(chassis, [0.0, 1.0, 0.0]);
+        }));
+        assert!(
+            chassis_motion.is_ok(),
+            "{what} refused the motion a body its actor does not drive answers",
+        );
+        settle(&mut world, 2);
+        assert_eq!(
+            world.read_state(character_body).position,
+            held.position,
+            "{what} moved the character body",
+        );
+        assert!(
+            world.inspect_character_state(character).grounded,
+            "{what} stopped the character from standing",
+        );
+        assert!(
+            world.refusals().is_empty(),
+            "{what} refused work the device cannot lose",
+        );
+    }
+}
+
+#[test]
+fn a_driven_body_answers_no_force() {
+    let mut world = observed_world(gravity_config());
+    world.spawn(
+        BodyDesc::cuboid([10.0, 0.5, 10.0])
+            .mass(0.0)
+            .position([0.0, -0.5, 0.0]),
+    );
+    let driven = world.spawn(
+        BodyDesc::cuboid([0.5, 0.5, 0.5])
+            .position([-4.0, 0.5, 0.0])
+            .kinematic(true),
+    );
+    let immovable = world.spawn(BodyDesc::static_sphere(0.5).position([4.0, 0.5, 0.0]));
+    let simulated = world.spawn(BodyDesc::sphere(0.5).position([0.0, 0.5, 0.0]));
+    settle(&mut world, 30);
+
+    for (label, body) in [("driven", driven), ("immovable", immovable)] {
+        let raws: Vec<(String, Attempt)> = vec![
+            (
+                format!("a {label} body pushed by the host"),
+                Box::new(move |world: &mut World| world.apply_force(body, [9.0, 0.0, 0.0])),
+            ),
+            (
+                format!("a {label} body torqued by the host"),
+                Box::new(move |world: &mut World| world.apply_torque(body, [0.0, 2.0, 0.0])),
+            ),
+            (
+                format!("a {label} body impelled by the host"),
+                Box::new(move |world: &mut World| world.apply_impulse(body, [2.0, 0.0, 0.0])),
+            ),
+            (
+                format!("a {label} body spun by an angular impulse"),
+                Box::new(move |world: &mut World| {
+                    world.apply_angular_impulse(body, [0.0, 2.0, 0.0])
+                }),
+            ),
+        ];
+        for (what, attempt) in raws {
+            refuses(&what, &mut world, attempt);
+        }
+    }
+
+    let held = world.read_state(driven);
+    world.set_velocity(driven, [1.5, 0.0, 0.0]);
+    world.apply_force(simulated, [0.0, 9.81, 0.0]);
+    world.apply_impulse(simulated, [0.5, 0.0, 0.0]);
+    settle(&mut world, 10);
+    assert!(
+        world.read_state(driven).position[0] > held.position[0],
+        "a driven body must answer the motion the host declares for it",
+    );
+    assert!(
+        world.read_state(simulated).velocity[0] > 0.0,
+        "a simulated body must answer the force and impulse the host declares",
+    );
+    assert!(
+        world.refusals().is_empty(),
+        "a force the device cannot consume must be refused before it is declared",
+    );
+}
+
+#[test]
 fn a_world_geometry_body_takes_every_kind_the_host_may_declare() {
     let mut world = observed_world(gravity_config());
     let (vertices, triangles) = mesh();

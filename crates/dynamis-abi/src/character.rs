@@ -47,7 +47,9 @@ impl CharacterInputRecord {
 }
 
 impl CharacterStateRecord {
-    pub fn spawn(owner: u32, generation: u32, position: [f32; 3]) -> Self {
+    /// The state a character answers where it is introduced: at rest, standing on ground its sweeps
+    /// have yet to answer.
+    pub const fn placed(owner: u32, generation: u32, position: [f32; 3]) -> Self {
         Self {
             position,
             vertical: 0.0,
