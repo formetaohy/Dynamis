@@ -1,4 +1,6 @@
-use super::common::{DT, asleep, flat_mesh_floor, observed_world, settle_until, static_config};
+use super::common::{
+    DT, asleep, flat_mesh_floor, observed_world, settle, settle_until, static_config,
+};
 use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
 use dynamis_world::World;
 
@@ -632,4 +634,115 @@ fn a_recycled_source_carries_the_replacement_geometry() {
         (y - 2.5).abs() < 0.05,
         "the recycled slots must serve the replacement floor, got y={y}"
     );
+}
+
+fn capsule_across(
+    ridge_at: f32,
+    ridge_extent: f32,
+    half_height: f32,
+    height: f32,
+) -> (World, dynamis_model::BodyHandle) {
+    let mut world = observed_world(super::common::gravity_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::plane()))
+            .position([0.0; 3])
+            .mass(0.0),
+    );
+    world.spawn(
+        BodyDesc::cuboid([0.25, 0.5, ridge_extent])
+            .position([ridge_at, 0.5, 0.0])
+            .mass(0.0),
+    );
+    let capsule = world.spawn(
+        BodyDesc::capsule(0.2, half_height)
+            .orientation([
+                0.0,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ])
+            .com([0.0, -ridge_at, 0.0])
+            .position([0.0, height, 0.0]),
+    );
+    (world, capsule)
+}
+
+fn settle_on_ridge(world: &mut World, capsule: dynamis_model::BodyHandle) {
+    settle_until(world, 120, |world| {
+        world.read_state(capsule).position[1] < 1.3
+    });
+    settle(world, 8);
+}
+
+#[test]
+fn a_capsule_lies_across_the_ridge_under_its_middle() {
+    let (mut world, capsule) = capsule_across(2.0, 3.0, 4.0, 2.2);
+    settle_on_ridge(&mut world, capsule);
+    let y = world.read_state(capsule).position[1];
+    assert!(
+        (y - 1.2).abs() < 0.05,
+        "a capsule must lie on the ridge at y=1.2 instead of sinking through it, got y={y}"
+    );
+}
+
+#[test]
+fn a_short_capsule_lies_across_the_ridge_under_its_middle() {
+    let (mut world, capsule) = capsule_across(1.0, 3.0, 2.0, 2.2);
+    settle_on_ridge(&mut world, capsule);
+    let y = world.read_state(capsule).position[1];
+    assert!(
+        (y - 1.2).abs() < 0.05,
+        "a short capsule must lie on the ridge at y=1.2 instead of sinking through it, got y={y}"
+    );
+}
+
+#[test]
+fn a_capsule_lies_on_the_ridge_with_the_line_it_crosses() {
+    let mut world = observed_world(static_config());
+    world.spawn(
+        BodyDesc::new(ColliderDesc::new(Shape::plane()))
+            .position([0.0; 3])
+            .mass(0.0),
+    );
+    world.spawn(
+        BodyDesc::cuboid([0.25, 0.5, 3.0])
+            .position([2.0, 0.5, 0.0])
+            .mass(0.0),
+    );
+    let capsule = world.spawn(
+        BodyDesc::capsule(0.2, 4.0)
+            .orientation([
+                0.0,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ])
+            .velocity([0.0, -1.0, 0.0])
+            .position([0.0, 1.15, 0.0]),
+    );
+    world.step(DT);
+    world.wait();
+    let manifolds = world
+        .inspect_contacts()
+        .into_iter()
+        .filter(|manifold| manifold.first == capsule || manifold.second == capsule)
+        .collect::<Vec<_>>();
+    let manifold = manifolds
+        .first()
+        .expect("a capsule lying on the ridge must report a manifold");
+    assert_eq!(
+        manifold.points.len(),
+        2,
+        "the contact must be the line the capsule crosses on the ridge, got {:?}",
+        manifold.points,
+    );
+    for point in &manifold.points {
+        let edge =
+            (point.position[0] - 1.75).abs() < 1e-3 || (point.position[0] - 2.25).abs() < 1e-3;
+        assert!(
+            edge,
+            "the contact line must span the ridge's footprint, got {:?}",
+            point.position,
+        );
+    }
 }

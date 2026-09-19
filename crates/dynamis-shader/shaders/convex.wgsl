@@ -631,6 +631,7 @@ fn box_corner_id(face_axis: u32, face_sign: f32, first: f32, second: f32) -> u32
 }
 
 const EMPTY_RING_FACE: u32 = FEATURE_INDEX_LIMIT;
+const CAP_ALIGNMENT: f32 = 0.93;
 const CYLINDER_CAP_POINTS: u32 = 8u;
 const CYLINDER_SIDE_POINTS: u32 = 16u;
 const CYLINDER_SIDE_FACE: u32 = 2u;
@@ -791,6 +792,32 @@ fn hull_feature_ring(
     return ring_of(world, direction, &points, &ids, count, out, out_ids);
 }
 
+fn capsule_feature(
+    world: WorldShape,
+    direction: vec3f,
+    out: ptr<function, array<vec3f, FEATURE_MAX>>,
+    out_ids: ptr<function, array<u32, FEATURE_MAX>>,
+    out_face: ptr<function, u32>,
+) -> u32 {
+    let local_direction = quat_rotate(quat_conjugate(world.rotation), direction) * world.scale;
+    let cap = select(-1.0, 1.0, local_direction.y > 0.0);
+    let radial = sign_normalize(local_direction) * world.radius;
+    *out_face = feature_field_face(0u);
+    if (abs(local_direction.y) > CAP_ALIGNMENT * length(local_direction)) {
+        let local = vec3f(0.0, cap * world.half_height, 0.0) + radial;
+        (*out)[0] = world.center + quat_rotate(world.rotation, local * world.scale);
+        (*out_ids)[0] = select(0u, 1u, cap > 0.0);
+        return 1u;
+    }
+    let upper = vec3f(0.0, world.half_height, 0.0) + radial;
+    let lower = vec3f(0.0, -world.half_height, 0.0) + radial;
+    (*out)[0] = world.center + quat_rotate(world.rotation, upper * world.scale);
+    (*out)[1] = world.center + quat_rotate(world.rotation, lower * world.scale);
+    (*out_ids)[0] = 0u;
+    (*out_ids)[1] = 1u;
+    return 2u;
+}
+
 fn cylinder_feature(
     world: WorldShape,
     direction: vec3f,
@@ -800,7 +827,7 @@ fn cylinder_feature(
 ) -> u32 {
     let axis = shape_axis(world);
     let alignment = dot(axis, normalize(direction));
-    if (abs(alignment) > 0.93) {
+    if (abs(alignment) > CAP_ALIGNMENT) {
         let sign = select(1.0, -1.0, alignment < 0.0);
         let cap = select(0u, 1u, sign > 0.0);
         let cap_center = world.center + axis * world.half_height * sign;
@@ -832,23 +859,27 @@ fn shape_feature(
     out: ptr<function, array<vec3f, FEATURE_MAX>>,
     out_ids: ptr<function, array<u32, FEATURE_MAX>>,
     out_face: ptr<function, u32>,
-    flat: ptr<function, bool>,
+    ring: ptr<function, bool>,
 ) -> u32 {
     if (world.kind == SHAPE_CUBOID) {
-        *flat = true;
+        *ring = true;
         return box_feature_ring(world, direction, out, out_ids, out_face);
     }
     if (world.kind == SHAPE_HULL) {
         let count = hull_feature_ring(world, direction, out, out_ids, out_face);
-        *flat = count > 1u;
+        *ring = count > 2u;
         return count;
+    }
+    if (world.kind == SHAPE_CAPSULE) {
+        *ring = false;
+        return capsule_feature(world, direction, out, out_ids, out_face);
     }
     if (world.kind == SHAPE_CYLINDER) {
         let count = cylinder_feature(world, direction, out, out_ids, out_face);
-        *flat = count > 2u;
+        *ring = count > 2u;
         return count;
     }
-    *flat = false;
+    *ring = false;
     (*out)[0] = support(world, direction);
     (*out_ids)[0] = 0u;
     *out_face = feature_field_face(0u);
@@ -868,6 +899,88 @@ fn feature_radius(points: ptr<function, array<vec3f, FEATURE_MAX>>, count: u32) 
     return radius;
 }
 
+const CLIP_POINTS: u32 = 16u;
+
+struct ClippedFeature {
+    points: array<vec3f, CLIP_POINTS>,
+    ids: array<u32, CLIP_POINTS>,
+    count: u32,
+}
+
+fn clip_feature_to_ring(
+    points: array<vec3f, FEATURE_MAX>,
+    ids: array<u32, FEATURE_MAX>,
+    count: u32,
+    ring: array<vec3f, FEATURE_MAX>,
+    ring_count: u32,
+    ref_dir: vec3f,
+) -> ClippedFeature {
+    var held_points: array<vec3f, CLIP_POINTS>;
+    var held_ids: array<u32, CLIP_POINTS>;
+    for (var i = 0u; i < count; i = i + 1u) {
+        held_points[i] = points[i];
+        held_ids[i] = ids[i];
+    }
+    var live = count;
+    for (var side = 0u; side < ring_count; side = side + 1u) {
+        let current = ring[side];
+        let next = ring[(side + 1u) % ring_count];
+        let plane_normal = normalize(cross(next - current, ref_dir));
+        var kept_points: array<vec3f, CLIP_POINTS>;
+        var kept_ids: array<u32, CLIP_POINTS>;
+        var written = 0u;
+        if (live == 2u) {
+            let first_point = held_points[0];
+            let second_point = held_points[1];
+            let first_side = dot(first_point - current, plane_normal) - CLIP_MARGIN;
+            let second_side = dot(second_point - current, plane_normal) - CLIP_MARGIN;
+            if (first_side <= 0.0) {
+                kept_points[written] = first_point;
+                kept_ids[written] = held_ids[0];
+                written = written + 1u;
+            }
+            if (first_side * second_side < 0.0 && written < CLIP_POINTS) {
+                kept_points[written] = first_point + (second_point - first_point) * (first_side / (first_side - second_side));
+                kept_ids[written] = feature_field_clip(side * CLIP_POINTS);
+                written = written + 1u;
+            }
+            if (second_side <= 0.0 && written < CLIP_POINTS) {
+                kept_points[written] = second_point;
+                kept_ids[written] = held_ids[1];
+                written = written + 1u;
+            }
+        } else {
+            for (var i = 0u; i < live; i = i + 1u) {
+                let current_point = held_points[i];
+                let next_point = held_points[(i + 1u) % live];
+                let current_side = dot(current_point - current, plane_normal) - CLIP_MARGIN;
+                let next_side = dot(next_point - current, plane_normal) - CLIP_MARGIN;
+                if (current_side <= 0.0 && written < CLIP_POINTS) {
+                    kept_points[written] = current_point;
+                    kept_ids[written] = held_ids[i];
+                    written = written + 1u;
+                }
+                if (current_side * next_side < 0.0 && written < CLIP_POINTS) {
+                    kept_points[written] = current_point + (next_point - current_point) * (current_side / (current_side - next_side));
+                    kept_ids[written] = feature_field_clip(side * CLIP_POINTS + i);
+                    written = written + 1u;
+                }
+            }
+        }
+        live = written;
+        held_points = kept_points;
+        held_ids = kept_ids;
+        if (live == 0u) {
+            break;
+        }
+    }
+    var clipped: ClippedFeature;
+    clipped.points = held_points;
+    clipped.ids = held_ids;
+    clipped.count = live;
+    return clipped;
+}
+
 fn convex_pair_manifold(
     first: WorldShape,
     second: WorldShape,
@@ -880,15 +993,15 @@ fn convex_pair_manifold(
     var second_ids: array<u32, FEATURE_MAX>;
     var first_face = 0u;
     var second_face = 0u;
-    var first_flat = false;
-    var second_flat = false;
-    let first_count = shape_feature(first, direction, &first_points, &first_ids, &first_face, &first_flat);
-    let second_count = shape_feature(second, -direction, &second_points, &second_ids, &second_face, &second_flat);
-    if (!first_flat && !second_flat) {
+    var first_ring = false;
+    var second_ring = false;
+    let first_count = shape_feature(first, direction, &first_points, &first_ids, &first_face, &first_ring);
+    let second_count = shape_feature(second, -direction, &second_points, &second_ids, &second_face, &second_ring);
+    if (!first_ring && !second_ring) {
         return false;
     }
-    var first_reference = first_flat;
-    if (first_flat && second_flat) {
+    var first_reference = first_ring;
+    if (first_ring && second_ring) {
         first_reference = feature_radius(&first_points, first_count) >= feature_radius(&second_points, second_count);
     }
     var reference: array<vec3f, FEATURE_MAX>;
@@ -919,38 +1032,31 @@ fn convex_pair_manifold(
         center = center + reference[i];
     }
     center = center / f32(reference_count);
-    var candidates: array<ManifoldPoint, 4>;
-    var candidate_count = 0u;
     var deepest = vec3f(0.0);
     var deepest_depth = -1e30;
     for (var i = 0u; i < incident_count; i = i + 1u) {
-        let point = incident[i];
-        let depth = dot(center - point, ref_dir);
+        let depth = dot(center - incident[i], ref_dir);
         if (depth > deepest_depth) {
             deepest_depth = depth;
-            deepest = point;
+            deepest = incident[i];
         }
-        if (depth > 0.0 && candidate_count < 4u) {
-            var kept = true;
-            for (var s = 0u; s < reference_count && kept; s = s + 1u) {
-                let edge = reference[(s + 1u) % reference_count] - reference[s];
-                let plane_normal = normalize(cross(edge, ref_dir));
-                if (dot(point - reference[s], plane_normal) < -CLIP_MARGIN) {
-                    kept = false;
-                }
-            }
-            if (kept) {
-                candidates[candidate_count] = manifold_candidate(
-                    point - ref_dir * (depth * 0.5),
-                    depth,
-                    select(
-                        feature_vertex(incident_ids[i], reference_face),
-                        feature_vertex(reference_face, incident_ids[i]),
-                        first_reference,
-                    ),
-                );
-                candidate_count = candidate_count + 1u;
-            }
+    }
+    let clipped = clip_feature_to_ring(incident, incident_ids, incident_count, reference, reference_count, ref_dir);
+    var candidates: array<ManifoldPoint, CONTACT_MAX_POINTS>;
+    var candidate_count = 0u;
+    for (var i = 0u; i < clipped.count && candidate_count < CONTACT_MAX_POINTS; i = i + 1u) {
+        let depth = dot(center - clipped.points[i], ref_dir);
+        if (depth > 0.0) {
+            candidates[candidate_count] = manifold_candidate(
+                clipped.points[i] - ref_dir * (depth * 0.5),
+                depth,
+                select(
+                    feature_vertex(clipped.ids[i], reference_face),
+                    feature_vertex(reference_face, clipped.ids[i]),
+                    first_reference,
+                ),
+            );
+            candidate_count = candidate_count + 1u;
         }
     }
     if (candidate_count == 0u) {

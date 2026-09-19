@@ -482,68 +482,6 @@ margin: f32,
     return contact;
 }
 
-fn box_capsule(
-box_body: Body, box_collider: Collider,
-capsule: Body, capsule_collider: Collider,
-margin: f32,
-) -> Contact {
-    var contact: Contact;
-    let seg = capsule_segment(capsule, capsule_collider);
-    var candidates: array<ManifoldPoint, 8>;
-    var candidate_normals: array<vec3f, 8>;
-    var candidate_count = 0u;
-    for (var i = 0u; i < 3u; i = i + 1u) {
-        let t = f32(i) * (1.0 / 2.0);
-        let point = seg.start + (seg.end - seg.start) * t;
-        let closest = closest_point_box(point, box_body.state, box_collider);
-        let delta = point - closest;
-        let distance = length(delta);
-        var depth = capsule_collider.radius - distance;
-        if (depth > -margin) {
-            let face = box_nearest_face(point, box_body, box_collider);
-            var normal = sign_normalize(delta);
-            if (distance <= 1e-6) {
-                normal = face.normal;
-                depth = capsule_collider.radius + face.clearance;
-            }
-            let contact_point = closest + normal * (depth * 0.5);
-            var found = false;
-            for (var existing = 0u; existing < candidate_count; existing = existing + 1u) {
-                if (length(candidates[existing].position - contact_point) < 0.05) {
-                    found = true;
-                }
-            }
-            if (found) {
-                continue;
-            }
-            candidates[candidate_count] = manifold_candidate(
-                contact_point,
-                depth,
-                feature_vertex(feature_field_face(face.index), i),
-            );
-            candidate_normals[candidate_count] = normal;
-            candidate_count = candidate_count + 1u;
-        }
-    }
-    if (candidate_count == 0u) {
-        return contact;
-    }
-    var best_depth = -1e30;
-    var best_normal = vec3f(0.0, 1.0, 0.0);
-    for (var i = 0u; i < candidate_count; i = i + 1u) {
-        if (candidates[i].depth > best_depth) {
-            best_depth = candidates[i].depth;
-            best_normal = candidate_normals[i];
-        }
-    }
-    manifold_emit(&contact, best_normal);
-    var keep = min(candidate_count, 2u);
-    for (var i = 0u; i < keep; i = i + 1u) {
-        manifold_push(&contact, candidates[i].position, candidates[i].depth, candidates[i].feature);
-    }
-    return contact;
-}
-
 fn contact_triangle(contact: Contact) -> u32 {
     var deepest = 0u;
     for (var point = 1u; point < contact.point_count; point = point + 1u) {
@@ -578,8 +516,8 @@ fn plane_convex(plane: WorldShape, convex: WorldShape, margin: f32) -> Contact {
     var points: array<vec3f, FEATURE_MAX>;
     var ids: array<u32, FEATURE_MAX>;
     var feature = 0u;
-    var flat = false;
-    let count = shape_feature(convex, -facing, &points, &ids, &feature, &flat);
+    var ring = false;
+    let count = shape_feature(convex, -facing, &points, &ids, &feature, &ring);
     var touching: array<vec3f, FEATURE_MAX>;
     var touching_ids: array<u32, FEATURE_MAX>;
     var touching_count = 0u;
@@ -715,19 +653,10 @@ fn work(index: u32) {
         } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CUBOID) {
             contact = box_box_sat(first, first_collider, second, second_collider, margin);
             generated = true;
-        } else if (shape_a == SHAPE_CUBOID && shape_b == SHAPE_CAPSULE) {
-            contact = box_capsule(first, first_collider, second, second_collider, margin);
-            generated = true;
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_SPHERE) {
             let swapped = sphere_capsule(second, second_collider, first, first_collider, margin);
             contact = swapped;
             contact.normal = -contact.normal;
-            generated = true;
-        } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CUBOID) {
-            let swapped = box_capsule(second, second_collider, first, first_collider, margin);
-            contact = swapped;
-            contact.normal = -contact.normal;
-            contact_mirror_features(&contact);
             generated = true;
         } else if (shape_a == SHAPE_CAPSULE && shape_b == SHAPE_CAPSULE) {
             contact = capsule_capsule(first, first_collider, second, second_collider, margin);
