@@ -6,11 +6,6 @@
 const GRID_WALK_CELLS: u32 = 4096u;
 const GRID_WALK_ENTRIES: u32 = 4096u;
 
-const ENTRY_REGION_RESTING: u32 = 0u;
-const ENTRY_REGION_AWAKE: u32 = 1u;
-const ENTRY_REGION_IMMOVABLE: u32 = 2u;
-const ENTRY_REGION_COUNT: u32 = 3u;
-
 struct GridCells {
     min: vec3i,
     max: vec3i,
@@ -95,9 +90,9 @@ fn shape_levels(box: Aabb, base: f32) -> u32 {
 
 fn grid_entry_level(box: Aabb, base: f32, region: u32) -> u32 {
     let level = shape_levels(box, base);
-    if (region == ENTRY_REGION_IMMOVABLE) {
+    if (region == GRID_REGION_IMMOVABLE) {
         counter_or(COUNTER_IMMOVABLE_LEVELS, 1u << level);
-    } else if (region == ENTRY_REGION_RESTING) {
+    } else if (region == GRID_REGION_RESTING) {
         counter_or(COUNTER_RESTING_LEVELS, 1u << level);
     } else {
         counter_or(COUNTER_GRID_LEVELS, 1u << level);
@@ -148,20 +143,20 @@ fn entry_is_immovable(view: EntryView, index: u32) -> bool {
 }
 
 fn entry_region_first(view: EntryView, region: u32) -> u32 {
-    if (region == ENTRY_REGION_IMMOVABLE) {
+    if (region == GRID_REGION_IMMOVABLE) {
         return 0u;
     }
-    if (region == ENTRY_REGION_RESTING) {
+    if (region == GRID_REGION_RESTING) {
         return view.immovable_live;
     }
     return view.immovable_live + view.resting_live;
 }
 
 fn entry_region_end(view: EntryView, region: u32) -> u32 {
-    if (region == ENTRY_REGION_IMMOVABLE) {
+    if (region == GRID_REGION_IMMOVABLE) {
         return view.immovable_live;
     }
-    if (region == ENTRY_REGION_RESTING) {
+    if (region == GRID_REGION_RESTING) {
         return view.immovable_live + view.resting_live;
     }
     return entry_live(view);
@@ -169,12 +164,12 @@ fn entry_region_end(view: EntryView, region: u32) -> u32 {
 
 fn entry_region_of(view: EntryView, index: u32) -> u32 {
     if (index < view.immovable_live) {
-        return ENTRY_REGION_IMMOVABLE;
+        return GRID_REGION_IMMOVABLE;
     }
     if (index < view.immovable_live + view.resting_live) {
-        return ENTRY_REGION_RESTING;
+        return GRID_REGION_RESTING;
     }
-    return ENTRY_REGION_AWAKE;
+    return GRID_REGION_AWAKE;
 }
 
 fn entry_slot(view: EntryView, index: u32) -> u32 {
@@ -269,17 +264,17 @@ fn entry_region_bounds(view: EntryView, region: u32, key: u32) -> vec2u {
 fn entry_cell_ranges(view: EntryView, level: u32, coord: vec3i) -> EntryRanges {
     let key = cell_key(level, coord);
     var ranges: EntryRanges;
-    ranges.resting = entry_region_bounds(view, ENTRY_REGION_RESTING, key);
-    ranges.awake = entry_region_bounds(view, ENTRY_REGION_AWAKE, key);
-    ranges.immovable = entry_region_bounds(view, ENTRY_REGION_IMMOVABLE, key);
+    ranges.resting = entry_region_bounds(view, GRID_REGION_RESTING, key);
+    ranges.awake = entry_region_bounds(view, GRID_REGION_AWAKE, key);
+    ranges.immovable = entry_region_bounds(view, GRID_REGION_IMMOVABLE, key);
     return ranges;
 }
 
 fn entry_range(ranges: EntryRanges, region: u32) -> vec2u {
-    if (region == ENTRY_REGION_IMMOVABLE) {
+    if (region == GRID_REGION_IMMOVABLE) {
         return ranges.immovable;
     }
-    if (region == ENTRY_REGION_RESTING) {
+    if (region == GRID_REGION_RESTING) {
         return ranges.resting;
     }
     return ranges.awake;
@@ -371,23 +366,23 @@ fn grid_cell_slice(box: Aabb, index: u32, region: u32, view: EntryView) -> GridS
 }
 
 fn grid_slices(box: Aabb) -> u32 {
-    return ENTRY_REGION_COUNT * (grid_whole_slices(box) + grid_cell_slices(box));
+    return GRID_REGION_COUNT * (grid_whole_slices(box) + grid_cell_slices(box));
 }
 
 fn grid_whole_slice_count(box: Aabb) -> u32 {
-    return ENTRY_REGION_COUNT * grid_whole_slices(box);
+    return GRID_REGION_COUNT * grid_whole_slices(box);
 }
 
 fn grid_cell_slice_count(box: Aabb) -> u32 {
-    return ENTRY_REGION_COUNT * grid_cell_slices(box);
+    return GRID_REGION_COUNT * grid_cell_slices(box);
 }
 
 fn grid_slice(box: Aabb, index: u32) -> GridSlice {
     let whole = grid_whole_slice_count(box);
     let view = entry_view();
-    let region = index % ENTRY_REGION_COUNT;
+    let region = index % GRID_REGION_COUNT;
     if (index < whole) {
-        return grid_whole_slice(box, index / ENTRY_REGION_COUNT, region, view);
+        return grid_whole_slice(box, index / GRID_REGION_COUNT, region, view);
     }
-    return grid_cell_slice(box, (index - whole) / ENTRY_REGION_COUNT, region, view);
+    return grid_cell_slice(box, (index - whole) / GRID_REGION_COUNT, region, view);
 }

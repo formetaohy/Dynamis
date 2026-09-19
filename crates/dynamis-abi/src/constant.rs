@@ -69,6 +69,10 @@ declare_constants! {
     pub const FEATURE_TRIANGLE_MASK: u32 = FEATURE_TRIANGLE_SIDE - 1;
     pub const MAX_CELLS_PER_AXIS: u32 = 2;
     pub const MAX_CELLS_PER_COLLIDER: u32 = 8;
+    pub const GRID_REGION_RESTING: u32 = 0;
+    pub const GRID_REGION_AWAKE: u32 = 1;
+    pub const GRID_REGION_IMMOVABLE: u32 = 2;
+    pub const GRID_REGION_COUNT: u32 = 3;
     pub const ENTRY_INDEX_BITS: u32 = 24;
     pub const ENTRY_INDEX_MASK: u32 = (1 << ENTRY_INDEX_BITS) - 1;
     pub const ENTRY_CELL_SHIFT: u32 = ENTRY_INDEX_BITS;
@@ -126,6 +130,39 @@ declare_constants! {
     pub const NO_TRIANGLE: u32 = 0xFFFF_FFFF;
 }
 
+pub const IMMOVABLE_COLLIDER_GRID_REGIONS: [u32; 1] = [GRID_REGION_IMMOVABLE];
+pub const MOVABLE_COLLIDER_GRID_REGIONS: [u32; 2] = [GRID_REGION_RESTING, GRID_REGION_AWAKE];
+pub const PARTICLE_GRID_REGIONS: [u32; 1] = [GRID_REGION_AWAKE];
+
+pub const GRID_CELLS_PER_IMMOVABLE_COLLIDER: u32 =
+    MAX_CELLS_PER_COLLIDER * IMMOVABLE_COLLIDER_GRID_REGIONS.len() as u32;
+pub const GRID_CELLS_PER_MOVABLE_COLLIDER: u32 =
+    MAX_CELLS_PER_COLLIDER * MOVABLE_COLLIDER_GRID_REGIONS.len() as u32;
+pub const GRID_CELLS_PER_PARTICLE: u32 =
+    MAX_CELLS_PER_COLLIDER * PARTICLE_GRID_REGIONS.len() as u32;
+
+const fn grid_regions_declared(sets: &[&[u32]]) -> u32 {
+    let mut declared = 0u32;
+    let mut set = 0usize;
+    while set < sets.len() {
+        let mut index = 0usize;
+        while index < sets[set].len() {
+            declared |= 1 << sets[set][index];
+            index += 1;
+        }
+        set += 1;
+    }
+    declared
+}
+
+const _: () = assert!(
+    grid_regions_declared(&[
+        &IMMOVABLE_COLLIDER_GRID_REGIONS,
+        &MOVABLE_COLLIDER_GRID_REGIONS,
+        &PARTICLE_GRID_REGIONS,
+    ]) == (1 << GRID_REGION_COUNT) - 1,
+    "every grid region must be reached by a declared source of entries",
+);
 const _: () = assert!(
     MAX_CELLS_PER_COLLIDER == MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS * MAX_CELLS_PER_AXIS,
     "a grid entry budget must be the cube of its per axis span"

@@ -10,7 +10,7 @@ fn work(index: u32) {
     if (owner == NO_BODY || body_moves(body_descs[owner])) {
         return;
     }
-    let entry = collider_cells(index, ENTRY_REGION_IMMOVABLE);
+    let entry = collider_cells(index, GRID_REGION_IMMOVABLE);
     let emitted = collider_entry_cost(entry, collider_awake(owner));
     let limit = entry_immovable_base();
     for (var ordinal = 0u; ordinal < emitted; ordinal = ordinal + 1u) {

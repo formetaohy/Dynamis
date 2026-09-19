@@ -15,7 +15,7 @@ fn work(index: u32) {
         return;
     }
     body_admitted[owner] = 1u;
-    let entry = collider_cells(index, ENTRY_REGION_RESTING);
+    let entry = collider_cells(index, GRID_REGION_RESTING);
     let emitted = collider_entry_cost(entry, collider_awake(owner));
     let resting_base = entry_immovable_base();
     let limit = arrayLength(&entries);

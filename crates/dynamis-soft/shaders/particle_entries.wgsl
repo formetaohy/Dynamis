@@ -28,7 +28,7 @@ fn work(index: u32) {
     }
     let box = particle_swept_bounds(particle, params.dt, params.gravity.xyz);
     let base = grid_base_cell();
-    let level = grid_entry_level(box, base, ENTRY_REGION_AWAKE);
+    let level = grid_entry_level(box, base, GRID_REGION_AWAKE);
     if (level > 0u) {
         counter_add(COUNTER_COARSE_ACTIVE, 1u);
     }

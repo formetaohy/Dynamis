@@ -11,14 +11,14 @@ fn link_level(node: u32, level: u32, awake: bool, grid: f32, view: EntryView) {
     for (var ordinal = 0u; ordinal < count; ordinal = ordinal + 1u) {
         let cell = grid_cell_at(cells, ordinal);
         let ranges = entry_cell_ranges(view, level, cell);
-        for (var region = 0u; region < ENTRY_REGION_COUNT; region = region + 1u) {
+        for (var region = 0u; region < GRID_REGION_COUNT; region = region + 1u) {
             let range = entry_range(ranges, region);
             for (var entry = range.x; entry < range.y; entry = entry + 1u) {
                 let other = entry_node(view, entry);
                 if (other == node) {
                     continue;
                 }
-                if (region == ENTRY_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
+                if (region == GRID_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
                     continue;
                 }
                 if (!awake && !entry_awake(view, entry, other)) {

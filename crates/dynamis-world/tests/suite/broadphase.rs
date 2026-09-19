@@ -3,11 +3,11 @@ use super::common::{
     static_config,
 };
 use dynamis_abi::{
-    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE,
+    COUNTER_CONTACTS, COUNTER_ENTRIES, COUNTER_ENTRY_BASE, COUNTER_GRID_EXTENT, COUNTER_GRID_SCALE,
     COUNTER_IMMOVABLE_EMITTED, COUNTER_IMMOVABLE_ENTRIES, COUNTER_PAIRS, COUNTER_REFUSED_PAIRS,
     COUNTER_RESTING, COUNTER_RESTING_ENTRIES, COUNTER_RESTING_REBUILD, Shortfall,
 };
-use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape};
+use dynamis_model::{BodyDesc, ColliderDesc, QueryFilter, Shape, SoftBodyDesc, SoftMaterial};
 
 const WIDE: f32 = 30.0;
 const CROWD: usize = 64;
@@ -559,6 +559,60 @@ fn a_fluid_never_drops_grid_entries() {
 
 const FLUID_SIDE: usize = 8;
 const FLUID_SPACING: f32 = 0.3;
+
+const SETTLED_BALLS: usize = 40;
+const WOKEN_BALLS: usize = 20;
+const CLOTH_SIDE: u32 = 6;
+
+fn settled_ball_pile(world: &mut dynamis_world::World) -> Vec<dynamis_model::BodyHandle> {
+    let mut balls = Vec::with_capacity(SETTLED_BALLS);
+    for index in 0..SETTLED_BALLS {
+        balls.push(world.spawn(BodyDesc::sphere(0.35).position([
+            (index % 8) as f32 - 3.5,
+            2.0 + (index / 8) as f32,
+            3.0,
+        ])));
+    }
+    balls
+}
+
+#[test]
+fn a_wake_burst_fits_the_entries_a_settled_scene_still_holds() {
+    let mut world = observed_world(gravity_config());
+    wide_static_floor(&mut world);
+    world.add_soft_body(
+        SoftBodyDesc::cloth([CLOTH_SIDE, CLOTH_SIDE], 1.2, SoftMaterial::rigid())
+            .radius(0.1)
+            .position([0.0, 0.4, 0.0]),
+    );
+    let balls = settled_ball_pile(&mut world);
+    for _ in 0..400 {
+        world.step(DT);
+    }
+    world.wait();
+    for ball in balls.iter().take(WOKEN_BALLS) {
+        world.wake(*ball);
+    }
+    for _ in 0..20 {
+        world.step(DT);
+    }
+    world.wait();
+    let measured = *world.measured();
+    let held = measured[COUNTER_ENTRY_BASE]
+        + measured[COUNTER_RESTING_ENTRIES]
+        + measured[COUNTER_ENTRIES];
+    let capacity = world.stream_capacity().broadphase.entries;
+    assert!(
+        held <= capacity,
+        "a wake burst holds {held} grid entries in a stream of {capacity}"
+    );
+    assert!(
+        measured[COUNTER_ENTRIES] >= WOKEN_BALLS as u32 + CLOTH_SIDE * CLOTH_SIDE,
+        "every woken body and particle must own grid entries, held {}",
+        measured[COUNTER_ENTRIES]
+    );
+    assert_unrefused(&world);
+}
 
 fn fluid_lattice(world: &mut dynamis_world::World) -> dynamis_model::SoftBodyHandle {
     let mut particles = Vec::with_capacity(FLUID_SIDE * FLUID_SIDE * FLUID_SIDE);

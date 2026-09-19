@@ -1,13 +1,9 @@
 use super::streams::{BroadphaseDemand, BroadphaseStreams};
-use dynamis_abi::{COUNTER_MOVABLE_COLLIDERS, COUNTER_PAIRS, Counters, MAX_CELLS_PER_COLLIDER};
+use dynamis_abi::{
+    COUNTER_MOVABLE_COLLIDERS, COUNTER_PAIRS, Counters, GRID_CELLS_PER_IMMOVABLE_COLLIDER,
+    GRID_CELLS_PER_MOVABLE_COLLIDER, GRID_CELLS_PER_PARTICLE,
+};
 use dynamis_domain::{MIN_SLOTS, STREAM_FLOOR, grown, product, settled, unreported};
-
-const FRESH_PARTNERS_PER_MOVABLE_COLLIDER: u32 = 16;
-
-const _: () = assert!(
-    FRESH_PARTNERS_PER_MOVABLE_COLLIDER >= MAX_CELLS_PER_COLLIDER,
-    "the freshly spawned pair reservation must cover every grid entry a movable collider can own"
-);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BroadphaseCapacity {
@@ -35,15 +31,11 @@ pub fn plan(
     immovable: u32,
     release: bool,
 ) -> BroadphaseDemand {
-    let movable_sources = inputs
-        .movable_colliders
-        .checked_add(inputs.particles)
-        .unwrap_or_else(|| panic!("movable grid entry sources exceed the device index space"));
     let immovable_entries = settled(
         immovable,
         product(
             inputs.immovable_colliders,
-            MAX_CELLS_PER_COLLIDER,
+            GRID_CELLS_PER_IMMOVABLE_COLLIDER,
             "immovable grid entry",
         ),
         STREAM_FLOOR,
@@ -52,10 +44,16 @@ pub fn plan(
     let moving_entries = settled(
         current.entry_keys.slots().saturating_sub(immovable),
         product(
-            movable_sources,
-            MAX_CELLS_PER_COLLIDER,
+            inputs.movable_colliders,
+            GRID_CELLS_PER_MOVABLE_COLLIDER,
             "movable grid entry",
-        ),
+        )
+        .checked_add(product(
+            inputs.particles,
+            GRID_CELLS_PER_PARTICLE,
+            "particle grid entry",
+        ))
+        .unwrap_or_else(|| panic!("movable grid entry sources exceed the device index space")),
         STREAM_FLOOR,
         release,
     );
@@ -66,7 +64,7 @@ pub fn plan(
     );
     let pairs = settled(
         current.pair_major.slots(),
-        product(fresh, FRESH_PARTNERS_PER_MOVABLE_COLLIDER, "pair").max(measured[COUNTER_PAIRS]),
+        product(fresh, GRID_CELLS_PER_MOVABLE_COLLIDER, "pair").max(measured[COUNTER_PAIRS]),
         STREAM_FLOOR,
         release,
     );

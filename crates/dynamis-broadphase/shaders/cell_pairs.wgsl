@@ -31,14 +31,14 @@ fn work(index: u32) {
     let level = shape_levels(entry_box(node), grid);
     let cell_size = level_cell_size(level, grid);
     let ranges = entry_cell_ranges(view, level, entry_cell(node, cell_size));
-    for (var region = 0u; region < ENTRY_REGION_COUNT; region = region + 1u) {
+    for (var region = 0u; region < GRID_REGION_COUNT; region = region + 1u) {
         let range = entry_range(ranges, region);
         for (var entry = range.x; entry < range.y; entry = entry + 1u) {
             if (entry == index) {
                 continue;
             }
             let other = entry_node(view, entry);
-            if (region == ENTRY_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
+            if (region == GRID_REGION_RESTING && body_admitted[entry_group(other)] == 0u) {
                 continue;
             }
             if (entry_awake(view, entry, other) && entry < index) {
