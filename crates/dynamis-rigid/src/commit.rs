@@ -9,6 +9,7 @@ use dynamis_abi::{
     COUNTER_REFUSED_RESTING, COUNTER_RESTING, COUNTER_RESTING_GATHER, COUNTER_RESTING_INDEX,
     COUNTER_RESTING_PENDING, COUNTER_SLEPT, COUNTER_WOKE_DEFERRED,
 };
+use dynamis_broadphase::BroadphaseStream;
 use dynamis_gpu::ResourceSource;
 use dynamis_gpu::{ComputeRecorder, GpuContext};
 use dynamis_pass::Execution;
@@ -80,6 +81,8 @@ impl PassRuntime<RigidFrame> for Commit {
                     ("spillover", dynamis_state::counter(COUNTER_REFUSED_EVENTS)),
                     ("params", StateStream::Params.whole()),
                     ("counters", StateStream::Counters.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
+                    ("body_admitted", BroadphaseStream::BodyAdmitted.whole()),
                 ],
                 &[],
             ),

@@ -139,6 +139,7 @@ struct SoftContact {
     partner_inverse_mass: f32,
     contact: SoftFact,
     sensor: SoftFact,
+    support: SoftFact,
 }
 
 struct BodyState {

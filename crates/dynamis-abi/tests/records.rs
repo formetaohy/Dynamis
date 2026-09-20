@@ -904,7 +904,8 @@ fn contact_event_addresses_a_pair_of_scene_targets() {
     assert_eq!(size_of::<SoftAnnouncementRecord>(), 32);
     assert_eq!(offset_of!(SoftContactRecord, contact), 48);
     assert_eq!(offset_of!(SoftContactRecord, sensor), 60);
-    assert_eq!(size_of::<SoftContactRecord>(), 80);
+    assert_eq!(offset_of!(SoftContactRecord, support), 72);
+    assert_eq!(size_of::<SoftContactRecord>(), 96);
     assert_eq!(size_of::<SoftFactRecord>(), 12);
     let cleared = SoftAnnouncementRecord::cleared();
     assert_eq!(cleared.announced, 0);

@@ -40,11 +40,13 @@ impl FieldStore {
         handle
     }
 
-    pub(crate) fn update(&mut self, handle: FieldHandle, desc: FieldDesc) {
+    pub(crate) fn update(&mut self, handle: FieldHandle, desc: FieldDesc) -> bool {
         desc.assert_valid();
         self.pool.validate(handle);
+        let previous = FieldRecord::build(&self.descs[handle.id as usize]);
         self.descs[handle.id as usize] = desc;
         self.derive();
+        previous != FieldRecord::build(&desc)
     }
 
     pub(crate) fn remove(&mut self, handle: FieldHandle) {
@@ -97,7 +99,9 @@ impl World {
     }
 
     pub fn update_field(&mut self, handle: FieldHandle, desc: FieldDesc) {
-        self.fields.update(handle, desc);
+        if self.fields.update(handle, desc) {
+            self.wake_all();
+        }
     }
 
     pub fn field_desc(&self, handle: FieldHandle) -> FieldDesc {

@@ -18,7 +18,7 @@ pub(crate) struct SceneFacts {
     /// Every collider record of a body that does not move: a static body's shape, scale,
     /// placement, source, and materials.
     pub(crate) immovable_colliders: u64,
-    /// Every edit the command stream declares for an immovable body.
+    /// Every pose the command stream declares for an immovable body.
     pub(crate) immovable_edits: u64,
     /// Every pose the command stream declares for a body.
     pub(crate) poses: u64,

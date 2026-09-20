@@ -263,13 +263,17 @@ fn no_contact_record() -> SoftContact {
     record.partner_inverse_mass = 0.0;
     record.contact = no_fact();
     record.sensor = no_fact();
+    record.support = no_fact();
     return record;
 }
 
 fn work(index: u32) {
     let particle = particles[index];
-    if (particle.owner == NO_BODY || bodies[particle.owner].sleeping != 0u) {
+    if (particle.owner == NO_BODY) {
         contacts[index] = no_contact_record();
+        return;
+    }
+    if (bodies[particle.owner].sleeping != 0u) {
         return;
     }
     let radius = particle.position.w;
@@ -302,6 +306,9 @@ fn work(index: u32) {
         if (solid.kind == ENTRY_KIND_PARTICLE) {
             record.partner_inverse_mass = particles[solid.partner].prev_position.w;
         }
+    }
+    if (contacts_partner(solid)) {
+        record.support = fact_of(solid);
     }
     if (contact_touches(contact)) {
         record.contact = fact_of(contact);

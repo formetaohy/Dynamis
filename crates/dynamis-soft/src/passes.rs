@@ -13,9 +13,13 @@ const PARTICLE_REACH: &[&str] = &[include_str!("../shaders/particle_reach.wgsl")
 const PARTICLE_KERNEL: &[&str] = &[include_str!("../shaders/particle_kernel.wgsl")];
 const ELEMENT_SAMPLE: &[&str] = &[include_str!("../shaders/element_sample.wgsl")];
 const SOFT_REACTION: &[&str] = &[include_str!("../shaders/soft_reaction.wgsl")];
-const SOFT_ANCHOR: &[&str] = &[include_str!("../shaders/soft_anchor.wgsl")];
+const SOFT_ANCHOR: &[&str] = &[
+    dynamis_shader::BODY_ROW,
+    include_str!("../shaders/soft_anchor.wgsl"),
+];
 const SOFT_FILTER: &[&str] = &[include_str!("../shaders/soft_filter.wgsl")];
 const SOFT_ATTACH: &[&str] = &[
+    dynamis_shader::BODY_ROW,
     include_str!("../shaders/soft_reaction.wgsl"),
     include_str!("../shaders/soft_anchor.wgsl"),
 ];
@@ -55,6 +59,7 @@ fn particle_wake_index() -> Vec<&'static str> {
     let mut fragments = dynamis_shader::GRID_INDEX.to_vec();
     fragments.extend_from_slice(PARTICLE_REACH);
     fragments.extend_from_slice(SOFT_FILTER);
+    fragments.push(dynamis_shader::BODY_ROW);
     fragments
 }
 
@@ -338,6 +343,9 @@ impl PassRuntime<SoftFrame> for SoftSettle {
                     ("entry_order", BroadphaseStream::EntryOrder.whole()),
                     ("entries", BroadphaseStream::Entries.whole()),
                     ("counters", StateStream::Counters.whole()),
+                    ("contacts", SoftStream::Contacts.whole()),
+                    ("row_of_body", StateStream::BodyRowOfId.whole()),
+                    ("wake_flags", StateStream::WakeFlags.whole()),
                 ],
                 &[],
             ),

@@ -236,7 +236,9 @@ impl World {
             state: (),
             broadphase: self.backend.owed,
             rigid: dynamis_rigid::RigidWork {
-                body_commands: self.bodies.last_edits + self.bodies.last_moves,
+                body_commands: self.bodies.last_edits
+                    + self.bodies.last_moves
+                    + self.bodies.last_layout,
                 constraint_declarations: self.constraints.last_declarations
                     + self.constraints.last_moves,
                 character_declarations: self.characters.last_declarations > 0,

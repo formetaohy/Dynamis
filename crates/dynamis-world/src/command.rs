@@ -117,6 +117,7 @@ pub(crate) struct CompiledBodyCommands {
     pub(crate) fresh: Vec<BodyStateRecord>,
     pub(crate) edits: Vec<BodyEditRecord>,
     pub(crate) runs: Vec<BodyEditRunRecord>,
+    pub(crate) layout: u32,
 }
 
 pub(crate) struct CompiledConstraintRows {
@@ -127,12 +128,22 @@ pub(crate) struct CompiledConstraintRows {
 impl World {
     pub(crate) fn compile_body_commands(&self, consumption: Consumption) -> CompiledBodyCommands {
         let mut map = RowMap::new();
+        let mut layout = 0u32;
         let mut journal: EditJournal<RowIdentity, BodyCommand> = EditJournal::new();
         for command in &self.bodies.commands {
             match command {
-                BodyCommand::Add { row, .. } => map.add(*row),
-                BodyCommand::Remove { hole, tail } => map.remove(*hole, *tail),
-                BodyCommand::Swap { first, second } => map.swap(*first, *second),
+                BodyCommand::Add { row, .. } => {
+                    map.add(*row);
+                    layout += 1;
+                }
+                BodyCommand::Remove { hole, tail } => {
+                    map.remove(*hole, *tail);
+                    layout += 1;
+                }
+                BodyCommand::Swap { first, second } => {
+                    map.swap(*first, *second);
+                    layout += 1;
+                }
                 _ => {
                     if consumption == Consumption::Preview && command.drives_step() {
                         continue;
@@ -169,6 +180,7 @@ impl World {
             fresh,
             edits,
             runs,
+            layout,
         }
     }
 

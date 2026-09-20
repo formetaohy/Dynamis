@@ -16,9 +16,11 @@ const SHAPES_FRAGMENT: &str = include_str!("../shaders/shapes.wgsl");
 const JOINTS_FRAGMENT: &str = include_str!("../shaders/joints.wgsl");
 const CONTACT_FACT_FRAGMENT: &str = include_str!("../shaders/contact_fact.wgsl");
 const FIELD_FRAGMENT: &str = include_str!("../shaders/field.wgsl");
+const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
 pub const CORE: &[&str] = &[];
 pub const CONTACT_FACT: &str = CONTACT_FACT_FRAGMENT;
+pub const BODY_ROW: &str = BODY_ROW_FRAGMENT;
 pub const FIELD: &str = FIELD_FRAGMENT;
 pub const COUNTERS: &[&str] = &[COUNTER_ACCESS];
 pub const GEOMETRY: &[&str] = &[CONVEX_FRAGMENT, SCENE_FRAGMENT];

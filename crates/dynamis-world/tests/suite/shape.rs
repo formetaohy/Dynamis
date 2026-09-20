@@ -620,6 +620,7 @@ fn a_recycled_source_carries_the_replacement_geometry() {
     );
 
     world.remove(floor);
+    world.remove(ball);
     world.remove_shape(low);
     let raised = vertices
         .iter()

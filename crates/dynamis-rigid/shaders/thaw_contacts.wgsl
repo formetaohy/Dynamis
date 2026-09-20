@@ -13,7 +13,14 @@
 @group(0) @binding(12) var<storage, read_write> spillover: array<atomic<u32>>;
 @group(0) @binding(13) var<uniform> params: StepParams;
 @group(0) @binding(14) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(15) var<storage, read_write> wake_flags: array<atomic<u32>>;
+@group(0) @binding(16) var<storage, read_write> body_admitted: array<u32>;
 
+
+fn disturb(row: u32) {
+    atomicStore(&wake_flags[row], 1u);
+    body_admitted[row] = 0u;
+}
 
 fn current_holds(contact: Contact) -> bool {
     let count = min(atomicLoad(&contact_count[0]), arrayLength(&contacts));
@@ -45,6 +52,12 @@ fn work(index: u32) {
     let second_row = resolve_row(contact.second_body_id, contact.second_generation);
     if (first_row == NO_BODY || second_row == NO_BODY) {
         release(index);
+        if (first_row != NO_BODY) {
+            disturb(first_row);
+        }
+        if (second_row != NO_BODY) {
+            disturb(second_row);
+        }
         if ((contact.events & CONTACT_ANNOUNCED) != 0u) {
             announce(EVENT_MODE_BEGIN_END, EVENT_END, contact);
         }

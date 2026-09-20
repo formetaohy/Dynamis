@@ -1,6 +1,6 @@
 use super::arena::{Arena, Run, merged};
 use super::body::BodyStore;
-use dynamis_abi::{ColliderRecord, ENTRY_INDEX_MASK, EVENT_MODE_PERSIST};
+use dynamis_abi::{COLLIDER_SENSOR, ColliderRecord, ENTRY_INDEX_MASK, EVENT_MODE_PERSIST};
 use dynamis_model::BodyHandle;
 
 #[derive(Clone, Copy)]
@@ -31,6 +31,16 @@ struct ColliderPlacement {
     local_rotation: [f32; 4],
 }
 
+/// The part of a collider record that decides which bodies it reaches and how it answers them:
+/// the placement a grid entry is built from, and whether it answers contacts at all. A record that
+/// is replaced with the same answering owes the bodies it holds nothing, whatever its materials
+/// carry.
+#[derive(Clone, Copy, PartialEq)]
+struct ColliderAnswering {
+    placement: ColliderPlacement,
+    sensor: bool,
+}
+
 fn sizing_of(record: &ColliderRecord) -> ColliderSizing {
     ColliderSizing {
         kind: record.kind,
@@ -47,6 +57,13 @@ fn placement_of(record: &ColliderRecord) -> ColliderPlacement {
         sizing: sizing_of(record),
         local_offset: record.local_offset,
         local_rotation: record.local_rotation,
+    }
+}
+
+fn answering_of(record: &ColliderRecord) -> ColliderAnswering {
+    ColliderAnswering {
+        placement: placement_of(record),
+        sensor: record.flags & COLLIDER_SENSOR != 0,
     }
 }
 
@@ -75,6 +92,9 @@ pub(crate) struct ColliderDelta {
     pub(crate) sizing: bool,
     /// The placement an entry is built from changed, or a block's records were replaced.
     pub(crate) placement: bool,
+    /// The block now answers another shape or another placement, so the bodies it reaches no
+    /// longer answer the collider the device held.
+    pub(crate) answering: bool,
 }
 
 impl ColliderDelta {
@@ -199,6 +219,7 @@ impl ColliderStore {
                 crossed: false,
                 sizing: true,
                 placement: true,
+                answering: true,
             };
         };
         let held = &self.records[run.span()];
@@ -206,6 +227,7 @@ impl ColliderStore {
             crossed: self.runs[id as usize].movable != movable,
             sizing: replaced(held, records, sizing_of),
             placement: replaced(held, records, placement_of),
+            answering: replaced(held, records, answering_of),
         }
     }
 
@@ -237,6 +259,7 @@ impl ColliderStore {
             crossed: false,
             sizing: true,
             placement: true,
+            answering: true,
         }
     }
 

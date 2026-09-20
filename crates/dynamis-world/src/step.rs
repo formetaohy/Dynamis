@@ -54,6 +54,7 @@ impl World {
         let soft_commands = self.compile_soft_commands(consumption);
         self.bodies.last_moves = body_commands.moves.len() as u32;
         self.bodies.last_edits = body_commands.runs.len() as u32;
+        self.bodies.last_layout = body_commands.layout;
         self.constraints.last_moves = constraint_rows.moves.len() as u32;
         self.constraints.last_declarations = self.constraints.declarations;
         self.soft.last_body_edits = soft_commands.body_edits.len() as u32;
@@ -72,6 +73,7 @@ impl World {
     fn clear_work(&mut self) {
         self.bodies.last_edits = 0;
         self.bodies.last_moves = 0;
+        self.bodies.last_layout = 0;
         self.constraints.last_declarations = 0;
         self.constraints.last_moves = 0;
         self.soft.last_body_edits = 0;
@@ -164,9 +166,10 @@ impl World {
         let mut posed = false;
         for run in &compiled.runs {
             let edits = &compiled.edits[run.first as usize..(run.first + run.len) as usize];
-            posed |= edits.iter().any(BodyEditRecord::declares_pose);
+            let declares_pose = edits.iter().any(BodyEditRecord::declares_pose);
+            posed |= declares_pose;
             let id = self.bodies.pool.handle_of_row(run.row).id as usize;
-            if self.is_static(id) {
+            if declares_pose && self.is_static(id) {
                 self.facts.immovable_edits += 1;
             }
         }

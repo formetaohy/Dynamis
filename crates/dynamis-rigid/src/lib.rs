@@ -25,9 +25,8 @@ const EVENTS_FRAGMENT: &str = include_str!("../shaders/events.wgsl");
 const COUNTERS_FRAGMENT: &str = dynamis_shader::COUNTER_ACCESS;
 const ISLAND_LINK_FRAGMENT: &str = include_str!("../shaders/island_link.wgsl");
 const JOINED_PAIRS_FRAGMENT: &str = include_str!("../shaders/joined_pairs.wgsl");
-const BODY_ROW_FRAGMENT: &str = include_str!("../shaders/body_row.wgsl");
 
-pub(crate) const ROW_RESOLUTION: &[&str] = &[IDENTITY_FRAGMENT, BODY_ROW_FRAGMENT];
+pub(crate) const ROW_RESOLUTION: &[&str] = &[IDENTITY_FRAGMENT, dynamis_shader::BODY_ROW];
 
 const IDENTITY: &[&str] = &[IDENTITY_FRAGMENT];
 const CONTACT: &[&str] = &[
@@ -42,14 +41,14 @@ const CONTACT_ROW: &[&str] = &[
     dynamis_shader::CONTACT_FACT,
     IDENTITY_FRAGMENT,
     EVENTS_FRAGMENT,
-    BODY_ROW_FRAGMENT,
+    dynamis_shader::BODY_ROW,
 ];
 const IDENTITY_LINK: &[&str] = &[COUNTERS_FRAGMENT, IDENTITY_FRAGMENT, ISLAND_LINK_FRAGMENT];
 const IDENTITY_LINK_ROW: &[&str] = &[
     COUNTERS_FRAGMENT,
     IDENTITY_FRAGMENT,
     ISLAND_LINK_FRAGMENT,
-    BODY_ROW_FRAGMENT,
+    dynamis_shader::BODY_ROW,
 ];
 const CONSTRAINT_LINK: &[&str] = &[COUNTERS_FRAGMENT, ISLAND_LINK_FRAGMENT];
 

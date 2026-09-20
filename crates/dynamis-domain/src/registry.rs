@@ -73,14 +73,13 @@ macro_rules! domains {
                 let occupied = Occupied {
                     $( $field: <$domain as $crate::Domain>::occupied(&live.$field), )*
                 };
-                let mut runs = [
-                    $(
-                        <$domain as $crate::Domain>::pending(&work.$field)
-                            || <$domain as $crate::Domain>::active(measured),
-                    )*
-                ];
-                for (running, occupied) in runs.iter_mut().zip(occupied.runs()) {
-                    *running &= occupied;
+                let pending = [ $( <$domain as $crate::Domain>::pending(&work.$field), )* ];
+                let mut runs = [ $( <$domain as $crate::Domain>::active(measured), )* ];
+                for (running, (pending, occupied)) in runs
+                    .iter_mut()
+                    .zip(pending.into_iter().zip(occupied.runs()))
+                {
+                    *running = pending || (*running && occupied);
                 }
                 let mut activity = Self { $( $field: false, )* occupied };
                 activity.resume(runs);

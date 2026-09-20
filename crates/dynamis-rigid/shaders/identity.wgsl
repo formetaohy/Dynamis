@@ -1,7 +1,3 @@
-fn contact_row_matches(state: BodyState, body_id: u32, generation: u32) -> bool {
-    return state.body_id == body_id && state.generation == generation;
-}
-
 fn contact_pair_key(contact: Contact) -> vec2u {
     return vec2u(
         min(contact.first_body_id, contact.second_body_id),

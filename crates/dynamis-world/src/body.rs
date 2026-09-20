@@ -26,6 +26,7 @@ pub(crate) struct BodyStore {
     pub(crate) commands: Vec<BodyCommand>,
     pub(crate) last_moves: u32,
     pub(crate) last_edits: u32,
+    pub(crate) last_layout: u32,
     pub(crate) rows: RowLayout<BodyHandle>,
 }
 
@@ -40,6 +41,7 @@ impl BodyStore {
             commands: Vec::new(),
             last_moves: 0,
             last_edits: 0,
+            last_layout: 0,
             rows: RowLayout::new(),
         }
     }
@@ -188,7 +190,7 @@ impl World {
             .push(BodyCommand::Swap { first, second });
     }
 
-    fn encode_body(&mut self, handle: BodyHandle) {
+    fn encode_body(&mut self, handle: BodyHandle) -> bool {
         let id = handle.id as usize;
         let record = BodyDescriptorRecord::build(&self.bodies.descs[id], &self.config, |shape| {
             self.shape_solid(shape)
@@ -209,7 +211,8 @@ impl World {
             state.com = record.com;
         });
         self.migrate_partition(handle);
-        self.repool_colliders(handle.id, !self.is_static(id));
+        let delta = self.repool_colliders(handle.id, !self.is_static(id));
+        previous != record || delta.answering
     }
 
     pub(crate) fn encode_bodies(&mut self) {
@@ -280,7 +283,10 @@ impl World {
 
     fn install_body(&mut self, handle: BodyHandle, desc: BodyDesc) {
         self.bodies.descs[handle.id as usize] = desc;
-        self.encode_body(handle);
+        if self.encode_body(handle) {
+            let row = self.bodies.pool.row_of(handle);
+            self.bodies.commands.push(BodyCommand::Wake { row });
+        }
     }
 
     fn migrate_partition(&mut self, handle: BodyHandle) {
@@ -702,10 +708,11 @@ impl World {
         );
     }
 
-    pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) {
+    pub(crate) fn repool_colliders(&mut self, id: u32, movable: bool) -> ColliderDelta {
         let records = self.collider_block_of(id as usize);
         let delta = self.colliders.assign(id, movable, &records);
         self.note_collider_delta(delta, movable);
+        delta
     }
 
     /// Notes the facts a collider block's replacement or retirement moved: the grid resolution is a

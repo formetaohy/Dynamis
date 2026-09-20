@@ -626,10 +626,14 @@ fn a_collider_edit_asks_the_domain_for_work() {
         !world.is_idle(),
         "an edit the index must derive must ask the domain for work"
     );
-    world.step(DT);
-    world.wait();
     assert!(
-        world.is_idle(),
-        "the derivation an edit asked for must not keep the world awake"
+        !world.read_state(ball).sleeping,
+        "a body whose collider grew into what it rests on must wake"
     );
+    assert!(
+        world.read_state(ball).position[1] > 0.95,
+        "the awakened ball must be pushed clear of the floor, got {}",
+        world.read_state(ball).position[1]
+    );
+    settle_until(&mut world, 240, |world| world.is_idle());
 }

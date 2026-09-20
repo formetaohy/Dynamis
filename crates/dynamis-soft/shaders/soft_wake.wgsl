@@ -4,12 +4,19 @@
 @group(0) @binding(7) var<storage, read> body_states: array<BodyState>;
 @group(0) @binding(8) var<storage, read> body_descs: array<BodyDescriptor>;
 @group(0) @binding(9) var<storage, read> colliders: array<Collider>;
+@group(0) @binding(10) var<storage, read> contacts: array<SoftContact>;
+@group(0) @binding(11) var<storage, read> row_of_body: array<u32>;
+@group(0) @binding(12) var<storage, read_write> wake_flags: array<atomic<u32>>;
 
 fn load_body(row: u32) -> Body {
     return Body(body_states[row], body_descs[row]);
 }
 
-fn collider_pushes(body: Body) -> bool {
+fn collider_pushes(row: u32) -> bool {
+    if (atomicLoad(&wake_flags[row]) != 0u) {
+        return true;
+    }
+    let body = load_body(row);
     if (body.state.sleeping != 0u || !body_moves(body.desc)) {
         return false;
     }
@@ -31,7 +38,7 @@ fn partner_pushes(node: u32, owner: u32) -> bool {
         if (!filters_intersect(collider_filter(load_body(body_slot), collider), owner_filter(owner))) {
             return false;
         }
-        return collider_pushes(load_body(body_slot));
+        return collider_pushes(body_slot);
     }
     let other = particles[entry_index(info)];
     if (other.owner == NO_BODY || !filters_intersect(owner_filter(other.owner), owner_filter(owner))) {
@@ -61,18 +68,44 @@ fn scan_neighbours(box: Aabb, owner: u32, held: ptr<function, bool>) {
     }
 }
 
+/// Whether the party a sleeping particle answered the last time it moved has left the particle
+/// standing on nothing: a party the device no longer holds an identity for, a rigid body that woke
+/// or moved its records, or a soft owner that left or woke. A particle the world still holds a
+/// living, quiet party for answers nothing here.
+fn party_departed(support: SoftFact) -> bool {
+    if (support.scene_target == NO_SLOT) {
+        return false;
+    }
+    if ((support.scene_target >> ENTRY_KIND_SHIFT) == ENTRY_KIND_PARTICLE) {
+        let other = particles[support.scene_target & ENTRY_INDEX_MASK];
+        if (other.owner != support.id || other.generation != support.generation) {
+            return true;
+        }
+        if (support.id >= arrayLength(&bodies)) {
+            return true;
+        }
+        return atomicLoad(&bodies[support.id].wake) != 0u
+            || bodies[support.id].sleeping == 0u;
+    }
+    let row = resolve_row(support.id, support.generation);
+    if (row == NO_BODY) {
+        return true;
+    }
+    return atomicLoad(&wake_flags[row]) != 0u
+        || body_is_active(body_states[row], body_descs[row]);
+}
+
 fn work(index: u32) {
     let particle = particles[index];
     if (particle.owner == NO_BODY || bodies[particle.owner].sleeping == 0u) {
         return;
     }
+    var held = party_departed(contacts[index].support);
     let radius = particle.position.w;
-    if (radius <= 0.0) {
-        return;
+    if (!held && radius > 0.0) {
+        let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
+        scan_neighbours(reach_box(particle.position.xyz, radius + reach), particle.owner, &held);
     }
-    let reach = max(bitcast<f32>(counter_load(COUNTER_PARTICLE_REACH)), 0.0);
-    var held = false;
-    scan_neighbours(reach_box(particle.position.xyz, radius + reach), particle.owner, &held);
     if (held) {
         atomicStore(&bodies[particle.owner].wake, 1u);
     }

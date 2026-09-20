@@ -1,4 +1,5 @@
 use super::World;
+use crate::command::BodyCommand;
 use crate::shape_pool::{ShapePool, height_field_vertices};
 use dynamis_abi::{SHAPE_HEIGHTFIELD, SHAPE_HULL, SHAPE_MESH};
 use dynamis_hull::hull;
@@ -68,13 +69,13 @@ impl World {
             self.shapes
                 .pool
                 .allocate_grid(SHAPE_HEIGHTFIELD, rows, cols, &vertices, surfaces);
-        self.declare_shape_geometry();
+        self.declare_shape_geometry(handle);
         handle
     }
 
     pub fn remove_shape(&mut self, handle: ShapeSourceHandle) {
+        self.declare_shape_geometry(handle);
         self.shapes.pool.remove(handle);
-        self.declare_shape_geometry();
     }
 
     pub fn update_mesh(
@@ -87,7 +88,7 @@ impl World {
         self.shapes
             .pool
             .update_mesh(handle, vertices, triangles, surfaces);
-        self.declare_shape_geometry();
+        self.declare_shape_geometry(handle);
         self.encode_shape_readers(handle);
     }
 
@@ -104,7 +105,7 @@ impl World {
         self.shapes
             .pool
             .update_grid(handle, rows, cols, &vertices, surfaces);
-        self.declare_shape_geometry();
+        self.declare_shape_geometry(handle);
         self.encode_shape_readers(handle);
     }
 
@@ -119,16 +120,23 @@ impl World {
             .shapes
             .pool
             .allocate(kind, vertices, &triangles, surfaces);
-        self.declare_shape_geometry();
+        self.declare_shape_geometry(handle);
         handle
     }
 
     /// Declares that the geometry a shape source answers has moved. A grid entry is keyed at a
     /// resolution the bounds of every source reachable from a collider answer, so the source that
-    /// moved owes the index a derivation whether or not a collider already reads it.
-    fn declare_shape_geometry(&mut self) {
+    /// moved owes the index a derivation whether or not a collider already reads it, and every
+    /// reader of the source answers a collider the device no longer holds it for.
+    fn declare_shape_geometry(&mut self, source: ShapeSourceHandle) {
         self.shapes.dirty = true;
         self.facts.geometry += 1;
+        for id in self.shapes.pool.readers_of(source) {
+            if let Some(handle) = self.bodies.pool.handle_of(id) {
+                let row = self.bodies.pool.row_of(handle);
+                self.bodies.commands.push(BodyCommand::Wake { row });
+            }
+        }
     }
 
     pub(super) fn shape_solid(&self, shape: &Shape) -> Option<SolidGeometry> {

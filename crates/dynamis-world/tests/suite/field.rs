@@ -204,10 +204,8 @@ fn a_field_refresh_leaves_a_sleeping_body_asleep() {
     let (body, field) = pressed_body(&mut world);
     settle_until(&mut world, 240, |world| asleep(world));
     let resting = world.read_state(body).position;
-    world.update_field(
-        field,
-        FieldDesc::uniform(FieldRegion::sphere(4.0), [0.0, 30.0, 0.0]),
-    );
+    let pressed = world.field_desc(field);
+    world.update_field(field, pressed);
     settle(&mut world, 12);
     assert_eq!(
         world.read_state(body).position,
@@ -215,6 +213,24 @@ fn a_field_refresh_leaves_a_sleeping_body_asleep() {
         "a field refresh must not move a body that sleeps through it"
     );
     assert!(asleep(&world), "a field refresh must not wake the body");
+}
+
+#[test]
+fn a_changed_field_resumes_the_sleeping_body_it_reaches() {
+    let mut world = observed_world(gravity_config());
+    let (body, field) = pressed_body(&mut world);
+    settle_until(&mut world, 240, |world| asleep(world));
+    let resting = world.read_state(body).position;
+    world.update_field(
+        field,
+        FieldDesc::uniform(FieldRegion::sphere(4.0), [0.0, 30.0, 0.0]),
+    );
+    settle(&mut world, 12);
+    assert!(
+        world.read_state(body).position[1] > resting[1] + 0.1,
+        "a field that changed must resume the body it reaches, got {}",
+        world.read_state(body).position[1]
+    );
 }
 
 #[test]

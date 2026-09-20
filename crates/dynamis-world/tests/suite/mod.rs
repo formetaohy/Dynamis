@@ -11,6 +11,7 @@ pub mod constraint;
 pub mod contact_events;
 pub mod contact_identity;
 pub mod decompose;
+pub mod dependency;
 pub mod derivation;
 pub mod determinism;
 pub mod device;

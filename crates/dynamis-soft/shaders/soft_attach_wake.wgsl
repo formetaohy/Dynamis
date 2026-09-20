@@ -16,7 +16,7 @@ fn work(index: u32) {
     if (particle.owner == NO_BODY || bodies[particle.owner].sleeping == 0u) {
         return;
     }
-    let row = rigid_row(attachment.body_id, attachment.generation);
+    let row = resolve_row(attachment.body_id, attachment.generation);
     if (row == NO_BODY) {
         return;
     }

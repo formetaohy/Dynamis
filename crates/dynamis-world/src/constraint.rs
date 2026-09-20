@@ -146,6 +146,7 @@ impl World {
         self.constraints.attach_to(second_id, handle.id);
         self.facts.joints += 1;
         self.constraints.declarations += 1;
+        self.disturb_joint(first_id, second_id);
         handle
     }
 
@@ -231,6 +232,19 @@ impl World {
         self.validate_constraint(handle);
         change(&mut self.constraints.joints[handle.id as usize]);
         self.constraints.pool.mark(handle);
+        let joint = &self.constraints.joints[handle.id as usize];
+        self.disturb_joint(joint.first, joint.second);
+    }
+
+    /// Declares that a joint's record moved: the bodies a joint couples answer the constraint it
+    /// carries, so a joint that is declared, re-declared, or taken away disturbs both of them.
+    fn disturb_joint(&mut self, first: u32, second: u32) {
+        for id in [first, second] {
+            let handle = self.bodies.pool.handle_of(id).unwrap_or_else(|| {
+                panic!("a joint must couple live bodies, while body {id} is gone")
+            });
+            self.wake(handle);
+        }
     }
 
     fn edit_dof(
@@ -252,6 +266,7 @@ impl World {
         self.facts.joints += 1;
         self.constraints.declarations += 1;
         self.observed.joints.stop_watching(handle.id);
+        self.disturb_joint(joint.first, joint.second);
     }
 
     pub(crate) fn consume_breaks(&mut self, count: u32, bytes: &[u8]) {
