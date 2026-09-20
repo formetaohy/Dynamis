@@ -79,6 +79,13 @@ fn feature_carries_over(held: u32, current: u32) -> bool {
     return held == current || held == feature_mirror(current);
 }
 
+fn carried_point_distance(held: ManifoldPoint, current: ManifoldPoint) -> f32 {
+    return length(held.local_a - current.local_a) + length(held.local_b - current.local_b);
+}
+
+/// Relays the impulses an answered manifold holds onto the manifold at hand: every impulse belongs to
+/// the material point that earned it, so a point takes the impulse of the held point answering the
+/// same feature that stands nearest to it, and no held impulse answers two points.
 fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
     var relayed = current;
     var taken: array<bool, CONTACT_MAX_POINTS>;
@@ -86,20 +93,30 @@ fn contact_relay_impulses(current: Contact, held: Contact) -> Contact {
         taken[index] = false;
     }
     for (var point_index = 0u; point_index < current.point_count; point_index = point_index + 1u) {
+        let point = relayed.points[point_index];
+        var picked = NO_SLOT;
+        var picked_distance = 0.0;
         for (var held_index = 0u; held_index < held.point_count; held_index = held_index + 1u) {
             if (taken[held_index]) {
                 continue;
             }
             let held_point = held.points[held_index];
-            if (!feature_carries_over(held_point.feature, relayed.points[point_index].feature)) {
+            if (!feature_carries_over(held_point.feature, point.feature)) {
                 continue;
             }
-            taken[held_index] = true;
-            relayed.points[point_index].accumulated_normal = held_point.accumulated_normal;
-            relayed.points[point_index].accumulated_tangent_1 = held_point.accumulated_tangent_1;
-            relayed.points[point_index].accumulated_tangent_2 = held_point.accumulated_tangent_2;
-            break;
+            let distance = carried_point_distance(held_point, point);
+            if (picked == NO_SLOT || distance < picked_distance) {
+                picked = held_index;
+                picked_distance = distance;
+            }
         }
+        if (picked == NO_SLOT) {
+            continue;
+        }
+        taken[picked] = true;
+        relayed.points[point_index].accumulated_normal = held.points[picked].accumulated_normal;
+        relayed.points[point_index].accumulated_tangent_1 = held.points[picked].accumulated_tangent_1;
+        relayed.points[point_index].accumulated_tangent_2 = held.points[picked].accumulated_tangent_2;
     }
     return relayed;
 }
